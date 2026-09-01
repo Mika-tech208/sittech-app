@@ -108,7 +108,6 @@ function parseUsuariosSeed(): UsuarioSeed[] {
   const raw = process.env.NEXT_PUBLIC_SEED_USUARIOS_JSON;
   if (!raw) {
     if (process.env.NODE_ENV !== "production") {
-      // eslint-disable-next-line no-console
       console.warn(
         "NEXT_PUBLIC_SEED_USUARIOS_JSON não definida — copie .env.example para .env.local e preencha com usuários reais para conseguir logar localmente."
       );

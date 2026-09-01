@@ -42,6 +42,16 @@ import { formatBRL, toNumber, monthLabelShort, setModoPrivadoAtivo } from "@/lib
 import { uid } from "@/lib/id";
 import { gerarSalt, hashSenha } from "@/lib/auth";
 import { storageService } from "@/services/storage-service";
+import {
+  calcularPeriodosComDuracao, filtrarPeriodosValidos, calcularHorasPorDia, calcularDuracaoMediaPeriodo, calcularHorasPorMaquinaSemana,
+} from "@/lib/calculations/periodos";
+import {
+  calcularFuncionariosTotalSemana, calcularPeriodosEtapa, textoDiasPeriodos,
+  calcularAnaliseCapacidadeSemanal, calcularCapacidadeMaximaSemana, calcularUsoPorMaquina,
+  calcularViabilidadeItem, calcularObservacoesSetup, calcularItensSemanaAgregados,
+  calcularCapacidadeInicialPorMaquina, calcularHistoricoSemanas, calcularAlocacaoSemanal,
+} from "@/features/capacidade/calculations";
+import { selecionarSemana, calcularResumoSemana } from "@/features/capacidade/selectors";
 
 const emptyForm = { descricao: "", categoria: CATEGORIAS[0], valor: "" };
 const emptyFuncForm = { nome: "", operacao: OPERACOES[0], salarioBase: "" };
@@ -572,13 +582,10 @@ export default function SittechApp() {
   );
 
   // horas produtivas: derivadas dos períodos de trabalho reais (M1, M2, M3, T1, T2, T3)
-  const periodosComDuracao = useMemo(
-    () => periodos.map((p) => ({ ...p, duracaoHoras: duracaoPeriodoHorasCalc(p.inicio, p.fim) })),
-    [periodos]
-  );
-  const periodosValidos = useMemo(() => periodosComDuracao.filter((p) => p.duracaoHoras > 0), [periodosComDuracao]);
-  const horasPorDiaCalc = useMemo(() => periodosValidos.reduce((s, p) => s + p.duracaoHoras, 0), [periodosValidos]);
-  const duracaoMediaPeriodo = periodosValidos.length > 0 ? horasPorDiaCalc / periodosValidos.length : 0;
+  const periodosComDuracao = useMemo(() => calcularPeriodosComDuracao(periodos), [periodos]);
+  const periodosValidos = useMemo(() => filtrarPeriodosValidos(periodosComDuracao), [periodosComDuracao]);
+  const horasPorDiaCalc = useMemo(() => calcularHorasPorDia(periodosValidos), [periodosValidos]);
+  const duracaoMediaPeriodo = calcularDuracaoMediaPeriodo(periodosValidos, horasPorDiaCalc);
 
   const horasProdutivasFuncionario = useMemo(() => horasPorDiaCalc * toNumber(diasUteis), [horasPorDiaCalc, diasUteis]);
   const totalHorasProdutivasEmpresa = useMemo(
@@ -1143,20 +1150,12 @@ export default function SittechApp() {
   }
 
   // ---- previsão semanal ----
-  const semanaAtualRec = useMemo(
-    () => previsoes.find((p) => p.semanaInicio === semanaAtual) || { semanaInicio: semanaAtual, itens: [], itensRealizados: [], maquinasIndisponiveis: [] },
-    [previsoes, semanaAtual]
-  );
-  const valorPrevistoSemana = useMemo(
-    () => semanaAtualRec.itens.reduce((s, it) => s + it.quantidade * it.valorUnitario, 0),
-    [semanaAtualRec]
-  );
-  const valorRealizadoSemana = useMemo(
-    () => (semanaAtualRec.itensRealizados || []).reduce((s, it) => s + it.quantidade * it.valorUnitario, 0),
-    [semanaAtualRec]
-  );
-  const percentualConcluidoSemana = valorPrevistoSemana > 0 ? (valorRealizadoSemana / valorPrevistoSemana) * 100 : 0;
-  const diferencaSemana = valorRealizadoSemana - valorPrevistoSemana;
+  const semanaAtualRec = useMemo(() => selecionarSemana(previsoes, semanaAtual), [previsoes, semanaAtual]);
+  const resumoSemana = useMemo(() => calcularResumoSemana(semanaAtualRec), [semanaAtualRec]);
+  const valorPrevistoSemana = resumoSemana.valorPrevisto;
+  const valorRealizadoSemana = resumoSemana.valorRealizado;
+  const percentualConcluidoSemana = resumoSemana.percentualConcluido;
+  const diferencaSemana = resumoSemana.diferenca;
 
   function upsertSemana(campos) {
     const idx = previsoes.findIndex((p) => p.semanaInicio === semanaAtual);
@@ -1211,237 +1210,12 @@ export default function SittechApp() {
   function deletePrevItem(id) {
     upsertSemana({ itens: semanaAtualRec.itens.filter((it) => it.id !== id) });
   }
-  function calcularFuncionariosNecessarios(it) {
-    const idsUnicos = new Set();
-    Object.values(it.maquinasPorEtapa || {}).forEach((ids) => {
-      (ids || []).forEach((id) => idsUnicos.add(id));
-    });
-    return idsUnicos.size;
-  }
-  function calcularFuncionariosTotalSemana(itens) {
-    // conta máquinas ÚNICAS em todos os itens da semana — se a mesma máquina for usada
-    // em mais de um item (ex: mesma etiquetadora em duas luvas diferentes), conta só 1 vez
-    const idsUnicos = new Set();
-    itens.forEach((it) => {
-      Object.values(it.maquinasPorEtapa || {}).forEach((ids) => {
-        (ids || []).forEach((id) => idsUnicos.add(id));
-      });
-    });
-    return idsUnicos.size;
-  }
-  function calcularPeriodosEtapa(quantidade, tempoPorPeca, numMaquinas) {
-    if (tempoPorPeca <= 0 || numMaquinas <= 0 || duracaoMediaPeriodo <= 0) return { manha: 0, tarde: 0, diasCompletos: 0, restantes: 0, totalPeriodos: 0, horasCalendario: 0 };
-    const horasCalendario = (quantidade * tempoPorPeca) / numMaquinas;
-    const totalPeriodos = Math.round(horasCalendario / duracaoMediaPeriodo);
-    const diasCompletos = Math.floor(totalPeriodos / 6);
-    const restantes = totalPeriodos - diasCompletos * 6;
-    const manha = diasCompletos * 3 + Math.ceil(restantes / 2);
-    const tarde = diasCompletos * 3 + Math.floor(restantes / 2);
-    return { manha, tarde, diasCompletos, restantes, totalPeriodos, horasCalendario };
-  }
-  function textoDiasPeriodos(manha, tarde) {
-    const total = manha + tarde;
-    const dias = Math.floor(Math.min(manha, tarde) / 3);
-    const restoManha = manha - dias * 3;
-    const restoTarde = tarde - dias * 3;
-    if (total === 0) return "sem demanda calculada";
-    if (restoManha === 0 && restoTarde === 0) return `totalizando ${dias} dia${dias !== 1 ? "s" : ""} completo${dias !== 1 ? "s" : ""}`;
-    const partes = [];
-    if (dias > 0) partes.push(`${dias} dia${dias !== 1 ? "s" : ""} completo${dias !== 1 ? "s" : ""}`);
-    if (restoManha > 0) partes.push(`${restoManha} período${restoManha > 1 ? "s" : ""} de manhã`);
-    if (restoTarde > 0) partes.push(`${restoTarde} período${restoTarde > 1 ? "s" : ""} de tarde`);
-    return `totalizando ${partes.join(" e mais ")}`;
-  }
-  // ---- FONTE ÚNICA DE VERDADE: quantas horas cada máquina precisa, considerando TODOS os itens ----
-  // Quando uma etapa usa mais de uma máquina, divide o trabalho proporcional à folga real de cada
-  // máquina (não sempre 50/50) — máquina mais livre absorve mais, a mais ocupada absorve menos.
-  function calcularHorasPorMaquina(itens) {
-    const pares = [];
-    itens.forEach((it) => {
-      const produto = produtos.find((p) => p.id === it.produtoId);
-      if (!produto) return;
-      (produto.roteiro || []).forEach((etapa) => {
-        let totalPecasMeta = 0, totalHorasMeta = 0;
-        periodosComDuracao.forEach((p) => {
-          const meta = Number((etapa.metas || {})[p.id] || 0);
-          if (meta > 0 && p.duracaoHoras > 0) { totalPecasMeta += meta; totalHorasMeta += p.duracaoHoras; }
-        });
-        const tempoPorPeca = totalPecasMeta > 0 ? totalHorasMeta / totalPecasMeta : 0;
-        if (tempoPorPeca <= 0) return;
-        const idsSelecionadas = (it.maquinasPorEtapa || {})[etapa.id] || [];
-        if (idsSelecionadas.length === 0) return;
-        pares.push({ produtoNome: it.produtoNome, maquinasIds: idsSelecionadas, horasTotalEtapa: it.quantidade * tempoPorPeca });
-      });
-    });
-
-    // passada 1 (bootstrap): 50/50 entre as máquinas de cada par, só pra ter uma noção inicial de carga
-    const bootstrap = {};
-    pares.forEach((par) => {
-      const horasPorMaquinaBoot = par.horasTotalEtapa / par.maquinasIds.length;
-      par.contribuicaoBootstrap = {};
-      par.maquinasIds.forEach((id) => {
-        bootstrap[id] = (bootstrap[id] || 0) + horasPorMaquinaBoot;
-        par.contribuicaoBootstrap[id] = horasPorMaquinaBoot;
-      });
-    });
-
-    // passada 2 (refino): redistribui proporcional à folga real de cada máquina, excluindo a
-    // contribuição do próprio par pra não distorcer o cálculo da folga dela
-    const porMaquina = {};
-    function somar(maquinaId, produtoNome, horas) {
-      if (!porMaquina[maquinaId]) porMaquina[maquinaId] = { horasNecessarias: 0, produtos: {} };
-      porMaquina[maquinaId].horasNecessarias += horas;
-      porMaquina[maquinaId].produtos[produtoNome] = (porMaquina[maquinaId].produtos[produtoNome] || 0) + horas;
-    }
-    pares.forEach((par) => {
-      if (par.maquinasIds.length === 1) {
-        somar(par.maquinasIds[0], par.produtoNome, par.horasTotalEtapa);
-        return;
-      }
-      const pesos = par.maquinasIds.map((id) => {
-        const outrasCargas = (bootstrap[id] || 0) - par.contribuicaoBootstrap[id];
-        return Math.max(0.01, horasPorMaquinaSemana - outrasCargas);
-      });
-      const somaPesos = pesos.reduce((s, p) => s + p, 0);
-      par.maquinasIds.forEach((id, i) => {
-        somar(id, par.produtoNome, par.horasTotalEtapa * (pesos[i] / somaPesos));
-      });
-    });
-
-    return porMaquina;
-  }
-
-  // ---- FONTE ÚNICA DE VERDADE: análise de capacidade da semana, em horas ----
-  // Usada tanto pelo painel em tempo real da Previsão semanal quanto pelo relatório em PDF.
-  function calcularAnaliseCapacidadeSemanal(itens) {
-    const porMaquina = calcularHorasPorMaquina(itens);
-
-    const listaMaquinas = Object.entries(porMaquina).map(([maquinaId, dados]) => {
-      const maquina = maquinas.find((m) => m.id === maquinaId);
-      const horasDisponiveis = horasPorMaquinaSemana;
-      const pct = horasDisponiveis > 0 ? (dados.horasNecessarias / horasDisponiveis) * 100 : 0;
-      const deficit = Math.max(0, dados.horasNecessarias - horasDisponiveis);
-      let status;
-      if (pct > 100) status = "gargalo";
-      else if (pct >= 95) status = "proximo";
-      else if (pct >= 80) status = "atencao";
-      else status = "normal";
-      return {
-        maquinaId,
-        nome: maquina?.nome || "Máquina removida",
-        operacao: maquina?.operacao || "",
-        horasNecessarias: dados.horasNecessarias,
-        horasDisponiveis,
-        pct,
-        deficit,
-        status,
-        produtosConsumidores: Object.entries(dados.produtos)
-          .map(([nome, horas]) => ({ nome, horas }))
-          .sort((a, b) => b.horas - a.horas),
-      };
-    }).sort((a, b) => b.pct - a.pct);
-
-    const gargalos = listaMaquinas.filter((m) => m.status === "gargalo");
-    const atingivel = gargalos.length === 0;
-    const maquinaMaisCarregada = listaMaquinas[0] || null;
-
-    return { maquinas: listaMaquinas, gargalos, atingivel, maquinaMaisCarregada };
-  }
-
-  // ---- Fase 2: capacidade máxima da semana em R$, com redução proporcional quando não cabe tudo ----
-  function calcularCapacidadeMaximaSemana(itens) {
-    const porMaquinaCompartilhado = calcularHorasPorMaquina(itens);
-    const horasNecessariasPorMaquina = {};
-    Object.entries(porMaquinaCompartilhado).forEach(([id, dados]) => { horasNecessariasPorMaquina[id] = dados.horasNecessarias; });
-
-    const previstoTotalReais = itens.reduce((s, it) => s + it.quantidade * it.valorUnitario, 0);
-    const maquinaIds = Object.keys(horasNecessariasPorMaquina);
-
-    if (maquinaIds.length === 0) {
-      return {
-        temDados: false, temGargalo: false, resultadosPorItem: [], previstoTotalReais,
-        maximoTotalReais: previstoTotalReais, capacidadeEstimadaReais: previstoTotalReais, maquinaLimitante: null,
-      };
-    }
-
-    const razaoPorMaquina = {};
-    maquinaIds.forEach((id) => {
-      razaoPorMaquina[id] = horasNecessariasPorMaquina[id] > 0 ? horasPorMaquinaSemana / horasNecessariasPorMaquina[id] : Infinity;
-    });
-
-    let fatorGlobal = Infinity;
-    let maquinaLimitanteId = null;
-    maquinaIds.forEach((id) => {
-      if (razaoPorMaquina[id] < fatorGlobal) { fatorGlobal = razaoPorMaquina[id]; maquinaLimitanteId = id; }
-    });
-    const temGargalo = fatorGlobal < 1;
-
-    const fatorReducaoPorMaquina = {};
-    maquinaIds.forEach((id) => { fatorReducaoPorMaquina[id] = Math.min(1, razaoPorMaquina[id]); });
-
-    const resultadosPorItem = itens.map((it) => {
-      const produto = produtos.find((p) => p.id === it.produtoId);
-      if (!produto || !(produto.roteiro || []).length) {
-        return { itemId: it.id, produtoNome: it.produtoNome, valorUnitario: it.valorUnitario, previsto: it.quantidade, maximoPossivel: it.quantidade, etapaLimitante: null };
-      }
-      let fatorItem = 1;
-      let etapaLimitante = null;
-      produto.roteiro.forEach((etapa) => {
-        const idsSelecionadas = (it.maquinasPorEtapa || {})[etapa.id] || [];
-        if (idsSelecionadas.length === 0) return;
-        const fatorEtapa = Math.min(...idsSelecionadas.map((id) => (fatorReducaoPorMaquina[id] !== undefined ? fatorReducaoPorMaquina[id] : 1)));
-        if (fatorEtapa < fatorItem) { fatorItem = fatorEtapa; etapaLimitante = etapa.operacao; }
-      });
-      const maximoPossivel = Math.max(0, Math.floor(it.quantidade * fatorItem));
-      return { itemId: it.id, produtoNome: it.produtoNome, valorUnitario: it.valorUnitario, previsto: it.quantidade, maximoPossivel, etapaLimitante };
-    });
-
-    const maximoTotalReais = resultadosPorItem.reduce((s, r) => s + r.maximoPossivel * r.valorUnitario, 0);
-    const capacidadeEstimadaReais = temGargalo ? maximoTotalReais : previstoTotalReais * fatorGlobal;
-    const maquinaLimitante = maquinaLimitanteId ? maquinas.find((m) => m.id === maquinaLimitanteId) : null;
-    const pctMaquinaLimitante = maquinaLimitanteId && horasNecessariasPorMaquina[maquinaLimitanteId]
-      ? (horasNecessariasPorMaquina[maquinaLimitanteId] / horasPorMaquinaSemana) * 100 : 0;
-
-    return {
-      temDados: true, temGargalo, resultadosPorItem, previstoTotalReais, maximoTotalReais, capacidadeEstimadaReais,
-      maquinaLimitante: maquinaLimitante ? { nome: maquinaLimitante.nome, pct: pctMaquinaLimitante } : null,
-    };
-  }
-
-  function calcularUsoPorMaquina(analiseCapacidade) {
-    // deriva a exibição em períodos (manhã/tarde) a partir da MESMA análise central em horas —
-    // o % e o status de gargalo aqui são exatamente os mesmos que aparecem na tela, nunca recalculados de novo
-    return analiseCapacidade.maquinas.map((m) => {
-      const produtosComPeriodos = {};
-      m.produtosConsumidores.forEach((p) => {
-        const totalPeriodosProduto = Math.round(p.horas / duracaoMediaPeriodo);
-        produtosComPeriodos[p.nome] = {
-          manha: Math.ceil(totalPeriodosProduto / 2),
-          tarde: Math.floor(totalPeriodosProduto / 2),
-        };
-      });
-      const totalPeriodosNecessarios = Math.round(m.horasNecessarias / duracaoMediaPeriodo);
-      const totalPeriodosDisponiveis = Math.round(m.horasDisponiveis / duracaoMediaPeriodo);
-      const capacidadePeriodo = Math.round(totalPeriodosDisponiveis / 2);
-      return {
-        maquinaId: m.maquinaId,
-        nome: m.nome,
-        produtos: produtosComPeriodos,
-        totalManha: Math.ceil(totalPeriodosNecessarios / 2),
-        totalTarde: Math.floor(totalPeriodosNecessarios / 2),
-        pct: Math.round(m.pct),
-        excedeu: m.status === "gargalo",
-        capacidadePeriodo,
-        livre: Math.max(0, totalPeriodosDisponiveis - totalPeriodosNecessarios),
-      };
-    });
-  }
   const CORES_PRODUTO_PDF = ["#1D9E75", "#7F77DD", "#D85A30", "#D4537E", "#378ADD", "#BA7517"];
   function gerarPDFSemana() {
-    const analiseCapacidade = calcularAnaliseCapacidadeSemanal(semanaAtualRec.itens);
-    const usoMaquinas = calcularUsoPorMaquina(analiseCapacidade);
+    const analiseCapacidade = calcularAnaliseCapacidadeSemanal(semanaAtualRec.itens, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana);
+    const usoMaquinas = calcularUsoPorMaquina(analiseCapacidade, duracaoMediaPeriodo);
     const maquinasExcedidas = usoMaquinas.filter((u) => u.excedeu);
-    const observacoesSetupPDF = calcularObservacoesSetup(analiseCapacidade);
+    const observacoesSetupPDF = calcularObservacoesSetup(analiseCapacidade, produtos, (p) => calcularMargem(p).lucroHora);
     const horasPessoaDisponiveisPDF = funcionariosAtivos.length * horasPorMaquinaSemana;
     const horasPessoaDemandadasPDF = analiseCapacidade.maquinas.reduce((s, m) => s + m.horasNecessarias, 0);
     const pctEquipePDF = horasPessoaDisponiveisPDF > 0 ? (horasPessoaDemandadasPDF / horasPessoaDisponiveisPDF) * 100 : 0;
@@ -1449,7 +1223,7 @@ export default function SittechApp() {
     const linhasItens = semanaAtualRec.itens.map((it) => {
       const produto = produtos.find((p) => p.id === it.produtoId);
       const roteiro = produto?.roteiro || [];
-      const viab = calcularViabilidadeItem(it);
+      const viab = calcularViabilidadeItem(it, produtos, periodosComDuracao, horasPorMaquinaSemana);
       let etapaGargalo = null;
       let maiorHoras = -1;
       const linhasEtapas = roteiro.map((etapa) => {
@@ -1461,7 +1235,7 @@ export default function SittechApp() {
         const tempoPorPeca = totalPecasMeta > 0 ? totalHorasMeta / totalPecasMeta : 0;
         const idsSelecionadas = (it.maquinasPorEtapa || {})[etapa.id] || [];
         const nomesMaquinas = idsSelecionadas.map((id) => maquinas.find((m) => m.id === id)?.nome).filter(Boolean);
-        const periodos = calcularPeriodosEtapa(it.quantidade, tempoPorPeca, idsSelecionadas.length);
+        const periodos = calcularPeriodosEtapa(it.quantidade, tempoPorPeca, idsSelecionadas.length, duracaoMediaPeriodo);
         if (periodos.horasCalendario > maiorHoras) { maiorHoras = periodos.horasCalendario; etapaGargalo = { nome: etapa.operacao, periodos }; }
         return `<tr><td>${etapa.operacao}</td><td>${nomesMaquinas.length > 0 ? nomesMaquinas.join(", ") : "—"}</td><td>${periodos.manha}</td><td>${periodos.tarde}</td></tr>`;
       }).join("");
@@ -1619,43 +1393,6 @@ export default function SittechApp() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
-  function calcularCapacidadeMaximaProduto(produtoId, maquinasPorEtapa) {
-    const produto = produtos.find((p) => p.id === produtoId);
-    if (!produto || !(produto.roteiro || []).length) return { maxPecas: 0, gargalo: null };
-    let maxPecas = Infinity;
-    let gargalo = null;
-    produto.roteiro.forEach((etapa) => {
-      let totalPecasMeta = 0;
-      let totalHorasMeta = 0;
-      periodosComDuracao.forEach((p) => {
-        const meta = Number((etapa.metas || {})[p.id] || 0);
-        if (meta > 0 && p.duracaoHoras > 0) {
-          totalPecasMeta += meta;
-          totalHorasMeta += p.duracaoHoras;
-        }
-      });
-      const tempoPorPeca = totalPecasMeta > 0 ? totalHorasMeta / totalPecasMeta : 0;
-      if (tempoPorPeca <= 0) return;
-      const maquinasEscolhidas = (maquinasPorEtapa || {})[etapa.id] || [];
-      const capacidadeEtapa = maquinasEscolhidas.length * horasPorMaquinaSemana;
-      const maxPorEtapa = capacidadeEtapa / tempoPorPeca;
-      if (maxPorEtapa < maxPecas) {
-        maxPecas = maxPorEtapa;
-        gargalo = etapa.operacao;
-      }
-    });
-    if (maxPecas === Infinity) maxPecas = 0; // nenhuma etapa com máquina marcada ainda
-    return { maxPecas: Math.max(0, Math.floor(maxPecas)), gargalo };
-  }
-  function calcularViabilidadeItem(it) {
-    const { maxPecas, gargalo } = calcularCapacidadeMaximaProduto(it.produtoId, it.maquinasPorEtapa);
-    return {
-      atingivel: maxPecas >= it.quantidade,
-      maxPecas,
-      gargalo: maxPecas < it.quantidade ? gargalo : null,
-      funcionariosNecessarios: calcularFuncionariosNecessarios(it),
-    };
-  }
 
   function resetRealItemForm() {
     setRealItemForm(emptyPrevItemForm);
@@ -1689,46 +1426,18 @@ export default function SittechApp() {
     upsertSemana({ maquinasIndisponiveis: novos });
   }
 
-  const historicoSemanas = useMemo(() => {
-    return [...previsoes]
-      .filter((p) => p.itens.length > 0 || (p.itensRealizados || []).length > 0)
-      .sort((a, b) => a.semanaInicio.localeCompare(b.semanaInicio))
-      .map((p) => {
-        const previsto = p.itens.reduce((s, it) => s + it.quantidade * it.valorUnitario, 0);
-        const realizado = (p.itensRealizados || []).reduce((s, it) => s + it.quantidade * it.valorUnitario, 0);
-        const pct = previsto > 0 ? (realizado / previsto) * 100 : 0;
-        return { semanaInicio: p.semanaInicio, previsto, realizado, pct };
-      });
-  }, [previsoes]);
+  const historicoSemanas = useMemo(() => calcularHistoricoSemanas(previsoes), [previsoes]);
 
   // ---- capacidade semanal (etapa 1 da escala automática) ----
-  const horasPorMaquinaSemana = horasPorDiaCalc * toNumber(diasUteisSemana);
+  const horasPorMaquinaSemana = calcularHorasPorMaquinaSemana(horasPorDiaCalc, toNumber(diasUteisSemana));
 
-  const capacidadeInicialPorMaquina = useMemo(() => {
-    const indisponiveis = semanaAtualRec.maquinasIndisponiveis || [];
-    const map = {};
-    maquinas.forEach((m) => {
-      if (m.ativo && !indisponiveis.includes(m.id)) map[m.id] = horasPorMaquinaSemana;
-    });
-    return map;
-  }, [maquinas, horasPorMaquinaSemana, semanaAtualRec]);
+  const capacidadeInicialPorMaquina = useMemo(
+    () => calcularCapacidadeInicialPorMaquina(maquinas, semanaAtualRec.maquinasIndisponiveis || [], horasPorMaquinaSemana),
+    [maquinas, horasPorMaquinaSemana, semanaAtualRec]
+  );
 
-  const itensSemanaAgregados = useMemo(() => {
-    const map = {};
-    semanaAtualRec.itens.forEach((it) => {
-      if (!map[it.produtoId]) map[it.produtoId] = { produtoId: it.produtoId, produtoNome: it.produtoNome, quantidade: 0 };
-      map[it.produtoId].quantidade += Number(it.quantidade || 0);
-    });
-    return Object.values(map);
-  }, [semanaAtualRec]);
+  const itensSemanaAgregados = useMemo(() => calcularItensSemanaAgregados(semanaAtualRec.itens), [semanaAtualRec]);
 
-  function maquinasDaEtapa(etapa) {
-    if (etapa.maquinasIds && etapa.maquinasIds.length > 0) {
-      return maquinas.filter((m) => etapa.maquinasIds.includes(m.id) && m.ativo).map((m) => m.id);
-    }
-    // sem seleção específica: usa todas as máquinas ativas daquela operação como reserva
-    return maquinas.filter((m) => m.operacao === etapa.operacao && m.ativo).map((m) => m.id);
-  }
 
   const [modoSimulacao, setModoSimulacao] = useState(false);
   const [itensSimulados, setItensSimulados] = useState(null);
@@ -1751,31 +1460,17 @@ export default function SittechApp() {
   const itensParaAnalise = modoSimulacao && itensSimulados ? itensSimulados : semanaAtualRec.itens;
 
   const analiseCapacidadeSemana = useMemo(
-    () => calcularAnaliseCapacidadeSemanal(itensParaAnalise),
+    () => calcularAnaliseCapacidadeSemanal(itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana),
     [itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana]
   );
 
-  function calcularObservacoesSetup(analise) {
-    return analise.maquinas
-      .filter((m) => m.produtosConsumidores.length >= 2)
-      .map((m) => {
-        const ordenados = [...m.produtosConsumidores]
-          .map((p) => {
-            const produto = produtos.find((prod) => prod.nome === p.nome);
-            const lucroHora = produto ? calcularMargem(produto).lucroHora : -Infinity;
-            return { ...p, lucroHora };
-          })
-          .sort((a, b) => b.lucroHora - a.lucroHora);
-        return { maquinaId: m.maquinaId, nome: m.nome, ordenados };
-      });
-  }
   const observacoesSetup = useMemo(
-    () => calcularObservacoesSetup(analiseCapacidadeSemana),
+    () => calcularObservacoesSetup(analiseCapacidadeSemana, produtos, (p) => calcularMargem(p).lucroHora),
     [analiseCapacidadeSemana, produtos]
   );
 
   const capacidadeMaximaSemana = useMemo(
-    () => calcularCapacidadeMaximaSemana(itensParaAnalise),
+    () => calcularCapacidadeMaximaSemana(itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana),
     [itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana]
   );
   const [showAjustarModal, setShowAjustarModal] = useState(false);
@@ -1794,96 +1489,13 @@ export default function SittechApp() {
     setShowAjustarModal(false);
   }
 
-  const alocacaoSemanal = useMemo(() => {
-    const capacidadeRestante = { ...capacidadeInicialPorMaquina };
-    const comDados = itensSemanaAgregados
-      .map((item) => {
-        const produto = produtos.find((p) => p.id === item.produtoId);
-        if (!produto) return { ...item, produto: null, lucroHora: -Infinity };
-        const { lucroHora } = calcularMargem(produto);
-        return { ...item, produto, lucroHora };
-      })
-      .sort((a, b) => b.lucroHora - a.lucroHora);
-
-    const resultados = comDados.map((item) => {
-      if (!item.produto) {
-        return { ...item, quantidadeAlocada: 0, deficit: item.quantidade, semFluxo: true, semProduto: true, gargalo: null };
-      }
-      const roteiro = item.produto.roteiro || [];
-      if (roteiro.length === 0) {
-        return { ...item, quantidadeAlocada: 0, deficit: item.quantidade, semFluxo: true, semProduto: false, gargalo: null };
-      }
-      let maxPecas = item.quantidade;
-      let gargalo = null;
-      const temposPorEtapa = roteiro.map((etapa) => {
-        let totalPecasMeta = 0;
-        let totalHorasMeta = 0;
-        periodosComDuracao.forEach((p) => {
-          const meta = Number((etapa.metas || {})[p.id] || 0);
-          if (meta > 0 && p.duracaoHoras > 0) {
-            totalPecasMeta += meta;
-            totalHorasMeta += p.duracaoHoras;
-          }
-        });
-        const tempoPorPeca = totalPecasMeta > 0 ? totalHorasMeta / totalPecasMeta : 0;
-        return { tempoPorPeca, maquinasIds: maquinasDaEtapa(etapa), operacao: etapa.operacao };
-      });
-      temposPorEtapa.forEach((info) => {
-        if (info.tempoPorPeca > 0) {
-          const poolDisponivel = info.maquinasIds.reduce((s, id) => s + (capacidadeRestante[id] || 0), 0);
-          const maxPorEtapa = poolDisponivel / info.tempoPorPeca;
-          if (maxPorEtapa < maxPecas) {
-            maxPecas = maxPorEtapa;
-            gargalo = info.operacao;
-          }
-        }
-      });
-      maxPecas = Math.max(0, Math.floor(maxPecas));
-      temposPorEtapa.forEach(({ tempoPorPeca, maquinasIds }) => {
-        if (tempoPorPeca > 0 && maquinasIds.length > 0) {
-          const horasConsumidas = maxPecas * tempoPorPeca;
-          const poolDisponivel = maquinasIds.reduce((s, id) => s + (capacidadeRestante[id] || 0), 0);
-          if (poolDisponivel > 0) {
-            maquinasIds.forEach((id) => {
-              const proporcao = (capacidadeRestante[id] || 0) / poolDisponivel;
-              capacidadeRestante[id] = (capacidadeRestante[id] || 0) - horasConsumidas * proporcao;
-            });
-          }
-        }
-      });
-      return { ...item, quantidadeAlocada: maxPecas, deficit: item.quantidade - maxPecas, semFluxo: false, semProduto: false, gargalo: item.quantidade - maxPecas > 0 ? gargalo : null };
-    });
-
-    function horasParaDiasPeriodos(horas) {
-      if (duracaoMediaPeriodo <= 0 || horas <= 0) return { dias: 0, periodos: 0 };
-      const totalPeriodos = horas / duracaoMediaPeriodo;
-      const dias = Math.floor(totalPeriodos / 6);
-      const periodosResto = Math.round(totalPeriodos - dias * 6);
-      return { dias, periodos: periodosResto };
-    }
-
-    const usoPorOperacao = operacoes
-      .map((op) => {
-        const maquinasDaOp = maquinas.filter((m) => m.operacao === op && m.ativo);
-        if (maquinasDaOp.length === 0) return null;
-        const total = maquinasDaOp.reduce((s, m) => s + (capacidadeInicialPorMaquina[m.id] || 0), 0);
-        const restante = maquinasDaOp.reduce((s, m) => s + (capacidadeRestante[m.id] || 0), 0);
-        const usado = total - restante;
-        const maquinasIntegrais = horasPorMaquinaSemana > 0 ? Math.floor(usado / horasPorMaquinaSemana) : 0;
-        const horasParcial = usado - maquinasIntegrais * horasPorMaquinaSemana;
-        return {
-          operacao: op, total, restante, usado, numMaquinas: maquinasDaOp.length, maquinasIntegrais, horasParcial,
-          restanteDiasPeriodos: horasParaDiasPeriodos(restante),
-        };
-      })
-      .filter(Boolean);
-
-    const atendidos = resultados.filter((r) => !r.semFluxo && !r.semProduto && r.deficit <= 0 && r.quantidade > 0);
-    const comDeficit = resultados.filter((r) => !r.semFluxo && !r.semProduto && r.deficit > 0);
-    const operacoesComSobra = usoPorOperacao.filter((u) => u.restante > 0.3);
-
-    return { resultados, usoPorOperacao, resumo: { atendidos, comDeficit, operacoesComSobra } };
-  }, [itensSemanaAgregados, produtos, capacidadeInicialPorMaquina, periodosComDuracao, custoHoraPorOperacao, maquinas, operacoes, horasPorMaquinaSemana]);
+  const alocacaoSemanal = useMemo(
+    () => calcularAlocacaoSemanal(
+      itensSemanaAgregados, produtos, capacidadeInicialPorMaquina, periodosComDuracao, maquinas, operacoes,
+      horasPorMaquinaSemana, duracaoMediaPeriodo, (p) => calcularMargem(p).lucroHora
+    ),
+    [itensSemanaAgregados, produtos, capacidadeInicialPorMaquina, periodosComDuracao, custoHoraPorOperacao, maquinas, operacoes, horasPorMaquinaSemana, duracaoMediaPeriodo]
+  );
 
   // ---- meta de faturamento por margem desejada ----
   const custoTotalMensalAtual = totalFixo + totalCustoFuncionariosAtivos;
@@ -4754,7 +4366,7 @@ export default function SittechApp() {
                             produtoId: prevItemForm.produtoId,
                             quantidade: toNumber(prevItemForm.quantidade),
                             maquinasPorEtapa: prevItemForm.maquinasPorEtapa,
-                          });
+                          }, produtos, periodosComDuracao, horasPorMaquinaSemana);
                           if (viabAoVivo.funcionariosNecessarios === 0) {
                             return <p className="stx-panel-sub stx-form-full" style={{ margin: 0 }}>Marca as máquinas acima pra ver quantos funcionários isso exige e quantas peças dá pra fazer.</p>;
                           }
@@ -4785,7 +4397,7 @@ export default function SittechApp() {
                   <div className="stx-empty">Nenhum item lançado nessa semana ainda.</div>
                 ) : (
                   semanaAtualRec.itens.map((it) => {
-                    const viab = calcularViabilidadeItem(it);
+                    const viab = calcularViabilidadeItem(it, produtos, periodosComDuracao, horasPorMaquinaSemana);
                     const maquinasDoItem = new Set(Object.values(it.maquinasPorEtapa || {}).flat());
                     const gargalosQueAfetam = analiseCapacidadeSemana.gargalos.filter((g) => maquinasDoItem.has(g.maquinaId));
                     return (
