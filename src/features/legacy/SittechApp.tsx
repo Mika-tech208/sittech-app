@@ -1254,12 +1254,13 @@ export default function SittechApp() {
     const totalFuncionarios = calcularFuncionariosTotalSemana(semanaAtualRec.itens);
 
     const linhasMaquinas = usoMaquinas.map((u) => {
-      const nomesProdutos = Object.keys(u.produtos);
-      const segmentos = nomesProdutos.map((nome, i) => {
+      const idsProdutos = Object.keys(u.produtos);
+      const segmentos = idsProdutos.map((produtoId, i) => {
         const cor = CORES_PRODUTO_PDF[i % CORES_PRODUTO_PDF.length];
-        const totalItem = u.produtos[nome].manha + u.produtos[nome].tarde;
+        const dadosProduto = u.produtos[produtoId];
+        const totalItem = dadosProduto.manha + dadosProduto.tarde;
         const larguraPct = (u.totalManha + u.totalTarde + u.livre) > 0 ? (totalItem / (u.totalManha + u.totalTarde + u.livre)) * 100 : 0;
-        return { cor, nome, larguraPct, manha: u.produtos[nome].manha, tarde: u.produtos[nome].tarde };
+        return { cor, nome: dadosProduto.produtoNome, larguraPct, manha: dadosProduto.manha, tarde: dadosProduto.tarde };
       });
       const larguraLivrePct = 100 - segmentos.reduce((s, seg) => s + seg.larguraPct, 0);
       const barra = segmentos.map((seg) => `<div style="width:${seg.larguraPct.toFixed(1)}%; background:${seg.cor};"></div>`).join("") +
@@ -1491,10 +1492,10 @@ export default function SittechApp() {
 
   const alocacaoSemanal = useMemo(
     () => calcularAlocacaoSemanal(
-      itensSemanaAgregados, produtos, capacidadeInicialPorMaquina, periodosComDuracao, maquinas, operacoes,
+      itensSemanaAgregados, semanaAtualRec.itens, produtos, capacidadeInicialPorMaquina, periodosComDuracao, maquinas, operacoes,
       horasPorMaquinaSemana, duracaoMediaPeriodo, (p) => calcularMargem(p).lucroHora
     ),
-    [itensSemanaAgregados, produtos, capacidadeInicialPorMaquina, periodosComDuracao, custoHoraPorOperacao, maquinas, operacoes, horasPorMaquinaSemana, duracaoMediaPeriodo]
+    [itensSemanaAgregados, semanaAtualRec, produtos, capacidadeInicialPorMaquina, periodosComDuracao, custoHoraPorOperacao, maquinas, operacoes, horasPorMaquinaSemana, duracaoMediaPeriodo]
   );
 
   // ---- meta de faturamento por margem desejada ----
@@ -4215,7 +4216,7 @@ export default function SittechApp() {
                       </p>
                       <p className="stx-analise-gargalo-produtos-titulo">Produtos consumindo essa máquina:</p>
                       {m.produtosConsumidores.map((p) => (
-                        <p className="stx-analise-gargalo-produto" key={p.nome}>{p.nome} → {p.horas.toFixed(1)}h</p>
+                        <p className="stx-analise-gargalo-produto" key={p.produtoId}>{p.nome} → {p.horas.toFixed(1)}h</p>
                       ))}
                     </div>
                   ))}

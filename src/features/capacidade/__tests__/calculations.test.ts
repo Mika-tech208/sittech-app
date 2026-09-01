@@ -4,6 +4,7 @@ import {
   calcularMaquinasDaEtapa, calcularHorasPorMaquina, calcularAnaliseCapacidadeSemanal, calcularCapacidadeMaximaSemana,
   calcularUsoPorMaquina, calcularCapacidadeMaximaProduto, calcularViabilidadeItem, calcularObservacoesSetup,
   calcularItensSemanaAgregados, calcularCapacidadeInicialPorMaquina, calcularHistoricoSemanas, calcularAlocacaoSemanal,
+  calcularMaquinasSelecionadasPorProdutoEtapa,
 } from "@/features/capacidade/calculations";
 import type { Produto, Maquina, PeriodoComDuracao, PrevisaoItem, RoteiroEtapaMetas, Previsao } from "@/types/domain";
 
@@ -23,12 +24,12 @@ function maquina(id: string, nome: string, operacao: string, ativo = true): Maqu
   return { id, nome, operacao, ativo };
 }
 
-function produto(id: string, nome: string, valorUnitario: number, tempoPorPecaHoras: number, operacao = "Corte"): Produto {
+function produto(id: string, nome: string, valorUnitario: number, tempoPorPecaHoras: number, operacao = "Corte", maquinasIdsRoteiro: string[] = []): Produto {
   // metas(pecas) tais que totalHoras(8h) / pecas = tempoPorPecaHoras
   const pecas = 8 / tempoPorPecaHoras;
   return {
     id, nome, referencia: "", valorUnitario, ativo: true, prioridade: "media",
-    roteiro: [{ id: `${id}-e1`, operacao, metas: metas(pecas), maquinasIds: [] }],
+    roteiro: [{ id: `${id}-e1`, operacao, metas: metas(pecas), maquinasIds: maquinasIdsRoteiro }],
   };
 }
 
@@ -106,8 +107,8 @@ describe("Caso 4 — dois produtos disputando a mesma máquina", () => {
     expect(analise.atingivel).toBe(false);
     expect(analise.maquinas[0].produtosConsumidores).toEqual(
       expect.arrayContaining([
-        { nome: "Produto A", horas: 24 },
-        { nome: "Produto B", horas: 20 },
+        { produtoId: "produtoA", nome: "Produto A", horas: 24 },
+        { produtoId: "produtoB", nome: "Produto B", horas: 20 },
       ])
     );
   });
@@ -126,7 +127,7 @@ describe("Caso 4 — dois produtos disputando a mesma máquina", () => {
     const itensAgregados = calcularItensSemanaAgregados([itA, itB]);
     const lucroHoraPorProduto: Record<string, number> = { produtoA: 10, produtoB: 50 };
     const resultado = calcularAlocacaoSemanal(
-      itensAgregados, produtos, { maq1: 40 }, PERIODOS, [maq1], ["Corte"], HORAS_MAQUINA_SEMANA, DURACAO_MEDIA_PERIODO,
+      itensAgregados, [itA, itB], produtos, { maq1: 40 }, PERIODOS, [maq1], ["Corte"], HORAS_MAQUINA_SEMANA, DURACAO_MEDIA_PERIODO,
       (p) => lucroHoraPorProduto[p.id]
     );
     const resA = resultado.resultados.find((r) => r.produtoId === "produtoA")!;
@@ -171,15 +172,18 @@ describe("Caso 6 — produtividade diferente por produto não vaza entre produto
     const porMaquina = calcularHorasPorMaquina([itD, itE], [produtoD, produtoE], PERIODOS, HORAS_MAQUINA_SEMANA);
 
     // maq3 já carrega 10h extra (Produto E) -> sobra menos folga pra ela -> recebe MENOS da etapa compartilhada.
-    const contribuicaoDemaq3 = porMaquina["maq3"].produtos["Produto D"];
-    const contribuicaoDemaq4 = porMaquina["maq4"].produtos["Produto D"];
+    // .produtos é indexado por produtoId (Checkpoint 1.5), não por nome.
+    const contribuicaoDemaq3 = porMaquina["maq3"].produtos["produtoD"].horas;
+    const contribuicaoDemaq4 = porMaquina["maq4"].produtos["produtoD"].horas;
     expect(contribuicaoDemaq3).toBeCloseTo(60 / 7, 5); // ~8.57h
     expect(contribuicaoDemaq4).toBeCloseTo(80 / 7, 5); // ~11.43h
     expect(contribuicaoDemaq4).toBeGreaterThan(contribuicaoDemaq3); // a mais livre absorve mais
     expect(contribuicaoDemaq3 + contribuicaoDemaq4).toBeCloseTo(20, 5); // soma bate com o total da etapa
 
     // a produtividade de D não afeta o tempoPorPeca de E, nem vice-versa.
-    expect(porMaquina["maq3"].produtos["Produto E"]).toBeCloseTo(10, 5);
+    expect(porMaquina["maq3"].produtos["produtoE"].horas).toBeCloseTo(10, 5);
+    // o nome fica disponível só para exibição, não para identidade.
+    expect(porMaquina["maq3"].produtos["produtoD"].produtoNome).toBe("Produto D");
   });
 });
 
@@ -220,7 +224,7 @@ describe("Caso 8 — dados vazios não quebram", () => {
   });
 
   it("sem itens agregados nem operações: alocação semanal não quebra", () => {
-    const resultado = calcularAlocacaoSemanal([], [], {}, [], [], [], 40, 8, () => 0);
+    const resultado = calcularAlocacaoSemanal([], [], [], {}, [], [], [], 40, 8, () => 0);
     expect(resultado.resultados).toEqual([]);
     expect(resultado.usoPorOperacao).toEqual([]);
     expect(resultado.resumo).toEqual({ atendidos: [], comDeficit: [], operacoesComSobra: [] });
@@ -358,5 +362,138 @@ describe("calcularObservacoesSetup", () => {
     const analise = calcularAnaliseCapacidadeSemanal([itA], [produtoA], [maq1], PERIODOS, HORAS_MAQUINA_SEMANA);
     const observacoes = calcularObservacoesSetup(analise, [produtoA], () => 10);
     expect(observacoes).toEqual([]);
+  });
+
+  it("RENOMEAÇÃO: renomear o produto depois de já usado numa previsão não quebra o relacionamento (identidade é o id, não o nome)", () => {
+    // it.produtoNome é uma cópia tirada no momento do lançamento (ver Parte 2
+    // do briefing) — não muda quando o produto é renomeado depois. O
+    // relacionamento em calcularObservacoesSetup precisa continuar
+    // funcionando mesmo com esse nome "desatualizado" no item.
+    const produtoXOriginal = produto("prodX", "Produto X", 100, 0.8); // nome no momento da criação
+    const produtoY = produto("prodY", "Produto Y", 80, 0.5);
+    const itX = item("itX", "prodX", "Produto X", 100, 30, { "prodX-e1": ["maq1"] }); // snapshot: "Produto X"
+    const itY = item("itY", "prodY", "Produto Y", 80, 40, { "prodY-e1": ["maq1"] });
+    const analise = calcularAnaliseCapacidadeSemanal([itX, itY], [produtoXOriginal, produtoY], [maq1], PERIODOS, HORAS_MAQUINA_SEMANA);
+
+    // Produto X é renomeado DEPOIS de já estar na previsão (mesmo id, nome novo).
+    const produtoXRenomeado: Produto = { ...produtoXOriginal, nome: "Produto X Novo" };
+    const lucroHoraPorId: Record<string, number> = { prodX: 42, prodY: 5 };
+    const observacoes = calcularObservacoesSetup(analise, [produtoXRenomeado, produtoY], (p) => lucroHoraPorId[p.id]);
+
+    expect(observacoes).toHaveLength(1);
+    // O item da previsão ainda mostra o nome antigo (histórico, cópia) — mas
+    // o lucroHora foi corretamente resolvido via id, não ficou -Infinity.
+    const entradaX = observacoes[0].ordenados.find((o) => o.nome === "Produto X")!;
+    expect(entradaX).toBeDefined();
+    expect(entradaX.lucroHora).toBe(42); // não -Infinity — a busca por id funcionou apesar do nome divergente
+    expect(observacoes[0].ordenados.map((o) => o.nome)).toEqual(["Produto X", "Produto Y"]); // maior lucroHora primeiro
+  });
+});
+
+describe("Checkpoint 1.5 — alocação respeita a seleção de máquina da programação semanal", () => {
+  it("Caso A — roteiro permite A e B, programação escolhe só B: alocação usa somente B", () => {
+    const produtoAB = produto("prodAB", "Produto AB", 10, 1, "Corte", ["maqA", "maqB"]); // roteiro: A ou B
+    const itemAB = item("itAB", "prodAB", "Produto AB", 10, 50, { "prodAB-e1": ["maqB"] }); // programação: só B
+    const maqA = maquina("maqA", "Máquina A", "Corte");
+    const maqB = maquina("maqB", "Máquina B", "Corte");
+    // A tem capacidade de sobra (não deveria ser usada); B é o gargalo real.
+    const capacidadeInicial = { maqA: 1000, maqB: 30 };
+
+    const resultado = calcularAlocacaoSemanal(
+      calcularItensSemanaAgregados([itemAB]), [itemAB], [produtoAB], capacidadeInicial, PERIODOS,
+      [maqA, maqB], ["Corte"], HORAS_MAQUINA_SEMANA, DURACAO_MEDIA_PERIODO, () => 10
+    );
+
+    const res = resultado.resultados[0];
+    // Se a máquina A (abundante, mas não escolhida) tivesse sido usada, isso daria 50/0 (sem déficit).
+    // Usando só B (30h disponíveis, 1h/peça): máximo 30 peças.
+    expect(res.quantidadeAlocada).toBe(30);
+    expect(res.deficit).toBe(20);
+    expect(res.gargalo).toBe("Corte");
+  });
+
+  it("Caso B — roteiro permite A, B e C, programação escolhe A e C: B não participa", () => {
+    const produtoABC = produto("prodABC", "Produto ABC", 10, 1, "Corte", ["maqA", "maqB", "maqC"]);
+    const itemABC = item("itABC", "prodABC", "Produto ABC", 10, 50, { "prodABC-e1": ["maqA", "maqC"] }); // sem B
+    const maqA = maquina("maqA", "Máquina A", "Corte");
+    const maqB = maquina("maqB", "Máquina B", "Corte");
+    const maqC = maquina("maqC", "Máquina C", "Corte");
+    // B tem capacidade enorme (não deveria ser usada); A+C juntas são o limite real.
+    const capacidadeInicial = { maqA: 15, maqB: 10000, maqC: 15 };
+
+    const resultado = calcularAlocacaoSemanal(
+      calcularItensSemanaAgregados([itemABC]), [itemABC], [produtoABC], capacidadeInicial, PERIODOS,
+      [maqA, maqB, maqC], ["Corte"], HORAS_MAQUINA_SEMANA, DURACAO_MEDIA_PERIODO, () => 10
+    );
+
+    const res = resultado.resultados[0];
+    // Se B (10000h) tivesse entrado no pool, não haveria déficit algum.
+    expect(res.quantidadeAlocada).toBe(30); // 15 + 15 = 30h / 1h por peça
+    expect(res.deficit).toBe(20);
+  });
+
+  it("Caso C — dois produtos com Máquina A possível no roteiro, mas programados em máquinas diferentes: sem conflito artificial", () => {
+    const produto1 = produto("prod1", "Produto 1", 10, 1, "Corte", ["maqA", "maqB"]); // A ou B possíveis
+    const produto2 = produto("prod2", "Produto 2", 10, 1, "Corte", ["maqA", "maqB"]); // A ou B possíveis também
+    const item1 = item("it1", "prod1", "Produto 1", 10, 30, { "prod1-e1": ["maqA"] }); // programado só em A
+    const item2 = item("it2", "prod2", "Produto 2", 10, 25, { "prod2-e1": ["maqB"] }); // programado só em B
+    const maqA = maquina("maqA", "Máquina A", "Corte");
+    const maqB = maquina("maqB", "Máquina B", "Corte");
+    // Cada máquina tem exatamente a capacidade do produto que foi programado nela — nenhuma sobra pra dividir.
+    const capacidadeInicial = { maqA: 30, maqB: 25 };
+    const lucroHoraPorId: Record<string, number> = { prod1: 10, prod2: 50 }; // prod2 processado primeiro (maior lucro/hora)
+
+    const resultado = calcularAlocacaoSemanal(
+      calcularItensSemanaAgregados([item1, item2]), [item1, item2], [produto1, produto2], capacidadeInicial, PERIODOS,
+      [maqA, maqB], ["Corte"], HORAS_MAQUINA_SEMANA, DURACAO_MEDIA_PERIODO, (p) => lucroHoraPorId[p.id]
+    );
+
+    const res1 = resultado.resultados.find((r) => r.produtoId === "prod1")!;
+    const res2 = resultado.resultados.find((r) => r.produtoId === "prod2")!;
+    // Se o roteiro padrão (A e B pooladas) fosse usado em vez da seleção da semana, prod2 (processado
+    // primeiro) consumiria capacidade de A também, deixando prod1 com déficit mesmo A tendo exatamente
+    // o que ele precisa. Isolados corretamente, os dois batem 100% sem déficit.
+    expect(res2.quantidadeAlocada).toBe(25);
+    expect(res2.deficit).toBe(0);
+    expect(res1.quantidadeAlocada).toBe(30);
+    expect(res1.deficit).toBe(0);
+  });
+
+  it("Caso D — item sem seleção específica (dado legado): cai de volta pro roteiro padrão do produto", () => {
+    const produtoLegado = produto("prodLegado", "Produto Legado", 10, 1, "Corte", ["maqLegado"]);
+    const itemLegado = item("itLegado", "prodLegado", "Produto Legado", 10, 20, {}); // sem maquinasPorEtapa pra essa etapa
+    const maqLegado = maquina("maqLegado", "Máquina Legada", "Corte");
+    const capacidadeInicial = { maqLegado: 20 };
+
+    const resultado = calcularAlocacaoSemanal(
+      calcularItensSemanaAgregados([itemLegado]), [itemLegado], [produtoLegado], capacidadeInicial, PERIODOS,
+      [maqLegado], ["Corte"], HORAS_MAQUINA_SEMANA, DURACAO_MEDIA_PERIODO, () => 10
+    );
+
+    const res = resultado.resultados[0];
+    // Se o fallback não tivesse entrado, não haveria máquina nenhuma pra essa etapa -> 0 alocado, déficit total.
+    expect(res.quantidadeAlocada).toBe(20);
+    expect(res.deficit).toBe(0);
+  });
+
+  it("calcularMaquinasSelecionadasPorProdutoEtapa: une seleções de itens diferentes do MESMO produto na semana", () => {
+    const it1 = item("it1", "prodX", "Produto X", 10, 5, { e1: ["maqA"] });
+    const it2 = item("it2", "prodX", "Produto X", 10, 5, { e1: ["maqB"] }); // outro item, mesmo produto, outra máquina
+    const selecao = calcularMaquinasSelecionadasPorProdutoEtapa([it1, it2]);
+    expect(selecao["prodX"]["e1"].sort()).toEqual(["maqA", "maqB"]);
+  });
+
+  it("Caso E — máquina escolhida especificamente passa de 100%: continua mostrando o percentual real, sem teto", () => {
+    const produtoE = produto("prodE", "Produto E", 10, 1, "Corte", ["maqE1", "maqE2"]); // roteiro permite as duas
+    const itemE = item("itE", "prodE", "Produto E", 10, 73.6, { "prodE-e1": ["maqE1"] }); // programação: só E1
+    const maqE1 = maquina("maqE1", "Máquina E1", "Corte");
+    const maqE2 = maquina("maqE2", "Máquina E2", "Corte"); // não selecionada — não deve amortecer o percentual
+
+    const analise = calcularAnaliseCapacidadeSemanal([itemE], [produtoE], [maqE1, maqE2], PERIODOS, HORAS_MAQUINA_SEMANA);
+
+    expect(analise.maquinas).toHaveLength(1); // só E1 aparece — E2 nunca foi escolhida
+    expect(analise.maquinas[0].maquinaId).toBe("maqE1");
+    expect(analise.maquinas[0].pct).toBeCloseTo(184, 5);
+    expect(analise.maquinas[0].status).toBe("gargalo");
   });
 });

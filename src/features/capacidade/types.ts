@@ -10,13 +10,24 @@ import type { Produto } from "@/types/domain";
 export type StatusCapacidadeMaquina = "gargalo" | "proximo" | "atencao" | "normal";
 
 export interface ProdutoConsumidorHoras {
+  // Identidade é o id do produto — nome é só apresentação (Checkpoint 1.5,
+  // ver calcularObservacoesSetup). Uma renomeação de produto não pode
+  // quebrar esse relacionamento.
+  produtoId: string;
   nome: string;
+  horas: number;
+}
+
+export interface ProdutoHorasConsumo {
+  produtoId: string;
+  produtoNome: string;
   horas: number;
 }
 
 export interface HorasMaquina {
   horasNecessarias: number;
-  produtos: Record<string, number>;
+  // Chave é o produtoId (não o nome) — ver Checkpoint 1.5.
+  produtos: Record<string, ProdutoHorasConsumo>;
 }
 
 // Saída de calcularHorasPorMaquina — chave é o id da máquina.
@@ -63,6 +74,7 @@ export interface CapacidadeMaximaSemana {
 }
 
 export interface UsoMaquinaPeriodo {
+  produtoNome: string;
   manha: number;
   tarde: number;
 }
@@ -70,6 +82,7 @@ export interface UsoMaquinaPeriodo {
 export interface UsoMaquina {
   maquinaId: string;
   nome: string;
+  // Chave é o produtoId (não o nome) — ver Checkpoint 1.5.
   produtos: Record<string, UsoMaquinaPeriodo>;
   totalManha: number;
   totalTarde: number;

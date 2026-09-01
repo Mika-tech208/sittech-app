@@ -105,6 +105,7 @@ export function calcularHorasPorMaquina(
   horasPorMaquinaSemana: number
 ): HorasPorMaquina {
   interface Par {
+    produtoId: string;
     produtoNome: string;
     maquinasIds: string[];
     horasTotalEtapa: number;
@@ -119,7 +120,7 @@ export function calcularHorasPorMaquina(
       if (tempoPorPeca <= 0) return;
       const idsSelecionadas = (it.maquinasPorEtapa || {})[etapa.id] || [];
       if (idsSelecionadas.length === 0) return;
-      pares.push({ produtoNome: it.produtoNome, maquinasIds: idsSelecionadas, horasTotalEtapa: it.quantidade * tempoPorPeca, contribuicaoBootstrap: {} });
+      pares.push({ produtoId: it.produtoId, produtoNome: it.produtoNome, maquinasIds: idsSelecionadas, horasTotalEtapa: it.quantidade * tempoPorPeca, contribuicaoBootstrap: {} });
     });
   });
 
@@ -135,15 +136,21 @@ export function calcularHorasPorMaquina(
 
   // passada 2 (refino): redistribui proporcional à folga real de cada máquina, excluindo a
   // contribuição do próprio par pra não distorcer o cálculo da folga dela
+  //
+  // Agregado por produtoId, não por nome (Checkpoint 1.5) — identidade é o
+  // id, nome é só o rótulo que a UI mostra.
   const porMaquina: HorasPorMaquina = {};
-  function somar(maquinaId: string, produtoNome: string, horas: number) {
+  function somar(maquinaId: string, produtoId: string, produtoNome: string, horas: number) {
     if (!porMaquina[maquinaId]) porMaquina[maquinaId] = { horasNecessarias: 0, produtos: {} };
     porMaquina[maquinaId].horasNecessarias += horas;
-    porMaquina[maquinaId].produtos[produtoNome] = (porMaquina[maquinaId].produtos[produtoNome] || 0) + horas;
+    if (!porMaquina[maquinaId].produtos[produtoId]) {
+      porMaquina[maquinaId].produtos[produtoId] = { produtoId, produtoNome, horas: 0 };
+    }
+    porMaquina[maquinaId].produtos[produtoId].horas += horas;
   }
   pares.forEach((par) => {
     if (par.maquinasIds.length === 1) {
-      somar(par.maquinasIds[0], par.produtoNome, par.horasTotalEtapa);
+      somar(par.maquinasIds[0], par.produtoId, par.produtoNome, par.horasTotalEtapa);
       return;
     }
     const pesos = par.maquinasIds.map((id) => {
@@ -152,7 +159,7 @@ export function calcularHorasPorMaquina(
     });
     const somaPesos = pesos.reduce((s, p) => s + p, 0);
     par.maquinasIds.forEach((id, i) => {
-      somar(id, par.produtoNome, par.horasTotalEtapa * (pesos[i] / somaPesos));
+      somar(id, par.produtoId, par.produtoNome, par.horasTotalEtapa * (pesos[i] / somaPesos));
     });
   });
 
@@ -192,8 +199,8 @@ export function calcularAnaliseCapacidadeSemanal(
       pct,
       deficit,
       status,
-      produtosConsumidores: Object.entries(dados.produtos)
-        .map(([nome, horas]) => ({ nome, horas }))
+      produtosConsumidores: Object.values(dados.produtos)
+        .map((d) => ({ produtoId: d.produtoId, nome: d.produtoNome, horas: d.horas }))
         .sort((a, b) => b.horas - a.horas),
     };
   }).sort((a, b) => b.pct - a.pct);
@@ -282,7 +289,8 @@ export function calcularUsoPorMaquina(analiseCapacidade: AnaliseCapacidadeSemana
     const produtosComPeriodos: UsoMaquina["produtos"] = {};
     m.produtosConsumidores.forEach((p) => {
       const totalPeriodosProduto = Math.round(p.horas / duracaoMediaPeriodo);
-      produtosComPeriodos[p.nome] = {
+      produtosComPeriodos[p.produtoId] = {
+        produtoNome: p.nome,
         manha: Math.ceil(totalPeriodosProduto / 2),
         tarde: Math.floor(totalPeriodosProduto / 2),
       };
@@ -345,12 +353,9 @@ export function calcularViabilidadeItem(
   };
 }
 
-// TODO / COMPORTAMENTO ATUAL A REVISAR: casa o produto consumidor pelo NOME
-// (produto.nome === p.nome), não pelo id — diferente do resto do sistema,
-// que sempre casa por id. Se dois produtos tiverem o mesmo nome, ou um
-// produto for renomeado depois de já ter sido usado numa previsão, essa
-// combinação pode silenciosamente pegar o produto errado (ou nenhum).
-// Preservado assim de propósito nesta etapa — só refatoração, não revisão.
+// Checkpoint 1.5: casa o produto consumidor pelo ID (não mais pelo nome).
+// Nome é só rótulo de apresentação — renomear um produto não pode quebrar
+// essa combinação, nem dois produtos com o mesmo nome podem se confundir.
 export function calcularObservacoesSetup(
   analise: AnaliseCapacidadeSemanal,
   produtos: Produto[],
@@ -361,7 +366,7 @@ export function calcularObservacoesSetup(
     .map((m) => {
       const ordenados = [...m.produtosConsumidores]
         .map((p) => {
-          const produto = produtos.find((prod) => prod.nome === p.nome);
+          const produto = produtos.find((prod) => prod.id === p.produtoId);
           const lucroHora = produto ? getLucroHora(produto) : -Infinity;
           return { ...p, lucroHora };
         })
@@ -412,21 +417,41 @@ function horasParaDiasPeriodos(horas: number, duracaoMediaPeriodo: number): Dias
   return { dias, periodos: periodosResto };
 }
 
+// Checkpoint 1.5: máquinas que a programação da semana efetivamente marcou
+// para cada (produto, etapa) — união entre todos os itens daquele produto
+// na semana, caso ele apareça em mais de um item (raro, mas a UI não
+// impede). Isso é o que a alocação automática deve respeitar; o roteiro do
+// produto (etapa.maquinasIds) continua existindo à parte — ele representa
+// "quais máquinas PODEM" fazer a etapa, não "quais foram escolhidas".
+export function calcularMaquinasSelecionadasPorProdutoEtapa(itens: PrevisaoItem[]): Record<string, Record<string, string[]>> {
+  const resultado: Record<string, Record<string, string[]>> = {};
+  itens.forEach((it) => {
+    if (!resultado[it.produtoId]) resultado[it.produtoId] = {};
+    Object.entries(it.maquinasPorEtapa || {}).forEach(([etapaId, ids]) => {
+      if (!ids || ids.length === 0) return;
+      const atuais = resultado[it.produtoId][etapaId] || [];
+      resultado[it.produtoId][etapaId] = Array.from(new Set([...atuais, ...ids]));
+    });
+  });
+  return resultado;
+}
+
 // ---- alocação automática sugerida: ordena por lucro/hora e consome a capacidade em sequência ----
 // Diferente de calcularCapacidadeMaximaSemana (redução proporcional): aqui é
 // greedy — o item mais lucrativo/hora é atendido primeiro, até esgotar a
 // máquina; o resto fica com déficit. As duas análises respondem perguntas
 // diferentes e não devem ser fundidas.
 //
-// TODO / COMPORTAMENTO ATUAL A REVISAR: as máquinas candidatas de cada etapa
-// vêm de calcularMaquinasDaEtapa(etapa, maquinas) — ou seja, do roteiro
-// PADRÃO do produto (etapa.maquinasIds) — e não de `it.maquinasPorEtapa`,
-// a seleção de máquina que o usuário fez PARA AQUELE ITEM na semana (que é
-// o que calcularHorasPorMaquina/calcularCapacidadeMaximaSemana usam). Ou
-// seja, a sugestão de alocação pode ignorar a máquina que a pessoa marcou
-// manualmente pro item. Preservado assim de propósito nesta etapa.
+// Checkpoint 1.5: as máquinas candidatas de cada etapa agora priorizam a
+// seleção feita na PROGRAMAÇÃO DA SEMANA (it.maquinasPorEtapa, via
+// calcularMaquinasSelecionadasPorProdutoEtapa) — igual ao que
+// calcularHorasPorMaquina/calcularCapacidadeMaximaSemana já faziam. Só cai
+// de volta pro roteiro padrão do produto (calcularMaquinasDaEtapa) quando
+// não existe nenhuma seleção específica pra aquela etapa — dado legado ou
+// item ainda não configurado.
 export function calcularAlocacaoSemanal(
   itensAgregados: ItemSemanaAgregado[],
+  itensOriginais: PrevisaoItem[],
   produtos: Produto[],
   capacidadeInicialPorMaquina: Record<string, number>,
   periodosComDuracao: PeriodoComDuracao[],
@@ -437,6 +462,7 @@ export function calcularAlocacaoSemanal(
   getLucroHora: (produto: Produto) => number
 ): AlocacaoSemanal {
   const capacidadeRestante: Record<string, number> = { ...capacidadeInicialPorMaquina };
+  const selecaoPorProdutoEtapa = calcularMaquinasSelecionadasPorProdutoEtapa(itensOriginais);
   const comDados = itensAgregados
     .map((item) => {
       const produto = produtos.find((p) => p.id === item.produtoId) || null;
@@ -455,11 +481,17 @@ export function calcularAlocacaoSemanal(
     }
     let maxPecas = item.quantidade;
     let gargalo: string | null = null;
-    const temposPorEtapa = roteiro.map((etapa) => ({
-      tempoPorPeca: tempoPorPecaEtapa(etapa, periodosComDuracao),
-      maquinasIds: calcularMaquinasDaEtapa(etapa, maquinas),
-      operacao: etapa.operacao,
-    }));
+    const temposPorEtapa = roteiro.map((etapa) => {
+      const selecaoDaSemana = selecaoPorProdutoEtapa[item.produtoId]?.[etapa.id];
+      const maquinasIds = selecaoDaSemana && selecaoDaSemana.length > 0
+        ? selecaoDaSemana
+        : calcularMaquinasDaEtapa(etapa, maquinas); // sem seleção específica -> roteiro padrão (dado legado)
+      return {
+        tempoPorPeca: tempoPorPecaEtapa(etapa, periodosComDuracao),
+        maquinasIds,
+        operacao: etapa.operacao,
+      };
+    });
     temposPorEtapa.forEach((info) => {
       if (info.tempoPorPeca > 0) {
         const poolDisponivel = info.maquinasIds.reduce((s, id) => s + (capacidadeRestante[id] || 0), 0);
