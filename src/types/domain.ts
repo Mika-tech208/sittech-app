@@ -101,7 +101,11 @@ export interface PrevisaoItem {
   produtoNome: string; // cópia no momento do lançamento, não referência viva
   valorUnitario: number; // cópia no momento do lançamento
   quantidade: number;
-  maquinasPorEtapa: { [etapaId: string]: string[] };
+  // Presente em `previsoes[].itens`. Ausente em `previsoes[].itensRealizados`
+  // na prática (apesar do briefing dizer "mesmo formato de itens") — o
+  // código de submitRealItem nunca preencheu esse campo. Documentado aqui
+  // como opcional para refletir o dado real, não o que estava especificado.
+  maquinasPorEtapa?: { [etapaId: string]: string[] };
 }
 
 export interface Previsao {

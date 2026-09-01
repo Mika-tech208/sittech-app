@@ -314,7 +314,7 @@ export function calcularUsoPorMaquina(analiseCapacidade: AnaliseCapacidadeSemana
 
 export function calcularCapacidadeMaximaProduto(
   produtoId: string,
-  maquinasPorEtapa: Record<string, string[]>,
+  maquinasPorEtapa: Record<string, string[]> | undefined,
   produtos: Produto[],
   periodosComDuracao: PeriodoComDuracao[],
   horasPorMaquinaSemana: number
