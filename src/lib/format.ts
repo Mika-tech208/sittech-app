@@ -1,0 +1,24 @@
+import { MESES_ABREV } from "@/lib/constants";
+
+// Estado de módulo (fora de qualquer componente) para que formatBRL leia o
+// modo privado sem esperar o próximo re-render — mesmo comportamento do
+// sistema original.
+let modoPrivadoAtivo = false;
+
+export function setModoPrivadoAtivo(v: boolean): void {
+  modoPrivadoAtivo = v;
+}
+
+export function formatBRL(v: number | string | undefined | null): string {
+  if (modoPrivadoAtivo) return "R$ ••••";
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v) || 0);
+}
+
+export function toNumber(v: unknown): number {
+  return Number(String(v ?? "0").replace(",", "."));
+}
+
+export function monthLabelShort(key: string): string {
+  const [y, m] = key.split("-").map(Number);
+  return `${MESES_ABREV[m - 1]}/${String(y).slice(2)}`;
+}
