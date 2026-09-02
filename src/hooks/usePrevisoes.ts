@@ -12,15 +12,16 @@
 // selectors.ts) foi tocada — continuam recebendo os mesmos tipos de
 // sempre.
 //
-// Sem RPC: ao contrário de roteiro_etapas (que tinha RESTRICT vindo de
-// previsao_item_maquinas.etapa_id), nada referencia previsao_itens.id
-// além do próprio CASCADE de previsao_item_maquinas — apagar e recriar os
-// itens de um tipo nunca é bloqueado por integridade referencial. O único
-// risco residual é uma falha de rede no meio das chamadas REST
-// sequenciais (mesma limitação já aceita em funcionario_custos e no
-// roteiro de produtos antes da correção) — não uma perda de dado
-// histórico, só um salvamento incompleto que o usuário vê pelo erro e
-// pode tentar de novo.
+// Escrita via RPC (upsert_previsao_semana, migration 7): salvar uma
+// semana inteira (upsert de previsoes + sincronizar itens previstos e/ou
+// realizados + sincronizar máquinas indisponíveis) acontece numa única
+// transação no Postgres — qualquer erro no meio desfaz tudo. Antes disso
+// eram várias chamadas REST sequenciais sem transação entre elas (mesma
+// classe de risco já corrigida pro roteiro de produtos). O contrato com o
+// frontend não muda: cada uma das três partes só é tocada se o campo
+// correspondente veio em `campos` (null no parâmetro da RPC = não mexe),
+// e dentro de uma parte tocada o comportamento continua sendo apagar tudo
+// daquele tipo e recriar do zero (UUIDs novos a cada save).
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
@@ -81,59 +82,19 @@ function linhaParaPrevisao(p: PrevisaoRow): Previsao {
   };
 }
 
-async function garantirPrevisaoId(semanaInicio: string): Promise<string | null> {
-  const { data: existente, error: selErro } = await supabase
-    .from("previsoes").select("id").eq("semana_inicio", semanaInicio).maybeSingle();
-  if (selErro) return null;
-  if (existente) return existente.id;
-  const { data: criada, error: insErro } = await supabase
-    .from("previsoes").insert({ semana_inicio: semanaInicio }).select("id").single();
-  if (insErro || !criada) return null;
-  return criada.id;
-}
-
-// Substitui todos os itens de um tipo (previsto ou realizado) da semana —
-// mesmo comportamento do formulário atual, que sempre envia a lista
-// completa. produto_id só é gravado com o id que já veio no item (sempre
-// um produto real, escolhido no <select> a partir de `produtos` já
-// migrado) — nunca resolvido/recalculado aqui. produto_nome/valor_unitario
-// são gravados exatamente como vieram (snapshot do momento do
-// lançamento), nunca relidos de `produtos`.
-async function sincronizarItens(previsaoId: string, tipo: TipoItem, itens: PrevisaoItem[]): Promise<boolean> {
-  const { error: delErro } = await supabase.from("previsao_itens").delete().eq("previsao_id", previsaoId).eq("tipo", tipo);
-  if (delErro) return false;
-  for (const it of itens) {
-    const { data: novoItem, error: insErro } = await supabase
-      .from("previsao_itens")
-      .insert({
-        previsao_id: previsaoId, tipo, produto_id: it.produtoId, produto_nome: it.produtoNome,
-        valor_unitario: it.valorUnitario, quantidade: it.quantidade,
-      })
-      .select("id")
-      .single();
-    if (insErro || !novoItem) return false;
-    // itens legados/realizados sem nenhuma seleção de máquina (maquinasPorEtapa
-    // ausente ou vazio) simplesmente não geram nenhuma linha aqui — é a
-    // semântica natural de uma junção vazia, não um valor especial.
-    const linhasMaquinas = Object.entries(it.maquinasPorEtapa || {}).flatMap(([etapaId, maquinaIds]) =>
-      (maquinaIds || []).map((maquinaId) => ({ item_id: novoItem.id, etapa_id: etapaId, maquina_id: maquinaId }))
-    );
-    if (linhasMaquinas.length > 0) {
-      const { error: mErro } = await supabase.from("previsao_item_maquinas").insert(linhasMaquinas);
-      if (mErro) return false;
-    }
-  }
-  return true;
-}
-
-async function sincronizarMaquinasIndisponiveis(previsaoId: string, maquinaIds: string[]): Promise<boolean> {
-  const { error: delErro } = await supabase.from("previsao_maquinas_indisponiveis").delete().eq("previsao_id", previsaoId);
-  if (delErro) return false;
-  if (maquinaIds.length === 0) return true;
-  const { error: insErro } = await supabase
-    .from("previsao_maquinas_indisponiveis")
-    .insert(maquinaIds.map((id) => ({ previsao_id: previsaoId, maquina_id: id })));
-  return !insErro;
+// Formato aceito pela RPC upsert_previsao_semana pra cada item — mesmos
+// dados de sempre (produto_id só o id que já veio no item, escolhido no
+// <select> a partir de `produtos` já migrado, nunca resolvido/recalculado
+// aqui; produto_nome/valor_unitario como snapshot, nunca relidos de
+// `produtos`), só reempacotados pro formato que a function espera.
+function itemParaPayloadRPC(it: PrevisaoItem) {
+  return {
+    produto_id: it.produtoId,
+    produto_nome: it.produtoNome,
+    valor_unitario: it.valorUnitario,
+    quantidade: it.quantidade,
+    maquinas_por_etapa: it.maquinasPorEtapa || {},
+  };
 }
 
 export function usePrevisoes(pronto: boolean) {
@@ -161,24 +122,19 @@ export function usePrevisoes(pronto: boolean) {
   // Mesma assinatura do upsertSemana que já existia nas páginas — só troca
   // o destino (Supabase em vez do blob). `campos` só grava as partes que
   // vieram (itens / itensRealizados / maquinasIndisponiveis); as demais
-  // ficam como já estavam no banco.
+  // ficam como já estavam no banco — por isso `null` (não o array) pra RPC
+  // nos campos que não vieram em `campos`, que é o sinal de "não mexe"
+  // dentro da function (ver migration 7).
   const upsertSemana = useCallback(async (semanaInicio: string, campos: Partial<Previsao>): Promise<boolean> => {
-    const previsaoId = await garantirPrevisaoId(semanaInicio);
-    if (!previsaoId) {
+    const { data: previsaoId, error: rpcErro } = await supabase.rpc("upsert_previsao_semana", {
+      p_semana_inicio: semanaInicio,
+      p_itens_previsto: campos.itens !== undefined ? campos.itens.map(itemParaPayloadRPC) : null,
+      p_itens_realizado: campos.itensRealizados !== undefined ? campos.itensRealizados.map(itemParaPayloadRPC) : null,
+      p_maquinas_indisponiveis: campos.maquinasIndisponiveis !== undefined ? campos.maquinasIndisponiveis : null,
+    });
+    if (rpcErro || !previsaoId) {
       setErro("Não foi possível salvar a previsão dessa semana.");
       return false;
-    }
-    if (campos.itens !== undefined) {
-      const ok = await sincronizarItens(previsaoId, "previsto", campos.itens);
-      if (!ok) { setErro("Não foi possível salvar os itens previstos."); return false; }
-    }
-    if (campos.itensRealizados !== undefined) {
-      const ok = await sincronizarItens(previsaoId, "realizado", campos.itensRealizados);
-      if (!ok) { setErro("Não foi possível salvar os itens realizados."); return false; }
-    }
-    if (campos.maquinasIndisponiveis !== undefined) {
-      const ok = await sincronizarMaquinasIndisponiveis(previsaoId, campos.maquinasIndisponiveis);
-      if (!ok) { setErro("Não foi possível salvar as máquinas indisponíveis dessa semana."); return false; }
     }
 
     const { data, error } = await supabase.from("previsoes").select(PREVISAO_SELECT).eq("id", previsaoId).single();
