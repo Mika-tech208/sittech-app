@@ -2,7 +2,6 @@
 // (Parte 2 — Formato exato dos dados atuais). Não inventar propriedades
 // além das já existentes no sistema em produção.
 
-export type Papel = "admin" | "usuario";
 export type Prioridade = "alta" | "media" | "baixa";
 
 export interface FixedCost {
@@ -115,40 +114,3 @@ export interface Previsao {
   maquinasIndisponiveis?: string[];
 }
 
-export interface Usuario {
-  id: string;
-  nome: string;
-  login: string;
-  senhaHash: string;
-  senhaSalt: string;
-  papel: Papel;
-  ativo: boolean;
-  criadoEm: string;
-  ultimoAcesso: string | null;
-}
-
-export interface AuditoriaEntry {
-  id: string;
-  quando: string;
-  quem: string;
-  acao: string;
-  usuarioAfetado: string | null;
-}
-
-// Formato completo do blob salvo sob STORAGE_KEY.
-export interface SittechState {
-  fixedCosts: FixedCost[];
-  variableEntries: VariableEntry[];
-  categorias: string[];
-  operacoes: string[];
-  funcionarios: Funcionario[];
-  periodos: Periodo[];
-  diasUteis: string;
-  diasUteisSemana: string;
-  faturamentos: Faturamento[];
-  produtos: Produto[];
-  maquinas: Maquina[];
-  previsoes: Previsao[];
-  usuarios: Usuario[];
-  auditoria: AuditoriaEntry[];
-}

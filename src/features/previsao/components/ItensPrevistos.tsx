@@ -1,6 +1,8 @@
 "use client";
 
-import { calcularViabilidadeItem, calcularFuncionariosTotalSemana } from "@/features/capacidade/calculations";
+import {
+  calcularViabilidadeItem, calcularFuncionariosTotalSemana, calcularMaquinasDaEtapa, encontrarSelecoesInvalidas,
+} from "@/features/capacidade/calculations";
 import { toNumber } from "@/lib/format";
 import type { Produto, Maquina, Previsao, PrevisaoItem, PeriodoComDuracao } from "@/types/domain";
 import type { AnaliseCapacidadeSemanal } from "@/features/capacidade/types";
@@ -101,15 +103,23 @@ export default function ItensPrevistos({
                   <div className="stx-custos-builder">
                     <p className="stx-custos-builder-title">Máquinas dessa semana, por etapa</p>
                     {roteiroSel.map((etapa) => {
+                      // elegibilidade vem do roteiro do produto (`etapa.maquinasIds`), não
+                      // de "toda máquina da mesma operação" — mesma fonte única usada pelo
+                      // cálculo de capacidade (`calcularMaquinasDaEtapa`), pra nunca oferecer
+                      // aqui uma máquina que o cadastro do produto não autoriza.
+                      const idsElegiveis = calcularMaquinasDaEtapa(etapa, maquinas);
                       const maquinasDaOperacao = maquinas.filter(
-                        (m) => m.operacao === etapa.operacao && m.ativo && !(semana.maquinasIndisponiveis || []).includes(m.id)
+                        (m) => idsElegiveis.includes(m.id) && !(semana.maquinasIndisponiveis || []).includes(m.id)
                       );
                       const selecionadas = form.maquinasPorEtapa[etapa.id] || [];
+                      const nomesInvalidos = selecionadas
+                        .filter((id) => !idsElegiveis.includes(id))
+                        .map((id) => maquinas.find((m) => m.id === id)?.nome || id);
                       return (
                         <div className="stx-etapa-card" key={etapa.id}>
                           <p className="stx-panel-sub" style={{ margin: "0 0 6px 0", fontWeight: 600, color: "var(--blueprint)" }}>{etapa.operacao}</p>
                           {maquinasDaOperacao.length === 0 ? (
-                            <p className="stx-panel-sub" style={{ margin: 0 }}>Nenhuma máquina disponível pra essa operação essa semana (nenhuma cadastrada, ou todas marcadas como indisponíveis).</p>
+                            <p className="stx-panel-sub" style={{ margin: 0 }}>Nenhuma máquina disponível pra essa operação essa semana (nenhuma elegível no roteiro do produto, ou todas marcadas como indisponíveis).</p>
                           ) : (
                             <div className="stx-etapa-maquinas">
                               {maquinasDaOperacao.map((m) => (
@@ -123,6 +133,11 @@ export default function ItensPrevistos({
                                 </label>
                               ))}
                             </div>
+                          )}
+                          {nomesInvalidos.length > 0 && (
+                            <p className="stx-panel-sub" style={{ margin: "6px 0 0 0", color: "var(--warning)" }}>
+                              ⚠ Selecionada antes, mas não é mais elegível nesta etapa: {nomesInvalidos.join(", ")}. Mantida no lançamento — desmarque se não fizer mais sentido.
+                            </p>
                           )}
                         </div>
                       );
@@ -164,6 +179,10 @@ export default function ItensPrevistos({
           const viab = calcularViabilidadeItem(it, produtos, periodosComDuracao, horasPorMaquinaSemana);
           const maquinasDoItem = new Set(Object.values(it.maquinasPorEtapa || {}).flat());
           const gargalosQueAfetam = analise.gargalos.filter((g) => maquinasDoItem.has(g.maquinaId));
+          const produtoDoItem = produtos.find((p) => p.id === it.produtoId);
+          const selecoesInvalidas = produtoDoItem
+            ? encontrarSelecoesInvalidas(it.maquinasPorEtapa, produtoDoItem.roteiro || [], maquinas)
+            : [];
           return (
             <div className="stx-entry" key={it.id}>
               <div>
@@ -179,6 +198,11 @@ export default function ItensPrevistos({
                 {gargalosQueAfetam.length > 0 && (
                   <p className="stx-entry-aviso-compartilhada">
                     ⚠ {gargalosQueAfetam.map((g) => `${g.nome} está em ${g.pct.toFixed(0)}% (compartilhada com outro produto)`).join(" · ")}
+                  </p>
+                )}
+                {selecoesInvalidas.length > 0 && (
+                  <p className="stx-entry-aviso-compartilhada" style={{ color: "var(--warning)" }}>
+                    ⚠ Máquina selecionada não é mais elegível no roteiro atual de {it.produtoNome} (etapa {selecoesInvalidas.map((s) => s.operacao).join(", ")}) — edite o item pra revisar.
                   </p>
                 )}
                 <p className="stx-entry-meta">

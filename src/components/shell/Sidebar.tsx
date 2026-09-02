@@ -6,7 +6,6 @@ import {
   Crown, ChevronDown, ChevronRight, Factory, Activity, PauseCircle, ClipboardCheck, Database, UserCog, AlertTriangle,
 } from "lucide-react";
 import { LOGO_DARK, LOGO_LIGHT } from "@/lib/logos";
-import type { Usuario } from "@/types/domain";
 
 export interface GruposAbertos {
   gestao: boolean;
@@ -22,7 +21,9 @@ export interface SidebarProps {
   onNavigateTab: (key: string) => void;
   gruposAbertos: GruposAbertos;
   toggleGrupo: (grupo: keyof GruposAbertos) => void;
-  usuarioLogado: Usuario | null;
+  // Aceita tanto o `Usuario` do blob local (monólito) quanto o `UsuarioLogado`
+  // do Supabase Auth (rotas migradas) — só o campo `papel` é usado aqui.
+  usuarioLogado: { papel: string } | null;
   metaSemanalUsaPrevisto: boolean;
   metaInvalida: boolean;
   metaSemanalFinal: number;
@@ -31,10 +32,10 @@ export interface SidebarProps {
 }
 
 // Menu lateral — idêntico visualmente ao do app legado (mesmas classes
-// stx-sidebar/stx-tab-v/stx-sidebar-grupo-header). "Previsão semanal" e
-// "Capacidade semanal" navegam por rota real do Next.js (Etapa de extração
-// de interface); os demais itens ainda usam onNavigateTab (abaAtiva), já
-// que só esses dois domínios migraram nesta etapa.
+// stx-sidebar/stx-tab-v/stx-sidebar-grupo-header). "Previsão semanal",
+// "Capacidade semanal", "Custo por hora", "Produtos" e "Máquinas" navegam
+// por rota real do Next.js; os demais itens ainda usam onNavigateTab
+// (abaAtiva), já que só esses domínios migraram até esta etapa.
 export default function Sidebar({
   tema, abaAtiva, onNavigateTab, gruposAbertos, toggleGrupo, usuarioLogado,
   metaSemanalUsaPrevisto, metaInvalida, metaSemanalFinal, formatBRL, onMetaClick,
@@ -55,9 +56,9 @@ export default function Sidebar({
         <>
           <button className={`stx-tab-v ${abaAtiva === "custos" ? "active" : ""}`} onClick={() => onNavigateTab("custos")}><Wallet size={16} />Custos mensais</button>
           <button className={`stx-tab-v ${abaAtiva === "funcionarios" ? "active" : ""}`} onClick={() => onNavigateTab("funcionarios")}><Users size={16} />Funcionários</button>
-          <button className={`stx-tab-v ${abaAtiva === "produtos" ? "active" : ""}`} onClick={() => onNavigateTab("produtos")}><Package size={16} />Produtos</button>
-          <button className={`stx-tab-v ${abaAtiva === "maquinas" ? "active" : ""}`} onClick={() => onNavigateTab("maquinas")}><Cog size={16} />Máquinas</button>
-          <button className={`stx-tab-v ${abaAtiva === "horaEmpresa" ? "active" : ""}`} onClick={() => onNavigateTab("horaEmpresa")}><Clock size={16} />Custo por hora</button>
+          <Link href="/produtos" className={`stx-tab-v ${abaAtiva === "produtos" ? "active" : ""}`}><Package size={16} />Produtos</Link>
+          <Link href="/maquinas" className={`stx-tab-v ${abaAtiva === "maquinas" ? "active" : ""}`}><Cog size={16} />Máquinas</Link>
+          <Link href="/custo-hora" className={`stx-tab-v ${abaAtiva === "horaEmpresa" ? "active" : ""}`}><Clock size={16} />Custo por hora</Link>
         </>
       )}
 

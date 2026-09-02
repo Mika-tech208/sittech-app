@@ -18,9 +18,9 @@
 
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import {
-  Package, Clock, Users, Percent,
+  Package, Clock, Users,
   DollarSign, TrendingUp, TrendingDown, Scale, Target, Sparkles, ClipboardList, Layers,
   AlertTriangle, Factory, Activity, PauseCircle, ClipboardCheck, Database,
 } from "lucide-react";
@@ -29,31 +29,36 @@ import {
   ResponsiveContainer, Cell, PieChart, Pie, ReferenceLine, ReferenceArea,
 } from "recharts";
 
-import type {
-  FixedCost, VariableEntry, Funcionario, Periodo, Faturamento, Produto, Maquina, Previsao, Usuario, AuditoriaEntry,
-} from "@/types/domain";
 import {
-  STORAGE_KEY, CATEGORIAS, OPERACOES, PERIODOS_PADRAO, PIE_COLORS, TITULOS_ABA, THEMES, USUARIOS_SEED,
+  CATEGORIAS, OPERACOES, PIE_COLORS, TITULOS_ABA, THEMES,
 } from "@/lib/constants";
-import { duracaoPeriodoHorasCalc } from "@/lib/calculations/periodos";
-import { monthKey, monthLabel, shiftMonth, toISODate, mondayOf } from "@/lib/date";
-import { formatBRL, toNumber, monthLabelShort, setModoPrivadoAtivo } from "@/lib/format";
+import { monthKey, monthLabel, shiftMonth, toISODate, mondayOf, weekLabel } from "@/lib/date";
+import { formatBRL, toNumber, monthLabelShort, setModoPrivadoAtivo, corPorMargemPct } from "@/lib/format";
 import { uid } from "@/lib/id";
-import { gerarSalt, hashSenha } from "@/lib/auth";
-import { storageService } from "@/services/storage-service";
+import { serializeBackup } from "@/services/backup-service";
+import { useAuthSession } from "@/hooks/useAuthSession";
+import { useCadastrosBase } from "@/hooks/useCadastrosBase";
+import { useFuncionarios } from "@/hooks/useFuncionarios";
+import { useMaquinas } from "@/hooks/useMaquinas";
+import { useProdutos } from "@/hooks/useProdutos";
+import { usePrevisoes } from "@/hooks/usePrevisoes";
+import { useCustos } from "@/hooks/useCustos";
+import { useFaturamentos } from "@/hooks/useFaturamentos";
+import { useUsuarios } from "@/hooks/useUsuarios";
+import { useAuditoria } from "@/hooks/useAuditoria";
 import GlobalStyles from "@/components/shell/GlobalStyles";
 import Sidebar from "@/components/shell/Sidebar";
 import LoginScreen from "@/components/shell/LoginScreen";
 import TopBarActions from "@/components/shell/TopBarActions";
 import AccountModal from "@/components/shell/AccountModal";
 import {
-  calcularPeriodosComDuracao, filtrarPeriodosValidos, calcularHorasPorDia, calcularDuracaoMediaPeriodo,
+  calcularPeriodosComDuracao, filtrarPeriodosValidos, calcularHorasPorDia,
 } from "@/lib/calculations/periodos";
 import {
   calcularTotalFixoAtivo, calcularCustoMensalFuncionario, calcularTotalCustoFuncionariosAtivos,
-  calcularCustoHoraPorOperacao, calcularMargemProduto,
-} from "@/lib/calculations/custoHora";
-import { calcularMetaFaturamento } from "@/lib/calculations/metaFaturamento";
+  calcularCustoHoraEOperacoes, calcularCustoHoraIndividual, calcularCustoHoraSittech,
+  calcularMetaFaturamento,
+} from "@/features/custo-hora/calculations";
 
 const emptyForm = { descricao: "", categoria: CATEGORIAS[0], valor: "" };
 const emptyFuncForm = { nome: "", operacao: OPERACOES[0], salarioBase: "" };
@@ -124,50 +129,54 @@ export default function SittechApp() {
     setGruposAbertos((prev) => ({ ...prev, [grupo]: !prev[grupo] }));
   }
 
-  const [autenticado, setAutenticado] = useState(false);
-  const [loginUsuario, setLoginUsuario] = useState("");
-  const [loginSenha, setLoginSenha] = useState("");
-  const [loginErro, setLoginErro] = useState("");
-  const [loginCarregando, setLoginCarregando] = useState(false);
-  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
-  const [auditoria, setAuditoria] = useState<AuditoriaEntry[]>([]);
-  const usuarioLogado = usuarios.find((u) => u.login.toLowerCase() === loginUsuario.trim().toLowerCase()) || null;
+  // Autenticação unificada — Supabase Auth + public.usuarios, mesmo hook
+  // usado por /previsao, /capacidade, /custo-hora, /produtos, /maquinas.
+  const auth = useAuthSession();
+  const {
+    autenticado, usuarioLogado, restaurandoSessao,
+    loginUsuario, setLoginUsuario, loginSenha, setLoginSenha, loginErro, loginCarregando, handleLogin, handleLogout,
+    registrarAuditoria,
+    minhaContaAberta, setMinhaContaAberta, abrirMinhaConta,
+    minhaSenhaAtual, setMinhaSenhaAtual, minhaSenhaNova, setMinhaSenhaNova,
+    minhaSenhaConfirma, setMinhaSenhaConfirma, minhaContaMsg, alterarMinhaSenha,
+  } = auth;
 
-  async function handleLogin() {
-    setLoginCarregando(true);
-    const candidato = usuarios.find((u) => u.login.toLowerCase() === loginUsuario.trim().toLowerCase() && u.ativo);
-    if (!candidato) {
-      setLoginErro("Usuário ou senha incorretos.");
-      setLoginCarregando(false);
-      return;
-    }
-    const hashDigitado = await hashSenha(loginSenha, candidato.senhaSalt);
-    if (hashDigitado === candidato.senhaHash) {
-      setAutenticado(true);
-      setLoginErro("");
-      setLoginSenha("");
-      const usuariosAtualizados = usuarios.map((u) => (u.id === candidato.id ? { ...u, ultimoAcesso: new Date().toISOString() } : u));
-      setUsuarios(usuariosAtualizados);
-      try {
-        await storageService.set(STORAGE_KEY, JSON.stringify({
-          fixedCosts, variableEntries, categorias, operacoes, funcionarios, periodos, diasUteis, diasUteisSemana,
-          faturamentos, produtos, maquinas, previsoes, usuarios: usuariosAtualizados, auditoria,
-        }), true);
-      } catch (e) { /* não bloqueia o login se isso falhar */ }
-    } else {
-      setLoginErro("Usuário ou senha incorretos.");
-    }
-    setLoginCarregando(false);
-  }
+  // Cadastros-base (categorias, operações, períodos, configurações da
+  // empresa) já migrados pro Supabase — fonte única também aqui, pra não
+  // divergir do que /produtos, /maquinas, /custo-hora, /capacidade já usam.
+  // O estado local `categorias`/`operacoes`/`periodos`/`diasUteis*` abaixo
+  // continua existindo só para o backup/restauração (fora do escopo desta
+  // etapa) — não é mais a fonte usada pra exibir ou calcular nada.
+  const cadastrosBase = useCadastrosBase(autenticado);
+  // Ordem exigida: auth pronta -> cadastros-base -> funcionários -> máquinas
+  // -> produtos -> previsões -> custos -> faturamentos. `/` não tem CRUD de
+  // máquinas nem de produtos (extraído pra /maquinas e /produtos na Fase 1)
+  // — máquinas só existe aqui pra manter a ordem; produtos alimenta o
+  // indicador "Produtos cadastrados" do início; previsões alimenta o card
+  // "Semana atual"; custos e faturamentos têm CRUD completo aqui (abas
+  // "Custos mensais" e "Faturamento mensal", nunca extraídas na Fase 1).
+  const funcionariosHook = useFuncionarios(autenticado && !cadastrosBase.loading);
+  const maquinasHook = useMaquinas(autenticado && !cadastrosBase.loading && !funcionariosHook.loading);
+  const produtosHook = useProdutos(autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading);
+  const previsoesHook = usePrevisoes(
+    autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading && !produtosHook.loading
+  );
+  const custosHook = useCustos(
+    autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading && !produtosHook.loading && !previsoesHook.loading
+  );
+  const faturamentosHook = useFaturamentos(
+    autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading && !produtosHook.loading && !previsoesHook.loading && !custosHook.loading
+  );
+  // Usuários + auditoria (aba "Usuários", admin only) — última no encadeamento,
+  // nada mais depende deles.
+  const usuariosHook = useUsuarios(
+    autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading && !produtosHook.loading && !previsoesHook.loading && !custosHook.loading && !faturamentosHook.loading
+  );
+  const auditoriaHook = useAuditoria(
+    autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading && !produtosHook.loading && !previsoesHook.loading && !custosHook.loading && !faturamentosHook.loading
+  );
 
-  function registrarAuditoria(acao, usuarioAfetado) {
-    const entrada = { id: uid(), quando: new Date().toISOString(), quem: usuarioLogado?.nome || loginUsuario, acao, usuarioAfetado: usuarioAfetado || null };
-    const novaAuditoria = [entrada, ...auditoria].slice(0, 200);
-    setAuditoria(novaAuditoria);
-    persist({ auditoria: novaAuditoria });
-  }
-
-  const emptyUsuarioForm = { nome: "", login: "", papel: "usuario" };
+  const emptyUsuarioForm = { nome: "", email: "", papel: "usuario" };
   const [showUsuarioForm, setShowUsuarioForm] = useState(false);
   const [editingUsuarioId, setEditingUsuarioId] = useState(null);
   const [usuarioForm, setUsuarioForm] = useState(emptyUsuarioForm);
@@ -175,11 +184,6 @@ export default function SittechApp() {
   const [usuarioFormErro, setUsuarioFormErro] = useState("");
   const [resetandoSenhaId, setResetandoSenhaId] = useState(null);
   const [senhaResetForm, setSenhaResetForm] = useState("");
-  const [minhaContaAberta, setMinhaContaAberta] = useState(false);
-  const [minhaSenhaAtual, setMinhaSenhaAtual] = useState("");
-  const [minhaSenhaNova, setMinhaSenhaNova] = useState("");
-  const [minhaSenhaConfirma, setMinhaSenhaConfirma] = useState("");
-  const [minhaContaMsg, setMinhaContaMsg] = useState("");
 
   function resetUsuarioForm() {
     setUsuarioForm(emptyUsuarioForm);
@@ -189,120 +193,86 @@ export default function SittechApp() {
     setUsuarioFormErro("");
   }
   function editUsuario(u) {
-    setUsuarioForm({ nome: u.nome, login: u.login, papel: u.papel });
+    setUsuarioForm({ nome: u.nome, email: u.email, papel: u.papel });
     setEditingUsuarioId(u.id);
     setShowUsuarioForm(true);
     setUsuarioFormErro("");
   }
   async function submitUsuario() {
-    if (!usuarioForm.nome.trim() || !usuarioForm.login.trim()) {
-      setUsuarioFormErro("Preenche nome e login.");
+    if (!usuarioForm.nome.trim() || !usuarioForm.email.trim()) {
+      setUsuarioFormErro("Preenche nome e e-mail.");
       return;
     }
-    const loginDuplicado = usuarios.some(
-      (u) => u.login.toLowerCase() === usuarioForm.login.trim().toLowerCase() && u.id !== editingUsuarioId
+    const emailDuplicado = usuariosHook.usuarios.some(
+      (u) => u.email.toLowerCase() === usuarioForm.email.trim().toLowerCase() && u.id !== editingUsuarioId
     );
-    if (loginDuplicado) {
-      setUsuarioFormErro("Já existe um usuário com esse login.");
+    if (emailDuplicado) {
+      setUsuarioFormErro("Já existe um usuário com esse e-mail.");
       return;
     }
     if (editingUsuarioId) {
-      const usuarioAntigo = usuarios.find((u) => u.id === editingUsuarioId);
+      const usuarioAntigo = usuariosHook.usuarios.find((u) => u.id === editingUsuarioId);
       if (usuarioAntigo && usuarioAntigo.papel === "admin" && usuarioForm.papel !== "admin") {
-        const outrosAdmins = usuarios.filter((u) => u.papel === "admin" && u.ativo && u.id !== editingUsuarioId);
+        const outrosAdmins = usuariosHook.usuarios.filter((u) => u.papel === "admin" && u.ativo && u.id !== editingUsuarioId);
         if (outrosAdmins.length === 0) {
           setUsuarioFormErro("Não é possível rebaixar o último administrador ativo.");
           return;
         }
       }
-      const atualizados = usuarios.map((u) =>
-        u.id === editingUsuarioId ? { ...u, nome: usuarioForm.nome, login: usuarioForm.login, papel: usuarioForm.papel } : u
-      );
-      persist({ usuarios: atualizados });
-      registrarAuditoria("Editou usuário", usuarioForm.nome);
-    } else {
-      if (!novaSenhaForm || novaSenhaForm.length < 4) {
-        setUsuarioFormErro("Define uma senha com pelo menos 4 caracteres.");
+      const ok = await usuariosHook.atualizarUsuario(editingUsuarioId, { nome: usuarioForm.nome, papel: usuarioForm.papel });
+      if (!ok) {
+        setUsuarioFormErro(usuariosHook.erro || "Não foi possível salvar o usuário.");
         return;
       }
-      const salt = gerarSalt();
-      const hash = await hashSenha(novaSenhaForm, salt);
-      const novo = {
-        id: uid(), nome: usuarioForm.nome, login: usuarioForm.login, senhaHash: hash, senhaSalt: salt,
-        papel: usuarioForm.papel, ativo: true, criadoEm: new Date().toISOString(), ultimoAcesso: null,
-      };
-      persist({ usuarios: [...usuarios, novo] });
-      registrarAuditoria("Criou usuário", usuarioForm.nome);
+      await registrarAuditoria("Editou usuário", usuarioForm.nome);
+      auditoriaHook.recarregar();
+    } else {
+      if (!novaSenhaForm || novaSenhaForm.length < 6) {
+        setUsuarioFormErro("Define uma senha com pelo menos 6 caracteres.");
+        return;
+      }
+      const novo = await usuariosHook.criarUsuario({
+        nome: usuarioForm.nome, email: usuarioForm.email, senha: novaSenhaForm, papel: usuarioForm.papel,
+      });
+      if (!novo) {
+        setUsuarioFormErro(usuariosHook.erro || "Não foi possível criar o usuário.");
+        return;
+      }
+      await registrarAuditoria("Criou usuário", usuarioForm.nome);
+      auditoriaHook.recarregar();
     }
     resetUsuarioForm();
   }
-  function toggleAtivoUsuario(u) {
+  async function toggleAtivoUsuario(u) {
     if (u.ativo && u.papel === "admin") {
-      const outrosAdminsAtivos = usuarios.filter((x) => x.papel === "admin" && x.ativo && x.id !== u.id);
+      const outrosAdminsAtivos = usuariosHook.usuarios.filter((x) => x.papel === "admin" && x.ativo && x.id !== u.id);
       if (outrosAdminsAtivos.length === 0) {
         setUsuarioFormErro("Não é possível desativar o último administrador ativo.");
         return;
       }
     }
-    const atualizados = usuarios.map((x) => (x.id === u.id ? { ...x, ativo: !x.ativo } : x));
-    persist({ usuarios: atualizados });
-    registrarAuditoria(u.ativo ? "Desativou usuário" : "Ativou usuário", u.nome);
+    const ok = await usuariosHook.alternarUsuarioAtivo(u.id);
+    if (!ok) return;
+    await registrarAuditoria(u.ativo ? "Desativou usuário" : "Ativou usuário", u.nome);
+    auditoriaHook.recarregar();
   }
   async function confirmarResetSenha(u) {
-    if (!senhaResetForm || senhaResetForm.length < 4) {
-      setUsuarioFormErro("Define uma senha com pelo menos 4 caracteres.");
+    if (!senhaResetForm || senhaResetForm.length < 6) {
+      setUsuarioFormErro("Define uma senha com pelo menos 6 caracteres.");
       return;
     }
-    const salt = gerarSalt();
-    const hash = await hashSenha(senhaResetForm, salt);
-    const atualizados = usuarios.map((x) => (x.id === u.id ? { ...x, senhaHash: hash, senhaSalt: salt } : x));
-    persist({ usuarios: atualizados });
-    registrarAuditoria("Redefiniu senha", u.nome);
+    const ok = await usuariosHook.resetarSenhaUsuario(u.id, senhaResetForm);
+    if (!ok) {
+      setUsuarioFormErro(usuariosHook.erro || "Não foi possível redefinir a senha.");
+      return;
+    }
+    await registrarAuditoria("Redefiniu senha", u.nome);
+    auditoriaHook.recarregar();
     setResetandoSenhaId(null);
     setSenhaResetForm("");
     setUsuarioFormErro("");
   }
-  async function alterarMinhaSenha() {
-    if (!usuarioLogado) return;
-    const hashAtual = await hashSenha(minhaSenhaAtual, usuarioLogado.senhaSalt);
-    if (hashAtual !== usuarioLogado.senhaHash) {
-      setMinhaContaMsg("Senha atual incorreta.");
-      return;
-    }
-    if (!minhaSenhaNova || minhaSenhaNova.length < 4) {
-      setMinhaContaMsg("A nova senha precisa ter pelo menos 4 caracteres.");
-      return;
-    }
-    if (minhaSenhaNova !== minhaSenhaConfirma) {
-      setMinhaContaMsg("As senhas novas não coincidem.");
-      return;
-    }
-    const salt = gerarSalt();
-    const hash = await hashSenha(minhaSenhaNova, salt);
-    const atualizados = usuarios.map((u) => (u.id === usuarioLogado.id ? { ...u, senhaHash: hash, senhaSalt: salt } : u));
-    persist({ usuarios: atualizados });
-    registrarAuditoria("Alterou a própria senha", usuarioLogado.nome);
-    setMinhaSenhaAtual("");
-    setMinhaSenhaNova("");
-    setMinhaSenhaConfirma("");
-    setMinhaContaMsg("Senha alterada com sucesso.");
-  }
 
-  const [fixedCosts, setFixedCosts] = useState<FixedCost[]>([]);
-  const [variableEntries, setVariableEntries] = useState<VariableEntry[]>([]);
-  const [categorias, setCategorias] = useState(CATEGORIAS);
-  const [operacoes, setOperacoes] = useState(OPERACOES);
-  const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
-  const [periodos, setPeriodos] = useState<Periodo[]>(PERIODOS_PADRAO);
-  const [diasUteis, setDiasUteis] = useState("22");
-  const [diasUteisSemana, setDiasUteisSemana] = useState("5");
-  const [faturamentos, setFaturamentos] = useState<Faturamento[]>([]);
-  const [produtos, setProdutos] = useState<Produto[]>([]);
-  const [maquinas, setMaquinas] = useState<Maquina[]>([]);
-  const [previsoes, setPrevisoes] = useState<Previsao[]>([]);
-
-  const [loading, setLoading] = useState(true);
-  const [saveError, setSaveError] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(monthKey(new Date()));
 
   const [showFixedForm, setShowFixedForm] = useState(false);
@@ -329,167 +299,23 @@ export default function SittechApp() {
   const [editingReceitaId, setEditingReceitaId] = useState(null);
   const [receitaForm, setReceitaForm] = useState(emptyReceitaForm);
 
-  const emptyProdutoForm = { nome: "", referencia: "", valorUnitario: "", prioridade: "media" };
-  const [showProdutoForm, setShowProdutoForm] = useState(false);
-  const [editingProdutoId, setEditingProdutoId] = useState(null);
-  const [produtoForm, setProdutoForm] = useState(emptyProdutoForm);
-  const [produtoRoteiro, setProdutoRoteiro] = useState([]);
-  const [novaOperacaoEtapaId, setNovaOperacaoEtapaId] = useState(null);
-  const [textoNovaOperacaoEtapa, setTextoNovaOperacaoEtapa] = useState("");
-
-  const emptyMaquinaForm = { nome: "", operacao: OPERACOES[0] };
-  const [showMaquinaForm, setShowMaquinaForm] = useState(false);
-  const [editingMaquinaId, setEditingMaquinaId] = useState(null);
-  const [maquinaForm, setMaquinaForm] = useState(emptyMaquinaForm);
-  const [novaOperacaoMaquina, setNovaOperacaoMaquina] = useState(false);
-  const [textoNovaOperacaoMaquina, setTextoNovaOperacaoMaquina] = useState("");
-
   // Previsão Semanal/Capacidade migraram para /previsao e /capacidade
   // (features/previsao, features/capacidade) — só a margem desejada
   // continua aqui, lida pelo card "Meta semanal" do menu lateral.
   const margemDesejada = "20";
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await storageService.get(STORAGE_KEY, true);
-        if (res && res.value) {
-          const parsed = JSON.parse(res.value);
-          if (Array.isArray(parsed)) {
-            setVariableEntries(
-              parsed.map((e) => ({
-                id: e.id, mes: e.mes, descricao: e.descricao, categoria: e.categoria, valor: e.valor,
-              }))
-            );
-          } else {
-            setFixedCosts(parsed.fixedCosts || []);
-            setVariableEntries(parsed.variableEntries || []);
-            if (parsed.categorias && parsed.categorias.length) setCategorias(parsed.categorias);
-            if (parsed.operacoes && parsed.operacoes.length) setOperacoes(parsed.operacoes);
-            setFuncionarios(
-              (parsed.funcionarios || []).map((f) => ({
-                ...f,
-                salarioBase: f.salarioBase !== undefined ? f.salarioBase : 0,
-              }))
-            );
-            if (parsed.periodos !== undefined) setPeriodos(parsed.periodos);
-            if (parsed.diasUteis !== undefined) setDiasUteis(String(parsed.diasUteis));
-            setFaturamentos(parsed.faturamentos || []);
-            setProdutos(parsed.produtos || []);
-            setMaquinas(parsed.maquinas || []);
-            if (parsed.diasUteisSemana !== undefined) setDiasUteisSemana(String(parsed.diasUteisSemana));
-            setPrevisoes(parsed.previsoes || []);
-            setAuditoria(parsed.auditoria || []);
-
-            if (parsed.usuarios && parsed.usuarios.length) {
-              setUsuarios(parsed.usuarios);
-            } else {
-              // migração única: primeira vez que esse formato roda — converte a lista antiga
-              // (senha em texto puro, fixa no código) pro formato novo, com senha em hash + salt.
-              const migrados = await Promise.all(
-                USUARIOS_SEED.map(async (u) => {
-                  const salt = gerarSalt();
-                  const hash = await hashSenha(u.senha, salt);
-                  return {
-                    id: uid(), nome: u.nome, login: u.usuario, senhaHash: hash, senhaSalt: salt,
-                    papel: "admin", ativo: true, criadoEm: new Date().toISOString(), ultimoAcesso: null,
-                  };
-                })
-              );
-              setUsuarios(migrados);
-              try {
-                await storageService.set(STORAGE_KEY, JSON.stringify({ ...parsed, usuarios: migrados }), true);
-              } catch (e) { /* segue mesmo se não conseguir salvar a migração agora */ }
-            }
-          }
-        } else {
-          // storage vazio de verdade — mesma migração, garantindo que sempre existam usuários pra logar
-          const migrados = await Promise.all(
-            USUARIOS_SEED.map(async (u) => {
-              const salt = gerarSalt();
-              const hash = await hashSenha(u.senha, salt);
-              return {
-                id: uid(), nome: u.nome, login: u.usuario, senhaHash: hash, senhaSalt: salt,
-                papel: "admin", ativo: true, criadoEm: new Date().toISOString(), ultimoAcesso: null,
-              };
-            })
-          );
-          setUsuarios(migrados);
-        }
-      } catch (e) {
-        // chave ainda não existe — começa vazio (use a aba "Importar dados" > Restaurar backup pra repor os dados)
-        const migrados = await Promise.all(
-          USUARIOS_SEED.map(async (u) => {
-            const salt = gerarSalt();
-            const hash = await hashSenha(u.senha, salt);
-            return {
-              id: uid(), nome: u.nome, login: u.usuario, senhaHash: hash, senhaSalt: salt,
-              papel: "admin", ativo: true, criadoEm: new Date().toISOString(), ultimoAcesso: null,
-            };
-          })
-        );
-        setUsuarios(migrados);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  async function persist(overrides = {}) {
-    if (loading) return; // proteção: nunca escreve enquanto o carregamento inicial não terminar
-    const next = {
-      fixedCosts, variableEntries, categorias, operacoes, funcionarios, periodos, diasUteis, diasUteisSemana, faturamentos, produtos, maquinas, previsoes,
-      usuarios, auditoria,
-      ...overrides,
-    };
-    setFixedCosts(next.fixedCosts);
-    setVariableEntries(next.variableEntries);
-    setCategorias(next.categorias);
-    setOperacoes(next.operacoes);
-    setFuncionarios(next.funcionarios);
-    setPeriodos(next.periodos);
-    setDiasUteis(String(next.diasUteis));
-    setDiasUteisSemana(String(next.diasUteisSemana));
-    setFaturamentos(next.faturamentos);
-    setProdutos(next.produtos);
-    setMaquinas(next.maquinas);
-    setPrevisoes(next.previsoes);
-    setUsuarios(next.usuarios);
-    setAuditoria(next.auditoria);
-    try {
-      const res = await storageService.set(STORAGE_KEY, JSON.stringify(next), true);
-      setSaveError(!res);
-    } catch (e) {
-      setSaveError(true);
-    }
-  }
-
-  function addCategoria(nome) {
-    const trimmed = nome.trim();
-    if (!trimmed) return null;
-    const existente = categorias.find((c) => c.toLowerCase() === trimmed.toLowerCase());
-    if (existente) return existente;
-    persist({ categorias: [...categorias, trimmed] });
-    return trimmed;
-  }
-
-  function addOperacao(nome) {
-    const trimmed = nome.trim();
-    if (!trimmed) return null;
-    const existente = operacoes.find((o) => o.toLowerCase() === trimmed.toLowerCase());
-    if (existente) return existente;
-    persist({ operacoes: [...operacoes, trimmed] });
-    return trimmed;
-  }
-
-  const activeFixed = useMemo(() => fixedCosts.filter((f) => f.ativo), [fixedCosts]);
+  // Custos fixos/pontuais vêm do Supabase (useCustos) — mesma fonte usada
+  // em /produtos, /maquinas, /custo-hora, /previsao, /capacidade. O
+  // `fixedCosts`/`variableEntries` local (useState acima) continua
+  // existindo só para backup/restauração do blob legado.
+  const activeFixed = useMemo(() => custosHook.fixedCosts.filter((f) => f.ativo), [custosHook.fixedCosts]);
 
   const filteredVariable = useMemo(
-    () => variableEntries.filter((e) => e.mes === currentMonth).sort((a, b) => b.valor - a.valor),
-    [variableEntries, currentMonth]
+    () => custosHook.variableEntries.filter((e) => e.mes === currentMonth).sort((a, b) => b.valor - a.valor),
+    [custosHook.variableEntries, currentMonth]
   );
 
-  const totalFixo = useMemo(() => calcularTotalFixoAtivo(fixedCosts), [fixedCosts]);
+  const totalFixo = useMemo(() => calcularTotalFixoAtivo(custosHook.fixedCosts), [custosHook.fixedCosts]);
   const totalVariavel = useMemo(() => filteredVariable.reduce((s, e) => s + Number(e.valor || 0), 0), [filteredVariable]);
   const total = totalFixo + totalVariavel;
 
@@ -508,13 +334,14 @@ export default function SittechApp() {
     setEditingFixedId(null);
     setShowFixedForm(false);
   }
-  function submitFixed() {
+  async function submitFixed() {
     if (!fixedForm.descricao.trim() || !fixedForm.valor) return;
     const valorNum = toNumber(fixedForm.valor);
+    const payload = { descricao: fixedForm.descricao, categoria: fixedForm.categoria, valor: valorNum };
     if (editingFixedId) {
-      persist({ fixedCosts: fixedCosts.map((f) => (f.id === editingFixedId ? { ...f, ...fixedForm, valor: valorNum } : f)) });
+      await custosHook.atualizarFixedCost(editingFixedId, payload);
     } else {
-      persist({ fixedCosts: [...fixedCosts, { id: uid(), ...fixedForm, valor: valorNum, ativo: true }] });
+      await custosHook.criarFixedCost(payload);
     }
     resetFixedForm();
   }
@@ -523,17 +350,17 @@ export default function SittechApp() {
     setEditingFixedId(f.id);
     setShowFixedForm(true);
   }
-  function confirmNovaCategoriaFixed() {
-    const nome = addCategoria(textoNovaCategoriaFixed);
+  async function confirmNovaCategoriaFixed() {
+    const nome = await cadastrosBase.criarCategoria(textoNovaCategoriaFixed);
     if (nome) setFixedForm((f) => ({ ...f, categoria: nome }));
     setTextoNovaCategoriaFixed("");
     setNovaCategoriaFixed(false);
   }
   function toggleFixedAtivo(id) {
-    persist({ fixedCosts: fixedCosts.map((f) => (f.id === id ? { ...f, ativo: !f.ativo } : f)) });
+    custosHook.alternarFixedCostAtivo(id);
   }
   function deleteFixed(id) {
-    persist({ fixedCosts: fixedCosts.filter((f) => f.id !== id) });
+    custosHook.removerFixedCost(id);
   }
 
   // ---- custos pontuais ----
@@ -542,18 +369,18 @@ export default function SittechApp() {
     setEditingVarId(null);
     setShowVarForm(false);
   }
-  function submitVar() {
+  async function submitVar() {
     if (!varForm.descricao.trim() || !varForm.valor) return;
     const valorNum = toNumber(varForm.valor);
     if (editingVarId) {
-      persist({ variableEntries: variableEntries.map((it) => (it.id === editingVarId ? { ...it, ...varForm, valor: valorNum } : it)) });
+      await custosHook.atualizarVariableEntry(editingVarId, { mes: currentMonth, descricao: varForm.descricao, categoria: varForm.categoria, valor: valorNum });
     } else {
-      persist({ variableEntries: [...variableEntries, { id: uid(), mes: currentMonth, ...varForm, valor: valorNum }] });
+      await custosHook.criarVariableEntry({ mes: currentMonth, descricao: varForm.descricao, categoria: varForm.categoria, valor: valorNum });
     }
     resetVarForm();
   }
-  function confirmNovaCategoriaVar() {
-    const nome = addCategoria(textoNovaCategoriaVar);
+  async function confirmNovaCategoriaVar() {
+    const nome = await cadastrosBase.criarCategoria(textoNovaCategoriaVar);
     if (nome) setVarForm((f) => ({ ...f, categoria: nome }));
     setTextoNovaCategoriaVar("");
     setNovaCategoriaVar(false);
@@ -564,11 +391,15 @@ export default function SittechApp() {
     setShowVarForm(true);
   }
   function deleteVar(id) {
-    persist({ variableEntries: variableEntries.filter((e) => e.id !== id) });
+    custosHook.removerVariableEntry(id);
   }
 
   // ---- funcionários ----
-  const funcionariosAtivos = useMemo(() => funcionarios.filter((f) => f.ativo), [funcionarios]);
+  // Funcionários + custos vêm do Supabase (useFuncionarios) — mesma fonte
+  // usada em /produtos, /maquinas, /custo-hora, /previsao, /capacidade.
+  // O `funcionarios` local (useState acima) continua existindo só para
+  // backup/restauração do blob legado (fora do escopo desta etapa).
+  const funcionariosAtivos = useMemo(() => funcionariosHook.funcionarios.filter((f) => f.ativo), [funcionariosHook.funcionarios]);
 
   const custoMensalFunc = calcularCustoMensalFuncionario;
   const totalCustoFuncionariosAtivos = useMemo(
@@ -577,36 +408,23 @@ export default function SittechApp() {
   );
 
   // horas produtivas: derivadas dos períodos de trabalho reais (M1, M2, M3, T1, T2, T3)
-  const periodosComDuracao = useMemo(() => calcularPeriodosComDuracao(periodos), [periodos]);
+  // — periodos/diasUteis vêm do Supabase (cadastrosBase), mesma fonte usada
+  // em /custo-hora, pra não divergir do que aquela tela mostra.
+  const periodosComDuracao = useMemo(() => calcularPeriodosComDuracao(cadastrosBase.periodos), [cadastrosBase.periodos]);
   const periodosValidos = useMemo(() => filtrarPeriodosValidos(periodosComDuracao), [periodosComDuracao]);
   const horasPorDiaCalc = useMemo(() => calcularHorasPorDia(periodosValidos), [periodosValidos]);
-  const duracaoMediaPeriodo = calcularDuracaoMediaPeriodo(periodosValidos, horasPorDiaCalc);
 
-  const horasProdutivasFuncionario = useMemo(() => horasPorDiaCalc * toNumber(diasUteis), [horasPorDiaCalc, diasUteis]);
-  const totalHorasProdutivasEmpresa = useMemo(
-    () => horasProdutivasFuncionario * funcionariosAtivos.length,
-    [horasProdutivasFuncionario, funcionariosAtivos]
-  );
-  const custoMedioFuncionarioMensal = funcionariosAtivos.length ? totalCustoFuncionariosAtivos / funcionariosAtivos.length : 0;
+  const horasProdutivasFuncionario = useMemo(() => horasPorDiaCalc * toNumber(cadastrosBase.diasUteis), [horasPorDiaCalc, cadastrosBase.diasUteis]);
 
-  const porOperacao = useMemo(() => {
-    const map = {};
-    funcionarios.forEach((f) => {
-      if (!map[f.operacao]) map[f.operacao] = [];
-      map[f.operacao].push(f);
-    });
-    return Object.entries(map);
-  }, [funcionarios]);
-
-  const { custoHoraPorOperacao, custoHoraEmpresa, rateioPorHora } = useMemo(
-    () => calcularCustoHoraPorOperacao(funcionarios, fixedCosts, horasPorDiaCalc, diasUteis),
-    [funcionarios, fixedCosts, horasPorDiaCalc, diasUteis]
+  const { custoHoraEmpresa, rateioPorHora } = useMemo(
+    () => calcularCustoHoraEOperacoes(funcionariosHook.funcionarios, custosHook.fixedCosts, horasPorDiaCalc, cadastrosBase.diasUteis),
+    [funcionariosHook.funcionarios, custosHook.fixedCosts, horasPorDiaCalc, cadastrosBase.diasUteis]
   );
   function custoHoraIndividual(f) {
-    return horasProdutivasFuncionario > 0 ? custoMensalFunc(f) / horasProdutivasFuncionario : 0;
+    return calcularCustoHoraIndividual(custoMensalFunc(f), horasProdutivasFuncionario);
   }
   function custoHoraSittech(f) {
-    return custoHoraIndividual(f) + rateioPorHora;
+    return calcularCustoHoraSittech(custoHoraIndividual(f), rateioPorHora);
   }
 
   function resetFuncForm() {
@@ -628,11 +446,11 @@ export default function SittechApp() {
     () => toNumber(funcForm.salarioBase) + funcCustos.reduce((s, c) => s + toNumber(c.valor), 0),
     [funcCustos, funcForm.salarioBase]
   );
-  function submitFunc() {
+  async function submitFunc() {
     if (!funcForm.nome.trim()) return;
     const custosLimpos = funcCustos
       .filter((c) => c.descricao.trim() && c.valor)
-      .map((c) => ({ id: c.id, descricao: c.descricao.trim(), valor: toNumber(c.valor) }));
+      .map((c) => ({ descricao: c.descricao.trim(), valor: toNumber(c.valor) }));
     const payload = {
       nome: funcForm.nome.trim(),
       operacao: funcForm.operacao,
@@ -640,9 +458,9 @@ export default function SittechApp() {
       custos: custosLimpos,
     };
     if (editingFuncId) {
-      persist({ funcionarios: funcionarios.map((f) => (f.id === editingFuncId ? { ...f, ...payload } : f)) });
+      await funcionariosHook.atualizarFuncionario(editingFuncId, payload);
     } else {
-      persist({ funcionarios: [...funcionarios, { id: uid(), ativo: true, ...payload }] });
+      await funcionariosHook.criarFuncionario(payload);
     }
     resetFuncForm();
   }
@@ -652,40 +470,33 @@ export default function SittechApp() {
     setEditingFuncId(f.id);
     setShowFuncForm(true);
   }
-  function confirmNovaOperacao() {
-    const nome = addOperacao(textoNovaOperacao);
+  async function confirmNovaOperacao() {
+    const nome = await cadastrosBase.criarOperacao(textoNovaOperacao);
     if (nome) setFuncForm((f) => ({ ...f, operacao: nome }));
     setTextoNovaOperacao("");
     setNovaOperacao(false);
   }
   function toggleFuncAtivo(id) {
-    persist({ funcionarios: funcionarios.map((f) => (f.id === id ? { ...f, ativo: !f.ativo } : f)) });
+    funcionariosHook.alternarFuncionarioAtivo(id);
   }
   function deleteFunc(id) {
-    persist({ funcionarios: funcionarios.filter((f) => f.id !== id) });
+    funcionariosHook.removerFuncionario(id);
   }
   function duplicateFunc(f) {
-    persist({
-      funcionarios: [
-        ...funcionarios,
-        { ...f, id: uid(), nome: f.nome + " (cópia)", custos: f.custos.map((c) => ({ ...c, id: uid() })) },
-      ],
-    });
+    funcionariosHook.duplicarFuncionario(f);
   }
-
-  function updatePeriodo(id, campo, valor) {
-    persist({ periodos: periodos.map((p) => (p.id === id ? { ...p, [campo]: valor } : p)) });
-  }
-  function updateDiasUteis(v) { persist({ diasUteis: v }); }
 
   // ---- faturamento mensal ----
   function formatDataBR(iso) {
     const [y, m, d] = iso.split("-");
     return `${d}/${m}/${y}`;
   }
+  // Faturamento/receitas vêm do Supabase (useFaturamentos) — o
+  // `faturamentos` local (useState acima) continua existindo só para
+  // backup/restauração do blob legado.
   const fatAtual = useMemo(
-    () => faturamentos.find((f) => f.mes === currentMonth) || { mes: currentMonth, receitas: [], numFuncionarios: "", custoFuncionariosTotal: "", custoFixoTotal: "" },
-    [faturamentos, currentMonth]
+    () => faturamentosHook.faturamentos.find((f) => f.mes === currentMonth) || { mes: currentMonth, receitas: [], numFuncionarios: "", custoFuncionariosTotal: "", custoFixoTotal: "" },
+    [faturamentosHook.faturamentos, currentMonth]
   );
   const receitasDoMes = useMemo(
     () => [...fatAtual.receitas].sort((a, b) => a.data.localeCompare(b.data)),
@@ -697,28 +508,17 @@ export default function SittechApp() {
   const lucroLiquidoMes = faturamentoBruto - impostoMes - custoTotalMes;
   const lucroLiquidoPctMes = faturamentoBruto > 0 ? (lucroLiquidoMes / faturamentoBruto) * 100 : 0;
 
-  function removeReceitaEverywhere(id) {
-    return faturamentos.map((f) => ({ ...f, receitas: f.receitas.filter((r) => r.id !== id) }));
-  }
-  function addReceitaToMonth(list, mes, receita) {
-    const idx = list.findIndex((f) => f.mes === mes);
-    if (idx === -1) {
-      return [...list, { mes, receitas: [receita], numFuncionarios: "", custoFuncionariosTotal: "", custoFixoTotal: "" }];
-    }
-    return list.map((f) => (f.mes === mes ? { ...f, receitas: [...f.receitas, receita] } : f));
-  }
   function resetReceitaForm() {
     setReceitaForm({ data: `${currentMonth}-01`, descricao: "", valor: "" });
     setEditingReceitaId(null);
     setShowReceitaForm(false);
   }
-  function submitReceita() {
+  async function submitReceita() {
     if (!receitaForm.data || !receitaForm.valor) return;
-    const mes = receitaForm.data.slice(0, 7);
     const valorNum = toNumber(receitaForm.valor);
-    const receita = { id: editingReceitaId || uid(), data: receitaForm.data, descricao: receitaForm.descricao.trim(), valor: valorNum };
-    const base = editingReceitaId ? removeReceitaEverywhere(editingReceitaId) : faturamentos;
-    persist({ faturamentos: addReceitaToMonth(base, mes, receita) });
+    await faturamentosHook.salvarReceita({
+      id: editingReceitaId || undefined, data: receitaForm.data, descricao: receitaForm.descricao.trim(), valor: valorNum,
+    });
     resetReceitaForm();
   }
   function editReceita(r) {
@@ -726,26 +526,21 @@ export default function SittechApp() {
     setEditingReceitaId(r.id);
     setShowReceitaForm(true);
   }
-  function deleteReceita(id) {
-    persist({ faturamentos: removeReceitaEverywhere(id) });
+  async function deleteReceita(id) {
+    await faturamentosHook.removerReceita(id);
   }
-  function updateFatCampos(campos) {
-    const idx = faturamentos.findIndex((f) => f.mes === currentMonth);
-    if (idx === -1) {
-      persist({ faturamentos: [...faturamentos, { mes: currentMonth, receitas: [], numFuncionarios: "", custoFuncionariosTotal: "", custoFixoTotal: "", ...campos }] });
-    } else {
-      persist({ faturamentos: faturamentos.map((f) => (f.mes === currentMonth ? { ...f, ...campos } : f)) });
-    }
+  async function updateFatCampos(campos) {
+    await faturamentosHook.atualizarCamposMes(currentMonth, campos);
   }
-  function preencherComDadosAtuais() {
-    updateFatCampos({
-      numFuncionarios: funcionariosAtivos.length,
-      custoFuncionariosTotal: Math.round(totalCustoFuncionariosAtivos * 100) / 100,
-      custoFixoTotal: Math.round(totalFixo * 100) / 100,
+  async function preencherComDadosAtuais() {
+    await updateFatCampos({
+      numFuncionarios: String(funcionariosAtivos.length),
+      custoFuncionariosTotal: String(Math.round(totalCustoFuncionariosAtivos * 100) / 100),
+      custoFixoTotal: String(Math.round(totalFixo * 100) / 100),
     });
   }
   const historicoFaturamento = useMemo(() => {
-    return [...faturamentos]
+    return [...faturamentosHook.faturamentos]
       .filter((f) => f.receitas.length > 0 || f.custoFuncionariosTotal || f.custoFixoTotal)
       .sort((a, b) => a.mes.localeCompare(b.mes))
       .map((f) => {
@@ -756,7 +551,7 @@ export default function SittechApp() {
         const pct = bruto > 0 ? (lucro / bruto) * 100 : 0;
         return { mes: f.mes, bruto, custoTotal, lucro, pct };
       });
-  }, [faturamentos]);
+  }, [faturamentosHook.faturamentos]);
 
   // ---- painel BI ----
   const [biFiltroModo, setBiFiltroModo] = useState("todos"); // 'todos' | 'mes' | 'intervalo'
@@ -771,11 +566,9 @@ export default function SittechApp() {
   const [textoImportReceitas, setTextoImportReceitas] = useState("");
   const [resultadoImportReceitas, setResultadoImportReceitas] = useState("");
   const [backupTexto, setBackupTexto] = useState("");
-  const [textoImportBackup, setTextoImportBackup] = useState("");
-  const [resultadoImportBackup, setResultadoImportBackup] = useState("");
 
   const dadosBITodos = useMemo(() => {
-    return [...faturamentos]
+    return [...faturamentosHook.faturamentos]
       .filter((f) => f.receitas.length > 0 || f.custoFuncionariosTotal || f.custoFixoTotal)
       .sort((a, b) => a.mes.localeCompare(b.mes))
       .map((f) => {
@@ -794,7 +587,7 @@ export default function SittechApp() {
           bruto, custoFunc, custoFixo, custoTotal, imposto, lucro, margem, numFunc, custoMedioFunc,
         };
       });
-  }, [faturamentos]);
+  }, [faturamentosHook.faturamentos]);
 
   const dadosBI = useMemo(() => {
     if (biFiltroModo === "mes") return dadosBITodos.filter((d) => d.mes === biMes);
@@ -928,22 +721,7 @@ export default function SittechApp() {
     );
   }
 
-  // ---- produtos ----
-  function calcularMargem(produto) {
-    return calcularMargemProduto(produto, custoHoraPorOperacao, custoHoraEmpresa, periodosComDuracao);
-  }
-
   // ---- cores de alerta pra números críticos ----
-  function corPorMargemPct(pct) {
-    if (pct < 0) return "var(--danger)";
-    if (pct < 20) return "var(--warning)";
-    return "var(--accent)";
-  }
-  function corPorLucroHora(valor) {
-    if (valor < 0) return "var(--danger)";
-    if (valor < 20) return "var(--warning)";
-    return "var(--accent)";
-  }
   function corHexPorMargem(pct) {
     if (pct < 0) return cores.danger;
     if (pct < 20) return cores.warning;
@@ -959,149 +737,6 @@ export default function SittechApp() {
         <circle cx={cx} cy={cy} r={6} fill={cor} stroke={cores.bg} strokeWidth={2} />
       </g>
     );
-  }
-
-  const produtosOrdenados = useMemo(() => {
-    const comRoteiro = produtos.filter((p) => (p.roteiro || []).length > 0);
-    const semRoteiro = produtos.filter((p) => !(p.roteiro || []).length);
-    comRoteiro.sort((a, b) => calcularMargem(b).lucroHora - calcularMargem(a).lucroHora);
-    semRoteiro.sort((a, b) => a.nome.localeCompare(b.nome));
-    return [...comRoteiro, ...semRoteiro];
-  }, [produtos, custoHoraPorOperacao, periodosComDuracao]);
-
-  function resetProdutoForm() {
-    setProdutoForm(emptyProdutoForm);
-    setProdutoRoteiro([]);
-    setEditingProdutoId(null);
-    setShowProdutoForm(false);
-    setNovaOperacaoEtapaId(null);
-    setTextoNovaOperacaoEtapa("");
-  }
-  function addEtapaProduto() {
-    setProdutoRoteiro([
-      ...produtoRoteiro,
-      { id: uid(), operacao: operacoes[0] || "", metas: { m1: "", m2: "", m3: "", t1: "", t2: "", t3: "" }, maquinasIds: [] },
-    ]);
-  }
-  function updateEtapaProduto(id, campo, valor) {
-    setProdutoRoteiro(produtoRoteiro.map((e) => (e.id === id ? { ...e, [campo]: valor } : e)));
-  }
-  function updateEtapaMeta(id, periodoId, valor) {
-    setProdutoRoteiro(
-      produtoRoteiro.map((e) => (e.id === id ? { ...e, metas: { ...e.metas, [periodoId]: valor } } : e))
-    );
-  }
-  function toggleEtapaMaquina(id, maquinaId) {
-    setProdutoRoteiro(
-      produtoRoteiro.map((e) => {
-        if (e.id !== id) return e;
-        const jaTem = e.maquinasIds.includes(maquinaId);
-        return { ...e, maquinasIds: jaTem ? e.maquinasIds.filter((m) => m !== maquinaId) : [...e.maquinasIds, maquinaId] };
-      })
-    );
-  }
-  function removeEtapaProduto(id) {
-    setProdutoRoteiro(produtoRoteiro.filter((e) => e.id !== id));
-  }
-  function confirmNovaOperacaoEtapa() {
-    const nome = addOperacao(textoNovaOperacaoEtapa);
-    if (nome && novaOperacaoEtapaId) updateEtapaProduto(novaOperacaoEtapaId, "operacao", nome);
-    setTextoNovaOperacaoEtapa("");
-    setNovaOperacaoEtapaId(null);
-  }
-  function submitProduto() {
-    if (!produtoForm.nome.trim() || !produtoForm.valorUnitario) return;
-    const valorNum = toNumber(produtoForm.valorUnitario);
-    const roteiroLimpo = produtoRoteiro
-      .filter((e) => e.operacao)
-      .map((e) => ({
-        id: e.id,
-        operacao: e.operacao,
-        metas: {
-          m1: toNumber(e.metas.m1), m2: toNumber(e.metas.m2), m3: toNumber(e.metas.m3),
-          t1: toNumber(e.metas.t1), t2: toNumber(e.metas.t2), t3: toNumber(e.metas.t3),
-        },
-        maquinasIds: e.maquinasIds,
-      }));
-    if (editingProdutoId) {
-      persist({
-        produtos: produtos.map((p) =>
-          p.id === editingProdutoId ? { ...p, ...produtoForm, valorUnitario: valorNum, roteiro: roteiroLimpo } : p
-        ),
-      });
-    } else {
-      persist({
-        produtos: [...produtos, { id: uid(), ...produtoForm, valorUnitario: valorNum, ativo: true, roteiro: roteiroLimpo }],
-      });
-    }
-    resetProdutoForm();
-  }
-  function editProduto(p) {
-    setProdutoForm({ nome: p.nome, referencia: p.referencia, valorUnitario: String(p.valorUnitario), prioridade: p.prioridade || "media" });
-    setProdutoRoteiro(
-      (p.roteiro || []).map((e) => ({
-        id: e.id,
-        operacao: e.operacao,
-        metas: {
-          m1: String(e.metas?.m1 || ""), m2: String(e.metas?.m2 || ""), m3: String(e.metas?.m3 || ""),
-          t1: String(e.metas?.t1 || ""), t2: String(e.metas?.t2 || ""), t3: String(e.metas?.t3 || ""),
-        },
-        maquinasIds: e.maquinasIds || [],
-      }))
-    );
-    setEditingProdutoId(p.id);
-    setShowProdutoForm(true);
-  }
-  function toggleProdutoAtivo(id) {
-    persist({ produtos: produtos.map((p) => (p.id === id ? { ...p, ativo: !p.ativo } : p)) });
-  }
-  function deleteProduto(id) {
-    persist({ produtos: produtos.filter((p) => p.id !== id) });
-  }
-
-  // ---- máquinas ----
-  const maquinasOrdenadas = useMemo(() => [...maquinas].sort((a, b) => a.nome.localeCompare(b.nome)), [maquinas]);
-  const [maquinaExpandidaId, setMaquinaExpandidaId] = useState(null);
-  function produtosQueUsamMaquina(maquinaId) {
-    return produtos
-      .map((p) => {
-        const etapas = (p.roteiro || []).filter((e) => (e.maquinasIds || []).includes(maquinaId));
-        return etapas.length > 0 ? { produto: p, etapas } : null;
-      })
-      .filter(Boolean);
-  }
-  function resetMaquinaForm() {
-    setMaquinaForm(emptyMaquinaForm);
-    setEditingMaquinaId(null);
-    setShowMaquinaForm(false);
-    setNovaOperacaoMaquina(false);
-    setTextoNovaOperacaoMaquina("");
-  }
-  function confirmNovaOperacaoMaquina() {
-    const nome = addOperacao(textoNovaOperacaoMaquina);
-    if (nome) setMaquinaForm((f) => ({ ...f, operacao: nome }));
-    setTextoNovaOperacaoMaquina("");
-    setNovaOperacaoMaquina(false);
-  }
-  function submitMaquina() {
-    if (!maquinaForm.nome.trim()) return;
-    if (editingMaquinaId) {
-      persist({ maquinas: maquinas.map((m) => (m.id === editingMaquinaId ? { ...m, ...maquinaForm } : m)) });
-    } else {
-      persist({ maquinas: [...maquinas, { id: uid(), ...maquinaForm, ativo: true }] });
-    }
-    resetMaquinaForm();
-  }
-  function editMaquina(m) {
-    setMaquinaForm({ nome: m.nome, operacao: m.operacao });
-    setEditingMaquinaId(m.id);
-    setShowMaquinaForm(true);
-  }
-  function toggleMaquinaAtivo(id) {
-    persist({ maquinas: maquinas.map((m) => (m.id === id ? { ...m, ativo: !m.ativo } : m)) });
-  }
-  function deleteMaquina(id) {
-    persist({ maquinas: maquinas.filter((m) => m.id !== id) });
   }
 
   // ---- meta de faturamento por margem desejada ----
@@ -1131,16 +766,33 @@ export default function SittechApp() {
   const tendenciaUltimosMeses = useMemo(() => dadosBITodos.slice(-6), [dadosBITodos]);
 
   const semanaHojeISO = toISODate(mondayOf(new Date()));
-  const semanaHojeRec = previsoes.find((p) => p.semanaInicio === semanaHojeISO) || { itens: [], itensRealizados: [] };
+  const semanaHojeRec = previsoesHook.previsoes.find((p) => p.semanaInicio === semanaHojeISO) || { itens: [], itensRealizados: [] };
   const previstoSemanaHoje = semanaHojeRec.itens.reduce((s, it) => s + it.quantidade * it.valorUnitario, 0);
   const realizadoSemanaHoje = (semanaHojeRec.itensRealizados || []).reduce((s, it) => s + it.quantidade * it.valorUnitario, 0);
   const metaSemanalUsaPrevisto = previstoSemanaHoje > 0;
   const metaSemanalFinal = metaSemanalUsaPrevisto ? previstoSemanaHoje : faturamentoSemanalNecessario;
 
-  // ---- backup completo (exportar/restaurar) ----
+  // ---- backup completo (só exportar — ver painel "Restaurar backup" na
+  // aba "Importar dados" pra explicação de por que a restauração foi
+  // removida) ----
+  // Lê direto dos hooks Supabase (mesma fonte que a tela usa pra exibir),
+  // nunca de estado local — assim o backup gerado sempre reflete os dados
+  // reais do banco no momento do clique, não uma cópia potencialmente
+  // desatualizada.
   function gerarBackupTexto() {
-    return JSON.stringify({
-      fixedCosts, variableEntries, categorias, operacoes, funcionarios, periodos, diasUteis, diasUteisSemana, faturamentos, produtos, maquinas, previsoes,
+    return serializeBackup({
+      fixedCosts: custosHook.fixedCosts,
+      variableEntries: custosHook.variableEntries,
+      categorias: cadastrosBase.categorias,
+      operacoes: cadastrosBase.operacoes,
+      funcionarios: funcionariosHook.funcionarios,
+      periodos: cadastrosBase.periodos,
+      diasUteis: cadastrosBase.diasUteis,
+      diasUteisSemana: cadastrosBase.diasUteisSemana,
+      faturamentos: faturamentosHook.faturamentos,
+      produtos: produtosHook.produtos,
+      maquinas: maquinasHook.maquinas,
+      previsoes: previsoesHook.previsoes,
     });
   }
   function handleGerarBackup() {
@@ -1169,102 +821,64 @@ export default function SittechApp() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
-  function handleRestaurarBackupColado() {
-    try {
-      const dados = JSON.parse(textoImportBackup);
-      persist({
-        fixedCosts: dados.fixedCosts || [],
-        variableEntries: dados.variableEntries || [],
-        categorias: dados.categorias && dados.categorias.length ? dados.categorias : CATEGORIAS,
-        operacoes: dados.operacoes && dados.operacoes.length ? dados.operacoes : OPERACOES,
-        funcionarios: dados.funcionarios || [],
-        periodos: dados.periodos && dados.periodos.length ? dados.periodos : PERIODOS_PADRAO,
-        diasUteis: dados.diasUteis !== undefined ? String(dados.diasUteis) : "22",
-        diasUteisSemana: dados.diasUteisSemana !== undefined ? String(dados.diasUteisSemana) : "5",
-        faturamentos: dados.faturamentos || [],
-        produtos: dados.produtos || [],
-        maquinas: dados.maquinas || [],
-        previsoes: dados.previsoes || [],
-      });
-      setResultadoImportBackup("Backup restaurado com sucesso — todos os dados foram substituídos pelos do backup.");
-      setTextoImportBackup("");
-    } catch (e) {
-      setResultadoImportBackup("Não consegui ler esse texto como backup válido. Confere se colou o conteúdo completo, sem cortar nada.");
-    }
-  }
 
   // ---- importação em massa ----
-  function importarFuncionarios() {
+  // funcionário novo -> Supabase; operação reaproveitada se já existe,
+  // criada no Supabase (nunca só no blob) se não existir — mesma regra de
+  // dedupe de sempre, via cadastrosBase.criarOperacao.
+  async function importarFuncionarios() {
     const linhas = textoImportFunc.split("\n").map((l) => l.trim()).filter(Boolean);
-    const novosFuncionarios = [...funcionarios];
-    const novasOperacoes = [...operacoes];
     let count = 0;
-    linhas.forEach((linha) => {
+    for (const linha of linhas) {
       const partes = linha.split(";").map((p) => p.trim());
-      if (partes.length < 3 || !partes[0]) return;
+      if (partes.length < 3 || !partes[0]) continue;
       const [nome, operacao, salarioBase, ...resto] = partes;
       const custos = resto
         .filter(Boolean)
         .map((item) => {
           const [desc, val] = item.split(":");
-          return { id: uid(), descricao: (desc || "").trim(), valor: toNumber(val) };
+          return { descricao: (desc || "").trim(), valor: toNumber(val) };
         })
         .filter((c) => c.descricao);
-      const opFinal = operacao || novasOperacoes[0] || "Produção";
-      if (opFinal && !novasOperacoes.some((o) => o.toLowerCase() === opFinal.toLowerCase())) {
-        novasOperacoes.push(opFinal);
-      }
-      novosFuncionarios.push({ id: uid(), ativo: true, nome, operacao: opFinal, salarioBase: toNumber(salarioBase), custos });
-      count++;
-    });
-    persist({ funcionarios: novosFuncionarios, operacoes: novasOperacoes });
+      const opDesejada = operacao || cadastrosBase.operacoes[0] || "Produção";
+      const opFinal = await cadastrosBase.criarOperacao(opDesejada);
+      const criado = await funcionariosHook.criarFuncionario({
+        nome, operacao: opFinal || opDesejada, salarioBase: toNumber(salarioBase), custos,
+      });
+      if (criado) count++;
+    }
     setResultadoImportFunc(count > 0 ? `${count} funcionário(s) importado(s).` : "Nenhuma linha válida encontrada — confira o formato.");
     setTextoImportFunc("");
   }
 
-  function importarFatMeses() {
+  async function importarFatMeses() {
     const linhas = textoImportFatMeses.split("\n").map((l) => l.trim()).filter(Boolean);
-    const novosFaturamentos = [...faturamentos];
     let count = 0;
-    linhas.forEach((linha) => {
+    for (const linha of linhas) {
       const partes = linha.split(";").map((p) => p.trim());
-      if (partes.length < 4) return;
+      if (partes.length < 4) continue;
       const [mes, num, custoFunc, custoFixo] = partes;
-      if (!/^\d{4}-\d{2}$/.test(mes)) return;
-      const campos = { numFuncionarios: toNumber(num), custoFuncionariosTotal: toNumber(custoFunc), custoFixoTotal: toNumber(custoFixo) };
-      const idx = novosFaturamentos.findIndex((f) => f.mes === mes);
-      if (idx === -1) {
-        novosFaturamentos.push({ mes, receitas: [], ...campos });
-      } else {
-        novosFaturamentos[idx] = { ...novosFaturamentos[idx], ...campos };
-      }
-      count++;
-    });
-    persist({ faturamentos: novosFaturamentos });
+      if (!/^\d{4}-\d{2}$/.test(mes)) continue;
+      const ok = await faturamentosHook.atualizarCamposMes(mes, {
+        numFuncionarios: String(toNumber(num)), custoFuncionariosTotal: String(toNumber(custoFunc)), custoFixoTotal: String(toNumber(custoFixo)),
+      });
+      if (ok) count++;
+    }
     setResultadoImportFatMeses(count > 0 ? `${count} mês(es) importado(s).` : "Nenhuma linha válida encontrada — confira o formato (AAAA-MM no início).");
     setTextoImportFatMeses("");
   }
 
-  function importarReceitas() {
+  async function importarReceitas() {
     const linhas = textoImportReceitas.split("\n").map((l) => l.trim()).filter(Boolean);
-    const novosFaturamentos = [...faturamentos];
     let count = 0;
-    linhas.forEach((linha) => {
+    for (const linha of linhas) {
       const partes = linha.split(";").map((p) => p.trim());
-      if (partes.length < 2) return;
+      if (partes.length < 2) continue;
       const [data, valor, descricao] = partes;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return;
-      const mes = data.slice(0, 7);
-      const receita = { id: uid(), data, valor: toNumber(valor), descricao: descricao || "" };
-      const idx = novosFaturamentos.findIndex((f) => f.mes === mes);
-      if (idx === -1) {
-        novosFaturamentos.push({ mes, receitas: [receita], numFuncionarios: "", custoFuncionariosTotal: "", custoFixoTotal: "" });
-      } else {
-        novosFaturamentos[idx] = { ...novosFaturamentos[idx], receitas: [...novosFaturamentos[idx].receitas, receita] };
-      }
-      count++;
-    });
-    persist({ faturamentos: novosFaturamentos });
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) continue;
+      const ok = await faturamentosHook.salvarReceita({ data, valor: toNumber(valor), descricao: descricao || "" });
+      if (ok) count++;
+    }
     setResultadoImportReceitas(count > 0 ? `${count} lançamento(s) importado(s).` : "Nenhuma linha válida encontrada — confira o formato (AAAA-MM-DD no início).");
     setTextoImportReceitas("");
   }
@@ -1273,9 +887,9 @@ export default function SittechApp() {
     <div className="stx-root">
       <GlobalStyles cores={cores} />
 
-      {loading || !autenticado ? (
+      {cadastrosBase.loading || funcionariosHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading || faturamentosHook.loading || restaurandoSessao || !autenticado ? (
         <LoginScreen
-          loading={loading}
+          loading={cadastrosBase.loading || funcionariosHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading || faturamentosHook.loading || restaurandoSessao}
           tema={tema}
           loginUsuario={loginUsuario}
           setLoginUsuario={setLoginUsuario}
@@ -1284,6 +898,7 @@ export default function SittechApp() {
           loginErro={loginErro}
           loginCarregando={loginCarregando}
           onSubmit={handleLogin}
+          campoLogin="email"
         />
       ) : (
       <>
@@ -1303,6 +918,13 @@ export default function SittechApp() {
         />
 
         <div className="stx-content-wrapper">
+      {cadastrosBase.erro && <p className="stx-save-error">{cadastrosBase.erro}</p>}
+      {funcionariosHook.erro && <p className="stx-save-error">{funcionariosHook.erro}</p>}
+      {maquinasHook.erro && <p className="stx-save-error">{maquinasHook.erro}</p>}
+      {produtosHook.erro && <p className="stx-save-error">{produtosHook.erro}</p>}
+      {previsoesHook.erro && <p className="stx-save-error">{previsoesHook.erro}</p>}
+      {custosHook.erro && <p className="stx-save-error">{custosHook.erro}</p>}
+      {faturamentosHook.erro && <p className="stx-save-error">{faturamentosHook.erro}</p>}
       <div className="stx-header">
         <div>
             <h1 className={`stx-title ${abaAtiva === "inicio" ? "stx-title-grande" : ""}`}>
@@ -1327,8 +949,8 @@ export default function SittechApp() {
             onToggleModoPrivado={toggleModoPrivado}
             tema={tema}
             onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
-            onAbrirMinhaConta={() => { setMinhaContaAberta(true); setMinhaContaMsg(""); }}
-            onSair={() => setAutenticado(false)}
+            onAbrirMinhaConta={abrirMinhaConta}
+            onSair={() => handleLogout()}
           />
           <div className={`stx-total-box ${abaAtiva === "inicio" ? "stx-total-box-com-icone" : ""}`}>
           {abaAtiva === "inicio" && (
@@ -1353,13 +975,6 @@ export default function SittechApp() {
               <p className="stx-total-label">Custo funcionários / mês</p>
               <p className="stx-total-value">{formatBRL(totalCustoFuncionariosAtivos)}</p>
               <p className="stx-total-split">{funcionariosAtivos.length} funcionário{funcionariosAtivos.length !== 1 ? "s" : ""} ativo{funcionariosAtivos.length !== 1 ? "s" : ""}</p>
-            </>
-          )}
-          {abaAtiva === "horaEmpresa" && (
-            <>
-              <p className="stx-total-label">Custo/hora empresa</p>
-              <p className="stx-total-value">{formatBRL(custoHoraEmpresa)}</p>
-              <p className="stx-total-split">média {formatBRL(custoMedioFuncionarioMensal)}/mês por funcionário</p>
             </>
           )}
           {abaAtiva === "faturamento" && (
@@ -1516,7 +1131,7 @@ export default function SittechApp() {
               </div>
               <div className="stx-rateio-line">
                 <span className="l"><Package size={14} className="stx-indicador-icon" />Produtos cadastrados</span>
-                <span className="v">{produtos.filter((p) => p.ativo).length}</span>
+                <span className="v">{produtosHook.produtos.filter((p) => p.ativo).length}</span>
               </div>
               <div className="stx-rateio-line">
                 <span className="l"><Layers size={14} className="stx-indicador-icon" />Custos fixos ativos</span>
@@ -1562,7 +1177,7 @@ export default function SittechApp() {
                         else setFixedForm({ ...fixedForm, categoria: e.target.value });
                       }}
                     >
-                      {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {cadastrosBase.categorias.map((c) => <option key={c} value={c}>{c}</option>)}
                       <option value="__nova__">+ Criar nova categoria…</option>
                     </select>
                     {novaCategoriaFixed && (
@@ -1600,12 +1215,12 @@ export default function SittechApp() {
                 </div>
               )}
 
-              {loading ? (
+              {custosHook.loading ? (
                 <div className="stx-empty">Carregando…</div>
-              ) : fixedCosts.length === 0 ? (
+              ) : custosHook.fixedCosts.length === 0 ? (
                 <div className="stx-empty">Nenhum custo fixo cadastrado ainda.</div>
               ) : (
-                fixedCosts.map((f) => (
+                custosHook.fixedCosts.map((f) => (
                   <div className={`stx-entry ${!f.ativo ? "paused" : ""}`} key={f.id}>
                     <div>
                       <p className="stx-entry-desc">
@@ -1664,7 +1279,7 @@ export default function SittechApp() {
                         else setVarForm({ ...varForm, categoria: e.target.value });
                       }}
                     >
-                      {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {cadastrosBase.categorias.map((c) => <option key={c} value={c}>{c}</option>)}
                       <option value="__nova__">+ Criar nova categoria…</option>
                     </select>
                     {novaCategoriaVar && (
@@ -1702,7 +1317,7 @@ export default function SittechApp() {
                 </div>
               )}
 
-              {loading ? (
+              {custosHook.loading ? (
                 <div className="stx-empty">Carregando…</div>
               ) : filteredVariable.length === 0 ? (
                 <div className="stx-empty">Nenhum custo pontual em {monthLabel(currentMonth)}.</div>
@@ -1722,7 +1337,6 @@ export default function SittechApp() {
                 ))
               )}
             </div>
-            {saveError && <p className="stx-save-error">Não foi possível salvar agora. Tente novamente.</p>}
           </div>
 
           <div className="stx-panel">
@@ -1790,7 +1404,7 @@ export default function SittechApp() {
                       else setFuncForm({ ...funcForm, operacao: e.target.value });
                     }}
                   >
-                    {operacoes.map((o) => <option key={o} value={o}>{o}</option>)}
+                    {cadastrosBase.operacoes.map((o) => <option key={o} value={o}>{o}</option>)}
                     <option value="__nova__">+ Criar nova operação…</option>
                   </select>
                   {novaOperacao && (
@@ -1842,12 +1456,12 @@ export default function SittechApp() {
               </div>
             )}
 
-            {loading ? (
+            {funcionariosHook.loading ? (
               <div className="stx-empty">Carregando…</div>
-            ) : funcionarios.length === 0 ? (
+            ) : funcionariosHook.funcionarios.length === 0 ? (
               <div className="stx-empty">Nenhum funcionário cadastrado ainda.</div>
             ) : (
-              funcionarios.map((f) => (
+              funcionariosHook.funcionarios.map((f) => (
                 <div className={`stx-func-card ${!f.ativo ? "paused" : ""}`} key={f.id}>
                   <div className="stx-func-top">
                     <div>
@@ -1888,466 +1502,9 @@ export default function SittechApp() {
               ))
             )}
           </div>
-          {saveError && <p className="stx-save-error">Não foi possível salvar agora. Tente novamente.</p>}
         </div>
       )}
 
-      {abaAtiva === "produtos" && (
-        <div className="stx-grid" style={{ gridTemplateColumns: "1fr" }}>
-          <div className="stx-panel">
-            <div className="stx-panel-title-row">
-              <p className="stx-panel-title">Produtos</p>
-            </div>
-            <p className="stx-panel-sub">
-              Cadastro com o valor recebido por peça pronta, o fluxo de produção (etapas, meta por período e máquinas), a margem e o lucro/hora calculados automaticamente. A lista abaixo já ordena pelo maior lucro/hora primeiro — é isso que vale mais priorizar produzir.
-            </p>
-
-            {!showProdutoForm && (
-              <button className="stx-add-btn blueprint" onClick={() => setShowProdutoForm(true)}>+ Novo produto</button>
-            )}
-
-            {showProdutoForm && (
-              <div className="stx-form">
-                <div className="stx-form-full">
-                  <label className="stx-label">Nome do produto</label>
-                  <input
-                    className="stx-input"
-                    value={produtoForm.nome}
-                    onChange={(e) => setProdutoForm({ ...produtoForm, nome: e.target.value })}
-                    placeholder="Ex: Suporte de fixação industrial"
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="stx-label">Referência</label>
-                  <input
-                    className="stx-input"
-                    value={produtoForm.referencia}
-                    onChange={(e) => setProdutoForm({ ...produtoForm, referencia: e.target.value })}
-                    placeholder="Ex: SF-1024"
-                  />
-                </div>
-                <div>
-                  <label className="stx-label">Valor unitário (R$)</label>
-                  <input
-                    className="stx-input"
-                    value={produtoForm.valorUnitario}
-                    onChange={(e) => setProdutoForm({ ...produtoForm, valorUnitario: e.target.value })}
-                    placeholder="0,00"
-                    inputMode="decimal"
-                  />
-                </div>
-                <div>
-                  <label className="stx-label">Prioridade</label>
-                  <select
-                    className="stx-select"
-                    value={produtoForm.prioridade}
-                    onChange={(e) => setProdutoForm({ ...produtoForm, prioridade: e.target.value })}
-                  >
-                    <option value="alta">Alta</option>
-                    <option value="media">Média</option>
-                    <option value="baixa">Baixa</option>
-                  </select>
-                  <p className="stx-panel-sub" style={{ margin: "4px 0 0 0", fontSize: 11 }}>Ainda não afeta os cálculos — fica pronta pra quando formos priorizar entre produtos.</p>
-                </div>
-
-                <div className="stx-custos-builder">
-                  <p className="stx-custos-builder-title">Fluxo de produção (etapas até a peça pronta)</p>
-                  {produtoRoteiro.map((e) => {
-                    const maquinasDaOperacao = maquinas.filter((m) => m.operacao === e.operacao && m.ativo);
-                    return (
-                      <div className="stx-etapa-card" key={e.id}>
-                        <div className="stx-etapa-row">
-                          <select
-                            className="stx-select"
-                            value={e.operacao}
-                            onChange={(ev) => {
-                              if (ev.target.value === "__nova__") { setNovaOperacaoEtapaId(e.id); }
-                              else {
-                                setProdutoRoteiro(produtoRoteiro.map((it) => (it.id === e.id ? { ...it, operacao: ev.target.value, maquinasIds: [] } : it)));
-                              }
-                            }}
-                          >
-                            {operacoes.map((op) => <option key={op} value={op}>{op}</option>)}
-                            <option value="__nova__">+ Criar nova etapa/operação…</option>
-                          </select>
-                          <button type="button" className="stx-icon-btn danger" title="Remover etapa" onClick={() => removeEtapaProduto(e.id)}>✕</button>
-                        </div>
-
-                        {novaOperacaoEtapaId === e.id && (
-                          <div className="stx-nova-cat-row">
-                            <input
-                              className="stx-input"
-                              value={textoNovaOperacaoEtapa}
-                              onChange={(ev) => setTextoNovaOperacaoEtapa(ev.target.value)}
-                              onKeyDown={(ev) => ev.key === "Enter" && confirmNovaOperacaoEtapa()}
-                              placeholder="Ex: Rosquear, Parafusar…"
-                              autoFocus
-                            />
-                            <button type="button" className="stx-icon-btn on" title="Adicionar" onClick={confirmNovaOperacaoEtapa}>✓</button>
-                            <button type="button" className="stx-icon-btn" title="Cancelar" onClick={() => { setNovaOperacaoEtapaId(null); setTextoNovaOperacaoEtapa(""); }}>✕</button>
-                          </div>
-                        )}
-
-                        <p className="stx-etapa-sublabel">Meta de peças por período</p>
-                        <div className="stx-etapa-metas">
-                          {periodos.map((p) => (
-                            <div className="stx-etapa-meta-campo" key={p.id}>
-                              <label>{p.nome}</label>
-                              <input
-                                className="stx-input"
-                                value={e.metas[p.id]}
-                                onChange={(ev) => updateEtapaMeta(e.id, p.id, ev.target.value)}
-                                placeholder="0"
-                                inputMode="decimal"
-                              />
-                            </div>
-                          ))}
-                        </div>
-
-                        <p className="stx-etapa-sublabel">Máquinas disponíveis pra essa etapa</p>
-                        {maquinasDaOperacao.length === 0 ? (
-                          <p className="stx-panel-sub" style={{ margin: 0 }}>
-                            Nenhuma máquina cadastrada pra "{e.operacao}" ainda — cadastre na aba Máquinas.
-                          </p>
-                        ) : (
-                          <div className="stx-etapa-maquinas">
-                            {maquinasDaOperacao.map((m) => (
-                              <label className="stx-maquina-chip" key={m.id}>
-                                <input
-                                  type="checkbox"
-                                  checked={e.maquinasIds.includes(m.id)}
-                                  onChange={() => toggleEtapaMaquina(e.id, m.id)}
-                                />
-                                {m.nome}
-                              </label>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  <button type="button" className="stx-add-btn" style={{ marginTop: 4, marginBottom: 0 }} onClick={addEtapaProduto}>+ Adicionar etapa</button>
-                </div>
-
-                <div className="stx-form-actions">
-                  <button type="button" className="stx-btn-primary" onClick={submitProduto}>
-                    {editingProdutoId ? "Salvar alterações" : "Adicionar produto"}
-                  </button>
-                  <button type="button" className="stx-btn-secondary" onClick={resetProdutoForm}>Cancelar</button>
-                </div>
-              </div>
-            )}
-
-            {loading ? (
-              <div className="stx-empty">Carregando…</div>
-            ) : produtosOrdenados.length === 0 ? (
-              <div className="stx-empty">Nenhum produto cadastrado ainda.</div>
-            ) : (
-              produtosOrdenados.map((p) => {
-                const temRoteiro = (p.roteiro || []).length > 0;
-                const { custo, margemRS, margemPct, lucroHora } = calcularMargem(p);
-                return (
-                  <div className={`stx-func-card ${!p.ativo ? "paused" : ""}`} key={p.id}>
-                    <div className="stx-func-top">
-                      <div>
-                        <p className="stx-func-nome">
-                          {p.nome}
-                          {p.referencia && <span className="stx-badge blueprint">{p.referencia}</span>}
-                          {!p.ativo && <span className="stx-badge">pausado</span>}
-                        </p>
-                        <p className="stx-func-itens">
-                          {temRoteiro
-                            ? p.roteiro.map((e) => {
-                                const nomesMaquinas = maquinas.filter((m) => (e.maquinasIds || []).includes(m.id)).map((m) => m.nome);
-                                const metasTexto = periodos.map((per) => `${per.nome}:${(e.metas || {})[per.id] || 0}`).join(" ");
-                                return `${e.operacao} (${metasTexto}${nomesMaquinas.length ? " · " + nomesMaquinas.join(", ") : ""})`;
-                              }).join(" → ")
-                            : "sem fluxo de produção cadastrado"}
-                        </p>
-                      </div>
-                      <div className="stx-entry-right">
-                        <button
-                          className={`stx-icon-btn ${p.ativo ? "on" : ""}`}
-                          title={p.ativo ? "Pausar" : "Retomar"}
-                          onClick={() => toggleProdutoAtivo(p.id)}
-                        >
-                          {p.ativo ? "⏸" : "▶"}
-                        </button>
-                        <button className="stx-icon-btn" title="Editar" onClick={() => editProduto(p)}>✎</button>
-                        <button className="stx-icon-btn danger" title="Excluir" onClick={() => deleteProduto(p.id)}>✕</button>
-                      </div>
-                    </div>
-                    <div className="stx-func-rates">
-                      <div className="stx-func-rate">
-                        <span className="stx-func-rate-label">Valor recebido</span>
-                        <span className="stx-func-rate-value">{formatBRL(p.valorUnitario)}</span>
-                      </div>
-                      <div className="stx-func-rate">
-                        <span className="stx-func-rate-label">Custo de produção</span>
-                        <span className="stx-func-rate-value">{temRoteiro ? formatBRL(custo) : "—"}</span>
-                      </div>
-                      <div className="stx-func-rate">
-                        <span className="stx-func-rate-label"><Percent size={11} className="stx-rate-icon" />Margem</span>
-                        <span className="stx-func-rate-value" style={temRoteiro ? { color: corPorMargemPct(margemPct) } : undefined}>
-                          {temRoteiro ? `${formatBRL(margemRS)} (${margemPct.toFixed(0)}%)` : "—"}
-                        </span>
-                      </div>
-                      <div className="stx-func-rate">
-                        <span className="stx-func-rate-label"><Clock size={11} className="stx-rate-icon" />Lucro/hora</span>
-                        <span className="stx-func-rate-value highlight" style={temRoteiro ? { color: corPorLucroHora(lucroHora) } : undefined}>
-                          {temRoteiro ? `${formatBRL(lucroHora)}/h` : "—"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-          {saveError && <p className="stx-save-error">Não foi possível salvar agora. Tente novamente.</p>}
-        </div>
-      )}
-
-      {abaAtiva === "maquinas" && (
-        <div className="stx-grid" style={{ gridTemplateColumns: "1fr" }}>
-          <div className="stx-panel">
-            <div className="stx-panel-title-row">
-              <p className="stx-panel-title">Máquinas</p>
-            </div>
-            <p className="stx-panel-sub">Cadastro das máquinas por operação — depois você seleciona quais estão disponíveis em cada etapa dos produtos.</p>
-
-            {!showMaquinaForm && (
-              <button className="stx-add-btn blueprint" onClick={() => setShowMaquinaForm(true)}>+ Nova máquina</button>
-            )}
-
-            {showMaquinaForm && (
-              <div className="stx-form">
-                <div>
-                  <label className="stx-label">Nome da máquina</label>
-                  <input
-                    className="stx-input"
-                    value={maquinaForm.nome}
-                    onChange={(e) => setMaquinaForm({ ...maquinaForm, nome: e.target.value })}
-                    onKeyDown={(e) => e.key === "Enter" && submitMaquina()}
-                    placeholder="Ex: Rosqueadeira 3"
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="stx-label">Operação</label>
-                  <select
-                    className="stx-select"
-                    value={maquinaForm.operacao}
-                    onChange={(e) => {
-                      if (e.target.value === "__nova__") setNovaOperacaoMaquina(true);
-                      else setMaquinaForm({ ...maquinaForm, operacao: e.target.value });
-                    }}
-                  >
-                    {operacoes.map((op) => <option key={op} value={op}>{op}</option>)}
-                    <option value="__nova__">+ Criar nova operação…</option>
-                  </select>
-                  {novaOperacaoMaquina && (
-                    <div className="stx-nova-cat-row">
-                      <input
-                        className="stx-input"
-                        value={textoNovaOperacaoMaquina}
-                        onChange={(e) => setTextoNovaOperacaoMaquina(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && confirmNovaOperacaoMaquina()}
-                        placeholder="Nome da operação"
-                        autoFocus
-                      />
-                      <button type="button" className="stx-icon-btn on" title="Adicionar operação" onClick={confirmNovaOperacaoMaquina}>✓</button>
-                      <button type="button" className="stx-icon-btn" title="Cancelar" onClick={() => { setNovaOperacaoMaquina(false); setTextoNovaOperacaoMaquina(""); }}>✕</button>
-                    </div>
-                  )}
-                </div>
-                <div className="stx-form-actions">
-                  <button type="button" className="stx-btn-primary" onClick={submitMaquina}>
-                    {editingMaquinaId ? "Salvar alterações" : "Adicionar máquina"}
-                  </button>
-                  <button type="button" className="stx-btn-secondary" onClick={resetMaquinaForm}>Cancelar</button>
-                </div>
-              </div>
-            )}
-
-            {loading ? (
-              <div className="stx-empty">Carregando…</div>
-            ) : maquinasOrdenadas.length === 0 ? (
-              <div className="stx-empty">Nenhuma máquina cadastrada ainda.</div>
-            ) : (
-              maquinasOrdenadas.map((m) => {
-                const usos = produtosQueUsamMaquina(m.id);
-                const expandida = maquinaExpandidaId === m.id;
-                return (
-                  <div key={m.id}>
-                    <div
-                      className={`stx-entry stx-entry-clicavel ${!m.ativo ? "paused" : ""}`}
-                      onClick={() => setMaquinaExpandidaId(expandida ? null : m.id)}
-                    >
-                      <div>
-                        <p className="stx-entry-desc">
-                          {m.nome}
-                          {!m.ativo && <span className="stx-badge">pausada</span>}
-                          <span className="stx-badge blueprint">{usos.length} produto{usos.length !== 1 ? "s" : ""}</span>
-                        </p>
-                        <p className="stx-entry-meta">{m.operacao}</p>
-                      </div>
-                      <div className="stx-entry-right" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          className={`stx-icon-btn ${m.ativo ? "on" : ""}`}
-                          title={m.ativo ? "Pausar (a máquina para de contar na capacidade)" : "Retomar"}
-                          onClick={() => toggleMaquinaAtivo(m.id)}
-                        >
-                          {m.ativo ? "⏸ Pausar" : "▶ Retomar"}
-                        </button>
-                        <button className="stx-icon-btn" title="Editar" onClick={() => editMaquina(m)}>✎</button>
-                        <button className="stx-icon-btn danger" title="Excluir" onClick={() => deleteMaquina(m.id)}>✕</button>
-                        <span className="stx-chevron">{expandida ? "▲" : "▼"}</span>
-                      </div>
-                    </div>
-                    {expandida && (
-                      <div className="stx-maquina-usos">
-                        {usos.length === 0 ? (
-                          <p className="stx-panel-sub" style={{ margin: 0 }}>Nenhum produto usa essa máquina ainda — marca ela no fluxo de produção de algum produto.</p>
-                        ) : (
-                          usos.map(({ produto, etapas }) => (
-                            <div className="stx-op-func-line" key={produto.id}>
-                              <span className="n">{produto.nome}</span>
-                              <span className="v">{etapas.map((e) => e.operacao).join(", ")}</span>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-          {saveError && <p className="stx-save-error">Não foi possível salvar agora. Tente novamente.</p>}
-        </div>
-      )}
-
-      {abaAtiva === "horaEmpresa" && (
-        <div className="stx-grid">
-          <div>
-            <div className="stx-panel">
-              <p className="stx-panel-title" style={{ marginBottom: 4 }}>Períodos de trabalho</p>
-              <p className="stx-panel-sub">Horário real de cada período (3 no turno da manhã, 3 no da tarde). É a partir daqui que o sistema calcula as horas produtivas.</p>
-              {periodos.map((p) => (
-                <div className="stx-periodo-row" key={p.id}>
-                  <span className="stx-periodo-nome">{p.nome}</span>
-                  <input
-                    type="time"
-                    className="stx-input"
-                    value={p.inicio}
-                    onChange={(e) => updatePeriodo(p.id, "inicio", e.target.value)}
-                  />
-                  <span className="stx-periodo-ate">até</span>
-                  <input
-                    type="time"
-                    className="stx-input"
-                    value={p.fim}
-                    onChange={(e) => updatePeriodo(p.id, "fim", e.target.value)}
-                  />
-                  <span className="stx-periodo-duracao">
-                    {duracaoPeriodoHorasCalc(p.inicio, p.fim) > 0 ? `${duracaoPeriodoHorasCalc(p.inicio, p.fim).toFixed(2)}h` : "—"}
-                  </span>
-                </div>
-              ))}
-              <div style={{ marginTop: 14 }}>
-                <label className="stx-label">Dias úteis no mês</label>
-                <input
-                  className="stx-input"
-                  style={{ maxWidth: 140 }}
-                  value={diasUteis}
-                  onChange={(e) => updateDiasUteis(e.target.value)}
-                  placeholder="22"
-                  inputMode="decimal"
-                />
-              </div>
-              <div className="stx-rateio-line" style={{ marginTop: 10 }}>
-                <span className="l">Horas produtivas por dia (soma dos períodos)</span>
-                <span className="v">{horasPorDiaCalc.toFixed(2)}h</span>
-              </div>
-              <div className="stx-rateio-line">
-                <span className="l">Duração média de um período</span>
-                <span className="v">{duracaoMediaPeriodo.toFixed(2)}h</span>
-              </div>
-              <div className="stx-rateio-line">
-                <span className="l">Horas produtivas por funcionário/mês</span>
-                <span className="v">{horasProdutivasFuncionario.toFixed(1)}h</span>
-              </div>
-              <div className="stx-rateio-line">
-                <span className="l">Funcionários ativos</span>
-                <span className="v">{funcionariosAtivos.length}</span>
-              </div>
-              <div className="stx-rateio-line stx-rateio-highlight">
-                <span className="l">Total horas produtivas da empresa/mês</span>
-                <span className="v">{totalHorasProdutivasEmpresa.toFixed(1)}h</span>
-              </div>
-            </div>
-
-            <div className="stx-panel">
-              <p className="stx-panel-title" style={{ marginBottom: 14 }}>Indicadores principais</p>
-              <div className="stx-destaque-grid">
-                <div className="stx-destaque-box">
-                  <p className="stx-destaque-label">Custo médio / funcionário</p>
-                  <p className="stx-destaque-value">{formatBRL(custoMedioFuncionarioMensal)}</p>
-                  <p className="stx-destaque-sub">por mês, entre os {funcionariosAtivos.length} ativos</p>
-                </div>
-                <div className="stx-destaque-box">
-                  <p className="stx-destaque-label">Custo/hora empresa</p>
-                  <p className="stx-destaque-value">{formatBRL(custoHoraEmpresa)}</p>
-                  <p className="stx-destaque-sub">mão de obra + fixos ÷ horas produtivas</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="stx-panel">
-            <p className="stx-panel-title" style={{ marginBottom: 14 }}>Custo por operação</p>
-            {porOperacao.length === 0 ? (
-              <div className="stx-empty">Sem funcionários cadastrados.</div>
-            ) : (
-              porOperacao.map(([op, lista]) => {
-                const ativosGrupo = lista.filter((f) => f.ativo);
-                const totalMensalGrupo = ativosGrupo.reduce((s, f) => s + custoMensalFunc(f), 0);
-                const totalHoraGrupo = ativosGrupo.reduce((s, f) => s + custoHoraSittech(f), 0);
-                const totalHorasGrupo = horasProdutivasFuncionario * ativosGrupo.length;
-                const mediaMensal = ativosGrupo.length ? totalMensalGrupo / ativosGrupo.length : 0;
-                const mediaHora = ativosGrupo.length ? totalHoraGrupo / ativosGrupo.length : 0;
-                return (
-                  <div className="stx-op-group" key={op}>
-                    <p className="stx-op-group-title">{op} · {ativosGrupo.length} ativo{ativosGrupo.length !== 1 ? "s" : ""}</p>
-                    <div className="stx-op-summary">
-                      <div className="stx-op-summary-item">
-                        <span className="stx-op-summary-label">Custo médio / funcionário</span>
-                        <span className="stx-op-summary-value">{formatBRL(mediaMensal)}/mês · {formatBRL(mediaHora)}/h</span>
-                      </div>
-                      <div className="stx-op-summary-item">
-                        <span className="stx-op-summary-label">Total do grupo</span>
-                        <span className="stx-op-summary-value highlight">{formatBRL(totalMensalGrupo)}/mês · {formatBRL(totalHoraGrupo)}/h</span>
-                      </div>
-                      <div className="stx-op-summary-item">
-                        <span className="stx-op-summary-label">Horas produtivas do grupo</span>
-                        <span className="stx-op-summary-value">{totalHorasGrupo}h/mês</span>
-                      </div>
-                    </div>
-                    {lista.map((f) => (
-                      <div className={`stx-op-func-line ${!f.ativo ? "paused" : ""}`} key={f.id}>
-                        <span className="n">{f.nome}{!f.ativo ? " (pausado)" : ""}</span>
-                        <span className="v">{formatBRL(custoHoraSittech(f))}/h</span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
 
       {abaAtiva === "faturamento" && (
         <div className="stx-grid">
@@ -2404,7 +1561,7 @@ export default function SittechApp() {
                 </div>
               )}
 
-              {loading ? (
+              {faturamentosHook.loading ? (
                 <div className="stx-empty">Carregando…</div>
               ) : receitasDoMes.length === 0 ? (
                 <div className="stx-empty">Nenhum lançamento em {monthLabel(currentMonth)}.</div>
@@ -2467,7 +1624,6 @@ export default function SittechApp() {
                 </div>
               </div>
             </div>
-            {saveError && <p className="stx-save-error">Não foi possível salvar agora. Tente novamente.</p>}
           </div>
 
           <div>
@@ -2698,10 +1854,11 @@ export default function SittechApp() {
       {abaAtiva === "importar" && (
         <div className="stx-grid" style={{ gridTemplateColumns: "1fr" }}>
           <div className="stx-panel stx-resumo-panel">
-            <p className="stx-panel-title" style={{ marginBottom: 4 }}>Backup completo</p>
+            <p className="stx-panel-title" style={{ marginBottom: 4 }}>Backup completo (somente leitura)</p>
             <p className="stx-panel-sub">
-              Gera um texto com absolutamente tudo que está salvo agora. Guarda isso antes de qualquer atualização do sistema —
-              se um link novo vier vazio, é só colar de volta aqui embaixo, sem precisar redigitar nada.
+              Gera um retrato dos dados atuais (custos, funcionários, produtos, máquinas, previsões e faturamento),
+              lido direto do banco. Serve só como registro/consulta — restaurar um backup antigo por aqui não está
+              disponível (ver explicação ao lado).
             </p>
             <div className="stx-form-actions" style={{ marginBottom: 10 }}>
               <button type="button" className="stx-btn-primary" onClick={handleGerarBackup}>Gerar backup</button>
@@ -2721,17 +1878,12 @@ export default function SittechApp() {
 
           <div className="stx-panel">
             <p className="stx-panel-title" style={{ marginBottom: 4 }}>Restaurar backup</p>
-            <p className="stx-panel-sub">Cola aqui um backup gerado antes. Isso substitui TODOS os dados atuais pelos do backup — use com cuidado.</p>
-            <textarea
-              className="stx-textarea"
-              value={textoImportBackup}
-              onChange={(e) => setTextoImportBackup(e.target.value)}
-              placeholder="Cole o backup completo aqui..."
-            />
-            <div className="stx-form-actions" style={{ marginTop: 10 }}>
-              <button type="button" className="stx-btn-primary" onClick={handleRestaurarBackupColado}>Restaurar backup</button>
-            </div>
-            {resultadoImportBackup && <p className="stx-import-resultado">{resultadoImportBackup}</p>}
+            <p className="stx-panel-sub">
+              A restauração de backup não está disponível nesta versão. Os dados do sistema agora vivem no Supabase
+              (banco compartilhado, não mais no navegador) — restaurar um backup antigo com segurança exige
+              substituir dados reais em várias tabelas relacionadas, o que essa tela ainda não faz. Se precisar
+              restaurar dados de um backup antigo, fale com quem administra o banco (Supabase) diretamente.
+            </p>
           </div>
 
           <div className="stx-panel">
@@ -2905,8 +2057,8 @@ export default function SittechApp() {
                   <input className="stx-input" value={usuarioForm.nome} onChange={(e) => setUsuarioForm({ ...usuarioForm, nome: e.target.value })} placeholder="Nome completo" />
                 </div>
                 <div>
-                  <label className="stx-label">Login</label>
-                  <input className="stx-input" value={usuarioForm.login} onChange={(e) => setUsuarioForm({ ...usuarioForm, login: e.target.value })} placeholder="usuario.login" />
+                  <label className="stx-label">E-mail</label>
+                  <input className="stx-input" value={usuarioForm.email} onChange={(e) => setUsuarioForm({ ...usuarioForm, email: e.target.value })} placeholder="usuario@empresa.com" disabled={!!editingUsuarioId} />
                 </div>
                 <div>
                   <label className="stx-label">Papel</label>
@@ -2918,7 +2070,7 @@ export default function SittechApp() {
                 {!editingUsuarioId && (
                   <div>
                     <label className="stx-label">Senha inicial</label>
-                    <input type="password" className="stx-input" value={novaSenhaForm} onChange={(e) => setNovaSenhaForm(e.target.value)} placeholder="mínimo 4 caracteres" />
+                    <input type="password" className="stx-input" value={novaSenhaForm} onChange={(e) => setNovaSenhaForm(e.target.value)} placeholder="mínimo 6 caracteres" />
                   </div>
                 )}
                 {usuarioFormErro && <p className="stx-form-full" style={{ color: "var(--danger)", fontSize: 12.5 }}>{usuarioFormErro}</p>}
@@ -2929,10 +2081,10 @@ export default function SittechApp() {
               </div>
             )}
 
-            {usuarios.length === 0 ? (
+            {usuariosHook.usuarios.length === 0 ? (
               <div className="stx-empty">Nenhum usuário cadastrado ainda.</div>
             ) : (
-              usuarios.map((u) => (
+              usuariosHook.usuarios.map((u) => (
                 <div key={u.id}>
                   <div className={`stx-entry ${!u.ativo ? "paused" : ""}`}>
                     <div>
@@ -2942,7 +2094,7 @@ export default function SittechApp() {
                         {!u.ativo && <span className="stx-badge" style={{ background: "rgba(217,83,79,0.15)", color: "var(--danger)" }}>inativo</span>}
                       </p>
                       <p className="stx-entry-meta">
-                        login: {u.login} · criado em {new Date(u.criadoEm).toLocaleDateString("pt-BR")}
+                        {u.email} · criado em {new Date(u.criadoEm).toLocaleDateString("pt-BR")}
                         {u.ultimoAcesso && ` · último acesso ${new Date(u.ultimoAcesso).toLocaleDateString("pt-BR")}`}
                       </p>
                     </div>
@@ -2954,7 +2106,7 @@ export default function SittechApp() {
                   </div>
                   {resetandoSenhaId === u.id && (
                     <div className="stx-reset-senha-box">
-                      <input type="password" className="stx-input" value={senhaResetForm} onChange={(e) => setSenhaResetForm(e.target.value)} placeholder="Nova senha (mínimo 4 caracteres)" />
+                      <input type="password" className="stx-input" value={senhaResetForm} onChange={(e) => setSenhaResetForm(e.target.value)} placeholder="Nova senha (mínimo 6 caracteres)" />
                       <button className="stx-btn-primary" onClick={() => confirmarResetSenha(u)}>Confirmar</button>
                     </div>
                   )}
@@ -2965,10 +2117,10 @@ export default function SittechApp() {
 
           <div className="stx-panel">
             <p className="stx-panel-title" style={{ marginBottom: 10 }}>Registro de atividade</p>
-            {auditoria.length === 0 ? (
+            {auditoriaHook.registros.length === 0 ? (
               <div className="stx-empty">Nenhuma ação administrativa registrada ainda.</div>
             ) : (
-              auditoria.slice(0, 30).map((a) => (
+              auditoriaHook.registros.map((a) => (
                 <div className="stx-op-func-line" key={a.id}>
                   <span className="n">{a.quem} — {a.acao}{a.usuarioAfetado ? ` (${a.usuarioAfetado})` : ""}</span>
                   <span className="v" style={{ fontSize: 11 }}>{new Date(a.quando).toLocaleString("pt-BR")}</span>

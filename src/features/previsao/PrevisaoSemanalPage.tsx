@@ -3,8 +3,13 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
-import { useSittechStorage } from "@/hooks/useSittechStorage";
 import { useAuthSession } from "@/hooks/useAuthSession";
+import { useCadastrosBase } from "@/hooks/useCadastrosBase";
+import { useFuncionarios } from "@/hooks/useFuncionarios";
+import { useMaquinas } from "@/hooks/useMaquinas";
+import { useProdutos } from "@/hooks/useProdutos";
+import { usePrevisoes } from "@/hooks/usePrevisoes";
+import { useCustos } from "@/hooks/useCustos";
 import LoginScreen from "@/components/shell/LoginScreen";
 import Sidebar from "@/components/shell/Sidebar";
 import TopBarActions from "@/components/shell/TopBarActions";
@@ -16,8 +21,9 @@ import { weekLabel, shiftWeek, toISODate, mondayOf } from "@/lib/date";
 import {
   calcularPeriodosComDuracao, filtrarPeriodosValidos, calcularHorasPorDia, calcularDuracaoMediaPeriodo, calcularHorasPorMaquinaSemana,
 } from "@/lib/calculations/periodos";
-import { calcularTotalFixoAtivo, calcularCustoHoraPorOperacao, calcularMargemProduto } from "@/lib/calculations/custoHora";
-import { calcularMetaFaturamento } from "@/lib/calculations/metaFaturamento";
+import {
+  calcularTotalFixoAtivo, calcularTotalCustoFuncionariosAtivos, calcularCustoHoraEOperacoes, calcularMargemProduto, calcularMetaFaturamento,
+} from "@/features/custo-hora/calculations";
 import { selecionarSemana, calcularResumoSemana } from "@/features/capacidade/selectors";
 import {
   calcularAnaliseCapacidadeSemanal, calcularCapacidadeMaximaSemana, calcularObservacoesSetup, calcularHistoricoSemanas,
@@ -45,12 +51,26 @@ export default function PrevisaoSemanalPage() {
     setGruposAbertos((prev) => ({ ...prev, [grupo]: !prev[grupo] }));
   }
 
-  const storage = useSittechStorage();
-  const {
-    fixedCosts, funcionarios, periodos, diasUteis, diasUteisSemana, produtos, maquinas, previsoes,
-    usuarios, setUsuarios, auditoria, loading, persist,
-  } = storage;
-  const auth = useAuthSession({ usuarios, setUsuarios, auditoria, persist });
+  const auth = useAuthSession();
+  // periodos/diasUteis/diasUteisSemana são cadastro-base — vêm do Supabase,
+  // mesma fonte usada em /produtos, /maquinas, /custo-hora, /capacidade.
+  const cadastrosBase = useCadastrosBase(auth.autenticado);
+  const { periodos, diasUteis, diasUteisSemana } = cadastrosBase;
+  // Ordem exigida: auth -> cadastros-base -> funcionários -> máquinas -> produtos -> previsões -> custos.
+  const funcionariosHook = useFuncionarios(auth.autenticado && !cadastrosBase.loading);
+  const { funcionarios } = funcionariosHook;
+  const maquinasHook = useMaquinas(auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading);
+  const { maquinas } = maquinasHook;
+  const produtosHook = useProdutos(auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading);
+  const { produtos } = produtosHook;
+  const previsoesHook = usePrevisoes(
+    auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading && !produtosHook.loading
+  );
+  const { previsoes } = previsoesHook;
+  const custosHook = useCustos(
+    auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading && !produtosHook.loading && !previsoesHook.loading
+  );
+  const { fixedCosts } = custosHook;
 
   // ---- derivações compartilhadas com o resto do app (mesmas fórmulas, ver Fase 1) ----
   const periodosComDuracao = useMemo(() => calcularPeriodosComDuracao(periodos), [periodos]);
@@ -62,7 +82,7 @@ export default function PrevisaoSemanalPage() {
   const funcionariosAtivos = useMemo(() => funcionarios.filter((f) => f.ativo), [funcionarios]);
   const totalFixo = useMemo(() => calcularTotalFixoAtivo(fixedCosts), [fixedCosts]);
   const { custoHoraPorOperacao, custoHoraEmpresa } = useMemo(
-    () => calcularCustoHoraPorOperacao(funcionarios, fixedCosts, horasPorDiaCalc, diasUteis),
+    () => calcularCustoHoraEOperacoes(funcionarios, fixedCosts, horasPorDiaCalc, diasUteis),
     [funcionarios, fixedCosts, horasPorDiaCalc, diasUteis]
   );
   const getLucroHora = (produto: Produto) => calcularMargemProduto(produto, custoHoraPorOperacao, custoHoraEmpresa, periodosComDuracao).lucroHora;
@@ -73,13 +93,8 @@ export default function PrevisaoSemanalPage() {
   const resumoSemana = useMemo(() => calcularResumoSemana(semanaAtualRec), [semanaAtualRec]);
   const historicoSemanas = useMemo(() => calcularHistoricoSemanas(previsoes), [previsoes]);
 
-  function upsertSemana(campos: Partial<typeof semanaAtualRec>) {
-    const idx = previsoes.findIndex((p) => p.semanaInicio === semanaAtual);
-    if (idx === -1) {
-      persist({ previsoes: [...previsoes, { semanaInicio: semanaAtual, itens: [], itensRealizados: [], ...campos }] });
-    } else {
-      persist({ previsoes: previsoes.map((p) => (p.semanaInicio === semanaAtual ? { ...p, ...campos } : p)) });
-    }
+  async function upsertSemana(campos: Partial<typeof semanaAtualRec>) {
+    await previsoesHook.upsertSemana(semanaAtual, campos);
   }
 
   // ---- modo simulação ----
@@ -104,7 +119,7 @@ export default function PrevisaoSemanalPage() {
   // ---- meta de faturamento ----
   const [margemDesejada, setMargemDesejada] = useState("20");
   const totalCustoFuncionariosAtivos = useMemo(
-    () => funcionariosAtivos.reduce((s, f) => s + (toNumber(f.salarioBase) + f.custos.reduce((s2, c) => s2 + Number(c.valor || 0), 0)), 0),
+    () => calcularTotalCustoFuncionariosAtivos(funcionariosAtivos),
     [funcionariosAtivos]
   );
   const custoTotalMensalAtual = totalFixo + totalCustoFuncionariosAtivos;
@@ -137,7 +152,7 @@ export default function PrevisaoSemanalPage() {
     const novas = atuais.includes(maquinaId) ? atuais.filter((id) => id !== maquinaId) : [...atuais, maquinaId];
     setPrevItemForm({ ...prevItemForm, maquinasPorEtapa: { ...prevItemForm.maquinasPorEtapa, [etapaId]: novas } });
   }
-  function submitPrevItem() {
+  async function submitPrevItem() {
     if (!prevItemForm.produtoId || !prevItemForm.quantidade) return;
     const produto = produtos.find((p) => p.id === prevItemForm.produtoId);
     if (!produto) return;
@@ -149,7 +164,7 @@ export default function PrevisaoSemanalPage() {
     const novosItens = editingPrevItemId
       ? semanaAtualRec.itens.map((it) => (it.id === editingPrevItemId ? item : it))
       : [...semanaAtualRec.itens, item];
-    upsertSemana({ itens: novosItens });
+    await upsertSemana({ itens: novosItens });
     resetPrevItemForm();
   }
   function editPrevItem(it: PrevisaoItem) {
@@ -157,13 +172,13 @@ export default function PrevisaoSemanalPage() {
     setEditingPrevItemId(it.id);
     setShowPrevItemForm(true);
   }
-  function deletePrevItem(id: string) {
-    upsertSemana({ itens: semanaAtualRec.itens.filter((it) => it.id !== id) });
+  async function deletePrevItem(id: string) {
+    await upsertSemana({ itens: semanaAtualRec.itens.filter((it) => it.id !== id) });
   }
 
   // ---- ajuste automático pra capacidade ----
   const [showAjustarModal, setShowAjustarModal] = useState(false);
-  function aplicarAjusteCapacidade() {
+  async function aplicarAjusteCapacidade() {
     const base = modoSimulacao && itensSimulados ? itensSimulados : semanaAtualRec.itens;
     const itensAjustados = base.map((it) => {
       const resultado = capacidadeMaximaSemana.resultadosPorItem.find((r) => r.itemId === it.id);
@@ -171,16 +186,16 @@ export default function PrevisaoSemanalPage() {
       return { ...it, quantidade: resultado.maximoPossivel };
     });
     if (modoSimulacao) setItensSimulados(itensAjustados);
-    else upsertSemana({ itens: itensAjustados });
+    else await upsertSemana({ itens: itensAjustados });
     setShowAjustarModal(false);
   }
 
-  if (loading || !auth.autenticado) {
+  if (cadastrosBase.loading || funcionariosHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading || auth.restaurandoSessao || !auth.autenticado) {
     return (
       <div className="stx-root">
         <GlobalStyles cores={cores} />
         <LoginScreen
-          loading={loading}
+          loading={cadastrosBase.loading || funcionariosHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading || auth.restaurandoSessao}
           tema={tema}
           loginUsuario={auth.loginUsuario}
           setLoginUsuario={auth.setLoginUsuario}
@@ -189,6 +204,7 @@ export default function PrevisaoSemanalPage() {
           loginErro={auth.loginErro}
           loginCarregando={auth.loginCarregando}
           onSubmit={auth.handleLogin}
+          campoLogin="email"
         />
       </div>
     );
@@ -213,6 +229,12 @@ export default function PrevisaoSemanalPage() {
         />
 
         <div className="stx-content-wrapper">
+          {cadastrosBase.erro && <p className="stx-save-error">{cadastrosBase.erro}</p>}
+          {funcionariosHook.erro && <p className="stx-save-error">{funcionariosHook.erro}</p>}
+          {maquinasHook.erro && <p className="stx-save-error">{maquinasHook.erro}</p>}
+          {produtosHook.erro && <p className="stx-save-error">{produtosHook.erro}</p>}
+          {previsoesHook.erro && <p className="stx-save-error">{previsoesHook.erro}</p>}
+          {custosHook.erro && <p className="stx-save-error">{custosHook.erro}</p>}
           <div className="stx-header">
             <div>
               <h1 className="stx-title">Previsão semanal</h1>
@@ -224,7 +246,7 @@ export default function PrevisaoSemanalPage() {
                 tema={tema}
                 onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
                 onAbrirMinhaConta={auth.abrirMinhaConta}
-                onSair={() => auth.setAutenticado(false)}
+                onSair={() => auth.handleLogout()}
               />
               <div className="stx-total-box">
                 <p className="stx-total-label">Previsão da semana</p>
@@ -248,7 +270,7 @@ export default function PrevisaoSemanalPage() {
                   ) : (
                     <>
                       <button className="stx-btn-secondary" onClick={() => { setModoSimulacao(false); setItensSimulados(null); }}>Sair sem aplicar</button>
-                      <button className="stx-btn-primary" onClick={() => { upsertSemana({ itens: itensSimulados! }); setModoSimulacao(false); setItensSimulados(null); }}>Aplicar simulação</button>
+                      <button className="stx-btn-primary" onClick={async () => { await upsertSemana({ itens: itensSimulados! }); setModoSimulacao(false); setItensSimulados(null); }}>Aplicar simulação</button>
                     </>
                   )}
                   <div>
@@ -478,7 +500,7 @@ export default function PrevisaoSemanalPage() {
             <div className="stx-grid">
               <div>
                 <ItensPrevistos
-                  loading={loading}
+                  loading={previsoesHook.loading}
                   produtos={produtos}
                   maquinas={maquinas}
                   periodosComDuracao={periodosComDuracao}
@@ -502,7 +524,7 @@ export default function PrevisaoSemanalPage() {
                 />
 
                 <ItensRealizados
-                  loading={loading}
+                  loading={previsoesHook.loading}
                   produtos={produtos}
                   semana={semanaAtualRec}
                   upsertSemana={upsertSemana}
@@ -593,7 +615,7 @@ function ItensRealizados({
   loading: boolean;
   produtos: Produto[];
   semana: ReturnType<typeof selecionarSemana>;
-  upsertSemana: (campos: Partial<ReturnType<typeof selecionarSemana>>) => void;
+  upsertSemana: (campos: Partial<ReturnType<typeof selecionarSemana>>) => Promise<void>;
   valorRealizadoSemana: number;
   formatBRL: (v: number) => string;
 }) {
@@ -607,14 +629,14 @@ function ItensRealizados({
     setEditingId(null);
     setShowForm(false);
   }
-  function submit() {
+  async function submit() {
     if (!form.produtoId || !form.quantidade) return;
     const produto = produtos.find((p) => p.id === form.produtoId);
     if (!produto) return;
     const item = { id: editingId || uid(), produtoId: produto.id, produtoNome: produto.nome, valorUnitario: produto.valorUnitario, quantidade: toNumber(form.quantidade) };
     const itensAtuais = semana.itensRealizados || [];
     const novosItens = editingId ? itensAtuais.map((it) => (it.id === editingId ? item : it)) : [...itensAtuais, item];
-    upsertSemana({ itensRealizados: novosItens });
+    await upsertSemana({ itensRealizados: novosItens });
     reset();
   }
 

@@ -181,3 +181,12 @@ export interface AlocacaoSemanal {
     operacoesComSobra: UsoPorOperacao[];
   };
 }
+
+// Etapa cuja seleção de máquina (maquinasPorEtapa, de um item de previsão
+// já lançado ou em edição) contém IDs que não estão mais elegíveis no
+// roteiro atual do produto — ver `encontrarSelecoesInvalidas`.
+export interface SelecaoInvalidaEtapa {
+  etapaId: string;
+  operacao: string;
+  maquinasInvalidas: string[];
+}

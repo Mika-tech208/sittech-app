@@ -4,7 +4,7 @@ import {
   calcularMaquinasDaEtapa, calcularHorasPorMaquina, calcularAnaliseCapacidadeSemanal, calcularCapacidadeMaximaSemana,
   calcularUsoPorMaquina, calcularCapacidadeMaximaProduto, calcularViabilidadeItem, calcularObservacoesSetup,
   calcularItensSemanaAgregados, calcularCapacidadeInicialPorMaquina, calcularHistoricoSemanas, calcularAlocacaoSemanal,
-  calcularMaquinasSelecionadasPorProdutoEtapa,
+  calcularMaquinasSelecionadasPorProdutoEtapa, encontrarSelecoesInvalidas,
 } from "@/features/capacidade/calculations";
 import type { Produto, Maquina, PeriodoComDuracao, PrevisaoItem, RoteiroEtapaMetas, Previsao } from "@/types/domain";
 
@@ -290,6 +290,63 @@ describe("calcularMaquinasDaEtapa", () => {
   it("ignora máquinas inativas mesmo se marcadas", () => {
     const etapa = { maquinasIds: ["m3"], operacao: "Solda" };
     expect(calcularMaquinasDaEtapa(etapa, maquinasAtivas)).toEqual([]);
+  });
+});
+
+// ---- Parte 1 — correção: elegibilidade de máquina na Previsão deve vir do
+// roteiro do produto (etapa.maquinasIds via calcularMaquinasDaEtapa), não
+// de "toda máquina ativa da mesma operação". A tela (ItensPrevistos.tsx) só
+// consome essa mesma função — os testes abaixo cobrem a fonte de verdade.
+describe("Parte 1 — elegibilidade de máquina na Previsão", () => {
+  const m1 = maquina("m1", "Torno 1", "Torno");
+  const m2 = maquina("m2", "Torno 2", "Torno");
+  const m3 = maquina("m3", "Torno 3", "Torno"); // mesma operação, fora do roteiro
+  const maquinasDisponiveis = [m1, m2, m3];
+
+  it("1) roteiro com M1/M2 -> previsão só mostra M1/M2", () => {
+    const etapa = { maquinasIds: ["m1", "m2"], operacao: "Torno" };
+    expect(calcularMaquinasDaEtapa(etapa, maquinasDisponiveis)).toEqual(["m1", "m2"]);
+  });
+
+  it("2) M3 é da mesma operação mas está fora do roteiro -> não aparece como selecionável", () => {
+    const etapa = { maquinasIds: ["m1", "m2"], operacao: "Torno" };
+    expect(calcularMaquinasDaEtapa(etapa, maquinasDisponiveis)).not.toContain("m3");
+  });
+
+  it("3) remover M2 do roteiro -> nova programação não oferece mais M2", () => {
+    const etapaComM2 = { maquinasIds: ["m1", "m2"], operacao: "Torno" };
+    expect(calcularMaquinasDaEtapa(etapaComM2, maquinasDisponiveis)).toContain("m2");
+    const etapaSemM2 = { maquinasIds: ["m1"], operacao: "Torno" }; // M2 removida do roteiro do produto
+    expect(calcularMaquinasDaEtapa(etapaSemM2, maquinasDisponiveis)).not.toContain("m2");
+  });
+
+  it("4) item legado com M2 selecionado, depois que M2 saiu do roteiro -> sinalizado por encontrarSelecoesInvalidas, sem apagar o dado", () => {
+    const roteiroAtual = [{ id: "e1", operacao: "Torno", metas: metas(1), maquinasIds: ["m1"] }]; // M2 já foi removida
+    const maquinasPorEtapaDoItemAntigo = { e1: ["m1", "m2"] }; // lançado quando M2 ainda era elegível
+    const invalidas = encontrarSelecoesInvalidas(maquinasPorEtapaDoItemAntigo, roteiroAtual, maquinasDisponiveis);
+    expect(invalidas).toEqual([{ etapaId: "e1", operacao: "Torno", maquinasInvalidas: ["m2"] }]);
+    // o dado original não é tocado por encontrarSelecoesInvalidas — só lido
+    expect(maquinasPorEtapaDoItemAntigo).toEqual({ e1: ["m1", "m2"] });
+  });
+
+  it("4b) sem inconsistência: seleção toda dentro do roteiro atual não gera nenhum aviso", () => {
+    const roteiroAtual = [{ id: "e1", operacao: "Torno", metas: metas(1), maquinasIds: ["m1", "m2"] }];
+    const invalidas = encontrarSelecoesInvalidas({ e1: ["m1"] }, roteiroAtual, maquinasDisponiveis);
+    expect(invalidas).toEqual([]);
+  });
+
+  it("5) capacidade continua funcionando normalmente com uma seleção válida (sem regressão)", () => {
+    const it1 = item("it1", "produtoA", "Produto A", 100, 30, { "produtoA-e1": ["maq1"] });
+    const analise = calcularAnaliseCapacidadeSemanal([it1], [produtoA], [maq1], PERIODOS, HORAS_MAQUINA_SEMANA);
+    expect(analise.atingivel).toBe(true);
+    expect(analise.maquinas[0].pct).toBeCloseTo(60, 5);
+  });
+
+  it("6) máquina acima de 100% continua mostrando o valor real, sem cap em 100 (sem regressão)", () => {
+    const it1 = item("it1", "produtoA", "Produto A", 100, 65, { "produtoA-e1": ["maq1"] }); // 65 * 0.8h = 52h em 40h disponíveis = 130%
+    const analise = calcularAnaliseCapacidadeSemanal([it1], [produtoA], [maq1], PERIODOS, HORAS_MAQUINA_SEMANA);
+    expect(analise.maquinas[0].pct).toBeCloseTo(130, 5);
+    expect(analise.maquinas[0].status).toBe("gargalo");
   });
 });
 

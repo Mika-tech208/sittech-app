@@ -1,9 +1,9 @@
 "use client";
 
-import type { Usuario } from "@/types/domain";
-
 export interface AccountModalProps {
-  usuarioLogado: Usuario | null;
+  // Formato do `UsuarioLogado` (useAuthSession.ts) — mesmo componente usado
+  // pelo app legado e pelas rotas migradas, ambos já 100% Supabase Auth.
+  usuarioLogado: { nome: string; papel: string; email: string } | null;
   aberta: boolean;
   onFechar: () => void;
   minhaSenhaAtual: string;
@@ -28,7 +28,7 @@ export default function AccountModal({
       <div className="stx-modal-card" onClick={(e) => e.stopPropagation()}>
         <p className="stx-modal-titulo">Minha conta</p>
         <p className="stx-panel-sub" style={{ marginBottom: 4 }}>Nome: <b style={{ color: "var(--text)" }}>{usuarioLogado.nome}</b></p>
-        <p className="stx-panel-sub" style={{ marginBottom: 16 }}>Login: <b style={{ color: "var(--text)" }}>{usuarioLogado.login}</b> · {usuarioLogado.papel === "admin" ? "Administrador" : "Usuário"}</p>
+        <p className="stx-panel-sub" style={{ marginBottom: 16 }}>E-mail: <b style={{ color: "var(--text)" }}>{usuarioLogado.email}</b> · {usuarioLogado.papel === "admin" ? "Administrador" : "Usuário"}</p>
         <p className="stx-analise-secao-titulo">Trocar senha</p>
         <div style={{ marginBottom: 10 }}>
           <label className="stx-label">Senha atual</label>

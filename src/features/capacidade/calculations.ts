@@ -11,7 +11,7 @@ import type { Produto, Maquina, PeriodoComDuracao, PrevisaoItem, Previsao, Rotei
 import type {
   HorasPorMaquina, AnaliseCapacidadeSemanal, CapacidadeMaximaSemana, UsoMaquina, CapacidadeMaximaProduto,
   ViabilidadeItem, PeriodosEtapa, ObservacaoSetupMaquina, ItemSemanaAgregado, HistoricoSemanaResumo,
-  AlocacaoSemanal, AlocacaoItemResultado, UsoPorOperacao, DiasPeriodos, StatusCapacidadeMaquina,
+  AlocacaoSemanal, AlocacaoItemResultado, UsoPorOperacao, DiasPeriodos, StatusCapacidadeMaquina, SelecaoInvalidaEtapa,
 } from "@/features/capacidade/types";
 
 // ---- itens previstos ----
@@ -76,6 +76,29 @@ export function calcularMaquinasDaEtapa(etapa: Pick<RoteiroEtapa, "maquinasIds" 
     return maquinas.filter((m) => etapa.maquinasIds.includes(m.id) && m.ativo).map((m) => m.id);
   }
   return maquinas.filter((m) => m.operacao === etapa.operacao && m.ativo).map((m) => m.id);
+}
+
+// Compara a seleção de máquinas de um item (maquinasPorEtapa — o que foi
+// escolhido numa programação semanal, já lançada ou em edição) contra a
+// elegibilidade ATUAL do roteiro do produto. Não corrige nem apaga nada —
+// só torna visível quando um dado legado ficou incompatível (ex.: a máquina
+// foi removida do roteiro do produto depois que o item já tinha sido
+// lançado com ela selecionada).
+export function encontrarSelecoesInvalidas(
+  maquinasPorEtapa: Record<string, string[]> | undefined,
+  roteiro: RoteiroEtapa[],
+  maquinas: Maquina[]
+): SelecaoInvalidaEtapa[] {
+  const selecao = maquinasPorEtapa || {};
+  const resultado: SelecaoInvalidaEtapa[] = [];
+  roteiro.forEach((etapa) => {
+    const selecionadas = selecao[etapa.id] || [];
+    if (selecionadas.length === 0) return;
+    const idsElegiveis = calcularMaquinasDaEtapa(etapa, maquinas);
+    const maquinasInvalidas = selecionadas.filter((id) => !idsElegiveis.includes(id));
+    if (maquinasInvalidas.length > 0) resultado.push({ etapaId: etapa.id, operacao: etapa.operacao, maquinasInvalidas });
+  });
+  return resultado;
 }
 
 // Tempo médio (em horas) pra produzir 1 peça numa etapa, derivado das metas

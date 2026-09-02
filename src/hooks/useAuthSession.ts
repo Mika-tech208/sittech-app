@@ -1,69 +1,123 @@
 "use client";
 
-// Sessão de autenticação (temporária — ver lib/auth.ts e o briefing, Etapa 9:
-// isso é hash client-side, não autenticação de verdade, e será substituído
-// por Supabase Auth numa fase futura). Extraído pra ser usado tanto pelo
-// app legado quanto pelas novas rotas, sem duplicar handleLogin/troca de
-// senha em cada lugar que precisa de um gate de login.
+// Sessão de autenticação — Supabase Auth (login, sessão, logout, troca da
+// própria senha) usado por toda rota autenticada do app, incluindo o
+// monólito legado (SittechApp.tsx, rota "/"). Sem parâmetros: nada aqui
+// depende mais do blob local (useSittechStorage foi removido — ver etapa
+// de limpeza de storage legado). registrarAuditoria grava direto em
+// public.auditoria (Supabase).
 
-import { useState } from "react";
-import { hashSenha, gerarSalt } from "@/lib/auth";
-import { uid } from "@/lib/id";
-import type { Usuario, AuditoriaEntry } from "@/types/domain";
-import type { SittechStorageOverrides } from "@/hooks/useSittechStorage";
+import { useEffect, useState } from "react";
+import { supabase } from "@/services/supabase-client";
 
-export interface UseAuthSessionParams {
-  usuarios: Usuario[];
-  setUsuarios: (usuarios: Usuario[]) => void;
-  auditoria: AuditoriaEntry[];
-  persist: (overrides?: SittechStorageOverrides) => Promise<void>;
+export interface UsuarioLogado {
+  id: string;
+  authUserId: string;
+  nome: string;
+  email: string;
+  papel: "admin" | "usuario";
+  ativo: boolean;
 }
 
-export function useAuthSession({ usuarios, setUsuarios, auditoria, persist }: UseAuthSessionParams) {
+export function useAuthSession() {
   const [autenticado, setAutenticado] = useState(false);
+  const [usuarioLogado, setUsuarioLogado] = useState<UsuarioLogado | null>(null);
+  const [restaurandoSessao, setRestaurandoSessao] = useState(true);
+
+  // nomes mantidos (loginUsuario, não loginEmail) pra não precisar mexer em
+  // LoginScreen.tsx nem nas 5 páginas que já passam essas props adiante —
+  // o conteúdo agora é um e-mail, não mais um login/usuário.
   const [loginUsuario, setLoginUsuario] = useState("");
   const [loginSenha, setLoginSenha] = useState("");
   const [loginErro, setLoginErro] = useState("");
   const [loginCarregando, setLoginCarregando] = useState(false);
 
-  const usuarioLogado = usuarios.find((u) => u.login.toLowerCase() === loginUsuario.trim().toLowerCase()) || null;
+  // Busca o perfil em public.usuarios pro auth_user_id autenticado. Exige
+  // perfil existente e ativo=true — se qualquer um falhar, desloga de novo
+  // (não deixa uma sessão Supabase válida "pendurada" sem perfil utilizável).
+  async function carregarPerfil(authUserId: string): Promise<boolean> {
+    const { data, error } = await supabase
+      .from("usuarios")
+      .select("id, auth_user_id, nome, email, papel, ativo")
+      .eq("auth_user_id", authUserId)
+      .maybeSingle();
+
+    if (error || !data) {
+      setLoginErro("Não encontramos um perfil vinculado a essa conta.");
+      await supabase.auth.signOut();
+      setAutenticado(false);
+      setUsuarioLogado(null);
+      return false;
+    }
+    if (!data.ativo) {
+      setLoginErro("Esse usuário está inativo.");
+      await supabase.auth.signOut();
+      setAutenticado(false);
+      setUsuarioLogado(null);
+      return false;
+    }
+    setUsuarioLogado({
+      id: data.id, authUserId: data.auth_user_id, nome: data.nome, email: data.email,
+      papel: data.papel, ativo: data.ativo,
+    });
+    setAutenticado(true);
+    return true;
+  }
+
+  // Restaura a sessão no carregamento da página (refresh) — o client
+  // Supabase já persiste a sessão sozinho (localStorage interno dele,
+  // separado do blob do app); aqui só reagimos a ela existir ou não.
+  useEffect(() => {
+    let montado = true;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) await carregarPerfil(session.user.id);
+      if (montado) setRestaurandoSessao(false);
+    })();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        setAutenticado(false);
+        setUsuarioLogado(null);
+      }
+    });
+    return () => { montado = false; subscription.unsubscribe(); };
+  }, []);
 
   async function handleLogin() {
     setLoginCarregando(true);
-    const candidato = usuarios.find((u) => u.login.toLowerCase() === loginUsuario.trim().toLowerCase() && u.ativo);
-    if (!candidato) {
-      setLoginErro("Usuário ou senha incorretos.");
+    setLoginErro("");
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: loginUsuario.trim(), password: loginSenha,
+    });
+    if (error || !data.session) {
+      setLoginErro("E-mail ou senha incorretos.");
       setLoginCarregando(false);
       return;
     }
-    const hashDigitado = await hashSenha(loginSenha, candidato.senhaSalt);
-    if (hashDigitado === candidato.senhaHash) {
-      setAutenticado(true);
-      setLoginErro("");
-      setLoginSenha("");
-      const usuariosAtualizados = usuarios.map((u) => (u.id === candidato.id ? { ...u, ultimoAcesso: new Date().toISOString() } : u));
-      setUsuarios(usuariosAtualizados);
-      try {
-        await persist({ usuarios: usuariosAtualizados });
-      } catch {
-        // não bloqueia o login se isso falhar
-      }
-    } else {
-      setLoginErro("Usuário ou senha incorretos.");
-    }
+    const autorizado = await carregarPerfil(data.session.user.id);
+    if (autorizado) setLoginSenha("");
     setLoginCarregando(false);
   }
 
-  function registrarAuditoria(acao: string, usuarioAfetado?: string | null) {
-    const entrada: AuditoriaEntry = {
-      id: uid(), quando: new Date().toISOString(), quem: usuarioLogado?.nome || loginUsuario,
-      acao, usuarioAfetado: usuarioAfetado || null,
-    };
-    const novaAuditoria = [entrada, ...auditoria].slice(0, 200);
-    persist({ auditoria: novaAuditoria });
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    setAutenticado(false);
+    setUsuarioLogado(null);
   }
 
-  // ---- "Minha conta": trocar a própria senha ----
+  // Grava em public.auditoria (RLS: auditoria_insert_usuario_ativo permite
+  // qualquer usuário ativo autenticado).
+  async function registrarAuditoria(acao: string, usuarioAfetado?: string | null) {
+    const { error } = await supabase
+      .from("auditoria")
+      .insert({ quem: usuarioLogado?.nome || loginUsuario, acao, usuario_afetado: usuarioAfetado || null });
+    if (error) {
+      console.error("Falha ao registrar auditoria:", error.message);
+    }
+  }
+
+  // ---- "Minha conta": trocar a própria senha (agora via Supabase Auth) ----
   const [minhaContaAberta, setMinhaContaAberta] = useState(false);
   const [minhaSenhaAtual, setMinhaSenhaAtual] = useState("");
   const [minhaSenhaNova, setMinhaSenhaNova] = useState("");
@@ -77,8 +131,12 @@ export function useAuthSession({ usuarios, setUsuarios, auditoria, persist }: Us
 
   async function alterarMinhaSenha() {
     if (!usuarioLogado) return;
-    const hashAtual = await hashSenha(minhaSenhaAtual, usuarioLogado.senhaSalt);
-    if (hashAtual !== usuarioLogado.senhaHash) {
+    // reautentica com a senha atual antes de trocar — mesma checagem que
+    // existia antes (contra senhaHash), agora contra o Supabase Auth de verdade.
+    const { error: erroReauth } = await supabase.auth.signInWithPassword({
+      email: usuarioLogado.email, password: minhaSenhaAtual,
+    });
+    if (erroReauth) {
       setMinhaContaMsg("Senha atual incorreta.");
       return;
     }
@@ -90,10 +148,11 @@ export function useAuthSession({ usuarios, setUsuarios, auditoria, persist }: Us
       setMinhaContaMsg("As senhas novas não coincidem.");
       return;
     }
-    const salt = gerarSalt();
-    const hash = await hashSenha(minhaSenhaNova, salt);
-    const atualizados = usuarios.map((u) => (u.id === usuarioLogado.id ? { ...u, senhaHash: hash, senhaSalt: salt } : u));
-    await persist({ usuarios: atualizados });
+    const { error } = await supabase.auth.updateUser({ password: minhaSenhaNova });
+    if (error) {
+      setMinhaContaMsg("Não foi possível trocar a senha agora. Tente de novo.");
+      return;
+    }
     registrarAuditoria("Alterou a própria senha", usuarioLogado.nome);
     setMinhaSenhaAtual("");
     setMinhaSenhaNova("");
@@ -102,8 +161,8 @@ export function useAuthSession({ usuarios, setUsuarios, auditoria, persist }: Us
   }
 
   return {
-    autenticado, setAutenticado, usuarioLogado,
-    loginUsuario, setLoginUsuario, loginSenha, setLoginSenha, loginErro, loginCarregando, handleLogin,
+    autenticado, setAutenticado, usuarioLogado, restaurandoSessao,
+    loginUsuario, setLoginUsuario, loginSenha, setLoginSenha, loginErro, loginCarregando, handleLogin, handleLogout,
     registrarAuditoria,
     minhaContaAberta, setMinhaContaAberta, abrirMinhaConta,
     minhaSenhaAtual, setMinhaSenhaAtual, minhaSenhaNova, setMinhaSenhaNova,

@@ -22,3 +22,18 @@ export function monthLabelShort(key: string): string {
   const [y, m] = key.split("-").map(Number);
   return `${MESES_ABREV[m - 1]}/${String(y).slice(2)}`;
 }
+
+// Cores de alerta pra números críticos (margem, lucro/hora) — usadas em
+// vários domínios (Início, Faturamento, Produtos), por isso centralizadas
+// aqui em vez de redefinidas em cada tela.
+export function corPorMargemPct(pct: number): string {
+  if (pct < 0) return "var(--danger)";
+  if (pct < 20) return "var(--warning)";
+  return "var(--accent)";
+}
+
+export function corPorLucroHora(valor: number): string {
+  if (valor < 0) return "var(--danger)";
+  if (valor < 20) return "var(--warning)";
+  return "var(--accent)";
+}

@@ -1,7 +1,3 @@
-import type { Periodo } from "@/types/domain";
-
-export const STORAGE_KEY = "sittech-custos-mensais";
-
 export const CATEGORIAS = [
   "Mão de obra",
   "Materiais e insumos",
@@ -21,15 +17,6 @@ export const OPERACOES = [
   "Programação CNC",
   "Montagem",
   "Manutenção elétrica",
-];
-
-export const PERIODOS_PADRAO: Periodo[] = [
-  { id: "m1", nome: "M1", inicio: "07:12", fim: "08:48" },
-  { id: "m2", nome: "M2", inicio: "08:48", fim: "10:24" },
-  { id: "m3", nome: "M3", inicio: "10:24", fim: "11:55" },
-  { id: "t1", nome: "T1", inicio: "13:00", fim: "14:20" },
-  { id: "t2", nome: "T2", inicio: "14:20", fim: "15:40" },
-  { id: "t3", nome: "T3", inicio: "15:40", fim: "17:00" },
 ];
 
 export const MESES = [
@@ -91,37 +78,3 @@ export const THEMES: { dark: ThemeColors; light: ThemeColors } = {
     blueprint: "#145C4E", danger: "#c0392b", warning: "#b8790a", laranja: "#b8631a", btnText: "#ffffff",
   },
 };
-
-export interface UsuarioSeed {
-  usuario: string;
-  senha: string;
-  nome: string;
-}
-
-// Seed usado apenas na migração única do formato antigo (senha em texto puro)
-// para o formato novo (hash + salt) — ver lib/auth.ts. TEMPORÁRIO: some
-// quando a autenticação migrar para Supabase Auth. Vem de variável de
-// ambiente (NEXT_PUBLIC_SEED_USUARIOS_JSON, ver .env.example) para que as
-// senhas reais nunca entrem no controle de versão — só existem localmente em
-// .env.local (gitignored).
-function parseUsuariosSeed(): UsuarioSeed[] {
-  const raw = process.env.NEXT_PUBLIC_SEED_USUARIOS_JSON;
-  if (!raw) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(
-        "NEXT_PUBLIC_SEED_USUARIOS_JSON não definida — copie .env.example para .env.local e preencha com usuários reais para conseguir logar localmente."
-      );
-    }
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
-  } catch {
-    console.warn("NEXT_PUBLIC_SEED_USUARIOS_JSON não é um JSON válido.");
-    return [];
-  }
-}
-
-export const USUARIOS_SEED: UsuarioSeed[] = parseUsuariosSeed();
