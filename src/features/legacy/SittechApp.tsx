@@ -889,7 +889,7 @@ export default function SittechApp() {
 
       {cadastrosBase.loading || funcionariosHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading || faturamentosHook.loading || restaurandoSessao || !autenticado ? (
         <LoginScreen
-          loading={cadastrosBase.loading || funcionariosHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading || faturamentosHook.loading || restaurandoSessao}
+          loading={restaurandoSessao || (autenticado && (cadastrosBase.loading || funcionariosHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading || faturamentosHook.loading))}
           tema={tema}
           loginUsuario={loginUsuario}
           setLoginUsuario={setLoginUsuario}

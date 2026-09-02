@@ -100,7 +100,7 @@ export default function CustoHoraPage() {
       <div className="stx-root">
         <GlobalStyles cores={cores} />
         <LoginScreen
-          loading={cadastrosBase.loading || funcionariosHook.loading || previsoesHook.loading || custosHook.loading || auth.restaurandoSessao}
+          loading={auth.restaurandoSessao || (auth.autenticado && (cadastrosBase.loading || funcionariosHook.loading || previsoesHook.loading || custosHook.loading))}
           tema={tema}
           loginUsuario={auth.loginUsuario}
           setLoginUsuario={auth.setLoginUsuario}
