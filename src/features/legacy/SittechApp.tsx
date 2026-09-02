@@ -49,6 +49,7 @@ import { useAuditoria } from "@/hooks/useAuditoria";
 import GlobalStyles from "@/components/shell/GlobalStyles";
 import Sidebar from "@/components/shell/Sidebar";
 import LoginScreen from "@/components/shell/LoginScreen";
+import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import TopBarActions from "@/components/shell/TopBarActions";
 import AccountModal from "@/components/shell/AccountModal";
 import {
@@ -139,6 +140,8 @@ export default function SittechApp() {
     minhaContaAberta, setMinhaContaAberta, abrirMinhaConta,
     minhaSenhaAtual, setMinhaSenhaAtual, minhaSenhaNova, setMinhaSenhaNova,
     minhaSenhaConfirma, setMinhaSenhaConfirma, minhaContaMsg, alterarMinhaSenha,
+    emModoRecovery, novaSenhaRecovery, setNovaSenhaRecovery, confirmarSenhaRecovery, setConfirmarSenhaRecovery,
+    recoveryMsg, recoverySalvando, recoverySucesso, definirNovaSenhaRecovery, concluirRecovery,
   } = auth;
 
   // Cadastros-base (categorias, operações, períodos, configurações da
@@ -887,7 +890,20 @@ export default function SittechApp() {
     <div className="stx-root">
       <GlobalStyles cores={cores} />
 
-      {cadastrosBase.loading || funcionariosHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading || faturamentosHook.loading || restaurandoSessao || !autenticado ? (
+      {emModoRecovery ? (
+        <RecoveryPasswordScreen
+          tema={tema}
+          novaSenha={novaSenhaRecovery}
+          setNovaSenha={setNovaSenhaRecovery}
+          confirmarSenha={confirmarSenhaRecovery}
+          setConfirmarSenha={setConfirmarSenhaRecovery}
+          mensagem={recoveryMsg}
+          salvando={recoverySalvando}
+          sucesso={recoverySucesso}
+          onSubmit={definirNovaSenhaRecovery}
+          onContinuar={concluirRecovery}
+        />
+      ) : cadastrosBase.loading || funcionariosHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading || faturamentosHook.loading || restaurandoSessao || !autenticado ? (
         <LoginScreen
           loading={restaurandoSessao || (autenticado && (cadastrosBase.loading || funcionariosHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading || faturamentosHook.loading))}
           tema={tema}

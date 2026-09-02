@@ -8,6 +8,7 @@ import { useFuncionarios } from "@/hooks/useFuncionarios";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import LoginScreen from "@/components/shell/LoginScreen";
+import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import Sidebar from "@/components/shell/Sidebar";
 import TopBarActions from "@/components/shell/TopBarActions";
 import AccountModal from "@/components/shell/AccountModal";
@@ -94,6 +95,26 @@ export default function CustoHoraPage() {
   );
   const metaSemanalUsaPrevisto = resumoSemana.valorPrevisto > 0;
   const metaSemanalFinal = metaSemanalUsaPrevisto ? resumoSemana.valorPrevisto : faturamentoSemanalNecessario;
+
+  if (auth.emModoRecovery) {
+    return (
+      <div className="stx-root">
+        <GlobalStyles cores={cores} />
+        <RecoveryPasswordScreen
+          tema={tema}
+          novaSenha={auth.novaSenhaRecovery}
+          setNovaSenha={auth.setNovaSenhaRecovery}
+          confirmarSenha={auth.confirmarSenhaRecovery}
+          setConfirmarSenha={auth.setConfirmarSenhaRecovery}
+          mensagem={auth.recoveryMsg}
+          salvando={auth.recoverySalvando}
+          sucesso={auth.recoverySucesso}
+          onSubmit={auth.definirNovaSenhaRecovery}
+          onContinuar={auth.concluirRecovery}
+        />
+      </div>
+    );
+  }
 
   if (cadastrosBase.loading || funcionariosHook.loading || previsoesHook.loading || custosHook.loading || auth.restaurandoSessao || !auth.autenticado) {
     return (

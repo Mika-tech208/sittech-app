@@ -64,12 +64,26 @@ export function useAuthSession() {
     return true;
   }
 
+  // Link de recovery (troca de senha sem saber a atual) — ver bloco
+  // "Recovery" mais abaixo.
+  const [emModoRecovery, setEmModoRecovery] = useState(false);
+
   // Restaura a sessão no carregamento da página (refresh) — o client
   // Supabase já persiste a sessão sozinho (localStorage interno dele,
   // separado do blob do app); aqui só reagimos a ela existir ou não.
   useEffect(() => {
     let montado = true;
     (async () => {
+      // Link de recovery inválido/expirado: o Supabase redireciona de volta
+      // com o erro no hash da URL (#error=...&error_description=...), sem
+      // sessão nenhuma — sem isso o usuário só veria a tela de login normal,
+      // sem entender por quê. Mensagem única e genérica de propósito (não
+      // depende de traduzir cada error_code do Supabase).
+      if (window.location.hash.includes("error=")) {
+        setLoginErro("Esse link de recuperação de senha é inválido ou expirou. Peça um novo.");
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) await carregarPerfil(session.user.id);
       if (montado) setRestaurandoSessao(false);
@@ -79,6 +93,9 @@ export function useAuthSession() {
       if (event === "SIGNED_OUT") {
         setAutenticado(false);
         setUsuarioLogado(null);
+      }
+      if (event === "PASSWORD_RECOVERY") {
+        setEmModoRecovery(true);
       }
     });
     return () => { montado = false; subscription.unsubscribe(); };
@@ -160,6 +177,48 @@ export function useAuthSession() {
     setMinhaContaMsg("Senha alterada com sucesso.");
   }
 
+  // ---- Recovery: definir nova senha a partir de um link de recuperação,
+  // sem pedir a senha atual (o token do link já prova a identidade). O
+  // Supabase estabelece a sessão sozinho ao abrir o link e dispara
+  // PASSWORD_RECOVERY (capturado acima) — aqui só falta o formulário. ----
+  const [novaSenhaRecovery, setNovaSenhaRecovery] = useState("");
+  const [confirmarSenhaRecovery, setConfirmarSenhaRecovery] = useState("");
+  const [recoveryMsg, setRecoveryMsg] = useState("");
+  const [recoverySalvando, setRecoverySalvando] = useState(false);
+  const [recoverySucesso, setRecoverySucesso] = useState(false);
+
+  async function definirNovaSenhaRecovery() {
+    setRecoveryMsg("");
+    if (!novaSenhaRecovery || novaSenhaRecovery.length < 6) {
+      setRecoveryMsg("A senha precisa ter pelo menos 6 caracteres.");
+      return;
+    }
+    if (novaSenhaRecovery !== confirmarSenhaRecovery) {
+      setRecoveryMsg("As senhas não coincidem.");
+      return;
+    }
+    setRecoverySalvando(true);
+    const { error } = await supabase.auth.updateUser({ password: novaSenhaRecovery });
+    if (error) {
+      setRecoveryMsg("Não foi possível definir a senha agora. Peça um novo link e tente de novo.");
+      setRecoverySalvando(false);
+      return;
+    }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) await carregarPerfil(session.user.id);
+    setNovaSenhaRecovery("");
+    setConfirmarSenhaRecovery("");
+    setRecoverySalvando(false);
+    setRecoverySucesso(true);
+  }
+
+  // Chamado pelo botão "Continuar" da tela de sucesso — só então sai do
+  // modo recovery e libera a tela normal do sistema.
+  function concluirRecovery() {
+    setRecoverySucesso(false);
+    setEmModoRecovery(false);
+  }
+
   return {
     autenticado, setAutenticado, usuarioLogado, restaurandoSessao,
     loginUsuario, setLoginUsuario, loginSenha, setLoginSenha, loginErro, loginCarregando, handleLogin, handleLogout,
@@ -167,6 +226,8 @@ export function useAuthSession() {
     minhaContaAberta, setMinhaContaAberta, abrirMinhaConta,
     minhaSenhaAtual, setMinhaSenhaAtual, minhaSenhaNova, setMinhaSenhaNova,
     minhaSenhaConfirma, setMinhaSenhaConfirma, minhaContaMsg, alterarMinhaSenha,
+    emModoRecovery, novaSenhaRecovery, setNovaSenhaRecovery, confirmarSenhaRecovery, setConfirmarSenhaRecovery,
+    recoveryMsg, recoverySalvando, recoverySucesso, definirNovaSenhaRecovery, concluirRecovery,
   };
 }
 
