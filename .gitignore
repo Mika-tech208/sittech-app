@@ -41,6 +41,10 @@ yarn-error.log*
 docs/legacy/sittech-custos.jsx
 docs/legacy/files-original.zip
 
+# backups locais do banco (scripts/backup-prod.sh) — contêm dados reais de
+# negócio, nunca versionar. Ver scripts/BACKUP_RESTORE.md.
+/backups/
+
 # vercel
 .vercel
 
