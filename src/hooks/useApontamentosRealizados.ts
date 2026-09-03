@@ -4,6 +4,13 @@
 // só leitura + filtros. Backend já suporta tudo isso direto (índices de
 // funcionario_id/status adicionados na migration de lançamento
 // retroativo/edição) — nenhuma RPC nova precisa existir só pra filtrar.
+//
+// NÃO embeda funcionarios(nome) — desde a migration de permissões por
+// usuário/módulo (20260902190000), `funcionarios` fica atrás da permissão
+// 'funcionarios'/'custo_hora', e um embed de FK ainda passa pela RLS da
+// tabela referenciada. `funcionarioNome` fica null aqui de propósito; quem
+// chama (ApontamentosRealizadosPage) resolve o nome via
+// useFuncionariosElegibilidade (view sem essa restrição).
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
@@ -52,14 +59,13 @@ interface ApontamentoRow {
   observacao: string | null;
   maquinas: { nome: string } | null;
   produtos: { nome: string } | null;
-  funcionarios: { nome: string } | null;
   periodos: { nome: string } | null;
 }
 
 const SELECT = `
   id, data, periodo_id, maquina_id, produto_id, funcionario_id,
   quantidade_produzida, quantidade_refugo, status, motivo_sem_producao, descricao_sem_producao, observacao,
-  maquinas(nome), produtos(nome), funcionarios(nome), periodos(nome)
+  maquinas(nome), produtos(nome), periodos(nome)
 `;
 
 function linhaParaApontamento(r: ApontamentoRow): ApontamentoRealizado {
@@ -73,7 +79,7 @@ function linhaParaApontamento(r: ApontamentoRow): ApontamentoRealizado {
     produtoId: r.produto_id,
     produtoNome: r.produtos?.nome || null,
     funcionarioId: r.funcionario_id,
-    funcionarioNome: r.funcionarios?.nome || null,
+    funcionarioNome: null,
     quantidadeProduzida: Number(r.quantidade_produzida),
     quantidadeRefugo: Number(r.quantidade_refugo),
     status: r.status,

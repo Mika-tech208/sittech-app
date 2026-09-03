@@ -17,6 +17,10 @@ export interface UsuarioLogado {
   email: string;
   papel: "admin" | "usuario";
   ativo: boolean;
+  // Chaves de usuario_permissoes concedidas a este usuário — vazio pra
+  // admin (nunca precisa de linha própria, is_admin() já libera tudo na
+  // RLS). Ver src/lib/permissoes.ts (temPermissao) pra checar isso.
+  permissoes: string[];
 }
 
 export function useAuthSession() {
@@ -56,9 +60,21 @@ export function useAuthSession() {
       setUsuarioLogado(null);
       return false;
     }
+
+    // Admin não tem linhas em usuario_permissoes (nunca precisa — is_admin()
+    // já libera tudo na RLS); pra usuário comum, carrega as concedidas.
+    let permissoes: string[] = [];
+    if (data.papel !== "admin") {
+      const { data: permData } = await supabase
+        .from("usuario_permissoes")
+        .select("permissao")
+        .eq("usuario_id", data.id);
+      permissoes = (permData || []).map((p) => p.permissao as string);
+    }
+
     setUsuarioLogado({
       id: data.id, authUserId: data.auth_user_id, nome: data.nome, email: data.email,
-      papel: data.papel, ativo: data.ativo,
+      papel: data.papel, ativo: data.ativo, permissoes,
     });
     setAutenticado(true);
     return true;

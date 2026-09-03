@@ -14,8 +14,10 @@ import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import Sidebar from "@/components/shell/Sidebar";
 import TopBarActions from "@/components/shell/TopBarActions";
 import AccountModal from "@/components/shell/AccountModal";
+import AcessoNegado from "@/components/shell/AcessoNegado";
 import GlobalStyles from "@/components/shell/GlobalStyles";
 import { THEMES } from "@/lib/constants";
+import { temPermissao } from "@/lib/permissoes";
 import { formatBRL, setModoPrivadoAtivo } from "@/lib/format";
 import { toISODate, mondayOf } from "@/lib/date";
 import { calcularTotalFixoAtivo, calcularTotalCustoFuncionariosAtivos, calcularMetaFaturamento } from "@/features/custo-hora/calculations";
@@ -167,6 +169,30 @@ export default function MaquinasPage() {
           onSubmit={auth.handleLogin}
           campoLogin="email"
         />
+      </div>
+    );
+  }
+
+  if (!temPermissao(auth.usuarioLogado, "maquinas")) {
+    return (
+      <div className="stx-root">
+        <GlobalStyles cores={cores} />
+        <div className="stx-layout">
+          <Sidebar
+            tema={tema}
+            abaAtiva="maquinas"
+            onNavigateTab={() => { router.push("/"); }}
+            gruposAbertos={gruposAbertos}
+            toggleGrupo={toggleGrupo}
+            usuarioLogado={auth.usuarioLogado}
+            metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
+            metaInvalida={metaInvalida}
+            metaSemanalFinal={metaSemanalFinal}
+            formatBRL={formatBRL}
+            onMetaClick={() => { router.push("/"); }}
+          />
+          <AcessoNegado />
+        </div>
       </div>
     );
   }

@@ -18,7 +18,8 @@
 
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   Package, Clock, Users,
   DollarSign, TrendingUp, TrendingDown, Scale, Target, Sparkles, ClipboardList, Layers,
@@ -46,6 +47,7 @@ import { useCustos } from "@/hooks/useCustos";
 import { useFaturamentos } from "@/hooks/useFaturamentos";
 import { useUsuarios } from "@/hooks/useUsuarios";
 import { useAuditoria } from "@/hooks/useAuditoria";
+import { GRUPOS_PERMISSOES, PRESET_SUPERVISAO_PRODUCAO, temPermissao } from "@/lib/permissoes";
 import GlobalStyles from "@/components/shell/GlobalStyles";
 import Sidebar from "@/components/shell/Sidebar";
 import LoginScreen from "@/components/shell/LoginScreen";
@@ -116,6 +118,7 @@ function PainelAguardandoIntegracao({ icone, titulo, pergunta, descricao }) {
 }
 
 export default function SittechApp() {
+  const router = useRouter();
   const [abaAtiva, setAbaAtiva] = useState("inicio"); // 'inicio' | 'custos' | 'funcionarios' | 'produtos' | 'previsao' | 'horaEmpresa' | 'faturamento' | 'bi' | 'importar'
   const [tema, setTema] = useState("dark"); // 'dark' | 'light'
   const cores = THEMES[tema];
@@ -143,6 +146,19 @@ export default function SittechApp() {
     emModoRecovery, novaSenhaRecovery, setNovaSenhaRecovery, confirmarSenhaRecovery, setConfirmarSenhaRecovery,
     recoveryMsg, recoverySalvando, recoverySucesso, definirNovaSenhaRecovery, concluirRecovery,
   } = auth;
+
+  // "Início" mostra faturamento/lucro/meta — dado de Financeiro. Quem não
+  // tem a permissão 'financeiro' (nem é admin) nunca deveria ver essa tela
+  // por padrão; manda direto pra Produção Real, que é o que ela de fato
+  // pode usar. Sem isso, o dashboard financeiro ficava visível de graça
+  // pra qualquer login, já que "inicio" é sempre a aba inicial.
+  useEffect(() => {
+    if (!autenticado || !usuarioLogado || abaAtiva !== "inicio") return;
+    if (usuarioLogado.papel === "admin" || temPermissao(usuarioLogado, "financeiro")) return;
+    if (temPermissao(usuarioLogado, "producao_real_apontamento")) {
+      router.push("/producao-real");
+    }
+  }, [autenticado, usuarioLogado, abaAtiva, router]);
 
   // Cadastros-base (categorias, operações, períodos, configurações da
   // empresa) já migrados pro Supabase — fonte única também aqui, pra não
@@ -183,6 +199,7 @@ export default function SittechApp() {
   const [showUsuarioForm, setShowUsuarioForm] = useState(false);
   const [editingUsuarioId, setEditingUsuarioId] = useState(null);
   const [usuarioForm, setUsuarioForm] = useState(emptyUsuarioForm);
+  const [permissoesForm, setPermissoesForm] = useState([]);
   const [novaSenhaForm, setNovaSenhaForm] = useState("");
   const [usuarioFormErro, setUsuarioFormErro] = useState("");
   const [resetandoSenhaId, setResetandoSenhaId] = useState(null);
@@ -190,16 +207,24 @@ export default function SittechApp() {
 
   function resetUsuarioForm() {
     setUsuarioForm(emptyUsuarioForm);
+    setPermissoesForm([]);
     setEditingUsuarioId(null);
     setShowUsuarioForm(false);
     setNovaSenhaForm("");
     setUsuarioFormErro("");
   }
-  function editUsuario(u) {
+  async function editUsuario(u) {
     setUsuarioForm({ nome: u.nome, email: u.email, papel: u.papel });
+    setPermissoesForm(u.papel === "admin" ? [] : await usuariosHook.carregarPermissoesUsuario(u.id));
     setEditingUsuarioId(u.id);
     setShowUsuarioForm(true);
     setUsuarioFormErro("");
+  }
+  function togglePermissaoForm(chave) {
+    setPermissoesForm((prev) => (prev.includes(chave) ? prev.filter((p) => p !== chave) : [...prev, chave]));
+  }
+  function aplicarPresetSupervisaoProducao() {
+    setPermissoesForm([...PRESET_SUPERVISAO_PRODUCAO]);
   }
   async function submitUsuario() {
     if (!usuarioForm.nome.trim() || !usuarioForm.email.trim()) {
@@ -227,6 +252,14 @@ export default function SittechApp() {
         setUsuarioFormErro(usuariosHook.erro || "Não foi possível salvar o usuário.");
         return;
       }
+      // admin nunca precisa de linhas em usuario_permissoes (acesso total
+      // automático) — some com qualquer permissão que tivesse antes de virar admin.
+      const permissoesParaSalvar = usuarioForm.papel === "admin" ? [] : permissoesForm;
+      const okPermissoes = await usuariosHook.salvarPermissoesUsuario(editingUsuarioId, permissoesParaSalvar);
+      if (!okPermissoes) {
+        setUsuarioFormErro(usuariosHook.erro || "Usuário salvo, mas não foi possível salvar as permissões.");
+        return;
+      }
       await registrarAuditoria("Editou usuário", usuarioForm.nome);
       auditoriaHook.recarregar();
     } else {
@@ -236,6 +269,7 @@ export default function SittechApp() {
       }
       const novo = await usuariosHook.criarUsuario({
         nome: usuarioForm.nome, email: usuarioForm.email, senha: novaSenhaForm, papel: usuarioForm.papel,
+        permissoes: usuarioForm.papel === "admin" ? [] : permissoesForm,
       });
       if (!novo) {
         setUsuarioFormErro(usuariosHook.erro || "Não foi possível criar o usuário.");
@@ -2089,6 +2123,42 @@ export default function SittechApp() {
                     <input type="password" className="stx-input" value={novaSenhaForm} onChange={(e) => setNovaSenhaForm(e.target.value)} placeholder="mínimo 6 caracteres" />
                   </div>
                 )}
+
+                {usuarioForm.papel === "admin" ? (
+                  <p className="stx-form-full stx-panel-sub" style={{ marginTop: 4 }}>
+                    Administrador tem acesso completo a todas as áreas automaticamente — não precisa marcar permissão nenhuma.
+                  </p>
+                ) : (
+                  <div className="stx-form-full">
+                    <div className="stx-panel-title-row">
+                      <label className="stx-label" style={{ marginBottom: 0 }}>Permissões de acesso</label>
+                      <button type="button" className="stx-btn-secondary" onClick={aplicarPresetSupervisaoProducao} style={{ padding: "4px 10px", fontSize: 12 }}>
+                        Supervisão de Produção
+                      </button>
+                    </div>
+                    <p className="stx-panel-sub" style={{ marginTop: -4, marginBottom: 8 }}>
+                      O atalho acima só marca um conjunto inicial — pode marcar/desmarcar qualquer item individualmente depois.
+                    </p>
+                    <div className="stx-permissoes-grupos">
+                      {GRUPOS_PERMISSOES.map((grupo) => (
+                        <div key={grupo.titulo}>
+                          <p className="stx-permissoes-grupo-titulo">{grupo.titulo}</p>
+                          {grupo.itens.map((item) => (
+                            <label key={item.chave} className="stx-permissoes-item">
+                              <input
+                                type="checkbox"
+                                checked={permissoesForm.includes(item.chave)}
+                                onChange={() => togglePermissaoForm(item.chave)}
+                              />
+                              {item.label}
+                            </label>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {usuarioFormErro && <p className="stx-form-full" style={{ color: "var(--danger)", fontSize: 12.5 }}>{usuarioFormErro}</p>}
                 <div className="stx-form-actions stx-form-full">
                   <button type="button" className="stx-btn-primary" onClick={submitUsuario}>{editingUsuarioId ? "Salvar alterações" : "Criar usuário"}</button>

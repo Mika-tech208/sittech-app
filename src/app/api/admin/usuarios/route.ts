@@ -5,6 +5,7 @@
 
 import { NextResponse } from "next/server";
 import { verificarAdminAutenticado } from "@/lib/supabase-admin";
+import { PERMISSOES_VALIDAS } from "@/lib/permissoes";
 
 export async function POST(request: Request) {
   const auth = await verificarAdminAutenticado(request);
@@ -17,6 +18,12 @@ export async function POST(request: Request) {
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
   const senha = typeof body?.senha === "string" ? body.senha : "";
   const papel = body?.papel === "admin" ? "admin" : body?.papel === "usuario" ? "usuario" : "";
+  // admin nunca precisa de linhas em usuario_permissoes (is_admin() já
+  // libera tudo) — payload de permissões é ignorado nesse caso, mesmo que
+  // o cliente mande algo.
+  const permissoesBrutas = Array.isArray(body?.permissoes) ? body.permissoes : [];
+  const permissoes: string[] =
+    papel === "admin" ? [] : permissoesBrutas.filter((p: unknown): p is string => PERMISSOES_VALIDAS.includes(p as never));
 
   if (!nome || !email || !papel || senha.length < 6) {
     return NextResponse.json(
@@ -52,6 +59,16 @@ export async function POST(request: Request) {
     // deixar uma conta "órfã" sem linha em public.usuarios.
     await admin.auth.admin.deleteUser(novoAuthUser.user.id);
     return NextResponse.json({ erro: "Não foi possível criar o perfil do usuário." }, { status: 400 });
+  }
+
+  if (permissoes.length > 0) {
+    const { error: erroPermissoes } = await admin
+      .from("usuario_permissoes")
+      .insert(permissoes.map((permissao) => ({ usuario_id: perfil.id, permissao })));
+    // Não desfaz a criação do usuário por causa disso — o usuário existe e
+    // está correto, só sem permissão nenhuma ainda (equivalente a "sem
+    // acesso a nada", nunca "acesso indevido"); o admin resolve editando.
+    if (erroPermissoes) console.error("Falha ao salvar permissões do novo usuário:", erroPermissoes.message);
   }
 
   return NextResponse.json({ usuario: perfil }, { status: 201 });

@@ -930,6 +930,33 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
           font-size: 13px;
         }
 
+        /* Permissões de acesso — form de usuário */
+        .stx-permissoes-grupos {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 16px;
+          margin-top: 4px;
+        }
+        .stx-permissoes-grupo-titulo {
+          font-family: var(--font-display);
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.4px;
+          text-transform: uppercase;
+          color: var(--text-muted);
+          margin: 0 0 8px 0;
+        }
+        .stx-permissoes-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 13px;
+          color: var(--text);
+          padding: 4px 0;
+          cursor: pointer;
+        }
+        .stx-permissoes-item input { cursor: pointer; }
+
         .stx-cat-row { margin-bottom: 12px; }
         .stx-cat-top {
           display: flex;

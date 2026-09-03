@@ -18,6 +18,7 @@ import { AlertTriangle } from "lucide-react";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useCadastrosBase } from "@/hooks/useCadastrosBase";
 import { useFuncionarios } from "@/hooks/useFuncionarios";
+import { useFuncionariosElegibilidade } from "@/hooks/useFuncionariosElegibilidade";
 import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProducaoRealPainel, type EstadoPeriodoMaquina, type PeriodoSelecionado } from "@/hooks/useProducaoRealPainel";
 import ApontamentoModal from "@/features/producao-real/ApontamentoModal";
@@ -31,8 +32,10 @@ import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import Sidebar from "@/components/shell/Sidebar";
 import TopBarActions from "@/components/shell/TopBarActions";
 import AccountModal from "@/components/shell/AccountModal";
+import AcessoNegado from "@/components/shell/AcessoNegado";
 import GlobalStyles from "@/components/shell/GlobalStyles";
 import { THEMES } from "@/lib/constants";
+import { temPermissao } from "@/lib/permissoes";
 import { formatBRL, setModoPrivadoAtivo } from "@/lib/format";
 import { toISODate, mondayOf } from "@/lib/date";
 import { calcularTotalFixoAtivo, calcularTotalCustoFuncionariosAtivos, calcularMetaFaturamento } from "@/features/custo-hora/calculations";
@@ -67,6 +70,12 @@ export default function ProducaoRealPainelPage() {
   // Ordem exigida: auth -> cadastros-base -> funcionários -> máquinas -> ... (mesma de todas as rotas migradas).
   const funcionariosHook = useFuncionarios(auth.autenticado && !cadastrosBase.loading);
   const { funcionarios } = funcionariosHook;
+  // Leitura mínima (id/nome, nunca salário) via view — é o que alimenta o
+  // dropdown de funcionário do apontamento/ocorrência, funcionando mesmo
+  // sem a permissão 'funcionarios'/'custo_hora' (ver migration
+  // 20260902190000). `funcionariosHook` (acima) continua existindo só pro
+  // card "Meta semanal" da sidebar, que já fica escondido sem 'financeiro'.
+  const funcionariosElegibilidadeHook = useFuncionariosElegibilidade(auth.autenticado && !cadastrosBase.loading);
   const maquinasHook = useMaquinas(auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading);
   const previsoesHook = usePrevisoes(auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading);
   const { previsoes } = previsoesHook;
@@ -112,9 +121,12 @@ export default function ProducaoRealPainelPage() {
   const tudoFechado = totalMaquinas > 0 && totalFechadas === totalMaquinas;
 
   // ---- fluxo de "Registrar produção" ----
+  // Só ativos aqui — não dá pra escolher um funcionário inativo num
+  // apontamento/ocorrência novos (mesma regra de sempre, agora vinda da
+  // view em vez da tabela cheia).
   const funcionariosAtivosSimples = useMemo(
-    () => funcionariosAtivos.map((f) => ({ id: f.id, nome: f.nome })),
-    [funcionariosAtivos]
+    () => funcionariosElegibilidadeHook.funcionarios.filter((f) => f.ativo),
+    [funcionariosElegibilidadeHook.funcionarios]
   );
   const [maquinaEmEdicaoId, setMaquinaEmEdicaoId] = useState<string | null>(null);
   // "escolha" = passo 1 (Registrar produção / Sem produção); os outros dois
@@ -188,7 +200,8 @@ export default function ProducaoRealPainelPage() {
   }
 
   const carregando =
-    cadastrosBase.loading || funcionariosHook.loading || maquinasHook.loading || previsoesHook.loading || custosHook.loading || painel.loading;
+    cadastrosBase.loading || funcionariosHook.loading || funcionariosElegibilidadeHook.loading || maquinasHook.loading ||
+    previsoesHook.loading || custosHook.loading || painel.loading;
 
   if (carregando || auth.restaurandoSessao || !auth.autenticado) {
     return (
@@ -209,6 +222,34 @@ export default function ProducaoRealPainelPage() {
       </div>
     );
   }
+
+  // Bloqueio real de rota — não só o Sidebar escondendo o link (a RLS já
+  // barra os dados por trás; isso é só a mensagem).
+  if (!temPermissao(auth.usuarioLogado, "producao_real_apontamento")) {
+    return (
+      <div className="stx-root">
+        <GlobalStyles cores={cores} />
+        <div className="stx-layout">
+          <Sidebar
+            tema={tema}
+            abaAtiva="producaoRealPainel"
+            onNavigateTab={() => { router.push("/"); }}
+            gruposAbertos={gruposAbertos}
+            toggleGrupo={toggleGrupo}
+            usuarioLogado={auth.usuarioLogado}
+            metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
+            metaInvalida={metaInvalida}
+            metaSemanalFinal={metaSemanalFinal}
+            formatBRL={formatBRL}
+            onMetaClick={() => { router.push("/"); }}
+          />
+          <AcessoNegado />
+        </div>
+      </div>
+    );
+  }
+
+  const podeOcorrencia = temPermissao(auth.usuarioLogado, "producao_real_ocorrencias");
 
   return (
     <div className="stx-root">
@@ -285,10 +326,12 @@ export default function ProducaoRealPainelPage() {
 
           {painel.erro && <p className="stx-save-error">{painel.erro}</p>}
 
-          <button type="button" className="stx-pr-btn-ocorrencia" onClick={() => setAbrirOcorrenciaAberto(true)}>
-            <AlertTriangle size={18} />
-            INFORMAR MÁQUINA PARADA
-          </button>
+          {podeOcorrencia && (
+            <button type="button" className="stx-pr-btn-ocorrencia" onClick={() => setAbrirOcorrenciaAberto(true)}>
+              <AlertTriangle size={18} />
+              INFORMAR MÁQUINA PARADA
+            </button>
+          )}
 
           {totalMaquinas === 0 ? (
             <div className="stx-empty">Nenhuma máquina ativa cadastrada.</div>
@@ -301,7 +344,7 @@ export default function ProducaoRealPainelPage() {
                   onClick={() => abrirEscolha(m)}
                 >
                   <p className="stx-pr-card-nome">{m.nome}</p>
-                  {m.estadoMaquina === "parada" && (
+                  {m.estadoMaquina === "parada" && podeOcorrencia && (
                     <button
                       type="button"
                       className="stx-pr-pill-parada"
@@ -309,6 +352,9 @@ export default function ProducaoRealPainelPage() {
                     >
                       🔴 PARADA AGORA
                     </button>
+                  )}
+                  {m.estadoMaquina === "parada" && !podeOcorrencia && (
+                    <p className="stx-pr-pill-parada" style={{ cursor: "default" }}>🔴 PARADA AGORA</p>
                   )}
                   <p className="stx-pr-linha-estado">
                     {painel.periodoAtual?.nome} · <span className={`estado estado-${m.estadoPeriodo}`}>{LABEL_ESTADO[m.estadoPeriodo]}</span>

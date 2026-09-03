@@ -42,6 +42,7 @@ interface CriarUsuarioPayload {
   email: string;
   senha: string;
   papel: "admin" | "usuario";
+  permissoes: string[];
 }
 
 function converterRow(r: UsuarioPerfilRow): UsuarioPerfil {
@@ -134,7 +135,43 @@ export function useUsuarios(pronto: boolean) {
     return true;
   }, []);
 
-  return { usuarios, loading, erro, criarUsuario, atualizarUsuario, alternarUsuarioAtivo, resetarSenhaUsuario };
+  // Carrega as permissões concedidas a UM usuário (pra abrir o form de
+  // edição já com os checkboxes certos). RLS (usuario_permissoes_select)
+  // só deixa o próprio admin ler de qualquer um — chamado só nesse
+  // contexto (edição pelo admin).
+  const carregarPermissoesUsuario = useCallback(async (id: string): Promise<string[]> => {
+    const { data, error } = await supabase.from("usuario_permissoes").select("permissao").eq("usuario_id", id);
+    if (error) return [];
+    return (data || []).map((p) => p.permissao as string);
+  }, []);
+
+  // Substitui por inteiro (apaga e recria) — mesmo padrão já usado pra
+  // funcionario_custos em useFuncionarios.ts. RLS
+  // (usuario_permissoes_admin_write) garante que só admin executa isso de
+  // verdade, mesmo que o botão nunca apareça pra quem não é.
+  const salvarPermissoesUsuario = useCallback(async (id: string, permissoes: string[]): Promise<boolean> => {
+    setErro(null);
+    const { error: delErro } = await supabase.from("usuario_permissoes").delete().eq("usuario_id", id);
+    if (delErro) {
+      setErro("Não foi possível salvar as permissões.");
+      return false;
+    }
+    if (permissoes.length > 0) {
+      const { error: insErro } = await supabase
+        .from("usuario_permissoes")
+        .insert(permissoes.map((permissao) => ({ usuario_id: id, permissao })));
+      if (insErro) {
+        setErro("Não foi possível salvar as permissões.");
+        return false;
+      }
+    }
+    return true;
+  }, []);
+
+  return {
+    usuarios, loading, erro, criarUsuario, atualizarUsuario, alternarUsuarioAtivo, resetarSenhaUsuario,
+    carregarPermissoesUsuario, salvarPermissoesUsuario,
+  };
 }
 
 export type UsuariosHook = ReturnType<typeof useUsuarios>;

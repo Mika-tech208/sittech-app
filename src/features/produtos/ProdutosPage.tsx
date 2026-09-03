@@ -15,8 +15,10 @@ import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import Sidebar from "@/components/shell/Sidebar";
 import TopBarActions from "@/components/shell/TopBarActions";
 import AccountModal from "@/components/shell/AccountModal";
+import AcessoNegado from "@/components/shell/AcessoNegado";
 import GlobalStyles from "@/components/shell/GlobalStyles";
 import { THEMES } from "@/lib/constants";
+import { temPermissao } from "@/lib/permissoes";
 import { formatBRL, toNumber, setModoPrivadoAtivo, corPorMargemPct, corPorLucroHora } from "@/lib/format";
 import { toISODate, mondayOf } from "@/lib/date";
 import { calcularPeriodosComDuracao, filtrarPeriodosValidos, calcularHorasPorDia } from "@/lib/calculations/periodos";
@@ -197,6 +199,30 @@ export default function ProdutosPage() {
           onSubmit={auth.handleLogin}
           campoLogin="email"
         />
+      </div>
+    );
+  }
+
+  if (!temPermissao(auth.usuarioLogado, "produtos")) {
+    return (
+      <div className="stx-root">
+        <GlobalStyles cores={cores} />
+        <div className="stx-layout">
+          <Sidebar
+            tema={tema}
+            abaAtiva="produtos"
+            onNavigateTab={() => { router.push("/"); }}
+            gruposAbertos={gruposAbertos}
+            toggleGrupo={toggleGrupo}
+            usuarioLogado={auth.usuarioLogado}
+            metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
+            metaInvalida={metaInvalida}
+            metaSemanalFinal={metaSemanalFinal}
+            formatBRL={formatBRL}
+            onMetaClick={() => { router.push("/"); }}
+          />
+          <AcessoNegado />
+        </div>
       </div>
     );
   }
