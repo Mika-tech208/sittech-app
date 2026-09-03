@@ -1149,6 +1149,24 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
         .stx-tabela-producao-linha { border-bottom: 1px solid var(--border); font-family: var(--font-mono); }
         .stx-tabela-producao-linha:last-child { border-bottom: none; }
 
+        .stx-ind-tabela-wrap { overflow-x: auto; }
+        .stx-ind-tabela-header, .stx-ind-tabela-linha {
+          display: grid;
+          gap: 8px;
+          font-size: 12.5px;
+          padding: 8px 4px;
+          white-space: nowrap;
+          min-width: 720px;
+        }
+        .stx-ind-tabela-header { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; border-bottom: 1px solid var(--border); }
+        .stx-ind-tabela-linha { border-bottom: 1px solid var(--border); font-family: var(--font-mono); cursor: pointer; }
+        .stx-ind-tabela-linha:hover { background: var(--surface-hover); }
+        .stx-ind-tabela-linha:last-child { border-bottom: none; }
+        .stx-ind-drilldown { padding: 10px 4px 18px 4px; border-bottom: 1px solid var(--border); background: var(--surface-hover); }
+        .stx-ind-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 14px 0; }
+        .stx-ind-tab { padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); font-size: 12.5px; cursor: pointer; }
+        .stx-ind-tab.active { background: var(--accent); color: var(--btn-text); border-color: var(--accent); }
+
         .stx-ajustar-box {
           display: flex;
           align-items: center;

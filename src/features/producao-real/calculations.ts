@@ -15,7 +15,16 @@ export interface DadosPerformance {
   somaParadasMinutos: number;
 }
 
-export function calcularPerformance(dados: DadosPerformance): number | null {
+// Denominador da Performance, isolado pra poder ser reaproveitado por uma
+// Performance AGREGADA (soma de produzida / soma de teórica — nunca média
+// simples de percentuais, ver Indicadores de Produção) sem duplicar a
+// fórmula. Comportamento idêntico ao que já estava embutido em
+// calcularPerformance — nenhuma mudança de regra aqui.
+export function calcularQuantidadeTeorica(dados: {
+  metaPeriodoVigente: number;
+  duracaoPeriodoHorasVigente: number;
+  somaParadasMinutos: number;
+}): number | null {
   const duracaoPeriodoMinutos = dados.duracaoPeriodoHorasVigente * 60;
   if (duracaoPeriodoMinutos <= 0) return null;
 
@@ -25,6 +34,12 @@ export function calcularPerformance(dados: DadosPerformance): number | null {
   const quantidadeTeorica = dados.metaPeriodoVigente * (tempoProdutivoMinutos / duracaoPeriodoMinutos);
   if (quantidadeTeorica <= 0) return null;
 
+  return quantidadeTeorica;
+}
+
+export function calcularPerformance(dados: DadosPerformance): number | null {
+  const quantidadeTeorica = calcularQuantidadeTeorica(dados);
+  if (quantidadeTeorica === null) return null;
   return (dados.quantidadeProduzida / quantidadeTeorica) * 100;
 }
 

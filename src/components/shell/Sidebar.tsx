@@ -126,7 +126,9 @@ export default function Sidebar({
                 <Link href="/producao-real/apontamentos" className={`stx-tab-v ${abaAtiva === "producaoRealApontamentos" ? "active" : ""}`}><History size={16} />Apontamentos realizados</Link>
               )}
               <button className={`stx-tab-v ${abaAtiva === "prVisaoGeral" ? "active" : ""}`} onClick={() => onNavigateTab("prVisaoGeral")}><Factory size={16} />Visão Geral</button>
-              <button className={`stx-tab-v ${abaAtiva === "prProdutividade" ? "active" : ""}`} onClick={() => onNavigateTab("prProdutividade")}><Activity size={16} />Produtividade</button>
+              {temPermissao(usuarioLogado, "producao_real_historico") && (
+                <Link href="/producao-real/indicadores" className={`stx-tab-v ${abaAtiva === "prIndicadores" ? "active" : ""}`}><Activity size={16} />Produtividade</Link>
+              )}
               <button className={`stx-tab-v ${abaAtiva === "prFuncionarios" ? "active" : ""}`} onClick={() => onNavigateTab("prFuncionarios")}><Users size={16} />Funcionários</button>
               <button className={`stx-tab-v ${abaAtiva === "prDesvios" ? "active" : ""}`} onClick={() => onNavigateTab("prDesvios")}><AlertTriangle size={16} />Desvios</button>
               <button className={`stx-tab-v ${abaAtiva === "prParadas" ? "active" : ""}`} onClick={() => onNavigateTab("prParadas")}><PauseCircle size={16} />Paradas</button>
