@@ -640,6 +640,289 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
         .stx-icon-btn.danger:hover { color: var(--danger); }
         .stx-icon-btn.on { color: var(--blueprint); }
 
+        /* Produção Real — painel de chão de fábrica (tablet) */
+        .stx-pr-periodo-banner {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 12px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          padding: 18px 22px;
+          margin-bottom: 16px;
+        }
+        .stx-pr-periodo-nome {
+          font-family: var(--font-display);
+          font-size: 22px;
+          font-weight: 800;
+          color: var(--text);
+        }
+        .stx-pr-periodo-horario {
+          font-family: var(--font-mono);
+          font-size: 14px;
+          color: var(--text-muted);
+          margin-left: 10px;
+        }
+        .stx-pr-progresso {
+          font-family: var(--font-mono);
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--text-muted);
+        }
+        .stx-pr-progresso.completo { color: var(--accent); }
+        .stx-pr-completo-banner {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          background: var(--accent-soft);
+          color: var(--accent);
+          border-radius: 10px;
+          padding: 12px 18px;
+          font-family: var(--font-body);
+          font-size: 14px;
+          font-weight: 600;
+          margin-bottom: 16px;
+        }
+        .stx-pr-btn-ocorrencia {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          width: 100%;
+          padding: 16px;
+          margin-bottom: 20px;
+          border-radius: 10px;
+          border: none;
+          background: var(--danger);
+          color: var(--btn-text);
+          font-family: var(--font-display);
+          font-size: 15px;
+          font-weight: 700;
+          letter-spacing: 0.4px;
+          cursor: pointer;
+          transition: opacity 0.15s ease;
+        }
+        .stx-pr-btn-ocorrencia:hover { opacity: 0.9; }
+        .stx-pr-btn-ocorrencia:disabled { cursor: not-allowed; opacity: 0.55; }
+        .stx-pr-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+          gap: 14px;
+        }
+        @media (max-width: 760px) {
+          .stx-pr-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+        }
+        .stx-pr-card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          padding: 18px;
+          min-height: 108px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .stx-pr-card.parada { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
+        .stx-pr-card-nome {
+          font-family: var(--font-display);
+          font-size: 16px;
+          font-weight: 700;
+          color: var(--text);
+          margin: 0;
+        }
+        .stx-pr-pill-parada {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          width: fit-content;
+          font-family: var(--font-body);
+          font-size: 11.5px;
+          font-weight: 700;
+          letter-spacing: 0.3px;
+          color: var(--danger);
+          background: rgba(217,83,79,0.14);
+          border: none;
+          border-radius: 5px;
+          padding: 3px 8px;
+          margin: 0;
+          cursor: pointer;
+        }
+        .stx-pr-pill-parada:hover { background: rgba(217,83,79,0.24); }
+        .stx-pr-linha-estado {
+          font-family: var(--font-mono);
+          font-size: 13px;
+          color: var(--text-muted);
+          margin: 0;
+        }
+        .stx-pr-linha-estado .estado { font-weight: 700; }
+        .stx-pr-linha-estado .estado-pendente { color: var(--text-muted); }
+        .stx-pr-linha-estado .estado-apontado { color: var(--accent); }
+        .stx-pr-linha-estado .estado-sem_producao { color: var(--warning); }
+        .stx-pr-card-detalhe {
+          font-family: var(--font-body);
+          font-size: 12.5px;
+          color: var(--text);
+          margin: 0;
+          opacity: 0.85;
+        }
+        .stx-pr-card-clicavel { cursor: pointer; transition: transform 0.08s ease, border-color 0.15s ease; }
+        .stx-pr-card-clicavel:hover { border-color: var(--accent); transform: translateY(-1px); }
+        .stx-pr-card-clicavel:active { transform: translateY(0); }
+
+        /* Formulário de apontamento — versão touch dos campos/botões padrão */
+        .stx-pr-modal { max-width: 560px; }
+        .stx-pr-modal .stx-select, .stx-pr-modal .stx-input { padding: 14px 12px; font-size: 16px; }
+        .stx-pr-modal .stx-btn-primary, .stx-pr-modal .stx-btn-secondary { width: 100%; padding: 16px; font-size: 16px; }
+        .stx-pr-modal .stx-form-actions { gap: 10px; }
+        .stx-pr-confirmacao { text-align: center; padding: 12px 0; }
+        .stx-pr-confirmacao-check {
+          font-family: var(--font-display);
+          font-size: 19px;
+          font-weight: 700;
+          color: var(--accent);
+          margin: 0 0 6px 0;
+        }
+        .stx-pr-confirmacao-produto {
+          font-family: var(--font-body);
+          font-size: 14px;
+          color: var(--text-muted);
+          margin: 0 0 22px 0;
+        }
+        .stx-pr-performance-label {
+          font-family: var(--font-body);
+          font-size: 12px;
+          letter-spacing: 1px;
+          color: var(--text-muted);
+          margin: 0;
+        }
+        .stx-pr-performance-valor {
+          font-family: var(--font-display);
+          font-size: 48px;
+          font-weight: 800;
+          color: var(--text);
+          margin: 4px 0 26px 0;
+        }
+        .stx-pr-confirmacao-acoes { display: flex; flex-direction: column; gap: 10px; }
+        .stx-pr-escolha-acoes { display: flex; flex-direction: column; gap: 12px; }
+        .stx-pr-escolha-acoes .stx-btn-primary, .stx-pr-escolha-acoes .stx-btn-secondary { padding: 20px; }
+        .stx-pr-motivos-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          margin-top: 8px;
+        }
+        .stx-pr-motivo-btn {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 8px;
+          padding: 16px 10px;
+          font-family: var(--font-body);
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          text-align: center;
+          transition: border-color 0.15s ease, background 0.15s ease;
+        }
+        .stx-pr-motivo-btn:hover { border-color: var(--accent); }
+        .stx-pr-motivo-btn.selecionado { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+        .stx-pr-motivo-btn:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+        /* Outro período / retroativo */
+        .stx-pr-retroativo-aviso {
+          display: inline-block;
+          font-family: var(--font-body);
+          font-size: 11.5px;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+          color: var(--laranja);
+          background: rgba(224,129,47,0.15);
+          border-radius: 5px;
+          padding: 4px 10px;
+          margin-bottom: 8px;
+        }
+        .stx-pr-periodo-banner.retroativo { border-color: var(--laranja); }
+
+        /* Apontamentos realizados — filtros */
+        .stx-pr-filtros-toggle {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          background: none;
+          border: none;
+          color: var(--text-muted);
+          font-family: var(--font-body);
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          padding: 8px 0;
+          margin-bottom: 4px;
+        }
+        .stx-pr-filtros-toggle:hover { color: var(--text); }
+        .stx-pr-filtros-painel { margin-bottom: 16px; }
+        .stx-pr-filtros-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+          gap: 12px;
+        }
+
+        /* Apontamentos realizados — lista */
+        .stx-pr-lista-realizados { display: flex; flex-direction: column; gap: 8px; }
+        .stx-pr-linha-realizado {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 14px 16px;
+          cursor: pointer;
+          transition: border-color 0.15s ease;
+        }
+        .stx-pr-linha-realizado:hover { border-color: var(--accent); }
+        .stx-pr-linha-realizado-topo {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        .stx-pr-linha-realizado-data {
+          font-family: var(--font-mono);
+          font-size: 13px;
+          color: var(--text);
+          font-weight: 600;
+        }
+        .stx-pr-linha-realizado-detalhe {
+          font-family: var(--font-body);
+          font-size: 12.5px;
+          color: var(--text-muted);
+          margin: 6px 0 0 0;
+        }
+        .stx-pr-pill-status {
+          font-family: var(--font-body);
+          font-size: 11px;
+          font-weight: 700;
+          padding: 3px 9px;
+          border-radius: 5px;
+          white-space: nowrap;
+        }
+        .stx-pr-pill-status.estado-produzindo { color: var(--accent); background: var(--accent-soft); }
+        .stx-pr-pill-status.estado-sem_producao { color: var(--warning); background: rgba(240,180,41,0.15); }
+
+        /* Resumo do apontamento */
+        .stx-pr-resumo-linhas { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
+        .stx-pr-resumo-linha {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          font-family: var(--font-body);
+          font-size: 13px;
+          border-bottom: 1px solid var(--border);
+          padding-bottom: 8px;
+        }
+        .stx-pr-resumo-linha span { color: var(--text-muted); }
+        .stx-pr-resumo-linha b { color: var(--text); text-align: right; font-weight: 600; }
+
         .stx-empty {
           text-align: center;
           padding: 24px 10px;

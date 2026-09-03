@@ -3,7 +3,7 @@
 import Link from "next/link";
 import {
   Home, CalendarClock, Gauge, Package, Cog, Receipt, LineChart as LineChartIcon, Wallet, Clock, Users, Upload,
-  Crown, ChevronDown, ChevronRight, Factory, Activity, PauseCircle, ClipboardCheck, Database, UserCog, AlertTriangle,
+  Crown, ChevronDown, ChevronRight, Factory, Activity, PauseCircle, ClipboardCheck, ClipboardList, History, Database, UserCog, AlertTriangle,
 } from "lucide-react";
 import { LOGO_DARK, LOGO_LIGHT } from "@/lib/logos";
 
@@ -87,6 +87,8 @@ export default function Sidebar({
       </button>
       {gruposAbertos.producaoReal && (
         <>
+          <Link href="/producao-real" className={`stx-tab-v ${abaAtiva === "producaoRealPainel" ? "active" : ""}`}><ClipboardList size={16} />Apontamento</Link>
+          <Link href="/producao-real/apontamentos" className={`stx-tab-v ${abaAtiva === "producaoRealApontamentos" ? "active" : ""}`}><History size={16} />Apontamentos realizados</Link>
           <button className={`stx-tab-v ${abaAtiva === "prVisaoGeral" ? "active" : ""}`} onClick={() => onNavigateTab("prVisaoGeral")}><Factory size={16} />Visão Geral</button>
           <button className={`stx-tab-v ${abaAtiva === "prProdutividade" ? "active" : ""}`} onClick={() => onNavigateTab("prProdutividade")}><Activity size={16} />Produtividade</button>
           <button className={`stx-tab-v ${abaAtiva === "prFuncionarios" ? "active" : ""}`} onClick={() => onNavigateTab("prFuncionarios")}><Users size={16} />Funcionários</button>
