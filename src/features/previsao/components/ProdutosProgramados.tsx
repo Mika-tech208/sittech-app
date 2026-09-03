@@ -2,11 +2,16 @@
 
 // "Produtos programados" — visão consolidada por produto: Previsto,
 // Possível (capacidade — calcularCapacidadeMaximaSemana, inalterado),
-// Realizado (Produção Real, por produto_id + semana), Falta e %
-// concluído. Substitui a antiga tabela "Produção possível por produto"
-// (Previsto/Possível/Diferença) que ficava dentro do painel de
-// capacidade — mesmos dois primeiros números, só que agora ao lado do
-// Realizado, sem duplicar a lista de produtos em dois lugares da tela.
+// Realizado, Falta e % concluído. Substitui a antiga tabela "Produção
+// possível por produto" (Previsto/Possível/Diferença) que ficava dentro
+// do painel de capacidade — mesmos dois primeiros números, só que agora
+// ao lado do Realizado, sem duplicar a lista de produtos em dois lugares
+// da tela.
+//
+// Realizado vem dos "Itens realizados" da própria Previsão Semanal
+// (previsao_itens, tipo='realizado') — NÃO de apontamentos_producao/
+// Produção Real. Decisão de negócio revertida — ver
+// PrevisaoSemanalPage.tsx e o relatório desta etapa.
 //
 // A barra representa Realizado/Previsto (não Possível/Previsto) — se
 // passar de 100%, a barra visual para no limite do componente mas o
@@ -19,11 +24,9 @@ export interface ProdutosProgramadosProps {
   produtos: ProdutoProgramado[];
   naoPrevistos: ProdutoNaoPrevisto[];
   resumoPecas: ResumoProgramacaoPecas;
-  loadingRealizado: boolean;
-  erroRealizado: string | null;
 }
 
-export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPecas, loadingRealizado, erroRealizado }: ProdutosProgramadosProps) {
+export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPecas }: ProdutosProgramadosProps) {
   if (produtos.length === 0) return null;
 
   return (
@@ -32,10 +35,8 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
         <p className="stx-panel-title">Produtos programados</p>
       </div>
       <p className="stx-panel-sub">
-        Previsto, possível (capacidade) e realizado (Produção Real) de cada produto da semana.
-        {loadingRealizado && " Carregando realizado…"}
+        Previsto, possível (capacidade) e realizado (conforme lançamentos da previsão, em &quot;Itens realizados&quot;) de cada produto da semana.
       </p>
-      {erroRealizado && <p className="stx-save-error">{erroRealizado}</p>}
 
       {resumoPecas.totalPrevisto > 0 && (
         <p className="stx-custos-total" style={{ marginBottom: 14 }}>
@@ -82,7 +83,7 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
         <div className="stx-analise-lista">
           <p className="stx-analise-secao-titulo">Produzido fora da previsão</p>
           <p className="stx-panel-sub" style={{ margin: "0 0 8px 0" }}>
-            Teve apontamento essa semana, mas não estava programado — não conta pra nenhum número acima.
+            Teve item realizado lançado essa semana, mas não estava programado — não conta pra nenhum número acima.
           </p>
           {naoPrevistos.map((p) => (
             <div className="stx-tabela-producao-linha" key={p.produtoId} style={{ gridTemplateColumns: "2fr 1fr" }}>

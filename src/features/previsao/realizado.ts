@@ -4,6 +4,14 @@
 // fórmula de Performance é usada — só cruza previsão × realizado por
 // produto_id.
 //
+// Fonte do Realizado (decisão de negócio revertida — ver
+// PrevisaoSemanalPage.tsx): os "Itens realizados" (previsao_itens,
+// tipo='realizado') lançados manualmente na própria Previsão Semanal —
+// NÃO apontamentos_producao / Produção Real. `quantidade` ali já é peças
+// físicas (não R$ — R$ é quantidade × valor_unitario), ligado por
+// produto_id (nunca nome). Pode haver mais de um lançamento do mesmo
+// produto na mesma semana — soma todos.
+//
 // Falta e % concluído seguem a regra pedida:
 // - falta = max(0, previsto - realizado) — nunca negativo.
 // - concluidoPct = realizado / previsto * 100, SEM teto em 100 (produção
@@ -11,7 +19,6 @@
 
 import type { PrevisaoItem } from "@/types/domain";
 import type { ResultadoItemCapacidadeMaxima } from "@/features/capacidade/types";
-import type { RealizadoProdutoSemana } from "@/hooks/useRealizadoPrevisao";
 
 export interface ProdutoProgramado {
   itemId: string;
@@ -62,16 +69,22 @@ export interface ProdutoNaoPrevisto {
   realizado: number;
 }
 
-// Produtos com apontamento na semana que não fazem parte da previsão
+// Produtos com item realizado na semana que não fazem parte da previsão
 // atual — puramente informativo (não atribui, não altera nenhum número
 // previsto). Ver relatório final: não existia regra de negócio definida
-// pra isso antes desta etapa.
+// pra isso antes desta etapa. Vários lançamentos do mesmo produto fora da
+// previsão também são somados entre si.
 export function calcularProdutosNaoPrevistos(
-  itens: PrevisaoItem[],
-  realizadoTodos: RealizadoProdutoSemana[]
+  itensPrevistos: PrevisaoItem[],
+  itensRealizados: PrevisaoItem[]
 ): ProdutoNaoPrevisto[] {
-  const previstosIds = new Set(itens.map((it) => it.produtoId));
-  return realizadoTodos
-    .filter((r) => !previstosIds.has(r.produtoId) && r.quantidadeBoa > 0)
-    .map((r) => ({ produtoId: r.produtoId, produtoNome: r.produtoNome, realizado: r.quantidadeBoa }));
+  const previstosIds = new Set(itensPrevistos.map((it) => it.produtoId));
+  const porProduto = new Map<string, ProdutoNaoPrevisto>();
+  itensRealizados.forEach((it) => {
+    if (previstosIds.has(it.produtoId) || it.quantidade <= 0) return;
+    const atual = porProduto.get(it.produtoId);
+    if (atual) atual.realizado += it.quantidade;
+    else porProduto.set(it.produtoId, { produtoId: it.produtoId, produtoNome: it.produtoNome, realizado: it.quantidade });
+  });
+  return Array.from(porProduto.values());
 }

@@ -9,7 +9,6 @@ import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
-import { useRealizadoPrevisao } from "@/hooks/useRealizadoPrevisao";
 import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
 import LoginScreen from "@/components/shell/LoginScreen";
 import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
@@ -76,14 +75,6 @@ export default function PrevisaoSemanalPage() {
   );
   const { fixedCosts } = custosHook;
 
-  // ---- realizado da Produção Real (ligação nova desta etapa) ----
-  // Mesma semana em foco (semanaAtual, segunda-feira ISO — ver src/lib/date.ts),
-  // só chamada depois que o usuário já passou pela checagem de permissão
-  // "previsao" (ver `return` de acesso negado abaixo) e as previsões já
-  // carregaram, pra não disparar antes da hora.
-  const podeVerRealizado = auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading
-    && !produtosHook.loading && !previsoesHook.loading && temPermissao(auth.usuarioLogado, "previsao");
-
   // ---- derivações compartilhadas com o resto do app (mesmas fórmulas, ver Fase 1) ----
   const periodosComDuracao = useMemo(() => calcularPeriodosComDuracao(periodos), [periodos]);
   const periodosValidos = useMemo(() => filtrarPeriodosValidos(periodosComDuracao), [periodosComDuracao]);
@@ -105,13 +96,20 @@ export default function PrevisaoSemanalPage() {
   const resumoSemana = useMemo(() => calcularResumoSemana(semanaAtualRec), [semanaAtualRec]);
   const historicoSemanas = useMemo(() => calcularHistoricoSemanas(previsoes), [previsoes]);
 
-  // ---- realizado da Produção Real pra essa mesma semana ----
-  const realizadoHook = useRealizadoPrevisao(podeVerRealizado, semanaAtual);
+  // ---- realizado de Produtos programados: Itens realizados da própria
+  // Previsão Semanal (previsao_itens, tipo='realizado'), NÃO
+  // apontamentos_producao — decisão de negócio revertida nesta etapa (ver
+  // relatório). semanaAtualRec.itensRealizados já vem carregado pelo
+  // usePrevisoes, nenhuma chamada nova ao banco. Nunca afetado pelo modo
+  // simulação (que só simula `itens`/previsto). Soma por produto_id —
+  // pode haver mais de um lançamento do mesmo produto na semana.
   const realizadoPorProduto = useMemo(() => {
     const mapa = new Map<string, number>();
-    realizadoHook.realizado.forEach((r) => mapa.set(r.produtoId, r.quantidadeBoa));
+    (semanaAtualRec.itensRealizados || []).forEach((it) => {
+      mapa.set(it.produtoId, (mapa.get(it.produtoId) || 0) + it.quantidade);
+    });
     return mapa;
-  }, [realizadoHook.realizado]);
+  }, [semanaAtualRec.itensRealizados]);
 
   async function upsertSemana(campos: Partial<typeof semanaAtualRec>) {
     await previsoesHook.upsertSemana(semanaAtual, campos);
@@ -140,8 +138,8 @@ export default function PrevisaoSemanalPage() {
     [itensParaAnalise, capacidadeMaximaSemana, realizadoPorProduto]
   );
   const produtosNaoPrevistos = useMemo(
-    () => calcularProdutosNaoPrevistos(itensParaAnalise, realizadoHook.realizado),
-    [itensParaAnalise, realizadoHook.realizado]
+    () => calcularProdutosNaoPrevistos(itensParaAnalise, semanaAtualRec.itensRealizados || []),
+    [itensParaAnalise, semanaAtualRec.itensRealizados]
   );
   const resumoProgramacaoPecas = useMemo(() => calcularResumoProgramacaoPecas(produtosProgramados), [produtosProgramados]);
   const observacoesSetup = useMemo(
@@ -399,8 +397,6 @@ export default function PrevisaoSemanalPage() {
               produtos={produtosProgramados}
               naoPrevistos={produtosNaoPrevistos}
               resumoPecas={resumoProgramacaoPecas}
-              loadingRealizado={realizadoHook.loading}
-              erroRealizado={realizadoHook.erro}
             />
 
             <div className="stx-panel">
