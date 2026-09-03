@@ -7,7 +7,7 @@
 // fórmula oficial (Performance, custo/hora, meta) é recalculada aqui.
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useCadastrosBase } from "@/hooks/useCadastrosBase";
@@ -64,6 +64,7 @@ function dataAtrasDias(dias: number): string {
 
 export default function ParadasPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [tema, setTema] = useState<"dark" | "light">("dark");
   const cores = THEMES[tema];
   const [modoPrivado, setModoPrivado] = useState(false);
@@ -111,11 +112,21 @@ export default function ParadasPage() {
   const metaSemanalUsaPrevisto = resumoSemana.valorPrevisto > 0;
   const metaSemanalFinal = metaSemanalUsaPrevisto ? resumoSemana.valorPrevisto : faturamentoSemanalNecessario;
 
-  // ---- filtros — mesmo padrão de Indicadores V1, + origem (client-side) ----
-  const FILTROS_INICIAIS = useMemo(() => ({ dataInicial: dataAtrasDias(13), dataFinal: toISODate(new Date()) }), []);
+  // ---- filtros — mesmo padrão de Indicadores V1, + origem (client-side).
+  // Aceita vir pré-preenchido via query string (drill-down de Desvios V1:
+  // "Ver em Paradas" preserva contexto/janela do desvio) sem mudar o
+  // comportamento padrão quando a rota é acessada direto pelo menu. ----
+  const FILTROS_INICIAIS = useMemo(() => ({
+    dataInicial: searchParams.get("dataInicial") || dataAtrasDias(13),
+    dataFinal: searchParams.get("dataFinal") || toISODate(new Date()),
+    produtoId: searchParams.get("produtoId") || undefined,
+    maquinaId: searchParams.get("maquinaId") || undefined,
+    operacaoId: searchParams.get("operacaoId") || undefined,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
   const [filtrosAbertos, setFiltrosAbertos] = useState(true);
   const [filtrosForm, setFiltrosForm] = useState(FILTROS_INICIAIS as {
-    dataInicial: string; dataFinal: string; produtoId?: string; maquinaId?: string; operacaoId?: string; funcionarioId?: string; periodoId?: string;
+    dataInicial: string; dataFinal: string; produtoId: string | undefined; maquinaId: string | undefined; operacaoId: string | undefined; funcionarioId?: string; periodoId?: string;
   });
   const [filtrosAplicados, setFiltrosAplicados] = useState(FILTROS_INICIAIS);
   const [origemFiltro, setOrigemFiltro] = useState<OrigemParada | "">("");
