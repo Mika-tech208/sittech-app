@@ -18,6 +18,12 @@ export function toNumber(v: unknown): number {
   return Number(String(v ?? "0").replace(",", "."));
 }
 
+// Quantidade (peças/unidades), sem símbolo de moeda — separado de
+// formatBRL de propósito, pra nunca confundir R$ com peças na tela.
+export function formatQtd(v: number | string | undefined | null): string {
+  return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 }).format(Number(v) || 0);
+}
+
 export function monthLabelShort(key: string): string {
   const [y, m] = key.split("-").map(Number);
   return `${MESES_ABREV[m - 1]}/${String(y).slice(2)}`;

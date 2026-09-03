@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useCadastrosBase } from "@/hooks/useCadastrosBase";
 import { useFuncionarios } from "@/hooks/useFuncionarios";
@@ -10,6 +9,8 @@ import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
+import { useRealizadoPrevisao } from "@/hooks/useRealizadoPrevisao";
+import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
 import LoginScreen from "@/components/shell/LoginScreen";
 import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import Sidebar from "@/components/shell/Sidebar";
@@ -33,8 +34,11 @@ import {
 } from "@/features/capacidade/calculations";
 import { uid } from "@/lib/id";
 import ItensPrevistos, { type PrevItemFormState } from "@/features/previsao/components/ItensPrevistos";
+import StatusProgramacao from "@/features/previsao/components/StatusProgramacao";
+import ProdutosProgramados from "@/features/previsao/components/ProdutosProgramados";
 import AjustarCapacidadeModal from "@/features/previsao/components/AjustarCapacidadeModal";
 import { baixarProgramacaoSemanaPDF } from "@/features/previsao/pdf";
+import { calcularProdutosProgramados, calcularProdutosNaoPrevistos, calcularResumoProgramacaoPecas } from "@/features/previsao/realizado";
 import type { Produto, PrevisaoItem } from "@/types/domain";
 
 const emptyPrevItemForm: PrevItemFormState = { produtoId: "", quantidade: "", maquinasPorEtapa: {} };
@@ -49,10 +53,7 @@ export default function PrevisaoSemanalPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const [gruposAbertos, setGruposAbertos] = useState({ gestao: true, financeiro: true, planejamento: true, producaoReal: true, administracao: true });
-  function toggleGrupo(grupo: keyof typeof gruposAbertos) {
-    setGruposAbertos((prev) => ({ ...prev, [grupo]: !prev[grupo] }));
-  }
+  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("previsao");
 
   const auth = useAuthSession();
   // periodos/diasUteis/diasUteisSemana são cadastro-base — vêm do Supabase,
@@ -75,6 +76,14 @@ export default function PrevisaoSemanalPage() {
   );
   const { fixedCosts } = custosHook;
 
+  // ---- realizado da Produção Real (ligação nova desta etapa) ----
+  // Mesma semana em foco (semanaAtual, segunda-feira ISO — ver src/lib/date.ts),
+  // só chamada depois que o usuário já passou pela checagem de permissão
+  // "previsao" (ver `return` de acesso negado abaixo) e as previsões já
+  // carregaram, pra não disparar antes da hora.
+  const podeVerRealizado = auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading
+    && !produtosHook.loading && !previsoesHook.loading && temPermissao(auth.usuarioLogado, "previsao");
+
   // ---- derivações compartilhadas com o resto do app (mesmas fórmulas, ver Fase 1) ----
   const periodosComDuracao = useMemo(() => calcularPeriodosComDuracao(periodos), [periodos]);
   const periodosValidos = useMemo(() => filtrarPeriodosValidos(periodosComDuracao), [periodosComDuracao]);
@@ -96,6 +105,14 @@ export default function PrevisaoSemanalPage() {
   const resumoSemana = useMemo(() => calcularResumoSemana(semanaAtualRec), [semanaAtualRec]);
   const historicoSemanas = useMemo(() => calcularHistoricoSemanas(previsoes), [previsoes]);
 
+  // ---- realizado da Produção Real pra essa mesma semana ----
+  const realizadoHook = useRealizadoPrevisao(podeVerRealizado, semanaAtual);
+  const realizadoPorProduto = useMemo(() => {
+    const mapa = new Map<string, number>();
+    realizadoHook.realizado.forEach((r) => mapa.set(r.produtoId, r.quantidadeBoa));
+    return mapa;
+  }, [realizadoHook.realizado]);
+
   async function upsertSemana(campos: Partial<typeof semanaAtualRec>) {
     await previsoesHook.upsertSemana(semanaAtual, campos);
   }
@@ -114,6 +131,19 @@ export default function PrevisaoSemanalPage() {
     () => calcularCapacidadeMaximaSemana(itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana),
     [itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana]
   );
+
+  // ---- consolidação por produto: Previsto / Possível / Realizado / Falta / % ----
+  // NÃO usa o realizado pra recalcular atingibilidade — analiseCapacidadeSemana
+  // acima já foi calculada só com itensParaAnalise (planejamento × capacidade).
+  const produtosProgramados = useMemo(
+    () => calcularProdutosProgramados(itensParaAnalise, capacidadeMaximaSemana.resultadosPorItem, realizadoPorProduto),
+    [itensParaAnalise, capacidadeMaximaSemana, realizadoPorProduto]
+  );
+  const produtosNaoPrevistos = useMemo(
+    () => calcularProdutosNaoPrevistos(itensParaAnalise, realizadoHook.realizado),
+    [itensParaAnalise, realizadoHook.realizado]
+  );
+  const resumoProgramacaoPecas = useMemo(() => calcularResumoProgramacaoPecas(produtosProgramados), [produtosProgramados]);
   const observacoesSetup = useMemo(
     () => calcularObservacoesSetup(analiseCapacidadeSemana, produtos, getLucroHora),
     [analiseCapacidadeSemana, produtos, custoHoraPorOperacao, custoHoraEmpresa, periodosComDuracao]
@@ -354,164 +384,24 @@ export default function PrevisaoSemanalPage() {
               </div>
             )}
 
-            {semanaAtualRec.itens.length > 0 && capacidadeMaximaSemana.temDados && (
-              <div className={`stx-panel stx-analise-capacidade ${capacidadeMaximaSemana.temGargalo ? "alerta" : "ok"}`}>
-                <div className="stx-analise-resumo">
-                  <span className={`stx-analise-icone ${capacidadeMaximaSemana.temGargalo ? "alerta" : "ok"}`}>
-                    {capacidadeMaximaSemana.temGargalo ? <AlertTriangle size={22} /> : <CheckCircle2 size={22} />}
-                  </span>
-                  <div>
-                    <p className="stx-analise-titulo">
-                      {capacidadeMaximaSemana.temGargalo ? "A previsão excede a capacidade atual" : "A previsão está dentro da capacidade"}
-                      {modoSimulacao && <span className="stx-simulacao-tag">simulado</span>}
-                    </p>
-                    <p className="stx-analise-sub">Capacidade da semana — comparando o que foi planejado com o que a fábrica consegue entregar de verdade.</p>
-                  </div>
-                </div>
-
-                <div className="stx-capacidade-reais-grid">
-                  <div>
-                    <p className="stx-capacidade-reais-label">Previsto</p>
-                    <p className="stx-capacidade-reais-valor">{formatBRL(capacidadeMaximaSemana.previstoTotalReais)}</p>
-                  </div>
-                  <div>
-                    <p className="stx-capacidade-reais-label">{capacidadeMaximaSemana.temGargalo ? "Máximo estimado" : "Capacidade estimada"}</p>
-                    <p className="stx-capacidade-reais-valor">{formatBRL(capacidadeMaximaSemana.capacidadeEstimadaReais)}</p>
-                  </div>
-                  <div>
-                    <p className="stx-capacidade-reais-label">{capacidadeMaximaSemana.temGargalo ? "Atingível" : "Uso da capacidade"}</p>
-                    <p className="stx-capacidade-reais-valor" style={{ color: capacidadeMaximaSemana.temGargalo ? "var(--danger)" : "var(--accent)" }}>
-                      {capacidadeMaximaSemana.temGargalo
-                        ? `${((capacidadeMaximaSemana.capacidadeEstimadaReais / capacidadeMaximaSemana.previstoTotalReais) * 100).toFixed(1)}%`
-                        : `${((capacidadeMaximaSemana.previstoTotalReais / capacidadeMaximaSemana.capacidadeEstimadaReais) * 100).toFixed(1)}%`}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="stx-capacidade-reais-label">{capacidadeMaximaSemana.temGargalo ? "Excesso planejado" : "Folga estimada"}</p>
-                    <p className="stx-capacidade-reais-valor" style={{ color: capacidadeMaximaSemana.temGargalo ? "var(--danger)" : "var(--accent)" }}>
-                      {formatBRL(Math.abs(capacidadeMaximaSemana.capacidadeEstimadaReais - capacidadeMaximaSemana.previstoTotalReais))}
-                    </p>
-                  </div>
-                </div>
-
-                {capacidadeMaximaSemana.maquinaLimitante && (
-                  <p className="stx-analise-sub" style={{ marginTop: 10 }}>
-                    Máquina {capacidadeMaximaSemana.temGargalo ? "limitante" : "mais carregada"}: <b>{capacidadeMaximaSemana.maquinaLimitante.nome} — {capacidadeMaximaSemana.maquinaLimitante.pct.toFixed(0)}%</b>
-                  </p>
-                )}
-
-                {capacidadeMaximaSemana.resultadosPorItem.some((r) => r.maximoPossivel !== r.previsto) && (
-                  <div className="stx-analise-lista">
-                    <p className="stx-analise-secao-titulo">Produção possível por produto</p>
-                    <div className="stx-tabela-producao-header">
-                      <span>Produto</span><span>Previsto</span><span>Possível</span><span>Diferença</span>
-                    </div>
-                    {capacidadeMaximaSemana.resultadosPorItem.map((r) => {
-                      const diferenca = r.maximoPossivel - r.previsto;
-                      return (
-                        <div className="stx-tabela-producao-linha" key={r.itemId}>
-                          <span>{r.produtoNome}</span>
-                          <span>{r.previsto}</span>
-                          <span>{r.maximoPossivel}</span>
-                          <span style={{ color: diferenca < 0 ? "var(--danger)" : "var(--text-muted)" }}>
-                            {diferenca === 0 ? "0" : diferenca > 0 ? `+${diferenca}` : diferenca}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {capacidadeMaximaSemana.temGargalo && (
-                  <div className="stx-ajustar-box">
-                    <div>
-                      <p className="stx-ajustar-titulo">Sugestão para tornar a previsão atingível</p>
-                      <p className="stx-analise-sub">
-                        Reduz cada produto na mesma proporção da carga que ele representa nas máquinas sobrecarregadas, até caber na capacidade da semana.
-                      </p>
-                    </div>
-                    <button className="stx-btn-primary" onClick={() => setShowAjustarModal(true)}>AJUSTAR PARA CAPACIDADE</button>
-                  </div>
-                )}
-              </div>
-            )}
-
             {semanaAtualRec.itens.length > 0 && (
-              <div className={`stx-panel stx-analise-capacidade ${analiseCapacidadeSemana.atingivel ? "ok" : "alerta"}`}>
-                <div className="stx-analise-resumo">
-                  <span className={`stx-analise-icone ${analiseCapacidadeSemana.atingivel ? "ok" : "alerta"}`}>
-                    {analiseCapacidadeSemana.atingivel ? <CheckCircle2 size={22} /> : <AlertTriangle size={22} />}
-                  </span>
-                  <div>
-                    <p className="stx-analise-titulo">
-                      {analiseCapacidadeSemana.atingivel ? "Previsão atingível" : "Previsão não atingível"}
-                      {modoSimulacao && <span className="stx-simulacao-tag">simulado</span>}
-                    </p>
-                    <p className="stx-analise-sub">
-                      {analiseCapacidadeSemana.atingivel
-                        ? (analiseCapacidadeSemana.maquinaMaisCarregada
-                            ? `Todas as máquinas têm capacidade suficiente. Máquina mais carregada: ${analiseCapacidadeSemana.maquinaMaisCarregada.nome} — ${analiseCapacidadeSemana.maquinaMaisCarregada.pct.toFixed(0)}%.`
-                            : "Marca as máquinas de cada item pra essa análise aparecer.")
-                        : `A produção planejada excede a capacidade de ${analiseCapacidadeSemana.gargalos.length} máquina${analiseCapacidadeSemana.gargalos.length > 1 ? "s" : ""}. Principal gargalo: ${analiseCapacidadeSemana.gargalos[0]?.nome} — ${analiseCapacidadeSemana.gargalos[0]?.pct.toFixed(0)}%, faltam ${analiseCapacidadeSemana.gargalos[0]?.deficit.toFixed(1)}h.`}
-                    </p>
-                  </div>
-                </div>
-
-                {analiseCapacidadeSemana.maquinas.length > 0 && (
-                  <div className="stx-analise-lista">
-                    <p className="stx-analise-secao-titulo">Uso por máquina, da maior pra menor</p>
-                    {analiseCapacidadeSemana.maquinas.map((m) => (
-                      <div className="stx-analise-maquina-linha" key={m.maquinaId}>
-                        <div className="stx-analise-maquina-topo">
-                          <span className="stx-analise-maquina-nome">{m.nome}</span>
-                          <span className={`stx-analise-pct stx-status-${m.status}`}>{m.pct.toFixed(1)}%</span>
-                        </div>
-                        <div className="stx-analise-barra-bg">
-                          <div className={`stx-analise-barra-fill stx-status-${m.status}`} style={{ width: `${Math.min(100, m.pct)}%` }} />
-                        </div>
-                        <p className="stx-analise-maquina-detalhe">
-                          {m.horasNecessarias.toFixed(1)}h necessárias / {m.horasDisponiveis.toFixed(1)}h disponíveis
-                          {m.deficit > 0 && ` · excesso: ${m.deficit.toFixed(1)}h`}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {analiseCapacidadeSemana.gargalos.length > 0 && (
-                  <div className="stx-analise-gargalos">
-                    <p className="stx-analise-secao-titulo">Gargalos da semana</p>
-                    {analiseCapacidadeSemana.gargalos.map((m) => (
-                      <div className="stx-analise-gargalo-card" key={m.maquinaId}>
-                        <p className="stx-analise-gargalo-nome">🔴 {m.nome} — {m.pct.toFixed(0)}%</p>
-                        <p className="stx-analise-gargalo-detalhe">
-                          Necessário: {m.horasNecessarias.toFixed(1)}h &nbsp;·&nbsp; Disponível: {m.horasDisponiveis.toFixed(1)}h &nbsp;·&nbsp; Déficit: {m.deficit.toFixed(1)}h
-                        </p>
-                        <p className="stx-analise-gargalo-produtos-titulo">Produtos consumindo essa máquina:</p>
-                        {m.produtosConsumidores.map((p) => (
-                          <p className="stx-analise-gargalo-produto" key={p.produtoId}>{p.nome} → {p.horas.toFixed(1)}h</p>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {observacoesSetup.length > 0 && (
-                  <div className="stx-analise-lista">
-                    <p className="stx-analise-secao-titulo">Observações</p>
-                    {observacoesSetup.map((obs) => (
-                      <div className="stx-observacao-card" key={obs.maquinaId}>
-                        <p className="stx-observacao-texto">
-                          💡 <b>{obs.nome}</b> está sendo dividida entre {obs.ordenados.map((p) => p.nome).join(" e ")}.
-                          {" "}Pra reduzir trocas de setup, sugiro rodar o lote inteiro de <b>{obs.ordenados[0].nome}</b> primeiro
-                          {obs.ordenados[0].lucroHora > -Infinity && ` (maior lucro/hora)`}, depois {obs.ordenados.slice(1).map((p) => p.nome).join(", depois ")} — em vez de intercalar entre eles.
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <StatusProgramacao
+                analise={analiseCapacidadeSemana}
+                capacidadeMaximaSemana={capacidadeMaximaSemana}
+                observacoesSetup={observacoesSetup}
+                modoSimulacao={modoSimulacao}
+                onAjustar={() => setShowAjustarModal(true)}
+                formatBRL={formatBRL}
+              />
             )}
+
+            <ProdutosProgramados
+              produtos={produtosProgramados}
+              naoPrevistos={produtosNaoPrevistos}
+              resumoPecas={resumoProgramacaoPecas}
+              loadingRealizado={realizadoHook.loading}
+              erroRealizado={realizadoHook.erro}
+            />
 
             <div className="stx-panel">
               <div className="stx-panel-title-row">

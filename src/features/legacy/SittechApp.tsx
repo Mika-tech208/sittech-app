@@ -47,6 +47,7 @@ import { useCustos } from "@/hooks/useCustos";
 import { useFaturamentos } from "@/hooks/useFaturamentos";
 import { useUsuarios } from "@/hooks/useUsuarios";
 import { useAuditoria } from "@/hooks/useAuditoria";
+import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
 import { GRUPOS_PERMISSOES, PRESET_SUPERVISAO_PRODUCAO, temPermissao } from "@/lib/permissoes";
 import GlobalStyles from "@/components/shell/GlobalStyles";
 import Sidebar from "@/components/shell/Sidebar";
@@ -128,10 +129,7 @@ export default function SittechApp() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const [gruposAbertos, setGruposAbertos] = useState({ gestao: true, financeiro: true, planejamento: true, producaoReal: true, administracao: true });
-  function toggleGrupo(grupo) {
-    setGruposAbertos((prev) => ({ ...prev, [grupo]: !prev[grupo] }));
-  }
+  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar(abaAtiva);
 
   // Autenticação unificada — Supabase Auth + public.usuarios, mesmo hook
   // usado por /previsao, /capacidade, /custo-hora, /produtos, /maquinas.

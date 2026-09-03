@@ -9,6 +9,7 @@ import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
+import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
 import LoginScreen from "@/components/shell/LoginScreen";
 import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import Sidebar from "@/components/shell/Sidebar";
@@ -42,10 +43,7 @@ export default function CapacidadeSemanalPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const [gruposAbertos, setGruposAbertos] = useState({ gestao: true, financeiro: true, planejamento: true, producaoReal: true, administracao: true });
-  function toggleGrupo(grupo: keyof typeof gruposAbertos) {
-    setGruposAbertos((prev) => ({ ...prev, [grupo]: !prev[grupo] }));
-  }
+  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("capacidade");
 
   const auth = useAuthSession();
   // periodos/diasUteis/diasUteisSemana/operacoes são cadastro-base — vêm do

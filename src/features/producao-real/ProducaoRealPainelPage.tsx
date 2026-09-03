@@ -21,6 +21,7 @@ import { useFuncionarios } from "@/hooks/useFuncionarios";
 import { useFuncionariosElegibilidade } from "@/hooks/useFuncionariosElegibilidade";
 import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProducaoRealPainel, type EstadoPeriodoMaquina, type PeriodoSelecionado } from "@/hooks/useProducaoRealPainel";
+import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
 import ApontamentoModal from "@/features/producao-real/ApontamentoModal";
 import EscolhaFluxoModal from "@/features/producao-real/EscolhaFluxoModal";
 import SemProducaoModal, { LABEL_MOTIVO_SEM_PRODUCAO } from "@/features/producao-real/SemProducaoModal";
@@ -60,10 +61,7 @@ export default function ProducaoRealPainelPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const [gruposAbertos, setGruposAbertos] = useState({ gestao: true, financeiro: true, planejamento: true, producaoReal: true, administracao: true });
-  function toggleGrupo(grupo: keyof typeof gruposAbertos) {
-    setGruposAbertos((prev) => ({ ...prev, [grupo]: !prev[grupo] }));
-  }
+  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("producaoRealPainel");
 
   const auth = useAuthSession();
   const cadastrosBase = useCadastrosBase(auth.autenticado);

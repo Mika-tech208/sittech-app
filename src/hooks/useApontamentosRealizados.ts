@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
+import { calcularPerformance } from "@/features/producao-real/calculations";
 
 export interface FiltrosApontamentos {
   dataInicial?: string;
@@ -42,6 +43,17 @@ export interface ApontamentoRealizado {
   motivoSemProducao: string | null;
   descricaoSemProducao: string | null;
   observacao: string | null;
+  // Snapshots imutáveis do apontamento (nunca editáveis — mesmos usados
+  // em ApontamentoModal.tsx pra calcular a Performance na hora do
+  // registro). Guardados aqui só pra permitir recalcular a Performance
+  // no cliente depois de uma edição de quantidade/paradas, sem precisar
+  // buscar de novo no banco nem persistir a Performance em lugar nenhum.
+  metaPeriodoVigente: number | null;
+  duracaoPeriodoHorasVigente: number | null;
+  // Performance — SEMPRE derivada (calcularPerformance, inalterada),
+  // nunca persistida. Recalculada aqui na leitura e de novo no cliente
+  // depois de cada edição bem-sucedida (ver atualizarPerformanceLocal).
+  performancePct: number | null;
 }
 
 interface ApontamentoRow {
@@ -57,18 +69,34 @@ interface ApontamentoRow {
   motivo_sem_producao: string | null;
   descricao_sem_producao: string | null;
   observacao: string | null;
+  meta_periodo_vigente: number | null;
+  duracao_periodo_horas_vigente: number | null;
   maquinas: { nome: string } | null;
   produtos: { nome: string } | null;
   periodos: { nome: string } | null;
+  apontamento_paradas: { minutos: number }[] | null;
 }
 
 const SELECT = `
   id, data, periodo_id, maquina_id, produto_id, funcionario_id,
   quantidade_produzida, quantidade_refugo, status, motivo_sem_producao, descricao_sem_producao, observacao,
-  maquinas(nome), produtos(nome), periodos(nome)
+  meta_periodo_vigente, duracao_periodo_horas_vigente,
+  maquinas(nome), produtos(nome), periodos(nome), apontamento_paradas(minutos)
 `;
 
 function linhaParaApontamento(r: ApontamentoRow): ApontamentoRealizado {
+  const metaPeriodoVigente = r.meta_periodo_vigente === null ? null : Number(r.meta_periodo_vigente);
+  const duracaoPeriodoHorasVigente = r.duracao_periodo_horas_vigente === null ? null : Number(r.duracao_periodo_horas_vigente);
+  const somaParadasMinutos = (r.apontamento_paradas || []).reduce((soma, p) => soma + Number(p.minutos), 0);
+  const performancePct =
+    metaPeriodoVigente !== null && duracaoPeriodoHorasVigente !== null
+      ? calcularPerformance({
+          quantidadeProduzida: Number(r.quantidade_produzida),
+          metaPeriodoVigente,
+          duracaoPeriodoHorasVigente,
+          somaParadasMinutos,
+        })
+      : null;
   return {
     id: r.id,
     data: r.data,
@@ -86,6 +114,9 @@ function linhaParaApontamento(r: ApontamentoRow): ApontamentoRealizado {
     motivoSemProducao: r.motivo_sem_producao,
     descricaoSemProducao: r.descricao_sem_producao,
     observacao: r.observacao,
+    metaPeriodoVigente,
+    duracaoPeriodoHorasVigente,
+    performancePct,
   };
 }
 
@@ -140,7 +171,14 @@ export function useApontamentosRealizados(pronto: boolean) {
     setApontamentos((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   }
 
-  return { apontamentos, loading, erro, buscou, limite: LIMITE_RESULTADOS, buscar, atualizarApontamentoLocal };
+  // Remove uma linha localmente depois de uma exclusão bem-sucedida
+  // (excluir_apontamento_producao, migration 23) — mesma ideia, sem
+  // refazer a busca inteira.
+  function removerApontamentoLocal(id: string) {
+    setApontamentos((prev) => prev.filter((a) => a.id !== id));
+  }
+
+  return { apontamentos, loading, erro, buscou, limite: LIMITE_RESULTADOS, buscar, atualizarApontamentoLocal, removerApontamentoLocal };
 }
 
 export type ApontamentosRealizadosHook = ReturnType<typeof useApontamentosRealizados>;

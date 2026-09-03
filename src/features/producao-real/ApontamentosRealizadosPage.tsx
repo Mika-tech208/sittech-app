@@ -17,8 +17,10 @@ import { useProdutos } from "@/hooks/useProdutos";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useApontamentosRealizados, type FiltrosApontamentos, type ApontamentoRealizado } from "@/hooks/useApontamentosRealizados";
+import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
 import { LABEL_MOTIVO_SEM_PRODUCAO } from "@/features/producao-real/SemProducaoModal";
 import ResumoApontamentoModal from "@/features/producao-real/ResumoApontamentoModal";
+import PerformanceIndicador from "@/features/producao-real/components/PerformanceIndicador";
 import LoginScreen from "@/components/shell/LoginScreen";
 import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import Sidebar from "@/components/shell/Sidebar";
@@ -45,10 +47,7 @@ export default function ApontamentosRealizadosPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const [gruposAbertos, setGruposAbertos] = useState({ gestao: true, financeiro: true, planejamento: true, producaoReal: true, administracao: true });
-  function toggleGrupo(grupo: keyof typeof gruposAbertos) {
-    setGruposAbertos((prev) => ({ ...prev, [grupo]: !prev[grupo] }));
-  }
+  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("producaoRealApontamentos");
 
   const auth = useAuthSession();
   const cadastrosBase = useCadastrosBase(auth.autenticado);
@@ -320,7 +319,10 @@ export default function ApontamentosRealizadosPage() {
                   <div key={a.id} className="stx-pr-linha-realizado" onClick={() => setApontamentoSelecionado(a)}>
                     <div className="stx-pr-linha-realizado-topo">
                       <span className="stx-pr-linha-realizado-data">{a.data.split("-").reverse().join("/")} · {a.periodoNome} · {a.maquinaNome}</span>
-                      <span className={`stx-pr-pill-status estado-${a.status}`}>{a.status === "produzindo" ? "Apontado" : "Sem produção"}</span>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <PerformanceIndicador performancePct={a.performancePct} />
+                        <span className={`stx-pr-pill-status estado-${a.status}`}>{a.status === "produzindo" ? "Apontado" : "Sem produção"}</span>
+                      </div>
                     </div>
                     <p className="stx-pr-linha-realizado-detalhe">
                       {a.status === "produzindo"
@@ -358,6 +360,9 @@ export default function ApontamentosRealizadosPage() {
           onEditado={(id, patch) => {
             apontamentosHook.atualizarApontamentoLocal(id, patch);
             setApontamentoSelecionado((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+          }}
+          onExcluido={(id) => {
+            apontamentosHook.removerApontamentoLocal(id);
           }}
         />
       )}

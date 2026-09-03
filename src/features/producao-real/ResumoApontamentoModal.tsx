@@ -11,8 +11,9 @@ import { supabase } from "@/services/supabase-client";
 import { useProdutosElegiveisPorMaquina } from "@/hooks/useProdutosElegiveisPorMaquina";
 import { useMotivosParada } from "@/hooks/useMotivosParada";
 import { MOTIVOS, LABEL_MOTIVO_SEM_PRODUCAO } from "./SemProducaoModal";
-import { mensagemErroRegistrarLancamento } from "./calculations";
+import { mensagemErroRegistrarLancamento, mensagemErroExcluirApontamento, calcularPerformance } from "./calculations";
 import ParadasManuaisEditor, { type ParadaManual, type ParadaAutomatica } from "./ParadasManuaisEditor";
+import PerformanceIndicador from "./components/PerformanceIndicador";
 import type { ApontamentoRealizado } from "@/hooks/useApontamentosRealizados";
 
 interface ParadaRow {
@@ -33,16 +34,19 @@ export interface ResumoApontamentoModalProps {
   funcionariosAtivos: FuncionarioSimples[];
   onFechar: () => void;
   onEditado: (id: string, patch: Partial<ApontamentoRealizado>) => void;
+  onExcluido: (id: string) => void;
 }
 
-type Modo = "resumo" | "editando" | "salvo";
+type Modo = "resumo" | "editando" | "salvo" | "confirmando_exclusao" | "excluido";
 
 const LABEL_STATUS: Record<string, string> = { produzindo: "Apontado", sem_producao: "Sem produção" };
 
-export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos, onFechar, onEditado }: ResumoApontamentoModalProps) {
+export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos, onFechar, onEditado, onExcluido }: ResumoApontamentoModalProps) {
   const [modo, setModo] = useState<Modo>("resumo");
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [excluindo, setExcluindo] = useState(false);
+  const [erroExclusao, setErroExclusao] = useState<string | null>(null);
 
   // campos de edição — produzindo
   const [produtoId, setProdutoId] = useState(apontamento.produtoId || "");
@@ -128,6 +132,19 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
     }
     const produtoSelecionado = produtos.find((p) => p.id === produtoId);
     const funcionarioSelecionado = funcionariosParaSelecionar.find((f) => f.id === funcionarioId);
+    // Performance recalculada no cliente com a MESMA função (nada
+    // persistido) — meta/duração são snapshots imutáveis do apontamento
+    // (nunca mudam na edição); quantidade e soma de paradas são as que
+    // acabaram de ser salvas.
+    const performancePct =
+      apontamento.metaPeriodoVigente !== null && apontamento.duracaoPeriodoHorasVigente !== null
+        ? calcularPerformance({
+            quantidadeProduzida: Number(quantidadeProduzida),
+            metaPeriodoVigente: apontamento.metaPeriodoVigente,
+            duracaoPeriodoHorasVigente: apontamento.duracaoPeriodoHorasVigente,
+            somaParadasMinutos: tempoParadoTotal,
+          })
+        : null;
     onEditado(apontamento.id, {
       produtoId,
       produtoNome: produtoSelecionado?.nome || apontamento.produtoNome,
@@ -136,6 +153,7 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
       quantidadeProduzida: Number(quantidadeProduzida),
       quantidadeRefugo: Number(quantidadeRefugo || 0),
       observacao: observacao.trim() || null,
+      performancePct,
     });
     setSalvando(false);
     setModo("salvo");
@@ -163,6 +181,22 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
     setModo("salvo");
   }
 
+  async function excluirApontamento() {
+    setExcluindo(true);
+    setErroExclusao(null);
+    const { error } = await supabase.rpc("excluir_apontamento_producao", {
+      p_apontamento_id: apontamento.id,
+    });
+    if (error) {
+      setErroExclusao(mensagemErroExcluirApontamento(error.message));
+      setExcluindo(false);
+      return;
+    }
+    onExcluido(apontamento.id);
+    setExcluindo(false);
+    setModo("excluido");
+  }
+
   const dataFormatada = apontamento.data.split("-").reverse().join("/");
 
   return (
@@ -182,7 +216,10 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
               {dataFormatada} · {apontamento.periodoNome}
             </p>
             <div className="stx-pr-resumo-linhas">
-              <div className="stx-pr-resumo-linha"><span>Status</span><b>{LABEL_STATUS[apontamento.status]}</b></div>
+              <div className="stx-pr-resumo-linha">
+                <span>Status</span>
+                <b>{LABEL_STATUS[apontamento.status]} <PerformanceIndicador performancePct={apontamento.performancePct} /></b>
+              </div>
               {apontamento.status === "produzindo" ? (
                 <>
                   <div className="stx-pr-resumo-linha"><span>Produto</span><b>{apontamento.produtoNome}</b></div>
@@ -206,9 +243,35 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
             </div>
             <div className="stx-form-actions" style={{ flexDirection: "column", marginTop: 16 }}>
               <button type="button" className="stx-btn-primary" onClick={() => setModo("editando")}>EDITAR APONTAMENTO</button>
+              <button type="button" className="stx-btn-danger" onClick={() => setModo("confirmando_exclusao")}>Excluir apontamento</button>
               <button type="button" className="stx-btn-secondary" onClick={onFechar}>Fechar</button>
             </div>
           </>
+        ) : modo === "confirmando_exclusao" ? (
+          <>
+            <p className="stx-modal-titulo">{apontamento.maquinaNome}</p>
+            <p className="stx-panel-sub" style={{ marginTop: -10, marginBottom: 16 }}>
+              {dataFormatada} · {apontamento.periodoNome}
+            </p>
+            <p className="stx-save-error" style={{ marginBottom: 4 }}>
+              Tem certeza que deseja excluir este apontamento? Esta ação removerá os dados de produção e paradas vinculados a ele.
+            </p>
+            <p className="stx-panel-sub" style={{ marginBottom: 16 }}>Essa ação não pode ser desfeita.</p>
+            {erroExclusao && <p className="stx-save-error" style={{ marginBottom: 12 }}>{erroExclusao}</p>}
+            <div className="stx-form-actions" style={{ flexDirection: "column" }}>
+              <button type="button" className="stx-btn-danger solido" disabled={excluindo} onClick={excluirApontamento}>
+                {excluindo ? "Excluindo…" : "SIM, EXCLUIR APONTAMENTO"}
+              </button>
+              <button type="button" className="stx-btn-secondary" disabled={excluindo} onClick={() => { setErroExclusao(null); setModo("resumo"); }}>Cancelar</button>
+            </div>
+          </>
+        ) : modo === "excluido" ? (
+          <div className="stx-pr-confirmacao">
+            <p className="stx-pr-confirmacao-check">✓ Apontamento excluído</p>
+            <div className="stx-pr-confirmacao-acoes">
+              <button type="button" className="stx-btn-primary" onClick={onFechar}>Fechar</button>
+            </div>
+          </div>
         ) : apontamento.status === "produzindo" ? (
           <>
             <p className="stx-modal-titulo">{apontamento.maquinaNome}</p>

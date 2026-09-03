@@ -556,7 +556,7 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
           gap: 8px;
           margin-top: 4px;
         }
-        .stx-btn-primary, .stx-btn-secondary {
+        .stx-btn-primary, .stx-btn-secondary, .stx-btn-danger {
           font-family: var(--font-body);
           font-size: 13px;
           font-weight: 600;
@@ -569,6 +569,10 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
         .stx-btn-primary { background: var(--accent); color: var(--btn-text); box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
         .stx-btn-primary:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.22); transform: translateY(-1px); }
         .stx-btn-secondary { background: transparent; color: var(--text-muted); border-color: var(--border); }
+        .stx-btn-danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+        .stx-btn-danger:hover { background: rgba(217,83,79,0.12); }
+        .stx-btn-danger.solido { background: var(--danger); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
+        .stx-btn-danger.solido:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.22); transform: translateY(-1px); }
 
         .stx-entry {
           display: flex;
@@ -909,6 +913,19 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
         .stx-pr-pill-status.estado-produzindo { color: var(--accent); background: var(--accent-soft); }
         .stx-pr-pill-status.estado-sem_producao { color: var(--warning); background: rgba(240,180,41,0.15); }
 
+        .stx-performance-badge {
+          font-family: var(--font-mono);
+          font-size: 11px;
+          font-weight: 700;
+          padding: 3px 9px;
+          border-radius: 5px;
+          white-space: nowrap;
+        }
+        .stx-performance-badge.critico { color: var(--danger); background: rgba(217,83,79,0.15); }
+        .stx-performance-badge.atencao { color: var(--warning); background: rgba(240,180,41,0.15); }
+        .stx-performance-badge.atingido { color: var(--accent); background: var(--accent-soft); }
+        .stx-performance-badge.indisponivel { color: var(--text-muted); background: var(--surface-hover); }
+
         /* Resumo do apontamento */
         .stx-pr-resumo-linhas { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
         .stx-pr-resumo-linha {
@@ -1059,6 +1076,46 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
         .stx-analise-gargalo-detalhe { font-size: 12px; color: var(--text-muted); margin: 0 0 8px 0; }
         .stx-analise-gargalo-produtos-titulo { font-size: 11px; color: var(--text-muted); margin: 0 0 3px 0; text-transform: uppercase; letter-spacing: 0.03em; }
         .stx-analise-gargalo-produto { font-family: var(--font-mono); font-size: 12px; color: var(--text); margin: 0 0 2px 0; }
+
+        .stx-status-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          width: 100%;
+          background: none;
+          border: none;
+          padding: 0;
+          cursor: pointer;
+          text-align: left;
+          font-family: var(--font-body);
+        }
+        .stx-status-compacto { font-size: 13px; font-weight: 500; color: var(--text-muted); }
+        .stx-status-toggle {
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 12px;
+          color: var(--text-muted);
+          white-space: nowrap;
+          margin-left: 12px;
+        }
+        .stx-status-detalhes { margin-top: 16px; }
+
+        .stx-produto-programado {
+          padding: 14px 0;
+          border-bottom: 1px solid var(--border);
+        }
+        .stx-produto-programado:last-of-type { border-bottom: none; }
+        .stx-produto-programado-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+        }
+        @media (max-width: 700px) {
+          .stx-produto-programado-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        .stx-produto-programado-valor { font-family: var(--font-mono); font-size: 15px; font-weight: 700; color: var(--text); margin: 0; }
 
         .stx-observacao-card {
           background: rgba(48,176,155,0.08);

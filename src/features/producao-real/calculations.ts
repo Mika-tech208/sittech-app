@@ -70,3 +70,14 @@ export function mensagemErroOcorrencia(mensagem: string | undefined): string {
   if (m.includes("Usuário autenticado")) return "Sua sessão expirou — faça login de novo.";
   return "Não foi possível salvar. Tente novamente.";
 }
+
+// Mesma ideia, pra excluir_apontamento_producao — mensagens próprias
+// desse domínio (permissão, apontamento já sumiu), não reaproveita as
+// outras duas pra não confundir "excluir" com "salvar"/"abrir".
+export function mensagemErroExcluirApontamento(mensagem: string | undefined): string {
+  const m = mensagem || "";
+  if (m.includes("não tem permissão")) return "Você não tem permissão para excluir apontamentos.";
+  if (m.includes("não encontrado")) return "Este apontamento já foi excluído ou não existe mais — a tela pode estar desatualizada.";
+  if (m.includes("Usuário autenticado")) return "Sua sessão expirou — faça login de novo.";
+  return "Não foi possível excluir o apontamento. Tente novamente.";
+}
