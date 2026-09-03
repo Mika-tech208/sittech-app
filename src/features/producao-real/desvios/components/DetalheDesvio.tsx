@@ -88,6 +88,22 @@ export default function DetalheDesvio({ incidente }: { incidente: IncidenteDesvi
     router.push(`${rota}?${qs.toString()}`);
   }
 
+  // Funcionários V1 (§18 daquela análise): sempre disponível, preservando
+  // produto/operação/máquina/janela — NUNCA um funcionarioId específico
+  // (um Desvio nunca isola uma pessoa como causa, só evidência de que
+  // houve troca de operador no contexto — quem foi, a tela de
+  // Funcionários mostra sem concluir causalidade).
+  function verEmFuncionarios() {
+    const f = incidente.desvioPrincipal.filtrosDrillDown;
+    const qs = new URLSearchParams();
+    qs.set("dataInicial", f.dataInicial);
+    qs.set("dataFinal", f.dataFinal);
+    if (f.produtoId) qs.set("produtoId", f.produtoId);
+    if (f.maquinaId) qs.set("maquinaId", f.maquinaId);
+    if (f.operacaoId) qs.set("operacaoId", f.operacaoId);
+    router.push(`/producao-real/funcionarios?${qs.toString()}`);
+  }
+
   return (
     <div>
       {incidente.chaveFatorDominante && (
@@ -102,11 +118,14 @@ export default function DetalheDesvio({ incidente }: { incidente: IncidenteDesvi
           {incidente.efeitos.map((e) => linhaDesvio(e))}
         </>
       )}
-      {incidente.desvioPrincipal.linkSugerido && (
-        <button type="button" className="stx-btn-secondary" style={{ marginTop: 10 }} onClick={verNaOrigem}>
-          {incidente.desvioPrincipal.linkSugerido === "produtividade" ? "Ver na Produtividade" : "Ver em Paradas"}
-        </button>
-      )}
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        {incidente.desvioPrincipal.linkSugerido && (
+          <button type="button" className="stx-btn-secondary" onClick={verNaOrigem}>
+            {incidente.desvioPrincipal.linkSugerido === "produtividade" ? "Ver na Produtividade" : "Ver em Paradas"}
+          </button>
+        )}
+        <button type="button" className="stx-btn-secondary" onClick={verEmFuncionarios}>Ver em Funcionários</button>
+      </div>
     </div>
   );
 }

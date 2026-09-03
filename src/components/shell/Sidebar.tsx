@@ -129,7 +129,9 @@ export default function Sidebar({
               {temPermissao(usuarioLogado, "producao_real_historico") && (
                 <Link href="/producao-real/indicadores" className={`stx-tab-v ${abaAtiva === "prIndicadores" ? "active" : ""}`}><Activity size={16} />Produtividade</Link>
               )}
-              <button className={`stx-tab-v ${abaAtiva === "prFuncionarios" ? "active" : ""}`} onClick={() => onNavigateTab("prFuncionarios")}><Users size={16} />Funcionários</button>
+              {temPermissao(usuarioLogado, "producao_real_historico") && (
+                <Link href="/producao-real/funcionarios" className={`stx-tab-v ${abaAtiva === "prFuncionarios" ? "active" : ""}`}><Users size={16} />Funcionários</Link>
+              )}
               {temPermissao(usuarioLogado, "producao_real_historico") && (
                 <Link href="/producao-real/desvios" className={`stx-tab-v ${abaAtiva === "prDesvios" ? "active" : ""}`}><AlertTriangle size={16} />Desvios</Link>
               )}
