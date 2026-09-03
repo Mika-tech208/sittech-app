@@ -25,10 +25,13 @@ import {
   agruparPorDia, agruparPorFuncionario, agruparPorMaquina, agruparPorOperacao, agruparPorProduto,
   calcularParetoParadas, calcularResumoIndicadores,
 } from "@/features/producao-real/indicadores/calculations";
+import { calcularResumoEconomico, calcularEconomicoPorProduto } from "@/features/producao-real/indicadores/economico";
 import ResumoCards from "@/features/producao-real/indicadores/components/ResumoCards";
 import EvolucaoDiariaChart from "@/features/producao-real/indicadores/components/EvolucaoDiariaChart";
 import TabelaGrupos from "@/features/producao-real/indicadores/components/TabelaGrupos";
 import ParetoParadas from "@/features/producao-real/indicadores/components/ParetoParadas";
+import EconomiaCards from "@/features/producao-real/indicadores/components/EconomiaCards";
+import EconomiaPorProduto from "@/features/producao-real/indicadores/components/EconomiaPorProduto";
 import LoginScreen from "@/components/shell/LoginScreen";
 import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import Sidebar from "@/components/shell/Sidebar";
@@ -51,6 +54,7 @@ const VISOES = [
   { key: "operacoes", label: "Operações" },
   { key: "funcionarios", label: "Funcionários" },
   { key: "paradas", label: "Pareto de paradas" },
+  { key: "economia", label: "Economia" },
 ] as const;
 type VisaoKey = (typeof VISOES)[number]["key"];
 
@@ -173,6 +177,18 @@ export default function IndicadoresProducaoPage() {
     [indicadoresHook.apontamentos, indicadoresHook.paradas]
   );
   const pareto = useMemo(() => calcularParetoParadas(indicadoresHook.paradas), [indicadoresHook.paradas]);
+
+  // ---- Motor Econômico V1 — reaproveita os mesmos apontamentos já
+  // buscados (nenhuma chamada nova ao banco) e o agrupamento por produto
+  // já calculado acima (gruposProduto). ----
+  const resumoEconomico = useMemo(
+    () => calcularResumoEconomico(indicadoresHook.apontamentos),
+    [indicadoresHook.apontamentos]
+  );
+  const economicoPorProduto = useMemo(
+    () => calcularEconomicoPorProduto(gruposProduto, indicadoresHook.apontamentos),
+    [gruposProduto, indicadoresHook.apontamentos]
+  );
 
   if (auth.emModoRecovery) {
     return (
@@ -429,6 +445,15 @@ export default function IndicadoresProducaoPage() {
                   <p className="stx-panel-sub">Manuais e automáticas (vinculadas a ocorrências encerradas) somadas uma única vez cada. Clique num motivo pra ver em quais máquinas ele ocorreu.</p>
                   <ParetoParadas pareto={pareto} paradas={indicadoresHook.paradas} tema={tema} />
                 </div>
+              )}
+
+              {visao === "economia" && (
+                <>
+                  <EconomiaCards resumo={resumoEconomico} />
+                  <div style={{ marginTop: 16 }}>
+                    <EconomiaPorProduto itens={economicoPorProduto} />
+                  </div>
+                </>
               )}
             </>
           )}

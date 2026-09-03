@@ -28,6 +28,11 @@ function apontamento(over: Partial<ApontamentoIndicador> & Pick<ApontamentoIndic
     metaPeriodoVigente: 100,
     duracaoPeriodoHorasVigente: 1, // 60 min
     minutosParados: 0,
+    custoHoraOperacaoVigente: 50,
+    custoOperacionalPeriodoVigente: 50,
+    custoUnitarioReferenciaPeriodoVigente: 0.5,
+    produtoValorUnitario: 2,
+    etapaMaquinasElegiveis: 1,
     ...over,
   };
 }

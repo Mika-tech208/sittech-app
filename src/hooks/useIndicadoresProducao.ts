@@ -34,6 +34,11 @@ interface ApontamentoIndicadorRow {
   meta_periodo_vigente: number | null;
   duracao_periodo_horas_vigente: number;
   minutos_parados: number;
+  custo_hora_operacao_vigente: number | null;
+  custo_operacional_periodo_vigente: number | null;
+  custo_unitario_referencia_periodo_vigente: number | null;
+  produto_valor_unitario: number | null;
+  etapa_maquinas_elegiveis: number;
 }
 
 interface ParadaIndicadorRow {
@@ -80,6 +85,11 @@ function linhaParaApontamento(r: ApontamentoIndicadorRow): ApontamentoIndicador 
     metaPeriodoVigente: r.meta_periodo_vigente === null ? null : Number(r.meta_periodo_vigente),
     duracaoPeriodoHorasVigente: Number(r.duracao_periodo_horas_vigente),
     minutosParados: Number(r.minutos_parados),
+    custoHoraOperacaoVigente: r.custo_hora_operacao_vigente === null ? null : Number(r.custo_hora_operacao_vigente),
+    custoOperacionalPeriodoVigente: r.custo_operacional_periodo_vigente === null ? null : Number(r.custo_operacional_periodo_vigente),
+    custoUnitarioReferenciaPeriodoVigente: r.custo_unitario_referencia_periodo_vigente === null ? null : Number(r.custo_unitario_referencia_periodo_vigente),
+    produtoValorUnitario: r.produto_valor_unitario === null ? null : Number(r.produto_valor_unitario),
+    etapaMaquinasElegiveis: Number(r.etapa_maquinas_elegiveis),
   };
 }
 

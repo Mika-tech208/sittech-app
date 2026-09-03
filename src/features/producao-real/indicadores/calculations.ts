@@ -58,6 +58,20 @@ export interface ApontamentoIndicador {
   metaPeriodoVigente: number | null;
   duracaoPeriodoHorasVigente: number;
   minutosParados: number;
+  // Campos econômicos (Motor Econômico V1, migration 26) — mesmos
+  // snapshots congelados em apontamentos_producao desde a migration 9,
+  // null quando status='sem_producao' (mesma regra de metaPeriodoVigente).
+  custoHoraOperacaoVigente: number | null;
+  custoOperacionalPeriodoVigente: number | null;
+  custoUnitarioReferenciaPeriodoVigente: number | null;
+  // Preço de venda do serviço (produtos.valor_unitario) — receita real
+  // por peça, só reconhecida quando isUltimaEtapa=true (ver economico.ts).
+  produtoValorUnitario: number | null;
+  // Sinal estrutural (não comportamental): quantas máquinas são elegíveis
+  // pra essa etapa (roteiro_etapa_maquinas) — usado só como contexto na
+  // detecção de "possível restrição operacional", nunca como prova
+  // isolada. 0 quando etapaId é null (sem_producao).
+  etapaMaquinasElegiveis: number;
 }
 
 export interface ParadaIndicador {
@@ -183,6 +197,29 @@ function somarPorProduto(itens: { produtoId: string | null; produtoNome: string 
   return Array.from(porProduto.values()).sort((a, b) => b.quantidade - a.quantidade);
 }
 
+// Performance agregada = soma(produzida) / soma(teórica) × 100 — nunca
+// média simples das % de cada apontamento (regra confirmada). Extraída
+// de dentro de calcularResumoIndicadores pra ser reaproveitada pelo Motor
+// Econômico (economico.ts, restrição operacional por etapa) sem duplicar
+// a fórmula — comportamento idêntico ao que já estava inline aqui.
+export function calcularPerformanceAgregada(apontamentos: ApontamentoIndicador[]): number | null {
+  const produzindo = apontamentos.filter((ap) => ap.status === "produzindo");
+  let somaProduzidaComTeorica = 0;
+  let somaTeorica = 0;
+  produzindo.forEach((ap) => {
+    if (ap.metaPeriodoVigente === null) return;
+    const teorica = calcularQuantidadeTeorica({
+      metaPeriodoVigente: ap.metaPeriodoVigente,
+      duracaoPeriodoHorasVigente: ap.duracaoPeriodoHorasVigente,
+      somaParadasMinutos: ap.minutosParados,
+    });
+    if (teorica === null) return;
+    somaProduzidaComTeorica += ap.quantidadeProduzida;
+    somaTeorica += teorica;
+  });
+  return somaTeorica > 0 ? (somaProduzidaComTeorica / somaTeorica) * 100 : null;
+}
+
 export function calcularResumoIndicadores(
   apontamentos: ApontamentoIndicador[],
   paradas: ParadaIndicador[]
@@ -209,22 +246,7 @@ export function calcularResumoIndicadores(
   const somaBoa = produzindo.reduce((s, ap) => s + calcularQuantidadeBoaApontamento(ap), 0);
   const qualidadePct = somaProduzida > 0 ? (somaBoa / somaProduzida) * 100 : null;
 
-  // Performance agregada = soma(produzida) / soma(teórica) × 100 — nunca
-  // média simples das % de cada apontamento (regra confirmada).
-  let somaProduzidaComTeorica = 0;
-  let somaTeorica = 0;
-  produzindo.forEach((ap) => {
-    if (ap.metaPeriodoVigente === null) return;
-    const teorica = calcularQuantidadeTeorica({
-      metaPeriodoVigente: ap.metaPeriodoVigente,
-      duracaoPeriodoHorasVigente: ap.duracaoPeriodoHorasVigente,
-      somaParadasMinutos: ap.minutosParados,
-    });
-    if (teorica === null) return;
-    somaProduzidaComTeorica += ap.quantidadeProduzida;
-    somaTeorica += teorica;
-  });
-  const performancePct = somaTeorica > 0 ? (somaProduzidaComTeorica / somaTeorica) * 100 : null;
+  const performancePct = calcularPerformanceAgregada(apontamentos);
 
   // Disponibilidade agregada = (soma duração - soma parados) / soma
   // duração × 100 — só sobre apontamentos produzindo com duração válida.
