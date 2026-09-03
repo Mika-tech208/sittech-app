@@ -42,6 +42,10 @@ export function mensagemErroRegistrarLancamento(mensagem: string | undefined): s
   if (m.includes("elegível")) return "Não foi possível confirmar a etapa deste produto para esta máquina.";
   if (m.includes("Meta não cadastrada")) return "Este produto não tem meta cadastrada para o período atual.";
   if (m.includes("Quantidade de refugo")) return "A quantidade de refugo não pode ser maior que a produzida.";
+  if (m.includes("Motivo de parada") && m.includes("não encontrado")) return "Selecione um motivo de parada válido.";
+  if (m.includes("Motivo de parada") && m.includes("inativo")) return "Este motivo de parada está inativo.";
+  if (m.includes("motivo de parada") && m.includes("obrigatória")) return "Descreva o motivo da parada.";
+  if (m.includes("Soma das paradas") && m.includes("ultrapassa")) return "A soma das paradas não pode ultrapassar a duração do período.";
   if (m.includes("Motivo") && m.includes("obrigatório")) return "Selecione um motivo.";
   if (m.includes("Descrição") && m.includes("obrigatória")) return "Descreva o motivo.";
   if (m.includes("Usuário autenticado")) return "Sua sessão expirou — faça login de novo.";

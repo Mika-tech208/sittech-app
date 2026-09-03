@@ -930,6 +930,45 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
           font-size: 13px;
         }
 
+        /* Paradas do período — apontamento novo e edição */
+        .stx-pr-paradas-lista { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+        .stx-pr-parada-linha {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 8px 10px;
+        }
+        .stx-pr-parada-linha.bloqueada { opacity: 0.85; }
+        .stx-pr-parada-nome { font-size: 13px; color: var(--text); font-weight: 600; }
+        .stx-pr-parada-legenda { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+        .stx-pr-parada-acoes { display: flex; gap: 4px; flex-shrink: 0; }
+        .stx-pr-parada-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+        .stx-pr-parada-form-acoes { display: flex; gap: 8px; }
+        .stx-pr-parada-form-acoes .stx-btn-primary, .stx-pr-parada-form-acoes .stx-btn-secondary { flex: 1; padding: 10px; font-size: 13px; }
+        .stx-pr-add-parada-btn {
+          width: 100%;
+          padding: 10px;
+          border: 1px dashed var(--border);
+          border-radius: 8px;
+          background: transparent;
+          color: var(--text-muted);
+          font-family: var(--font-body);
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .stx-pr-add-parada-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .stx-pr-parada-total {
+          font-family: var(--font-mono);
+          font-size: 12.5px;
+          color: var(--text-muted);
+          margin: 8px 0 0 0;
+        }
+
         /* Permissões de acesso — form de usuário */
         .stx-permissoes-grupos {
           display: grid;

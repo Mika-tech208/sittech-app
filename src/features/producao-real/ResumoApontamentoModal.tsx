@@ -6,12 +6,22 @@
 // gravado automaticamente pelo backend (editar_apontamento_producao/
 // editar_apontamento_sem_producao) — não é exposto aqui pra supervisora.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import { useProdutosElegiveisPorMaquina } from "@/hooks/useProdutosElegiveisPorMaquina";
+import { useMotivosParada } from "@/hooks/useMotivosParada";
 import { MOTIVOS, LABEL_MOTIVO_SEM_PRODUCAO } from "./SemProducaoModal";
 import { mensagemErroRegistrarLancamento } from "./calculations";
+import ParadasManuaisEditor, { type ParadaManual, type ParadaAutomatica } from "./ParadasManuaisEditor";
 import type { ApontamentoRealizado } from "@/hooks/useApontamentosRealizados";
+
+interface ParadaRow {
+  motivo_id: string;
+  minutos: number;
+  descricao: string | null;
+  ocorrencia_id: string | null;
+  motivos_parada: { nome: string } | null;
+}
 
 interface FuncionarioSimples {
   id: string;
@@ -48,6 +58,38 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
   const { produtos, loading: produtosCarregando } = useProdutosElegiveisPorMaquina(
     modo === "editando" && apontamento.status === "produzindo" ? apontamento.maquinaId : null
   );
+  const { motivos: motivosParada } = useMotivosParada(apontamento.status === "produzindo");
+
+  // Paradas do período (manuais + automáticas de ocorrência) — só faz
+  // sentido pra "produzindo"; "sem_producao" não é tocado nesta etapa (ver
+  // calculations.ts / decisão pendente reportada ao final). Carregada uma
+  // vez na abertura do modal, independente do modo, pra já alimentar o
+  // "Tempo parado" no resumo.
+  const [paradasAutomaticas, setParadasAutomaticas] = useState<ParadaAutomatica[]>([]);
+  const [paradasManuais, setParadasManuais] = useState<ParadaManual[]>([]);
+  useEffect(() => {
+    if (apontamento.status !== "produzindo") return;
+    let montado = true;
+    (async () => {
+      const { data } = await supabase
+        .from("apontamento_paradas")
+        .select("motivo_id, minutos, descricao, ocorrencia_id, motivos_parada(nome)")
+        .eq("apontamento_id", apontamento.id)
+        .returns<ParadaRow[]>();
+      if (!montado || !data) return;
+      setParadasAutomaticas(
+        data.filter((p) => p.ocorrencia_id !== null).map((p) => ({ motivoNome: p.motivos_parada?.nome || "Motivo", minutos: Number(p.minutos) }))
+      );
+      setParadasManuais(
+        data.filter((p) => p.ocorrencia_id === null).map((p) => ({ motivoId: p.motivo_id, minutos: Number(p.minutos), descricao: p.descricao }))
+      );
+    })();
+    return () => { montado = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apontamento.id, apontamento.status]);
+
+  const tempoParadoTotal =
+    paradasAutomaticas.reduce((soma, p) => soma + p.minutos, 0) + paradasManuais.reduce((soma, p) => soma + p.minutos, 0);
 
   // garante que o funcionário atual do apontamento apareça na lista mesmo
   // que hoje esteja inativo — senão a edição "perderia" a seleção original
@@ -77,6 +119,7 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
       p_quantidade_produzida: Number(quantidadeProduzida),
       p_quantidade_refugo: Number(quantidadeRefugo || 0),
       p_observacao: observacao.trim() || null,
+      p_paradas: paradasManuais.map((p) => ({ motivo_id: p.motivoId, minutos: p.minutos, descricao: p.descricao })),
     });
     if (error || !data) {
       setErro(mensagemErroRegistrarLancamento(error?.message));
@@ -146,6 +189,7 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
                   <div className="stx-pr-resumo-linha"><span>Funcionário</span><b>{apontamento.funcionarioNome}</b></div>
                   <div className="stx-pr-resumo-linha"><span>Produzido</span><b>{apontamento.quantidadeProduzida} un.</b></div>
                   <div className="stx-pr-resumo-linha"><span>Refugo</span><b>{apontamento.quantidadeRefugo} un.</b></div>
+                  {tempoParadoTotal > 0 && <div className="stx-pr-resumo-linha"><span>Tempo parado</span><b>{tempoParadoTotal} min</b></div>}
                   {apontamento.observacao && <div className="stx-pr-resumo-linha"><span>Observação</span><b>{apontamento.observacao}</b></div>}
                 </>
               ) : (
@@ -202,6 +246,13 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
                 <input type="number" inputMode="numeric" min={0} className="stx-input" value={quantidadeRefugo} onChange={(e) => setQuantidadeRefugo(e.target.value)} />
               </div>
             </div>
+
+            <ParadasManuaisEditor
+              paradasManuais={paradasManuais}
+              onChange={setParadasManuais}
+              motivosParada={motivosParada}
+              paradasAutomaticas={paradasAutomaticas}
+            />
 
             <div style={{ marginBottom: 16 }}>
               <label className="stx-label">Observação (opcional)</label>

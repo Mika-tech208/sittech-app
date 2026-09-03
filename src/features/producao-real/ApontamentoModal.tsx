@@ -16,7 +16,9 @@
 import { useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import { useProdutosElegiveisPorMaquina } from "@/hooks/useProdutosElegiveisPorMaquina";
+import { useMotivosParada } from "@/hooks/useMotivosParada";
 import { calcularPerformance, mensagemErroRegistrarLancamento } from "./calculations";
+import ParadasManuaisEditor, { type ParadaManual } from "./ParadasManuaisEditor";
 
 interface FuncionarioAtivo {
   id: string;
@@ -55,17 +57,20 @@ export default function ApontamentoModal({
   const [etapa, setEtapa] = useState<Etapa>("preenchendo");
 
   const { produtos, loading: produtosCarregando } = useProdutosElegiveisPorMaquina(maquinaId);
+  const { motivos: motivosParada } = useMotivosParada(true);
 
   const [produtoId, setProdutoId] = useState("");
   const [funcionarioId, setFuncionarioId] = useState("");
   const [quantidadeProduzida, setQuantidadeProduzida] = useState("");
   const [quantidadeRefugo, setQuantidadeRefugo] = useState("0");
   const [observacao, setObservacao] = useState("");
+  const [paradasManuais, setParadasManuais] = useState<ParadaManual[]>([]);
   const [erro, setErro] = useState<string | null>(null);
 
   const [performance, setPerformance] = useState<number | null>(null);
   const [produtoNomeSalvo, setProdutoNomeSalvo] = useState("");
   const [quantidadeSalva, setQuantidadeSalva] = useState(0);
+  const [tempoParadoSalvo, setTempoParadoSalvo] = useState(0);
 
   const quantidadeProduzidaNum = Number(quantidadeProduzida);
   const podeSalvar =
@@ -81,6 +86,8 @@ export default function ApontamentoModal({
     setEtapa("salvando");
     setErro(null);
 
+    const paradasPayload = paradasManuais.map((p) => ({ motivo_id: p.motivoId, minutos: p.minutos, descricao: p.descricao }));
+
     const { data, error } = modoRetroativo
       ? await supabase.rpc("registrar_apontamento_producao_retroativo", {
           p_maquina_id: maquinaId,
@@ -92,6 +99,7 @@ export default function ApontamentoModal({
           p_data: modoRetroativo.data,
           p_periodo_id: modoRetroativo.periodoId,
           p_observacao: observacao.trim() || null,
+          p_paradas: paradasPayload,
         })
       : await supabase.rpc("registrar_apontamento_producao", {
           p_maquina_id: maquinaId,
@@ -101,6 +109,7 @@ export default function ApontamentoModal({
           p_quantidade_refugo: Number(quantidadeRefugo || 0),
           p_idempotency_key: idempotencyKey,
           p_observacao: observacao.trim() || null,
+          p_paradas: paradasPayload,
         });
 
     if (error || !data) {
@@ -131,6 +140,7 @@ export default function ApontamentoModal({
     setPerformance(perf);
     setProdutoNomeSalvo(produtoSelecionado?.nome || "");
     setQuantidadeSalva(Number(apontamento.quantidade_produzida));
+    setTempoParadoSalvo(somaParadasMinutos);
     setEtapa("confirmado");
     onApontado({
       maquinaId,
@@ -148,6 +158,7 @@ export default function ApontamentoModal({
             <p className="stx-pr-confirmacao-produto">{produtoNomeSalvo} · {quantidadeSalva} un.</p>
             <p className="stx-pr-performance-label">PERFORMANCE</p>
             <p className="stx-pr-performance-valor">{performance == null ? "N/A" : `${performance.toFixed(0)}%`}</p>
+            {tempoParadoSalvo > 0 && <p className="stx-pr-parada-total">Tempo parado: {tempoParadoSalvo} min</p>}
             <div className="stx-pr-confirmacao-acoes">
               {temProximaPendente && (
                 <button type="button" className="stx-btn-primary" onClick={onProximaMaquina}>PRÓXIMA MÁQUINA</button>
@@ -193,6 +204,8 @@ export default function ApontamentoModal({
                 <input type="number" inputMode="numeric" min={0} className="stx-input" value={quantidadeRefugo} onChange={(e) => setQuantidadeRefugo(e.target.value)} />
               </div>
             </div>
+
+            <ParadasManuaisEditor paradasManuais={paradasManuais} onChange={setParadasManuais} motivosParada={motivosParada} />
 
             <div style={{ marginBottom: 16 }}>
               <label className="stx-label">Observação (opcional)</label>
