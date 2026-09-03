@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Sittech — Custos e Produção",
+  title: "Sittech — Gestão",
   description: "Sistema de custos, previsão e capacidade da Sittech",
 };
 
