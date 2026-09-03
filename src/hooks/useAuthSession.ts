@@ -100,6 +100,20 @@ export function useAuthSession() {
         window.history.replaceState(null, "", window.location.pathname + window.location.search);
       }
 
+      // O client Supabase (singleton de módulo, detectSessionInUrl=true) começa
+      // a processar a URL de retorno assim que é importado — antes do React
+      // montar. O evento PASSWORD_RECOVERY dispara uma única vez, e o listener
+      // onAuthStateChange abaixo só é registrado depois deste efeito rodar:
+      // numa corrida, o evento passa despercebido e a sessão de recovery vira
+      // um login comum. Checar a própria URL aqui, de forma síncrona, elimina
+      // essa dependência de timing. sessionStorage sobrevive a um refresh da
+      // aba (mas não a fechar/reabrir) — garante que um F5 no meio da
+      // redefinição não solte a conta pro app normal antes da senha trocar.
+      if (window.location.hash.includes("type=recovery") || sessionStorage.getItem("sb_recovery_pendente")) {
+        sessionStorage.setItem("sb_recovery_pendente", "1");
+        setEmModoRecovery(true);
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) await carregarPerfil(session.user.id);
       if (montado) setRestaurandoSessao(false);
@@ -109,9 +123,12 @@ export function useAuthSession() {
       if (event === "SIGNED_OUT") {
         setAutenticado(false);
         setUsuarioLogado(null);
+        setEmModoRecovery(false);
+        sessionStorage.removeItem("sb_recovery_pendente");
       }
       if (event === "PASSWORD_RECOVERY") {
         setEmModoRecovery(true);
+        sessionStorage.setItem("sb_recovery_pendente", "1");
       }
     });
     return () => { montado = false; subscription.unsubscribe(); };
@@ -233,6 +250,7 @@ export function useAuthSession() {
   function concluirRecovery() {
     setRecoverySucesso(false);
     setEmModoRecovery(false);
+    sessionStorage.removeItem("sb_recovery_pendente");
   }
 
   return {
