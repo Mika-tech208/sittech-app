@@ -125,7 +125,9 @@ export default function Sidebar({
               {temPermissao(usuarioLogado, "producao_real_historico") && (
                 <Link href="/producao-real/apontamentos" className={`stx-tab-v ${abaAtiva === "producaoRealApontamentos" ? "active" : ""}`}><History size={16} />Apontamentos realizados</Link>
               )}
-              <button className={`stx-tab-v ${abaAtiva === "prVisaoGeral" ? "active" : ""}`} onClick={() => onNavigateTab("prVisaoGeral")}><Factory size={16} />Visão Geral</button>
+              {temPermissao(usuarioLogado, "producao_real_historico") && (
+                <Link href="/producao-real/visao-geral" className={`stx-tab-v ${abaAtiva === "prVisaoGeral" ? "active" : ""}`}><Factory size={16} />Visão Geral</Link>
+              )}
               {temPermissao(usuarioLogado, "producao_real_historico") && (
                 <Link href="/producao-real/indicadores" className={`stx-tab-v ${abaAtiva === "prIndicadores" ? "active" : ""}`}><Activity size={16} />Produtividade</Link>
               )}

@@ -11,6 +11,7 @@ import { useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import type { OcorrenciaAberta } from "@/hooks/useProducaoRealPainel";
 import { mensagemErroOcorrencia } from "./calculations";
+import { formatarTempoDecorrido } from "@/lib/tempoDecorrido";
 
 export interface EncerrarOcorrenciaModalProps {
   maquinaId: string;
@@ -22,14 +23,6 @@ export interface EncerrarOcorrenciaModalProps {
 
 function formatHorario(iso: string): string {
   return new Date(iso).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
-}
-
-function formatTempoDecorrido(iso: string): string {
-  const minutos = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-  if (minutos < 60) return `${minutos} min`;
-  const horas = Math.floor(minutos / 60);
-  const resto = minutos % 60;
-  return `${horas}h${resto > 0 ? ` ${resto}min` : ""}`;
 }
 
 type Etapa = "resumo" | "salvando" | "confirmado";
@@ -82,7 +75,7 @@ export default function EncerrarOcorrenciaModal({ maquinaId, maquinaNome, ocorre
               <div className="stx-pr-resumo-linha"><span>Motivo</span><b>{ocorrencia.motivoNome}</b></div>
               <div className="stx-pr-resumo-linha"><span>O que aconteceu</span><b>{ocorrencia.descricao}</b></div>
               <div className="stx-pr-resumo-linha"><span>Parou às</span><b>{formatHorario(ocorrencia.abertaEm)}</b></div>
-              <div className="stx-pr-resumo-linha"><span>Tempo decorrido</span><b>{formatTempoDecorrido(ocorrencia.abertaEm)}</b></div>
+              <div className="stx-pr-resumo-linha"><span>Tempo decorrido</span><b>{formatarTempoDecorrido(ocorrencia.abertaEm)}</b></div>
             </div>
 
             <div style={{ marginTop: 16, marginBottom: 16 }}>
