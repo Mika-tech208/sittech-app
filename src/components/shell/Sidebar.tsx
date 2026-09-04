@@ -138,7 +138,9 @@ export default function Sidebar({
               {temPermissao(usuarioLogado, "producao_real_historico") && (
                 <Link href="/producao-real/paradas" className={`stx-tab-v ${abaAtiva === "prParadas" ? "active" : ""}`}><PauseCircle size={16} />Paradas</Link>
               )}
-              <button className={`stx-tab-v ${abaAtiva === "prValidacao" ? "active" : ""}`} onClick={() => onNavigateTab("prValidacao")}><ClipboardCheck size={16} />Validação da Previsão</button>
+              {(temPermissao(usuarioLogado, "previsao") && temPermissao(usuarioLogado, "producao_real_historico")) && (
+                <Link href="/producao-real/validacao-previsao" className={`stx-tab-v ${abaAtiva === "prValidacao" ? "active" : ""}`}><ClipboardCheck size={16} />Validação da Previsão</Link>
+              )}
               <button className={`stx-tab-v ${abaAtiva === "prDadosImportados" ? "active" : ""}`} onClick={() => onNavigateTab("prDadosImportados")}><Database size={16} />Dados Importados</button>
             </>
           )}

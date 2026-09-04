@@ -1,0 +1,143 @@
+"use client";
+
+// Validação da Previsão V1 — busca os últimos N dias corridos até agora
+// via obter_indicadores_producao/obter_paradas_producao (mesmas duas RPCs
+// já usadas em Indicadores V1/Paradas V1/Desvios V1/Funcionários V1,
+// mesmo shape de linha). Cobre tanto a janela histórica de 14 dias
+// (capacidade provável) quanto a semana atual (produção acabada
+// observada) numa única busca — o motor de Validação da Previsão fatia
+// tudo client-side.
+
+import { useCallback, useState } from "react";
+import { supabase } from "@/services/supabase-client";
+import type { ApontamentoIndicador, StatusApontamento } from "@/features/producao-real/indicadores/calculations";
+import type { ParadaComContexto } from "@/features/producao-real/paradas/calculations";
+import { toISODate } from "@/lib/date";
+
+interface ApontamentoIndicadorRow {
+  apontamento_id: string;
+  data: string;
+  periodo_id: string;
+  periodo_nome: string;
+  status: StatusApontamento;
+  motivo_sem_producao: string | null;
+  produto_id: string | null;
+  produto_nome: string | null;
+  maquina_id: string;
+  maquina_nome: string;
+  operacao_id: string | null;
+  operacao_nome: string | null;
+  funcionario_id: string | null;
+  funcionario_nome: string | null;
+  etapa_id: string | null;
+  etapa_ordem: number | null;
+  is_ultima_etapa: boolean | null;
+  quantidade_produzida: number;
+  quantidade_refugo: number;
+  meta_periodo_vigente: number | null;
+  duracao_periodo_horas_vigente: number;
+  minutos_parados: number;
+  custo_hora_operacao_vigente: number | null;
+  custo_operacional_periodo_vigente: number | null;
+  custo_unitario_referencia_periodo_vigente: number | null;
+  produto_valor_unitario: number | null;
+  etapa_maquinas_elegiveis: number;
+}
+
+interface ParadaIndicadorRow {
+  parada_id: string;
+  apontamento_id: string;
+  data: string;
+  periodo_id: string;
+  minutos: number;
+  motivo_id: string;
+  motivo_nome: string;
+  motivo_categoria: string;
+  origem: "manual" | "ocorrencia";
+  produto_id: string | null;
+  produto_nome: string | null;
+  maquina_id: string;
+  maquina_nome: string;
+  operacao_id: string | null;
+  operacao_nome: string | null;
+  funcionario_id: string | null;
+  funcionario_nome: string | null;
+  custo_hora_operacao_vigente: number | null;
+  meta_periodo_vigente: number | null;
+  duracao_periodo_horas_vigente: number | null;
+}
+
+function linhaParaApontamento(r: ApontamentoIndicadorRow): ApontamentoIndicador {
+  return {
+    apontamentoId: r.apontamento_id, data: r.data, periodoId: r.periodo_id, periodoNome: r.periodo_nome,
+    status: r.status, motivoSemProducao: r.motivo_sem_producao,
+    produtoId: r.produto_id, produtoNome: r.produto_nome,
+    maquinaId: r.maquina_id, maquinaNome: r.maquina_nome,
+    operacaoId: r.operacao_id, operacaoNome: r.operacao_nome,
+    funcionarioId: r.funcionario_id, funcionarioNome: r.funcionario_nome,
+    etapaId: r.etapa_id, etapaOrdem: r.etapa_ordem, isUltimaEtapa: r.is_ultima_etapa,
+    quantidadeProduzida: Number(r.quantidade_produzida), quantidadeRefugo: Number(r.quantidade_refugo),
+    metaPeriodoVigente: r.meta_periodo_vigente === null ? null : Number(r.meta_periodo_vigente),
+    duracaoPeriodoHorasVigente: Number(r.duracao_periodo_horas_vigente),
+    minutosParados: Number(r.minutos_parados),
+    custoHoraOperacaoVigente: r.custo_hora_operacao_vigente === null ? null : Number(r.custo_hora_operacao_vigente),
+    custoOperacionalPeriodoVigente: r.custo_operacional_periodo_vigente === null ? null : Number(r.custo_operacional_periodo_vigente),
+    custoUnitarioReferenciaPeriodoVigente: r.custo_unitario_referencia_periodo_vigente === null ? null : Number(r.custo_unitario_referencia_periodo_vigente),
+    produtoValorUnitario: r.produto_valor_unitario === null ? null : Number(r.produto_valor_unitario),
+    etapaMaquinasElegiveis: Number(r.etapa_maquinas_elegiveis),
+  };
+}
+
+function linhaParaParada(r: ParadaIndicadorRow): ParadaComContexto {
+  return {
+    paradaId: r.parada_id, apontamentoId: r.apontamento_id, data: r.data, periodoId: r.periodo_id,
+    minutos: Number(r.minutos), motivoId: r.motivo_id, motivoNome: r.motivo_nome, motivoCategoria: r.motivo_categoria,
+    origem: r.origem, produtoId: r.produto_id, produtoNome: r.produto_nome,
+    maquinaId: r.maquina_id, maquinaNome: r.maquina_nome, operacaoId: r.operacao_id, operacaoNome: r.operacao_nome,
+    funcionarioId: r.funcionario_id, funcionarioNome: r.funcionario_nome,
+    custoHoraOperacaoVigente: r.custo_hora_operacao_vigente === null ? null : Number(r.custo_hora_operacao_vigente),
+    metaPeriodoVigente: r.meta_periodo_vigente === null ? null : Number(r.meta_periodo_vigente),
+    duracaoPeriodoHorasVigente: r.duracao_periodo_horas_vigente === null ? null : Number(r.duracao_periodo_horas_vigente),
+  };
+}
+
+export function useIndicadoresJanelaHistorica() {
+  const [apontamentos, setApontamentos] = useState<ApontamentoIndicador[]>([]);
+  const [paradas, setParadas] = useState<ParadaComContexto[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [buscou, setBuscou] = useState(false);
+
+  const buscar = useCallback(async (dias: number, hoje: Date = new Date()) => {
+    setLoading(true);
+    setErro(null);
+
+    const dataInicial = toISODate(new Date(hoje.getTime() - dias * 24 * 60 * 60 * 1000));
+    const params = {
+      p_data_inicial: dataInicial, p_data_final: toISODate(hoje),
+      p_produto_id: null, p_maquina_id: null, p_operacao_id: null, p_funcionario_id: null, p_periodo_id: null,
+    };
+
+    const [apontamentosResp, paradasResp] = await Promise.all([
+      supabase.rpc("obter_indicadores_producao", params),
+      supabase.rpc("obter_paradas_producao", params),
+    ]);
+
+    setBuscou(true);
+    if (apontamentosResp.error || paradasResp.error) {
+      setErro("Não foi possível carregar os dados de produção.");
+      setApontamentos([]);
+      setParadas([]);
+      setLoading(false);
+      return;
+    }
+
+    setApontamentos(((apontamentosResp.data || []) as ApontamentoIndicadorRow[]).map(linhaParaApontamento));
+    setParadas(((paradasResp.data || []) as ParadaIndicadorRow[]).map(linhaParaParada));
+    setLoading(false);
+  }, []);
+
+  return { apontamentos, paradas, loading, erro, buscou, buscar };
+}
+
+export type IndicadoresJanelaHistoricaHook = ReturnType<typeof useIndicadoresJanelaHistorica>;
