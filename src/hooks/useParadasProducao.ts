@@ -63,6 +63,8 @@ interface ParadaIndicadorRow {
   custo_hora_operacao_vigente: number | null;
   meta_periodo_vigente: number | null;
   duracao_periodo_horas_vigente: number | null;
+  descricao_problema: string | null;
+  descricao_solucao: string | null;
 }
 
 function linhaParaApontamento(r: ApontamentoIndicadorRow): ApontamentoIndicador {
@@ -119,6 +121,8 @@ function linhaParaParada(r: ParadaIndicadorRow): ParadaComContexto {
     custoHoraOperacaoVigente: r.custo_hora_operacao_vigente === null ? null : Number(r.custo_hora_operacao_vigente),
     metaPeriodoVigente: r.meta_periodo_vigente === null ? null : Number(r.meta_periodo_vigente),
     duracaoPeriodoHorasVigente: r.duracao_periodo_horas_vigente === null ? null : Number(r.duracao_periodo_horas_vigente),
+    descricaoProblema: r.descricao_problema,
+    descricaoSolucao: r.descricao_solucao,
   };
 }
 

@@ -54,6 +54,14 @@ export interface ParadaComContexto {
   custoHoraOperacaoVigente: number | null;
   metaPeriodoVigente: number | null;
   duracaoPeriodoHorasVigente: number | null;
+  // Texto livre operacional (migration 32) — "problema" vem de
+  // apontamento_paradas.descricao (preenchido na abertura da ocorrência,
+  // ou no próprio lançamento manual quando o motivo exige descrição).
+  // "solução" só existe pra paradas de origem 'ocorrencia' (vem de
+  // ocorrencias_maquina.descricao_solucao via join) — null pra paradas
+  // manuais, onde esse conceito não existe.
+  descricaoProblema: string | null;
+  descricaoSolucao: string | null;
 }
 
 // ---------------------------------------------------------------------

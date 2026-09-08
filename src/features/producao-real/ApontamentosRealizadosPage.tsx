@@ -173,7 +173,7 @@ export default function ApontamentosRealizadosPage() {
     );
   }
 
-  if (!temPermissao(auth.usuarioLogado, "producao_real_historico")) {
+  if (!temPermissao(auth.usuarioLogado, "producao_real_apontamentos_realizados")) {
     return (
       <div className="stx-root">
         <GlobalStyles cores={cores} />

@@ -58,6 +58,8 @@ function parada(over: Partial<ParadaComContexto> & Pick<ParadaComContexto, "para
     custoHoraOperacaoVigente: 60, // R$60/h -> R$1/min
     metaPeriodoVigente: 120, // meta 120/h
     duracaoPeriodoHorasVigente: 1, // 60 min
+    descricaoProblema: null,
+    descricaoSolucao: null,
     ...over,
   };
 }

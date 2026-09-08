@@ -14,6 +14,7 @@ export type Permissao =
   | "producao_real_apontamento"
   | "producao_real_historico"
   | "producao_real_ocorrencias"
+  | "producao_real_apontamentos_realizados"
   | "usuarios"
   | "auditoria";
 
@@ -36,6 +37,7 @@ export const GRUPOS_PERMISSOES: GrupoPermissoes[] = [
       { chave: "previsao", label: "Previsão" },
       { chave: "capacidade", label: "Capacidade" },
       { chave: "producao_real_apontamento", label: "Produção Real — Apontamento" },
+      { chave: "producao_real_apontamentos_realizados", label: "Produção Real — Apontamentos realizados" },
       { chave: "producao_real_historico", label: "Produção Real — Histórico" },
       { chave: "producao_real_ocorrencias", label: "Produção Real — Ocorrências" },
     ],
@@ -68,13 +70,16 @@ export const GRUPOS_PERMISSOES: GrupoPermissoes[] = [
 // usada pra validar o payload no Route Handler de criação de usuário.
 export const PERMISSOES_VALIDAS: Permissao[] = GRUPOS_PERMISSOES.flatMap((g) => g.itens.map((i) => i.chave));
 
-// Atalho de seleção, não um cargo — só marca essas 3 e some. O admin
+// Atalho de seleção, não um cargo — só marca essas 2 e some. O admin
 // continua livre pra marcar/desmarcar qualquer permissão depois de
-// aplicar, inclusive misturar com outras.
+// aplicar, inclusive misturar com outras. Representa a supervisora
+// operacional (chão de fábrica): só Apontamento + Apontamentos
+// realizados — de propósito SEM producao_real_historico nem
+// producao_real_ocorrencias, que liberariam Visão geral, Produtividade,
+// Funcionários, Desvios, Paradas e Validação da previsão.
 export const PRESET_SUPERVISAO_PRODUCAO: Permissao[] = [
   "producao_real_apontamento",
-  "producao_real_historico",
-  "producao_real_ocorrencias",
+  "producao_real_apontamentos_realizados",
 ];
 
 // papel === "admin" sempre passa, sem precisar de nenhuma linha em
@@ -88,14 +93,15 @@ export function temPermissao(
   return (usuarioLogado.permissoes || []).includes(permissao);
 }
 
-// Qualquer uma das 3 de Produção Real — usado pra decidir se o grupo
-// "Produção Real" (com as sub-abas ainda não implementadas) aparece no
-// Sidebar.
+// Qualquer uma das permissões de Produção Real — usado pra decidir se o
+// grupo "Produção Real" (com as sub-abas ainda não implementadas) aparece
+// no Sidebar.
 export function temAlgumaPermissaoProducaoReal(
   usuarioLogado: { papel: "admin" | "usuario"; permissoes?: string[] } | null | undefined
 ): boolean {
   return (
     temPermissao(usuarioLogado, "producao_real_apontamento") ||
+    temPermissao(usuarioLogado, "producao_real_apontamentos_realizados") ||
     temPermissao(usuarioLogado, "producao_real_historico") ||
     temPermissao(usuarioLogado, "producao_real_ocorrencias")
   );

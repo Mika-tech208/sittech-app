@@ -218,7 +218,7 @@ export default function Sidebar({
                 {temPermissao(usuarioLogado, "producao_real_apontamento") && (
                   <Link href="/producao-real" className={`stx-tab-v ${abaAtiva === "producaoRealPainel" ? "active" : ""}`} title="Apontamento"><ClipboardCheck size={16} />{!recolhida && "Apontamento"}</Link>
                 )}
-                {temPermissao(usuarioLogado, "producao_real_historico") && (
+                {temPermissao(usuarioLogado, "producao_real_apontamentos_realizados") && (
                   <Link href="/producao-real/apontamentos" className={`stx-tab-v ${abaAtiva === "producaoRealApontamentos" ? "active" : ""}`} title="Apontamentos realizados"><ClipboardList size={16} />{!recolhida && "Apontamentos realizados"}</Link>
                 )}
                 {temPermissao(usuarioLogado, "producao_real_historico") && (
