@@ -201,87 +201,93 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
 
   return (
     <div className="stx-modal-backdrop" onClick={!salvando ? onFechar : undefined}>
-      <div className="stx-modal-card stx-pr-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="stx-ap-modal-card" onClick={(e) => e.stopPropagation()}>
         {modo === "salvo" ? (
-          <div className="stx-pr-confirmacao">
-            <p className="stx-pr-confirmacao-check">✓ Apontamento atualizado</p>
-            <div className="stx-pr-confirmacao-acoes">
-              <button type="button" className="stx-btn-primary" onClick={onFechar}>Fechar</button>
+          <div className="stx-ap-confirm">
+            <p className="stx-ap-confirm-check">✓ Apontamento atualizado</p>
+            <div className="stx-ap-confirm-actions">
+              <button type="button" className="stx-ap-btn-primary" onClick={onFechar}>Fechar</button>
             </div>
           </div>
         ) : modo === "resumo" ? (
           <>
-            <p className="stx-modal-titulo">{apontamento.maquinaNome}</p>
-            <p className="stx-panel-sub" style={{ marginTop: -10, marginBottom: 16 }}>
+            <div className="stx-ap-modal-head">
+              <p className="stx-ap-modal-title" style={{ margin: 0 }}>{apontamento.maquinaNome}</p>
+              <button type="button" className="stx-ap-modal-close" onClick={onFechar} aria-label="Fechar">✕</button>
+            </div>
+            <p className="stx-ap-modal-eyebrow" style={{ marginTop: 8 }}>
               {dataFormatada} · {apontamento.periodoNome}
             </p>
-            <div className="stx-pr-resumo-linhas">
-              <div className="stx-pr-resumo-linha">
+            <div className="stx-ap-resumo-linhas">
+              <div className="stx-ap-resumo-linha">
                 <span>Status</span>
                 <b>{LABEL_STATUS[apontamento.status]} <PerformanceIndicador performancePct={apontamento.performancePct} /></b>
               </div>
               {apontamento.status === "produzindo" ? (
                 <>
-                  <div className="stx-pr-resumo-linha"><span>Produto</span><b>{apontamento.produtoNome}</b></div>
-                  <div className="stx-pr-resumo-linha"><span>Funcionário</span><b>{apontamento.funcionarioNome}</b></div>
-                  <div className="stx-pr-resumo-linha"><span>Produzido</span><b>{apontamento.quantidadeProduzida} un.</b></div>
-                  <div className="stx-pr-resumo-linha"><span>Refugo</span><b>{apontamento.quantidadeRefugo} un.</b></div>
-                  {tempoParadoTotal > 0 && <div className="stx-pr-resumo-linha"><span>Tempo parado</span><b>{tempoParadoTotal} min</b></div>}
-                  {apontamento.observacao && <div className="stx-pr-resumo-linha"><span>Observação</span><b>{apontamento.observacao}</b></div>}
+                  <div className="stx-ap-resumo-linha"><span>Produto</span><b>{apontamento.produtoNome}</b></div>
+                  <div className="stx-ap-resumo-linha"><span>Funcionário</span><b>{apontamento.funcionarioNome}</b></div>
+                  <div className="stx-ap-resumo-linha"><span>Produzido</span><b>{apontamento.quantidadeProduzida} un.</b></div>
+                  <div className="stx-ap-resumo-linha"><span>Refugo</span><b>{apontamento.quantidadeRefugo} un.</b></div>
+                  {tempoParadoTotal > 0 && <div className="stx-ap-resumo-linha"><span>Tempo parado</span><b>{tempoParadoTotal} min</b></div>}
+                  {apontamento.observacao && <div className="stx-ap-resumo-linha"><span>Observação</span><b>{apontamento.observacao}</b></div>}
                 </>
               ) : (
                 <>
-                  <div className="stx-pr-resumo-linha">
+                  <div className="stx-ap-resumo-linha">
                     <span>Motivo</span>
                     <b>{LABEL_MOTIVO_SEM_PRODUCAO[apontamento.motivoSemProducao || ""] || apontamento.motivoSemProducao}</b>
                   </div>
                   {apontamento.descricaoSemProducao && (
-                    <div className="stx-pr-resumo-linha"><span>Descrição</span><b>{apontamento.descricaoSemProducao}</b></div>
+                    <div className="stx-ap-resumo-linha"><span>Descrição</span><b>{apontamento.descricaoSemProducao}</b></div>
                   )}
                 </>
               )}
             </div>
-            <div className="stx-form-actions" style={{ flexDirection: "column", marginTop: 16 }}>
-              <button type="button" className="stx-btn-primary" onClick={() => setModo("editando")}>EDITAR APONTAMENTO</button>
-              <button type="button" className="stx-btn-danger" onClick={() => setModo("confirmando_exclusao")}>Excluir apontamento</button>
-              <button type="button" className="stx-btn-secondary" onClick={onFechar}>Fechar</button>
+            <div className="stx-ap-actions">
+              <button type="button" className="stx-ap-btn-primary" onClick={() => setModo("editando")}>Editar apontamento</button>
+              <button type="button" className="stx-ap-btn-danger" onClick={() => setModo("confirmando_exclusao")}>Excluir apontamento</button>
+              <button type="button" className="stx-ap-btn-secondary" onClick={onFechar}>Fechar</button>
             </div>
           </>
         ) : modo === "confirmando_exclusao" ? (
           <>
-            <p className="stx-modal-titulo">{apontamento.maquinaNome}</p>
-            <p className="stx-panel-sub" style={{ marginTop: -10, marginBottom: 16 }}>
+            <p className="stx-ap-modal-title" style={{ margin: 0 }}>{apontamento.maquinaNome}</p>
+            <p className="stx-ap-modal-eyebrow" style={{ marginTop: 8, marginBottom: 16 }}>
               {dataFormatada} · {apontamento.periodoNome}
             </p>
-            <p className="stx-save-error" style={{ marginBottom: 4 }}>
+            <p className="stx-ap-error" style={{ margin: 0 }}>
               Tem certeza que deseja excluir este apontamento? Esta ação removerá os dados de produção e paradas vinculados a ele.
             </p>
-            <p className="stx-panel-sub" style={{ marginBottom: 16 }}>Essa ação não pode ser desfeita.</p>
-            {erroExclusao && <p className="stx-save-error" style={{ marginBottom: 12 }}>{erroExclusao}</p>}
-            <div className="stx-form-actions" style={{ flexDirection: "column" }}>
-              <button type="button" className="stx-btn-danger solido" disabled={excluindo} onClick={excluirApontamento}>
-                {excluindo ? "Excluindo…" : "SIM, EXCLUIR APONTAMENTO"}
+            <p className="stx-ap-modal-eyebrow" style={{ marginTop: 8 }}>Essa ação não pode ser desfeita.</p>
+            {erroExclusao && <p className="stx-ap-error">{erroExclusao}</p>}
+            <div className="stx-ap-actions">
+              <button type="button" className="stx-ap-btn-danger solido" disabled={excluindo} onClick={excluirApontamento}>
+                {excluindo ? "Excluindo…" : "Sim, excluir apontamento"}
               </button>
-              <button type="button" className="stx-btn-secondary" disabled={excluindo} onClick={() => { setErroExclusao(null); setModo("resumo"); }}>Cancelar</button>
+              <button type="button" className="stx-ap-btn-secondary" disabled={excluindo} onClick={() => { setErroExclusao(null); setModo("resumo"); }}>Cancelar</button>
             </div>
           </>
         ) : modo === "excluido" ? (
-          <div className="stx-pr-confirmacao">
-            <p className="stx-pr-confirmacao-check">✓ Apontamento excluído</p>
-            <div className="stx-pr-confirmacao-acoes">
-              <button type="button" className="stx-btn-primary" onClick={onFechar}>Fechar</button>
+          <div className="stx-ap-confirm">
+            <p className="stx-ap-confirm-check">✓ Apontamento excluído</p>
+            <div className="stx-ap-confirm-actions">
+              <button type="button" className="stx-ap-btn-primary" onClick={onFechar}>Fechar</button>
             </div>
           </div>
         ) : apontamento.status === "produzindo" ? (
           <>
-            <p className="stx-modal-titulo">{apontamento.maquinaNome}</p>
-            <p className="stx-panel-sub" style={{ marginTop: -10, marginBottom: 16 }}>
+            <div className="stx-ap-modal-head">
+              <p className="stx-ap-modal-title" style={{ margin: 0 }}>{apontamento.maquinaNome}</p>
+              <button type="button" className="stx-ap-modal-close" onClick={() => setModo("resumo")} aria-label="Cancelar edição">✕</button>
+            </div>
+            <p className="stx-ap-modal-eyebrow" style={{ marginTop: 8, marginBottom: 16 }}>
               {dataFormatada} · {apontamento.periodoNome} — máquina/data/período não são editáveis
             </p>
 
-            <div style={{ marginBottom: 12 }}>
-              <label className="stx-label">Produto</label>
-              <select className="stx-select" value={produtoId} onChange={(e) => setProdutoId(e.target.value)} disabled={produtosCarregando}>
+            <div className="stx-ap-field">
+              <label className="stx-ap-field-label">Produto</label>
+              <select className="stx-ap-select" value={produtoId} onChange={(e) => setProdutoId(e.target.value)} disabled={produtosCarregando}>
                 <option value="">{produtosCarregando ? "Carregando…" : "Selecione…"}</option>
                 {produtos.map((p) => (
                   <option key={p.id} value={p.id}>{p.nome}</option>
@@ -289,9 +295,9 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
               </select>
             </div>
 
-            <div style={{ marginBottom: 12 }}>
-              <label className="stx-label">Funcionário</label>
-              <select className="stx-select" value={funcionarioId} onChange={(e) => setFuncionarioId(e.target.value)}>
+            <div className="stx-ap-field">
+              <label className="stx-ap-field-label">Funcionário</label>
+              <select className="stx-ap-select" value={funcionarioId} onChange={(e) => setFuncionarioId(e.target.value)}>
                 <option value="">Selecione…</option>
                 {funcionariosParaSelecionar.map((f) => (
                   <option key={f.id} value={f.id}>{f.nome}</option>
@@ -299,14 +305,14 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
               </select>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label className="stx-label">Quantidade produzida</label>
-                <input type="number" inputMode="numeric" min={0} className="stx-input" value={quantidadeProduzida} onChange={(e) => setQuantidadeProduzida(e.target.value)} />
+            <div className="stx-ap-grid-2">
+              <div className="stx-ap-field">
+                <label className="stx-ap-field-label">Quantidade produzida</label>
+                <input type="number" inputMode="numeric" min={0} className="stx-ap-input" value={quantidadeProduzida} onChange={(e) => setQuantidadeProduzida(e.target.value)} />
               </div>
-              <div>
-                <label className="stx-label">Refugo</label>
-                <input type="number" inputMode="numeric" min={0} className="stx-input" value={quantidadeRefugo} onChange={(e) => setQuantidadeRefugo(e.target.value)} />
+              <div className="stx-ap-field">
+                <label className="stx-ap-field-label">Refugo</label>
+                <input type="number" inputMode="numeric" min={0} className="stx-ap-input" value={quantidadeRefugo} onChange={(e) => setQuantidadeRefugo(e.target.value)} />
               </div>
             </div>
 
@@ -317,34 +323,37 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
               paradasAutomaticas={paradasAutomaticas}
             />
 
-            <div style={{ marginBottom: 16 }}>
-              <label className="stx-label">Observação (opcional)</label>
-              <input type="text" className="stx-input" value={observacao} onChange={(e) => setObservacao(e.target.value)} />
+            <div className="stx-ap-field">
+              <label className="stx-ap-field-label">Observação (opcional)</label>
+              <input type="text" className="stx-ap-input" value={observacao} onChange={(e) => setObservacao(e.target.value)} />
             </div>
 
-            {erro && <p className="stx-save-error" style={{ marginBottom: 12 }}>{erro}</p>}
+            {erro && <p className="stx-ap-error">{erro}</p>}
 
-            <div className="stx-form-actions" style={{ flexDirection: "column" }}>
-              <button type="button" className="stx-btn-primary" disabled={!podeSalvarProducao} onClick={salvarProducao}>
-                {salvando ? "Salvando…" : "SALVAR ALTERAÇÕES"}
+            <div className="stx-ap-actions">
+              <button type="button" className="stx-ap-btn-primary" disabled={!podeSalvarProducao} onClick={salvarProducao}>
+                {salvando ? "Salvando…" : "Salvar alterações"}
               </button>
-              <button type="button" className="stx-btn-secondary" onClick={() => setModo("resumo")} disabled={salvando}>Cancelar</button>
+              <button type="button" className="stx-ap-btn-secondary" onClick={() => setModo("resumo")} disabled={salvando}>Cancelar</button>
             </div>
           </>
         ) : (
           <>
-            <p className="stx-modal-titulo">{apontamento.maquinaNome}</p>
-            <p className="stx-panel-sub" style={{ marginTop: -10, marginBottom: 16 }}>
+            <div className="stx-ap-modal-head">
+              <p className="stx-ap-modal-title" style={{ margin: 0 }}>{apontamento.maquinaNome}</p>
+              <button type="button" className="stx-ap-modal-close" onClick={() => setModo("resumo")} aria-label="Cancelar edição">✕</button>
+            </div>
+            <p className="stx-ap-modal-eyebrow" style={{ marginTop: 8, marginBottom: 16 }}>
               {dataFormatada} · {apontamento.periodoNome} — máquina/data/período não são editáveis
             </p>
 
-            <label className="stx-label">Motivo</label>
-            <div className="stx-pr-motivos-grid">
+            <label className="stx-ap-field-label">Motivo</label>
+            <div className="stx-ap-motivo-grid" style={{ marginTop: 8 }}>
               {MOTIVOS.map((m) => (
                 <button
                   key={m.valor}
                   type="button"
-                  className={`stx-pr-motivo-btn ${motivo === m.valor ? "selecionado" : ""}`}
+                  className={`stx-ap-motivo-btn ${motivo === m.valor ? "selecionado" : ""}`}
                   onClick={() => setMotivo(m.valor)}
                 >
                   {m.label}
@@ -353,19 +362,19 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
             </div>
 
             {precisaDescricao && (
-              <div style={{ marginTop: 14, marginBottom: 4 }}>
-                <label className="stx-label">Descrição</label>
-                <input type="text" className="stx-input" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Descreva o motivo" />
+              <div className="stx-ap-field" style={{ marginTop: 14 }}>
+                <label className="stx-ap-field-label">Descrição</label>
+                <input type="text" className="stx-ap-input" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Descreva o motivo" />
               </div>
             )}
 
-            {erro && <p className="stx-save-error" style={{ marginTop: 12, marginBottom: 4 }}>{erro}</p>}
+            {erro && <p className="stx-ap-error">{erro}</p>}
 
-            <div className="stx-form-actions" style={{ flexDirection: "column", marginTop: 16 }}>
-              <button type="button" className="stx-btn-primary" disabled={!podeSalvarSemProducao} onClick={salvarSemProducao}>
-                {salvando ? "Salvando…" : "SALVAR ALTERAÇÕES"}
+            <div className="stx-ap-actions">
+              <button type="button" className="stx-ap-btn-primary" disabled={!podeSalvarSemProducao} onClick={salvarSemProducao}>
+                {salvando ? "Salvando…" : "Salvar alterações"}
               </button>
-              <button type="button" className="stx-btn-secondary" onClick={() => setModo("resumo")} disabled={salvando}>Cancelar</button>
+              <button type="button" className="stx-ap-btn-secondary" onClick={() => setModo("resumo")} disabled={salvando}>Cancelar</button>
             </div>
           </>
         )}

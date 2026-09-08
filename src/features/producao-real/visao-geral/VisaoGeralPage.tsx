@@ -18,7 +18,7 @@ import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useIndicadoresJanelaHistorica } from "@/hooks/useIndicadoresJanelaHistorica";
 import { useOcorrenciasAbertas } from "@/hooks/useOcorrenciasAbertas";
-import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
+import { useSidebarState } from "@/hooks/useSidebarState";
 import { calcularPeriodosComDuracao } from "@/lib/calculations/periodos";
 import { selecionarSemana, calcularResumoSemana } from "@/features/capacidade/selectors";
 import { gerarVisaoGeralProducaoReal } from "@/features/producao-real/visao-geral";
@@ -53,7 +53,7 @@ export default function VisaoGeralPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("prVisaoGeral");
+  const shell = useSidebarState("prVisaoGeral");
 
   const auth = useAuthSession();
   const cadastrosBase = useCadastrosBase(auth.autenticado);
@@ -152,10 +152,14 @@ export default function VisaoGeralPage() {
         <GlobalStyles cores={cores} />
         <div className="stx-layout">
           <Sidebar
-            tema={tema} abaAtiva="prVisaoGeral" onNavigateTab={() => { router.push("/"); }}
-            gruposAbertos={gruposAbertos} toggleGrupo={toggleGrupo} usuarioLogado={auth.usuarioLogado}
+            tema={tema}
+            abaAtiva="prVisaoGeral" onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+            gruposAbertos={shell.gruposAbertos} toggleGrupo={shell.toggleGrupo} usuarioLogado={auth.usuarioLogado}
             metaSemanalUsaPrevisto={metaSemanalUsaPrevisto} metaInvalida={metaInvalida} metaSemanalFinal={metaSemanalFinal}
             formatBRL={formatBRL} onMetaClick={() => { router.push("/"); }}
+            onAbrirMinhaConta={auth.abrirMinhaConta} onSair={() => auth.handleLogout()}
+            recolhida={shell.recolhida} onToggleRecolhida={shell.toggleRecolhida}
+            gavetaAberta={shell.gavetaAberta} onFecharGaveta={shell.fecharGaveta}
           />
           <AcessoNegado />
         </div>
@@ -168,51 +172,53 @@ export default function VisaoGeralPage() {
       <GlobalStyles cores={cores} />
       <div className="stx-layout">
         <Sidebar
-          tema={tema} abaAtiva="prVisaoGeral" onNavigateTab={() => { router.push("/"); }}
-          gruposAbertos={gruposAbertos} toggleGrupo={toggleGrupo} usuarioLogado={auth.usuarioLogado}
+          tema={tema}
+          abaAtiva="prVisaoGeral" onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+          gruposAbertos={shell.gruposAbertos} toggleGrupo={shell.toggleGrupo} usuarioLogado={auth.usuarioLogado}
           metaSemanalUsaPrevisto={metaSemanalUsaPrevisto} metaInvalida={metaInvalida} metaSemanalFinal={metaSemanalFinal}
           formatBRL={formatBRL} onMetaClick={() => { router.push("/"); }}
+          onAbrirMinhaConta={auth.abrirMinhaConta} onSair={() => auth.handleLogout()}
+          recolhida={shell.recolhida} onToggleRecolhida={shell.toggleRecolhida}
+          gavetaAberta={shell.gavetaAberta} onFecharGaveta={shell.fecharGaveta}
         />
 
         <div className="stx-content-wrapper">
-          <div className="stx-header">
-            <div><h1 className="stx-title">Visão Geral da Produção Real</h1></div>
-            <div className="stx-header-right">
-              <TopBarActions
-                modoPrivado={modoPrivado} onToggleModoPrivado={toggleModoPrivado} tema={tema}
-                onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
-                onAbrirMinhaConta={auth.abrirMinhaConta} onSair={() => auth.handleLogout()}
-              />
-            </div>
-          </div>
-
-          <p className="stx-panel-sub" style={{ marginBottom: 8 }}>
-            Como está a fábrica, o que merece atenção agora, e estamos no caminho de cumprir a semana? Camada executiva sobre os módulos já existentes — nenhum dado é calculado de novo aqui.
-          </p>
-
+          <TopBarActions
+            modoPrivado={modoPrivado} onToggleModoPrivado={toggleModoPrivado} tema={tema}
+            onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
+            usuarioLogado={auth.usuarioLogado}
+            abaAtiva="prVisaoGeral"
+            onAbrirMenu={shell.abrirGaveta}
+          />
           {janelaHook.erro && <p className="stx-save-error">{janelaHook.erro}</p>}
           {ocorrenciasHook.erro && <p className="stx-save-error">{ocorrenciasHook.erro}</p>}
 
           {janelaHook.loading || !janelaHook.buscou ? (
             <div className="stx-empty">Carregando…</div>
           ) : (
-            <>
-              <SaudeFabricaCards health={resultado.factoryHealth} drillDown={resultado.drillDown.produtividade} />
+            <div className="stx-vg-grid">
+              <div className="stx-vg-primary">
+                <div className="stx-vg-window-row">
+                  <div>
+                    <p className="stx-vg-window-label">
+                      {resultado.factoryHealth.janela.rotulo} ({resultado.factoryHealth.janela.dataInicial.split("-").reverse().join("/")} – {resultado.factoryHealth.janela.dataFinal.split("-").reverse().join("/")}) · composição dos domínios já existentes, nada recalculado aqui
+                    </p>
+                    <h1 className="stx-vg-h1">Visão geral</h1>
+                  </div>
+                  <span className="stx-vg-week-pill">Semana atual</span>
+                </div>
 
-              <div style={{ marginTop: 12 }}>
+                <SaudeFabricaCards health={resultado.factoryHealth} drillDown={resultado.drillDown.produtividade} />
                 <SituacaoSemanaCard forecast={resultado.forecast} />
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
-                <OcorrenciasAbertasCard ocorrencias={resultado.openOccurrences} />
                 <PrincipaisAtencoes incidentes={resultado.attentionItems} />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+              <div className="stx-vg-context">
+                <OcorrenciasAbertasCard ocorrencias={resultado.openOccurrences} />
                 <ParadasResumoCard downtime={resultado.downtime} drillDown={resultado.drillDown.paradas} />
                 <RecursoPressionadoCard recurso={resultado.pressuredResource} />
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>

@@ -20,7 +20,7 @@ import { useOperacoesComId } from "@/hooks/useOperacoesComId";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useIndicadoresProducao } from "@/hooks/useIndicadoresProducao";
-import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
+import { useSidebarState } from "@/hooks/useSidebarState";
 import {
   agruparPorDia, agruparPorFuncionario, agruparPorMaquina, agruparPorOperacao, agruparPorProduto,
   calcularParetoParadas, calcularResumoIndicadores,
@@ -75,7 +75,7 @@ export default function IndicadoresProducaoPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("prIndicadores");
+  const shell = useSidebarState("prIndicadores");
 
   const auth = useAuthSession();
   const cadastrosBase = useCadastrosBase(auth.autenticado);
@@ -249,15 +249,21 @@ export default function IndicadoresProducaoPage() {
           <Sidebar
             tema={tema}
             abaAtiva="prIndicadores"
-            onNavigateTab={() => { router.push("/"); }}
-            gruposAbertos={gruposAbertos}
-            toggleGrupo={toggleGrupo}
+            onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+            gruposAbertos={shell.gruposAbertos}
+            toggleGrupo={shell.toggleGrupo}
             usuarioLogado={auth.usuarioLogado}
             metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
             metaInvalida={metaInvalida}
             metaSemanalFinal={metaSemanalFinal}
             formatBRL={formatBRL}
             onMetaClick={() => { router.push("/"); }}
+            onAbrirMinhaConta={auth.abrirMinhaConta}
+            onSair={() => auth.handleLogout()}
+            recolhida={shell.recolhida}
+            onToggleRecolhida={shell.toggleRecolhida}
+            gavetaAberta={shell.gavetaAberta}
+            onFecharGaveta={shell.fecharGaveta}
           />
           <AcessoNegado />
         </div>
@@ -272,31 +278,36 @@ export default function IndicadoresProducaoPage() {
         <Sidebar
           tema={tema}
           abaAtiva="prIndicadores"
-          onNavigateTab={() => { router.push("/"); }}
-          gruposAbertos={gruposAbertos}
-          toggleGrupo={toggleGrupo}
+          onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+          gruposAbertos={shell.gruposAbertos}
+          toggleGrupo={shell.toggleGrupo}
           usuarioLogado={auth.usuarioLogado}
           metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
           metaInvalida={metaInvalida}
           metaSemanalFinal={metaSemanalFinal}
           formatBRL={formatBRL}
           onMetaClick={() => { router.push("/"); }}
+          onAbrirMinhaConta={auth.abrirMinhaConta}
+          onSair={() => auth.handleLogout()}
+          recolhida={shell.recolhida}
+          onToggleRecolhida={shell.toggleRecolhida}
+          gavetaAberta={shell.gavetaAberta}
+          onFecharGaveta={shell.fecharGaveta}
         />
 
         <div className="stx-content-wrapper">
+          <TopBarActions
+            modoPrivado={modoPrivado}
+            onToggleModoPrivado={toggleModoPrivado}
+            tema={tema}
+            onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
+            usuarioLogado={auth.usuarioLogado}
+            abaAtiva="prIndicadores"
+            onAbrirMenu={shell.abrirGaveta}
+          />
           <div className="stx-header">
             <div>
               <h1 className="stx-title">Indicadores de Produção</h1>
-            </div>
-            <div className="stx-header-right">
-              <TopBarActions
-                modoPrivado={modoPrivado}
-                onToggleModoPrivado={toggleModoPrivado}
-                tema={tema}
-                onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
-                onAbrirMinhaConta={auth.abrirMinhaConta}
-                onSair={() => auth.handleLogout()}
-              />
             </div>
           </div>
 
@@ -305,7 +316,7 @@ export default function IndicadoresProducaoPage() {
           </button>
 
           {filtrosAbertos && (
-            <div className="stx-panel stx-pr-filtros-painel">
+            <div className="stx-pr-filtros-painel">
               <div className="stx-pr-filtros-grid">
                 <div>
                   <label className="stx-label">Data inicial</label>
@@ -385,7 +396,7 @@ export default function IndicadoresProducaoPage() {
               {visao === "resumo" && <ResumoCards resumo={resumoGeral} />}
 
               {visao === "diario" && (
-                <div className="stx-panel">
+                <div className="stx-section">
                   <p className="stx-panel-title">Evolução diária</p>
                   <p className="stx-panel-sub">Performance, Disponibilidade e OEE agregados de cada dia do período filtrado — nunca média simples de percentuais, sempre soma de numerador/denominador.</p>
                   <EvolucaoDiariaChart dias={gruposDia} tema={tema} />
@@ -393,7 +404,7 @@ export default function IndicadoresProducaoPage() {
               )}
 
               {visao === "maquinas" && (
-                <div className="stx-panel">
+                <div className="stx-section">
                   <p className="stx-panel-title">Máquinas</p>
                   <p className="stx-panel-sub">Clique numa máquina para detalhar por produto.</p>
                   <TabelaGrupos
@@ -407,7 +418,7 @@ export default function IndicadoresProducaoPage() {
               )}
 
               {visao === "produtos" && (
-                <div className="stx-panel">
+                <div className="stx-section">
                   <p className="stx-panel-title">Produtos</p>
                   <p className="stx-panel-sub">&quot;Prod. acabada&quot; aqui já é só a última etapa; as demais colunas (Performance/Disponibilidade/paradas) consideram todas as etapas do produto. Clique num produto para detalhar por máquina.</p>
                   <TabelaGrupos
@@ -421,7 +432,7 @@ export default function IndicadoresProducaoPage() {
               )}
 
               {visao === "operacoes" && (
-                <div className="stx-panel">
+                <div className="stx-section">
                   <p className="stx-panel-title">Operações</p>
                   <p className="stx-panel-sub">Clique numa operação para detalhar por máquina.</p>
                   <TabelaGrupos
@@ -435,7 +446,7 @@ export default function IndicadoresProducaoPage() {
               )}
 
               {visao === "funcionarios" && (
-                <div className="stx-panel">
+                <div className="stx-section">
                   <p className="stx-panel-title">Funcionários</p>
                   <p className="stx-panel-sub">
                     Não é ranking — ordem sempre alfabética, sem destaque de &quot;melhor/pior&quot;. Um funcionário com Performance menor pode estar num processo mais difícil; clique no nome para ver o contexto por produto/operação/máquina antes de tirar qualquer conclusão.
@@ -451,7 +462,7 @@ export default function IndicadoresProducaoPage() {
               )}
 
               {visao === "paradas" && (
-                <div className="stx-panel">
+                <div className="stx-section">
                   <p className="stx-panel-title">Pareto de motivos de parada</p>
                   <p className="stx-panel-sub">Manuais e automáticas (vinculadas a ocorrências encerradas) somadas uma única vez cada. Clique num motivo pra ver em quais máquinas ele ocorreu.</p>
                   <ParetoParadas pareto={pareto} paradas={indicadoresHook.paradas} tema={tema} />

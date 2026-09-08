@@ -12,7 +12,7 @@ export default function ResumoEquipeCards({ resultado }: { resultado: ResultadoA
   const contextosAnalisados = new Set(resultado.analises.map((a) => `${a.contexto.produtoId}::${a.contexto.operacaoId}::${a.contexto.maquinaId}`)).size;
 
   return (
-    <div className="stx-panel">
+    <div className="stx-section">
       <p className="stx-panel-title">Resumo da equipe</p>
       <p className="stx-panel-sub">
         Sempre por contexto (produto + operação + máquina) — nunca uma nota geral da pessoa. Semana atual até agora, comparada ao mesmo trecho da semana anterior.

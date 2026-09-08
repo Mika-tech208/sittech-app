@@ -36,7 +36,7 @@ export default function StatusProgramacao({
   const atingivel = analise.atingivel;
 
   return (
-    <div className={`stx-panel stx-analise-capacidade ${atingivel ? "ok" : "alerta"}`}>
+    <div className={`stx-prev-status ${atingivel ? "ok" : "alerta"}`}>
       <button type="button" className="stx-status-header" onClick={() => setExpandido((v) => !v)}>
         <div className="stx-analise-resumo" style={{ marginBottom: 0 }}>
           <span className={`stx-analise-icone ${atingivel ? "ok" : "alerta"}`}>

@@ -27,7 +27,7 @@ function CardBreakdown({ titulo, itens, vazio }: { titulo: string; itens: { prod
 
 export default function ResumoCards({ resumo }: { resumo: ResumoIndicadores }) {
   return (
-    <div className="stx-panel">
+    <div className="stx-section">
       <p className="stx-panel-title">Produção acabada</p>
       <p className="stx-panel-sub">
         Quantidade boa (produzida − refugo) somente da última etapa do roteiro de cada produto — nunca soma etapa intermediária.

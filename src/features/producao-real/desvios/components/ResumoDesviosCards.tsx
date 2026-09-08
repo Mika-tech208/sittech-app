@@ -11,7 +11,7 @@ export default function ResumoDesviosCards({ incidentes }: { incidentes: Inciden
   const informativos = incidentes.filter((i) => i.severidade === "informativo").length;
 
   return (
-    <div className="stx-panel">
+    <div className="stx-section">
       <p className="stx-panel-title">Resumo</p>
       <p className="stx-panel-sub">
         Fila automática de situações que saíram do esperado, comparando a semana atual (até agora) e os últimos 28 dias contra suas respectivas referências — nunca um dashboard a mais.

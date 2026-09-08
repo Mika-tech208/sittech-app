@@ -1,13 +1,19 @@
 "use client";
 
-// Faixa 5 — Paradas (§10, aprovado). 4 números executivos, cada um de
-// sua unidade — minutos, motivo (contagem), máquina (minutos), peças
-// (capacidade local perdida) — nunca somados/misturados. Sem Pareto
-// completo aqui (isso fica só na tela própria de Paradas).
+// Faixa 5 — Paradas (§10, aprovado). 3 números executivos, cada um de
+// sua unidade — minutos, R$ (custo do tempo ocioso), peças (capacidade
+// local perdida) — nunca somados/misturados. A barra de composição usa
+// as maiores fatias do MESMO pareto de motivos já calculado em
+// calcularParetoParadasPorMetrica (percentualDoTotal oficial, nunca
+// recalculado aqui) — Pareto completo continua exclusivo da tela própria
+// de Paradas.
 
 import { useRouter } from "next/navigation";
 import type { DowntimeResumo } from "@/features/producao-real/visao-geral/types";
 import { formatarMinutos, formatarPecas } from "@/features/producao-real/indicadores/format";
+import { formatBRL } from "@/lib/format";
+
+const CORES_FATIA = ["var(--accent)", "var(--accent-deep)", "var(--warning)", "#B87A33", "var(--faint)"];
 
 export default function ParadasResumoCard({ downtime, drillDown }: { downtime: DowntimeResumo; drillDown: { dataInicial: string; dataFinal: string } }) {
   const router = useRouter();
@@ -20,36 +26,50 @@ export default function ParadasResumoCard({ downtime, drillDown }: { downtime: D
   }
 
   return (
-    <div className="stx-panel">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
-          <p className="stx-panel-title">Paradas</p>
-          <p className="stx-panel-sub">{downtime.janela.rotulo}</p>
-        </div>
-        <button type="button" className="stx-btn-secondary" onClick={verParadas}>Ver Paradas</button>
+    <div>
+      <div className="stx-vg-ctx-head">
+        <h2 className="stx-vg-ctx-title">Paradas</h2>
+        <button type="button" className="stx-vg-section-link" onClick={verParadas}>Ver →</button>
       </div>
 
       {!downtime.temDados ? (
-        <p className="stx-panel-sub" style={{ marginTop: 6 }}>0 min parado no período.</p>
+        <p className="stx-vg-empty">0 min parado no período.</p>
       ) : (
-        <div className="stx-capacidade-reais-grid" style={{ marginTop: 10 }}>
-          <div>
-            <p className="stx-panel-sub">Tempo parado</p>
-            <p className="stx-panel-title">{formatarMinutos(downtime.minutosParadosTotal)}</p>
+        <>
+          <div className="stx-vg-stat-list">
+            <div className="stx-vg-stat-row">
+              <span className="stx-vg-stat-label">Minutos parados</span>
+              <span className="stx-vg-stat-value">{formatarMinutos(downtime.minutosParadosTotal)}</span>
+            </div>
+            <div className="stx-vg-stat-row">
+              <span className="stx-vg-stat-label">Custo do tempo ocioso</span>
+              <span className="stx-vg-stat-value">{downtime.custoTempoOciosoTotal !== null ? formatBRL(downtime.custoTempoOciosoTotal) : "N/A"}</span>
+            </div>
+            <div className="stx-vg-stat-row">
+              <span className="stx-vg-stat-label">Capacidade local perdida</span>
+              <span className="stx-vg-stat-value">{downtime.capacidadePerdidaTotal !== null ? formatarPecas(downtime.capacidadePerdidaTotal) : "N/A"} pç</span>
+            </div>
+            {downtime.maquinaMaisAfetada && (
+              <div className="stx-vg-stat-row">
+                <span className="stx-vg-stat-label">Máquina mais afetada</span>
+                <span className="stx-vg-stat-value">{downtime.maquinaMaisAfetada.maquinaNome}</span>
+              </div>
+            )}
           </div>
-          <div>
-            <p className="stx-panel-sub">Principal motivo</p>
-            <p className="stx-panel-title">{downtime.principalMotivo ? `${downtime.principalMotivo.motivoNome} (${formatarMinutos(downtime.principalMotivo.minutos)})` : "—"}</p>
-          </div>
-          <div>
-            <p className="stx-panel-sub">Máquina mais afetada</p>
-            <p className="stx-panel-title">{downtime.maquinaMaisAfetada ? `${downtime.maquinaMaisAfetada.maquinaNome} (${formatarMinutos(downtime.maquinaMaisAfetada.minutos)})` : "—"}</p>
-          </div>
-          <div>
-            <p className="stx-panel-sub">Capacidade local perdida (peças)</p>
-            <p className="stx-panel-title">{downtime.capacidadePerdidaTotal !== null ? formatarPecas(downtime.capacidadePerdidaTotal) : "N/A"}</p>
-          </div>
-        </div>
+
+          {downtime.paretoPorMotivo.length > 0 && (
+            <>
+              <div className="stx-vg-stacked-bar">
+                {downtime.paretoPorMotivo.map((f, i) => (
+                  <span key={f.motivoNome} style={{ flex: Math.max(f.percentualDoTotal, 1), background: CORES_FATIA[i % CORES_FATIA.length] }} />
+                ))}
+              </div>
+              <div className="stx-vg-stacked-legend">
+                {downtime.paretoPorMotivo.map((f) => `${f.motivoNome} ${f.percentualDoTotal.toFixed(0)}%`).join(" · ")}
+              </div>
+            </>
+          )}
+        </>
       )}
     </div>
   );

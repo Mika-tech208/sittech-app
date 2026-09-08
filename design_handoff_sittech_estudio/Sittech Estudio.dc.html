@@ -1,0 +1,1967 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#121110; }
+  a { color:#3ECFA5; text-decoration:none; }
+  a:hover { color:#6EDCBA; }
+  @keyframes sit-pulse { 0%,100% { box-shadow:0 0 0 0 rgba(62,207,165,.32); } 60% { box-shadow:0 0 0 6px rgba(62,207,165,0); } }
+  ::selection { background:rgba(62,207,165,.26); }
+</style>
+</helmet>
+
+<section style="background:#121110;padding:60px 56px 24px;font-family:'Schibsted Grotesk',sans-serif;color:#F0EEEB;max-width:1520px">
+  <div style="font-size:12.5px;color:#7A756F">Sittech · direção visual aprovada · Estúdio</div>
+  <h1 style="margin:14px 0 0;font-size:44px;font-weight:600;letter-spacing:-.035em;line-height:1.05">Sittech, redesenhado</h1>
+  <p style="margin:16px 0 0;max-width:780px;font-size:15px;line-height:1.65;color:#96918B;text-wrap:pretty">Design system e quatro experiências na linguagem Estúdio: grafite quente, Schibsted Grotesk, composição assimétrica, hierarquia por escala e espaço em vez de bordas. Todas as regras funcionais do handoff estão preservadas — os números, conceitos e fluxos são os mesmos, só a superfície mudou.</p>
+  <div style="display:flex;gap:8px;margin-top:24px;flex-wrap:wrap;font-size:12.5px">
+    <a href="#4a" style="border-radius:999px;background:#211F1E;padding:8px 15px;color:#F0EEEB">4A · Design system</a>
+    <a href="#4b" style="border-radius:999px;background:#211F1E;padding:8px 15px;color:#F0EEEB">4B · Shell</a>
+    <a href="#4c" style="border-radius:999px;background:#211F1E;padding:8px 15px;color:#F0EEEB">4C · Visão Geral</a>
+    <a href="#4d" style="border-radius:999px;background:#211F1E;padding:8px 15px;color:#F0EEEB">4D · Apontamento</a>
+    <a href="#4e" style="border-radius:999px;background:#211F1E;padding:8px 15px;color:#F0EEEB">4E · Previsão</a>
+    <a href="#4f" style="border-radius:999px;background:#211F1E;padding:8px 15px;color:#F0EEEB">4F · Intelligence</a>
+    <a href="#4g" style="border-radius:999px;background:#211F1E;padding:8px 15px;color:#F0EEEB">4G · Light</a>
+    <a href="#4h" style="border-radius:999px;background:#211F1E;padding:8px 15px;color:#F0EEEB">4H · Sidebar recolhível</a>
+  </div>
+</section>
+
+<section id="4a" style="background:#121110;padding:36px 56px 80px;font-family:'Schibsted Grotesk',sans-serif;color:#F0EEEB;max-width:1520px">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px">
+    <span style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#3ECFA5">4A</span>
+    <h2 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.025em">Design system</h2>
+  </div>
+  <p style="margin:0 0 34px;max-width:780px;font-size:14px;line-height:1.65;color:#96918B">Uma família tipográfica, três planos de superfície, uma cor de destaque. Estado é comunicado por cor de texto e ponto, não por caixa colorida. Nada de monoespaçada: os números usam a mesma sans em peso 600 com tracking negativo.</p>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:44px 56px">
+
+    <div>
+      <div style="font-size:15px;font-weight:600;letter-spacing:-.015em;margin-bottom:18px">Cores</div>
+      <div style="display:flex;gap:10px;margin-bottom:18px">
+        <div style="flex:1"><div style="height:56px;border-radius:8px;background:#1A1918"></div><div style="font-size:12.5px;margin-top:8px">#1A1918</div><div style="font-size:12px;color:#7A756F">canvas</div></div>
+        <div style="flex:1"><div style="height:56px;border-radius:8px;background:#201E1D"></div><div style="font-size:12.5px;margin-top:8px">#201E1D</div><div style="font-size:12px;color:#7A756F">superfície</div></div>
+        <div style="flex:1"><div style="height:56px;border-radius:8px;background:#161514"></div><div style="font-size:12.5px;margin-top:8px">#161514</div><div style="font-size:12px;color:#7A756F">plano recuado</div></div>
+        <div style="flex:1"><div style="height:56px;border-radius:8px;background:#262422"></div><div style="font-size:12.5px;margin-top:8px">#262422</div><div style="font-size:12px;color:#7A756F">hairline</div></div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <div style="flex:1"><div style="height:44px;border-radius:8px;background:#3ECFA5"></div><div style="font-size:12.5px;margin-top:8px">#3ECFA5</div><div style="font-size:12px;color:#7A756F">Sittech · destaque</div></div>
+        <div style="flex:1"><div style="height:44px;border-radius:8px;background:#2C8F73"></div><div style="font-size:12.5px;margin-top:8px">#2C8F73</div><div style="font-size:12px;color:#7A756F">série secundária</div></div>
+        <div style="flex:1"><div style="height:44px;border-radius:8px;background:#E0A340"></div><div style="font-size:12.5px;margin-top:8px">#E0A340</div><div style="font-size:12px;color:#7A756F">atenção</div></div>
+        <div style="flex:1"><div style="height:44px;border-radius:8px;background:#E2695C"></div><div style="font-size:12.5px;margin-top:8px">#E2695C</div><div style="font-size:12px;color:#7A756F">crítico</div></div>
+      </div>
+      <div style="display:flex;gap:26px;margin-top:20px;font-size:13px;color:#96918B;flex-wrap:wrap">
+        <span>Texto #F0EEEB</span><span>Secundário #96918B</span><span>Terciário #7A756F</span><span>Rótulo #635F5A</span>
+      </div>
+      <p style="margin:16px 0 0;font-size:13px;line-height:1.6;color:#7A756F">O verde aparece em: marca, item ativo, ação primária, resultado positivo e uma série de gráfico. Em nenhum outro lugar.</p>
+    </div>
+
+    <div>
+      <div style="font-size:15px;font-weight:600;letter-spacing:-.015em;margin-bottom:18px">Tipografia · Schibsted Grotesk</div>
+      <div style="display:flex;flex-direction:column;gap:0">
+        <div style="display:flex;align-items:baseline;gap:20px;padding:12px 0;border-top:1px solid #262422">
+          <span style="width:112px;flex:none;font-size:12px;color:#635F5A">72 / 600 / −.045em</span>
+          <span style="font-size:56px;font-weight:600;letter-spacing:-.045em;line-height:1">18.940</span>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:20px;padding:12px 0;border-top:1px solid #262422">
+          <span style="width:112px;flex:none;font-size:12px;color:#635F5A">40 / 600 / −.035em</span>
+          <span style="font-size:34px;font-weight:600;letter-spacing:-.035em">Visão geral</span>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:20px;padding:12px 0;border-top:1px solid #262422">
+          <span style="width:112px;flex:none;font-size:12px;color:#635F5A">25 / 600 / −.03em</span>
+          <span style="font-size:25px;font-weight:600;letter-spacing:-.03em">104,8%</span>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:20px;padding:12px 0;border-top:1px solid #262422">
+          <span style="width:112px;flex:none;font-size:12px;color:#635F5A">15 / 600</span>
+          <span style="font-size:15px;font-weight:600;letter-spacing:-.015em">Título de seção</span>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:20px;padding:12px 0;border-top:1px solid #262422">
+          <span style="width:112px;flex:none;font-size:12px;color:#635F5A">14 / 400</span>
+          <span style="font-size:14px">Linha de tabela e texto de interface</span>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:20px;padding:12px 0;border-top:1px solid #262422">
+          <span style="width:112px;flex:none;font-size:12px;color:#635F5A">12,5 / 400</span>
+          <span style="font-size:12.5px;color:#96918B">Rótulo, legenda, metadado</span>
+        </div>
+      </div>
+      <p style="margin:16px 0 0;font-size:13px;line-height:1.6;color:#7A756F">Sentence case em tudo. Uppercase não é usado. Monoespaçada fica reservada a conteúdo que é literalmente código ou identificador — nenhuma das quatro telas precisa.</p>
+    </div>
+
+    <div>
+      <div style="font-size:15px;font-weight:600;letter-spacing:-.015em;margin-bottom:18px">Espaço, grid e raio</div>
+      <div style="display:flex;align-items:flex-end;gap:10px;margin-bottom:22px">
+        <div><div style="width:4px;height:4px;border-radius:1px;background:#3ECFA5"></div><div style="font-size:11.5px;color:#7A756F;margin-top:8px">4</div></div>
+        <div><div style="width:8px;height:8px;border-radius:2px;background:#3ECFA5"></div><div style="font-size:11.5px;color:#7A756F;margin-top:8px">8</div></div>
+        <div><div style="width:14px;height:14px;border-radius:3px;background:#2C8F73"></div><div style="font-size:11.5px;color:#7A756F;margin-top:8px">14</div></div>
+        <div><div style="width:22px;height:22px;border-radius:4px;background:#2C8F73"></div><div style="font-size:11.5px;color:#7A756F;margin-top:8px">22</div></div>
+        <div><div style="width:32px;height:32px;border-radius:6px;background:#302D2B"></div><div style="font-size:11.5px;color:#7A756F;margin-top:8px">32</div></div>
+        <div><div style="width:44px;height:44px;border-radius:8px;background:#302D2B"></div><div style="font-size:11.5px;color:#7A756F;margin-top:8px">44</div></div>
+        <div><div style="width:64px;height:64px;border-radius:10px;background:#262422"></div><div style="font-size:11.5px;color:#7A756F;margin-top:8px">64</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+        <div>
+          <div style="font-size:13px;color:#96918B;margin-bottom:10px">Grid de conteúdo</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;gap:6px;height:40px">
+            <div style="background:#232120;border-radius:2px"></div><div style="background:#232120;border-radius:2px"></div><div style="background:#232120;border-radius:2px"></div><div style="background:#232120;border-radius:2px"></div><div style="background:#232120;border-radius:2px"></div><div style="background:#232120;border-radius:2px"></div><div style="background:#232120;border-radius:2px"></div><div style="background:#232120;border-radius:2px"></div><div style="background:#232120;border-radius:2px"></div><div style="background:#232120;border-radius:2px"></div><div style="background:#232120;border-radius:2px"></div><div style="background:#232120;border-radius:2px"></div>
+          </div>
+          <div style="font-size:12.5px;color:#7A756F;margin-top:10px;line-height:1.6">Coluna primária + contexto de 372px no desktop. Tablet: 8 colunas, contexto vira faixa inferior. Mobile: 4 colunas.</div>
+        </div>
+        <div>
+          <div style="font-size:13px;color:#96918B;margin-bottom:10px">Raio e profundidade</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+            <div style="width:46px;height:32px;border-radius:8px;background:#201E1D"></div>
+            <div style="width:46px;height:32px;border-radius:12px;background:#201E1D;box-shadow:0 8px 24px -14px rgba(0,0,0,.9)"></div>
+            <div style="width:46px;height:32px;border-radius:999px;background:#201E1D"></div>
+          </div>
+          <div style="font-size:12.5px;color:#7A756F;line-height:1.6">8px superfícies · 12px modal e painel · 999px controles e chips. Sombra apenas em elemento que flutua de fato.</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size:15px;font-weight:600;letter-spacing:-.015em;margin-bottom:18px">Ações</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+        <button style="font-family:inherit;font-size:13.5px;font-weight:600;color:#141312;background:#3ECFA5;border:none;border-radius:9px;padding:11px 18px;cursor:pointer" style-hover="background:#55DBB4">Salvar apontamento</button>
+        <button style="font-family:inherit;font-size:13.5px;font-weight:500;color:#F0EEEB;background:#262422;border:none;border-radius:9px;padding:11px 18px;cursor:pointer" style-hover="background:#302D2B">Cancelar</button>
+        <button style="font-family:inherit;font-size:13.5px;font-weight:500;color:#F0EEEB;background:transparent;border:none;border-radius:9px;padding:11px 14px;cursor:pointer" style-hover="background:#232120">Ver detalhes</button>
+        <button style="font-family:inherit;font-size:13.5px;font-weight:600;color:#141312;background:#E2695C;border:none;border-radius:9px;padding:11px 18px;cursor:pointer" style-hover="background:#E97D71">Informar máquina parada</button>
+        <button style="font-family:inherit;font-size:13.5px;color:#7A756F;background:#211F1E;border:none;border-radius:9px;padding:11px 18px;opacity:.6;cursor:not-allowed">Indisponível</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px">
+        <button style="font-family:inherit;font-size:13.5px;font-weight:600;color:#141312;background:#3ECFA5;border:none;border-radius:9px;padding:11px 18px;cursor:pointer;outline:2px solid rgba(62,207,165,.35);outline-offset:3px">Com foco de teclado</button>
+        <button style="font-family:inherit;font-size:15px;font-weight:600;color:#141312;background:#3ECFA5;border:none;border-radius:12px;min-height:56px;padding:0 28px;cursor:pointer">Alvo de toque · 56px</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
+        <span style="font-size:12.5px;color:#F0EEEB;background:#262422;border-radius:999px;padding:7px 13px;cursor:pointer">Semana</span>
+        <span style="font-size:12.5px;color:#96918B;border-radius:999px;padding:7px 13px;cursor:pointer" style-hover="color:#F0EEEB;background:#211F1E">28 dias</span>
+        <span style="font-size:12.5px;color:#96918B;border-radius:999px;padding:7px 13px;cursor:pointer" style-hover="color:#F0EEEB;background:#211F1E">Mês</span>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size:15px;font-weight:600;letter-spacing:-.015em;margin-bottom:18px">Campos</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <label style="display:block;font-size:12.5px;color:#96918B;margin-bottom:8px">Quantidade boa</label>
+          <input value="1.402" readonly style="width:100%;box-sizing:border-box;font-family:inherit;font-size:16px;color:#F0EEEB;background:#201E1D;border:1px solid #2C2927;border-radius:10px;padding:12px 14px;text-align:right">
+        </div>
+        <div>
+          <label style="display:block;font-size:12.5px;color:#96918B;margin-bottom:8px">Refugo</label>
+          <input value="12" readonly style="width:100%;box-sizing:border-box;font-family:inherit;font-size:16px;color:#F0EEEB;background:#201E1D;border:1px solid #3ECFA5;border-radius:10px;padding:12px 14px;text-align:right;outline:3px solid rgba(62,207,165,.14)">
+        </div>
+        <div>
+          <label style="display:block;font-size:12.5px;color:#96918B;margin-bottom:8px">Máquina</label>
+          <div style="display:flex;align-items:center;justify-content:space-between;background:#201E1D;border:1px solid #2C2927;border-radius:10px;padding:12px 14px;font-size:14px;cursor:pointer">Injetora 04<span style="color:#7A756F;font-size:11px">⌄</span></div>
+        </div>
+        <div>
+          <label style="display:block;font-size:12.5px;color:#96918B;margin-bottom:8px">Funcionário</label>
+          <div style="display:flex;align-items:center;justify-content:space-between;background:#201E1D;border:1px solid #E2695C;border-radius:10px;padding:12px 14px;font-size:14px;color:#7A756F;cursor:pointer">Selecione<span style="color:#7A756F;font-size:11px">⌄</span></div>
+          <div style="font-size:12.5px;color:#E2695C;margin-top:7px">Obrigatório para salvar.</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:18px;margin-top:22px;font-size:13.5px;border-bottom:1px solid #262422">
+        <span style="padding:0 0 12px;font-weight:600;box-shadow:inset 0 -2px 0 #3ECFA5;cursor:pointer">Resumo geral</span>
+        <span style="padding:0 0 12px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">Evolução diária</span>
+        <span style="padding:0 0 12px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">Máquinas</span>
+        <span style="padding:0 0 12px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">Produtos</span>
+        <span style="padding:0 0 12px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">Economia</span>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size:15px;font-weight:600;letter-spacing:-.015em;margin-bottom:18px">Estados</div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:7px;height:7px;border-radius:50%;background:#3ECFA5"></span><span style="font-size:14px;color:#3ECFA5;width:170px">Concluído</span><span style="font-size:13px;color:#7A756F">previsto atendido na semana</span></div>
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:7px;height:7px;border-radius:50%;background:#8A857E"></span><span style="font-size:14px;color:#96918B;width:170px">No ritmo</span><span style="font-size:13px;color:#7A756F">projeção alcança o previsto</span></div>
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:7px;height:7px;border-radius:50%;background:#E0A340"></span><span style="font-size:14px;color:#E0A340;width:170px">Atenção</span><span style="font-size:13px;color:#7A756F">ritmo insuficiente</span></div>
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:7px;height:7px;border-radius:50%;background:#E2695C"></span><span style="font-size:14px;color:#E2695C;width:170px">Inviável teoricamente</span><span style="font-size:13px;color:#7A756F">capacidade restante não cobre</span></div>
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:7px;height:7px;border-radius:50%;border:1px solid #4A4642"></span><span style="font-size:14px;color:#7A756F;width:170px">Sem estimativa</span><span style="font-size:13px;color:#7A756F">amostra insuficiente</span></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:20px;flex-wrap:wrap">
+        <span style="font-size:12.5px;color:#3ECFA5;background:rgba(62,207,165,.12);border-radius:999px;padding:6px 12px">Apontado</span>
+        <span style="font-size:12.5px;color:#E0A340;background:rgba(224,163,64,.12);border-radius:999px;padding:6px 12px">Pendente</span>
+        <span style="font-size:12.5px;color:#E2695C;background:rgba(226,105,92,.12);border-radius:999px;padding:6px 12px">Parada agora</span>
+        <span style="font-size:12.5px;color:#96918B;background:#262422;border-radius:999px;padding:6px 12px">Sem produção</span>
+      </div>
+      <div style="margin-top:22px;display:flex;flex-direction:column;gap:12px;font-size:13.5px">
+        <div style="color:#96918B">Sem apontamento no período. <span style="color:#7A756F">— texto, nunca “0”</span></div>
+        <div style="color:#96918B">Amostra insuficiente pra comparar.</div>
+        <div style="color:#E2695C">Não foi possível salvar. Tente novamente.</div>
+        <div style="color:#3ECFA5">Apontamento salvo.</div>
+        <div style="color:#96918B">Você não tem permissão para acessar esta área.</div>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size:15px;font-weight:600;letter-spacing:-.015em;margin-bottom:18px">Confiança da Intelligence</div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div><div style="display:flex;justify-content:space-between;align-items:baseline;font-size:14px"><span style="color:#96918B">Minutos parados · setup</span><span style="font-weight:600">436 min</span></div><div style="font-size:12.5px;color:#7A756F;margin-top:4px">Fato · semana 36, todas as máquinas</div></div>
+        <div><div style="display:flex;justify-content:space-between;align-items:baseline;font-size:14px"><span style="color:#96918B">Rotuladora 02 vs. semana anterior</span><span style="font-weight:600">196 / 84 min</span></div><div style="font-size:12.5px;color:#7A756F;margin-top:4px">Calculado · +133%</div></div>
+        <div><div style="display:flex;justify-content:space-between;align-items:baseline;font-size:14px"><span style="color:#96918B">Custo do tempo ocioso</span><span style="font-weight:600">R$ 9.412</span></div><div style="font-size:12.5px;color:#E0A340;margin-top:4px">Estimativa · custo/hora médio</div></div>
+      </div>
+      <p style="margin:16px 0 0;font-size:13px;line-height:1.6;color:#7A756F">Fato e calculado em cinza; estimativa e aproximação em âmbar. Sem ícone de alerta, sem badge colorida — o menos certo apenas parece menos certo.</p>
+    </div>
+
+    <div>
+      <div style="font-size:15px;font-weight:600;letter-spacing:-.015em;margin-bottom:18px">Gráficos</div>
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px">
+        <span style="font-size:13px;color:#96918B">Minutos parados por motivo · pareto</span>
+        <span style="font-size:12.5px;color:#7A756F">% acumulado em âmbar</span>
+      </div>
+      <div style="position:relative;height:150px">
+        <div style="display:flex;align-items:flex-end;gap:14px;height:100%">
+          <div style="flex:1;height:100%;background:#3ECFA5;border-radius:6px 6px 3px 3px"></div>
+          <div style="flex:1;height:71%;background:#2C8F73;border-radius:6px 6px 3px 3px"></div>
+          <div style="flex:1;height:53%;background:#276F60;border-radius:6px 6px 3px 3px"></div>
+          <div style="flex:1;height:38%;background:#245B50;border-radius:6px 6px 3px 3px"></div>
+          <div style="flex:1;height:23%;background:#2A2E2C;border-radius:6px 6px 3px 3px"></div>
+          <div style="flex:1;height:11%;background:#2A2725;border-radius:6px 6px 3px 3px"></div>
+        </div>
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+          <polyline points="8,62 25,42 42,28 58,18 75,10 92,3" fill="none" stroke="#E0A340" stroke-width="1.3" vector-effect="non-scaling-stroke" stroke-linejoin="round"></polyline>
+        </svg>
+      </div>
+      <div style="display:flex;gap:14px;margin-top:12px;font-size:12px;color:#7A756F">
+        <span style="flex:1">Setup 436</span><span style="flex:1">Material 308</span><span style="flex:1">Manut. 231</span><span style="flex:1">Ajuste 167</span><span style="flex:1">Limpeza 98</span><span style="flex:1">Outro 44</span>
+      </div>
+      <p style="margin:16px 0 0;font-size:13px;line-height:1.6;color:#7A756F">Sem gride de fundo, sem legenda flutuante, sem eixo desenhado: rótulos abaixo das barras e o valor no próprio rótulo. Uma série em verde, comparação em verde escuro, acumulado em âmbar.</p>
+    </div>
+
+    <div>
+      <div style="font-size:15px;font-weight:600;letter-spacing:-.015em;margin-bottom:18px">Modal</div>
+      <div style="background:#201E1D;border-radius:12px;padding:22px;box-shadow:0 24px 60px -24px rgba(0,0,0,.95);max-width:420px">
+        <div style="font-size:12.5px;color:#7A756F">Injetora 04 · M2 · qui 04 set</div>
+        <div style="font-size:19px;font-weight:600;letter-spacing:-.02em;margin-top:8px">Excluir apontamento</div>
+        <p style="margin:10px 0 0;font-size:13.5px;line-height:1.6;color:#96918B">Esta ação não pode ser desfeita. O registro sai do cálculo de produção acabada e das paradas do período.</p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:22px">
+          <button style="font-family:inherit;font-size:13.5px;color:#F0EEEB;background:#262422;border:none;border-radius:9px;padding:10px 16px;cursor:pointer">Manter</button>
+          <button style="font-family:inherit;font-size:13.5px;font-weight:600;color:#141312;background:#E2695C;border:none;border-radius:9px;padding:10px 16px;cursor:pointer">Excluir</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<section id="4b" style="background:#121110;padding:36px 56px 80px;font-family:'Schibsted Grotesk',sans-serif;color:#F0EEEB;max-width:1520px">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px">
+    <span style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#3ECFA5">4B</span>
+    <h2 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.025em">Sidebar e topbar</h2>
+  </div>
+  <p style="margin:0 0 30px;max-width:800px;font-size:14px;line-height:1.65;color:#96918B">A sidebar é um plano recuado de 248px: rótulos de grupo discretos, itens em texto com ícone de 16px, item ativo com traço curto e peso. A topbar não é uma barra de ferramentas — é uma linha de contexto com o gatilho da Intelligence como único elemento com presença. Grupos somem por permissão sem deixar buraco visual.</p>
+
+  <div style="display:flex;gap:40px;align-items:flex-start;flex-wrap:wrap">
+
+    <div style="width:248px;background:#161514;border-radius:10px;padding:26px 0 22px;display:flex;flex-direction:column;min-height:660px">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 26px 30px">
+        <span style="width:16px;height:16px;border-radius:50%;background:#3ECFA5"></span>
+        <span style="font-size:16px;font-weight:600;letter-spacing:-.02em">Sittech</span>
+      </div>
+      <div style="display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" style="flex:none;opacity:.8"><path d="M3.5 8.6L10 3.5l6.5 5.1v7.4a1 1 0 01-1 1h-11a1 1 0 01-1-1z"></path></svg>Início
+        </div>
+        <div style="padding:22px 26px 8px;font-size:11.5px;letter-spacing:.05em;color:#635F5A">Planejamento</div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="flex:none;opacity:.8"><rect x="3" y="4.5" width="14" height="12.5" rx="2.5"></rect><path d="M3 8.5h14M7 3v3M13 3v3"></path></svg>Previsão semanal
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.8"><path d="M3.2 14.5a8 8 0 1113.6 0"></path><path d="M10 14.5l3.4-4"></path></svg>Capacidade semanal
+        </div>
+        <div style="padding:22px 26px 8px;font-size:11.5px;letter-spacing:.05em;color:#635F5A">Produção real</div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex:none;opacity:.8"><rect x="4" y="3.5" width="12" height="13.5" rx="2.5"></rect><path d="M7.5 10.5l1.8 1.8 3.4-3.8"></path></svg>Apontamento
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.8"><path d="M6.5 6h9M6.5 10h9M6.5 14h5.5"></path></svg>Apontamentos realizados
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;font-weight:600;color:#F0EEEB;cursor:pointer;position:relative">
+          <span style="position:absolute;left:0;top:9px;bottom:9px;width:2px;border-radius:2px;background:#3ECFA5"></span>
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#3ECFA5" stroke-width="1.5" style="flex:none"><rect x="3" y="3" width="6" height="6" rx="1.8"></rect><rect x="11" y="3" width="6" height="6" rx="1.8"></rect><rect x="3" y="11" width="6" height="6" rx="1.8"></rect><rect x="11" y="11" width="6" height="6" rx="1.8"></rect></svg>Visão geral
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" style="flex:none;opacity:.8"><rect x="3" y="11" width="3.6" height="6" rx="1.4"></rect><rect x="8.2" y="7.5" width="3.6" height="9.5" rx="1.4"></rect><rect x="13.4" y="3.5" width="3.6" height="13.5" rx="1.4"></rect></svg>Produtividade
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.8"><circle cx="10" cy="7.2" r="3"></circle><path d="M4.5 16.5c.9-2.9 3-4.3 5.5-4.3s4.6 1.4 5.5 4.3"></path></svg>Funcionários
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" style="flex:none;opacity:.8"><path d="M10 3.8l6.6 12.4H3.4z"></path><path d="M10 8.6v3.2M10 14.1v.1"></path></svg><span style="flex:1">Desvios</span><span style="font-size:12.5px;color:#E0A340">3</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.8"><circle cx="10" cy="10" r="7"></circle><path d="M8.4 7.6v4.8M11.6 7.6v4.8"></path></svg>Paradas
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex:none;opacity:.8"><circle cx="10" cy="10" r="7"></circle><path d="M7 10.2l2 2 4-4.4"></path></svg>Validação da previsão
+        </div>
+        <div style="padding:22px 26px 8px;font-size:11.5px;letter-spacing:.05em;color:#635F5A">Gestão</div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" style="flex:none;opacity:.8"><path d="M10 3l6.5 3.5v7L10 17l-6.5-3.5v-7z"></path><path d="M3.5 6.5L10 10l6.5-3.5M10 10v7"></path></svg>Produtos
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="flex:none;opacity:.8"><circle cx="10" cy="10" r="2.6"></circle><circle cx="10" cy="10" r="6.8"></circle></svg>Máquinas
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.8"><circle cx="10" cy="10" r="7"></circle><path d="M10 6.2V10l2.6 1.7"></path></svg>Custo por hora
+        </div>
+      </div>
+      <div style="margin-top:auto;padding:26px 26px 0">
+        <div style="font-size:12.5px;color:#7A756F">Meta semanal</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-top:8px">
+          <span style="font-size:22px;font-weight:600;letter-spacing:-.03em">76%</span>
+          <span style="font-size:12.5px;color:#7A756F">R$ 182,4k de 240k</span>
+        </div>
+        <div style="height:4px;border-radius:2px;background:#262422;margin-top:12px;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:76%;background:#3ECFA5"></span></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:24px">
+          <span style="width:26px;height:26px;border-radius:50%;background:#2E2B29;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#96918B">MS</span>
+          <span style="font-size:13px;color:#96918B;flex:1">Marina Souza</span>
+          <span style="font-size:13px;color:#635F5A;cursor:pointer">⌄</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:1;min-width:520px;display:flex;flex-direction:column;gap:34px">
+      <div>
+        <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Topbar · desktop</div>
+        <div style="background:#1A1918;border-radius:10px;display:flex;align-items:center;gap:16px;padding:16px 26px">
+          <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#7A756F">
+            <span>Produção real</span><span style="color:#4A4642">/</span><span style="color:#F0EEEB">Visão geral</span>
+          </div>
+          <span style="flex:1"></span>
+          <div style="display:flex;align-items:center;gap:11px;border-radius:999px;background:#211F1E;padding:6px 8px 6px 13px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 6px 18px -10px rgba(0,0,0,.9)" style-hover="background:#282524">
+            <span style="width:18px;height:18px;border-radius:50%;border:1px solid rgba(62,207,165,.38);display:flex;align-items:center;justify-content:center;flex:none">
+              <span style="width:6px;height:6px;border-radius:50%;background:#3ECFA5;animation:sit-pulse 3.4s ease-in-out infinite"></span>
+            </span>
+            <span style="font-size:13.5px;font-weight:500;letter-spacing:-.005em">Intelligence</span>
+            <span style="font-size:11px;color:#8A857E;background:#2C2927;border-radius:6px;padding:4px 7px">⌘K</span>
+          </div>
+          <span style="font-size:13px;color:#7A756F;cursor:pointer" style-hover="color:#F0EEEB">Ocultar valores</span>
+          <span style="font-size:13px;color:#7A756F;cursor:pointer" style-hover="color:#F0EEEB">Tema</span>
+        </div>
+        <p style="margin:12px 0 0;font-size:13px;line-height:1.6;color:#7A756F">A trilha “Produção real / Visão geral” resolve a falta de breadcrumb e desambigua as duas telas hoje chamadas “Visão geral”. O sino decorativo sai até existir push real.</p>
+      </div>
+
+      <div style="display:flex;gap:28px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Só apontamento · supervisora</div>
+          <div style="width:216px;background:#161514;border-radius:10px;padding:22px 0 18px">
+            <div style="display:flex;align-items:center;gap:10px;padding:0 22px 24px">
+              <span style="width:14px;height:14px;border-radius:50%;background:#3ECFA5"></span>
+              <span style="font-size:15px;font-weight:600;letter-spacing:-.02em">Sittech</span>
+            </div>
+            <div style="padding:0 22px 8px;font-size:11.5px;letter-spacing:.05em;color:#635F5A">Produção real</div>
+            <div style="display:flex;align-items:center;gap:12px;padding:8px 22px;font-size:14px;font-weight:600;position:relative">
+              <span style="position:absolute;left:0;top:9px;bottom:9px;width:2px;border-radius:2px;background:#3ECFA5"></span>
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#3ECFA5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="4" y="3.5" width="12" height="13.5" rx="2.5"></rect><path d="M7.5 10.5l1.8 1.8 3.4-3.8"></path></svg>Apontamento
+            </div>
+            <div style="padding:26px 22px 0;font-size:12.5px;color:#635F5A;line-height:1.6">Sem grupos de gestão, sem meta semanal, sem Intelligence na topbar.</div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Mobile · PWA standalone</div>
+          <div style="width:190px;background:#1A1918;border-radius:22px;padding:8px;display:flex;flex-direction:column;height:330px">
+            <div style="height:22px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:10.5px;color:#7A756F"><span>14:31</span><span>safe area</span></div>
+            <div style="flex:1;background:#161514;border-radius:14px;margin:6px 0;padding:14px;display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;align-items:center;justify-content:space-between">
+                <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="#F0EEEB" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 6h13M3.5 10h13M3.5 14h9"></path></svg>
+                <span style="width:16px;height:16px;border-radius:50%;border:1px solid rgba(62,207,165,.5);display:flex;align-items:center;justify-content:center"><span style="width:5px;height:5px;border-radius:50%;background:#3ECFA5"></span></span>
+              </div>
+              <div style="font-size:12px;color:#7A756F">Produção real</div>
+              <div style="font-size:20px;font-weight:600;letter-spacing:-.03em">Visão geral</div>
+              <div style="height:1px;background:#262422"></div>
+              <div style="display:flex;justify-content:space-between;font-size:12.5px"><span style="color:#96918B">Performance</span><span style="font-weight:600">104,8%</span></div>
+              <div style="display:flex;justify-content:space-between;font-size:12.5px"><span style="color:#96918B">Disponibilidade</span><span style="font-weight:600">88,2%</span></div>
+              <div style="display:flex;justify-content:space-between;font-size:12.5px"><span style="color:#96918B">OEE</span><span style="font-weight:600">91,0%</span></div>
+            </div>
+            <div style="height:16px;display:flex;align-items:center;justify-content:center"><span style="width:70px;height:4px;border-radius:2px;background:#302D2B"></span></div>
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:220px">
+          <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Regras de navegação</div>
+          <div style="display:flex;flex-direction:column;gap:14px;font-size:13.5px;line-height:1.55;color:#96918B">
+            <div>Grupos aparecem só com permissão; a ausência não deixa espaço vazio nem item desabilitado.</div>
+            <div>Acordeão independente — abrir um grupo não fecha o outro; o grupo da rota atual já vem aberto.</div>
+            <div>Enquanto as permissões carregam, a sidebar mostra apenas a marca: nunca libera item por engano.</div>
+            <div>Tablet e mobile mantêm a mesma sidebar lateral, recolhível: trilha de ícones no tablet, gaveta sobre o conteúdo no celular. Detalhe em <a href="#4h">4H</a>.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="4c" style="background:#121110;padding:36px 56px 80px;font-family:'Schibsted Grotesk',sans-serif;color:#F0EEEB">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;max-width:1320px">
+    <span style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#3ECFA5">4C</span>
+    <h2 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.025em">Visão Geral</h2>
+    <span style="font-size:12.5px;color:#7A756F">/producao-real/visao-geral · 1320 px</span>
+  </div>
+  <p style="margin:0 0 26px;max-width:820px;font-size:14px;line-height:1.65;color:#96918B">Hub de composição. A produção acabada abre a tela em escala tipográfica grande, com a produção processada ao lado em corpo menor — dois números distintos, nunca somados. A coluna de contexto carrega o que é vigilância (ocorrências abertas, paradas, recurso pressionado) e cada bloco leva à tela dona do cálculo. Janela fixa na semana atual, sem filtros.</p>
+
+  <div style="width:1320px;background:#1A1918;border-radius:10px;overflow:hidden;display:flex">
+    <div style="width:248px;flex:none;background:#161514;padding:26px 0 22px;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 26px 30px">
+        <span style="width:16px;height:16px;border-radius:50%;background:#3ECFA5"></span>
+        <span style="font-size:16px;font-weight:600;letter-spacing:-.02em">Sittech</span>
+      </div>
+      <div style="display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" style="flex:none;opacity:.8"><path d="M3.5 8.6L10 3.5l6.5 5.1v7.4a1 1 0 01-1 1h-11a1 1 0 01-1-1z"></path></svg>Início
+        </div>
+        <div style="padding:22px 26px 8px;font-size:11.5px;letter-spacing:.05em;color:#635F5A">Planejamento</div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="flex:none;opacity:.8"><rect x="3" y="4.5" width="14" height="12.5" rx="2.5"></rect><path d="M3 8.5h14M7 3v3M13 3v3"></path></svg>Previsão semanal
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.8"><path d="M3.2 14.5a8 8 0 1113.6 0"></path><path d="M10 14.5l3.4-4"></path></svg>Capacidade semanal
+        </div>
+        <div style="padding:22px 26px 8px;font-size:11.5px;letter-spacing:.05em;color:#635F5A">Produção real</div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex:none;opacity:.8"><rect x="4" y="3.5" width="12" height="13.5" rx="2.5"></rect><path d="M7.5 10.5l1.8 1.8 3.4-3.8"></path></svg>Apontamento
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.8"><path d="M6.5 6h9M6.5 10h9M6.5 14h5.5"></path></svg>Apontamentos realizados
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;font-weight:600;color:#F0EEEB;cursor:pointer;position:relative">
+          <span style="position:absolute;left:0;top:9px;bottom:9px;width:2px;border-radius:2px;background:#3ECFA5"></span>
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#3ECFA5" stroke-width="1.5" style="flex:none"><rect x="3" y="3" width="6" height="6" rx="1.8"></rect><rect x="11" y="3" width="6" height="6" rx="1.8"></rect><rect x="3" y="11" width="6" height="6" rx="1.8"></rect><rect x="11" y="11" width="6" height="6" rx="1.8"></rect></svg>Visão geral
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" style="flex:none;opacity:.8"><rect x="3" y="11" width="3.6" height="6" rx="1.4"></rect><rect x="8.2" y="7.5" width="3.6" height="9.5" rx="1.4"></rect><rect x="13.4" y="3.5" width="3.6" height="13.5" rx="1.4"></rect></svg>Produtividade
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.8"><circle cx="10" cy="7.2" r="3"></circle><path d="M4.5 16.5c.9-2.9 3-4.3 5.5-4.3s4.6 1.4 5.5 4.3"></path></svg>Funcionários
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" style="flex:none;opacity:.8"><path d="M10 3.8l6.6 12.4H3.4z"></path><path d="M10 8.6v3.2M10 14.1v.1"></path></svg><span style="flex:1">Desvios</span><span style="font-size:12.5px;color:#E0A340">3</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.8"><circle cx="10" cy="10" r="7"></circle><path d="M8.4 7.6v4.8M11.6 7.6v4.8"></path></svg>Paradas
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex:none;opacity:.8"><circle cx="10" cy="10" r="7"></circle><path d="M7 10.2l2 2 4-4.4"></path></svg>Validação da previsão
+        </div>
+      </div>
+      <div style="margin-top:auto;padding:26px 26px 0">
+        <div style="font-size:12.5px;color:#7A756F">Meta semanal</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-top:8px">
+          <span style="font-size:22px;font-weight:600;letter-spacing:-.03em">76%</span>
+          <span style="font-size:12.5px;color:#7A756F">R$ 182,4k de 240k</span>
+        </div>
+        <div style="height:4px;border-radius:2px;background:#262422;margin-top:12px;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:76%;background:#3ECFA5"></span></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:24px">
+          <span style="width:26px;height:26px;border-radius:50%;background:#2E2B29;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#96918B">MS</span>
+          <span style="font-size:13px;color:#96918B;flex:1">Marina Souza</span>
+          <span style="font-size:13px;color:#635F5A;cursor:pointer">⌄</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;gap:16px;padding:18px 32px">
+        <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#7A756F">
+          <span>Produção real</span><span style="color:#4A4642">/</span><span style="color:#F0EEEB">Visão geral</span>
+        </div>
+        <span style="flex:1"></span>
+        <div style="display:flex;align-items:center;gap:11px;border-radius:999px;background:#211F1E;padding:6px 8px 6px 13px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 6px 18px -10px rgba(0,0,0,.9)" style-hover="background:#282524">
+          <span style="width:18px;height:18px;border-radius:50%;border:1px solid rgba(62,207,165,.38);display:flex;align-items:center;justify-content:center;flex:none">
+            <span style="width:6px;height:6px;border-radius:50%;background:#3ECFA5;animation:sit-pulse 3.4s ease-in-out infinite"></span>
+          </span>
+          <span style="font-size:13.5px;font-weight:500;letter-spacing:-.005em">Intelligence</span>
+          <span style="font-size:11px;color:#8A857E;background:#2C2927;border-radius:6px;padding:4px 7px">⌘K</span>
+        </div>
+        <span style="font-size:13px;color:#7A756F;cursor:pointer" style-hover="color:#F0EEEB">Ocultar valores</span>
+        <span style="font-size:13px;color:#7A756F;cursor:pointer" style-hover="color:#F0EEEB">Tema</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 372px;flex:1;min-height:0">
+        <div style="padding:22px 32px 44px;min-width:0">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between">
+            <div>
+              <div style="font-size:13px;color:#7A756F">Semana 36 · 1 a 7 de setembro · composição das seis engines, nada recalculado aqui</div>
+              <h1 style="margin:10px 0 0;font-size:40px;font-weight:600;letter-spacing:-.035em;line-height:1">Visão geral</h1>
+            </div>
+            <span style="font-size:13px;color:#96918B;background:#211F1E;border-radius:999px;padding:9px 15px;cursor:pointer" style-hover="background:#282524;color:#F0EEEB">Semana atual ⌄</span>
+          </div>
+
+          <div style="display:flex;align-items:flex-end;gap:56px;margin-top:40px">
+            <div>
+              <div style="font-size:13px;color:#96918B">Produção acabada</div>
+              <div style="font-size:72px;font-weight:600;letter-spacing:-.045em;line-height:.95;margin-top:10px">18.940</div>
+              <div style="font-size:13.5px;color:#7A756F;margin-top:10px">peças · só a última etapa do roteiro</div>
+            </div>
+            <div style="padding-bottom:8px">
+              <div style="font-size:13px;color:#96918B">Produção processada</div>
+              <div style="font-size:32px;font-weight:500;letter-spacing:-.03em;margin-top:8px">31.410</div>
+              <div style="font-size:12.5px;color:#7A756F;margin-top:6px">volume bruto, qualquer etapa</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:26px;margin-top:44px">
+            <div>
+              <div style="font-size:12.5px;color:#96918B">Performance</div>
+              <div style="display:flex;align-items:baseline;gap:8px;margin-top:8px">
+                <span style="font-size:25px;font-weight:600;letter-spacing:-.03em">104,8%</span>
+                <span style="font-size:12.5px;color:#3ECFA5">+2,4</span>
+              </div>
+              <svg viewBox="0 0 100 18" preserveAspectRatio="none" style="width:100%;height:18px;margin-top:10px;display:block">
+                <polyline points="0,14 20,10 40,15 60,6 80,9 100,3" fill="none" stroke="#3ECFA5" stroke-width="1.3" vector-effect="non-scaling-stroke" stroke-linejoin="round"></polyline>
+              </svg>
+            </div>
+            <div>
+              <div style="font-size:12.5px;color:#96918B">Disponibilidade</div>
+              <div style="display:flex;align-items:baseline;gap:8px;margin-top:8px">
+                <span style="font-size:25px;font-weight:600;letter-spacing:-.03em">88,2%</span>
+                <span style="font-size:12.5px;color:#E0A340">−3,1</span>
+              </div>
+              <svg viewBox="0 0 100 18" preserveAspectRatio="none" style="width:100%;height:18px;margin-top:10px;display:block">
+                <polyline points="0,6 20,8 40,7 60,11 80,10 100,14" fill="none" stroke="#E0A340" stroke-width="1.3" vector-effect="non-scaling-stroke" stroke-linejoin="round"></polyline>
+              </svg>
+            </div>
+            <div>
+              <div style="font-size:12.5px;color:#96918B">Qualidade</div>
+              <div style="font-size:25px;font-weight:600;letter-spacing:-.03em;margin-top:8px">99,1%</div>
+              <div style="font-size:12.5px;color:#7A756F;margin-top:14px">refugo 0,9%</div>
+            </div>
+            <div>
+              <div style="font-size:12.5px;color:#96918B">OEE</div>
+              <div style="font-size:25px;font-weight:600;letter-spacing:-.03em;margin-top:8px">91,0%</div>
+              <div style="font-size:12.5px;color:#7A756F;margin-top:14px">sem teto em 100%</div>
+            </div>
+          </div>
+
+          <div style="margin-top:46px">
+            <div style="display:flex;align-items:baseline;justify-content:space-between">
+              <h2 style="margin:0;font-size:17px;font-weight:600;letter-spacing:-.02em">Situação da semana</h2>
+              <span style="font-size:13px;color:#7A756F;cursor:pointer">Ver validação da previsão →</span>
+            </div>
+            <div style="margin-top:18px">
+              <div style="display:grid;grid-template-columns:1.6fr 116px 1fr 104px;gap:20px;font-size:12.5px;color:#7A756F;padding-bottom:12px">
+                <span>Produto</span><span style="text-align:right">Previsto</span><span>Realizado vs. possível</span><span style="text-align:right">Estado</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1.6fr 116px 1fr 104px;gap:20px;align-items:center;padding:14px 0;border-top:1px solid #262422;font-size:14px;cursor:pointer" style-hover="background:#1E1D1C">
+                <span>Tampa 200ml</span>
+                <span style="text-align:right">42.000</span>
+                <span style="display:flex;align-items:center;gap:12px">
+                  <span style="flex:1;height:4px;border-radius:2px;background:#262422;position:relative;overflow:hidden"><span style="position:absolute;inset:0;background:#3ECFA5"></span></span>
+                  <span style="font-size:13px;color:#96918B;width:52px;text-align:right">105,1%</span>
+                </span>
+                <span style="text-align:right;font-size:13px;color:#3ECFA5">Concluído</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1.6fr 116px 1fr 104px;gap:20px;align-items:center;padding:14px 0;border-top:1px solid #262422;font-size:14px;cursor:pointer" style-hover="background:#1E1D1C">
+                <span>Pote 500ml</span>
+                <span style="text-align:right">28.000</span>
+                <span style="display:flex;align-items:center;gap:12px">
+                  <span style="flex:1;height:4px;border-radius:2px;background:#262422;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:52%;background:#E0A340"></span></span>
+                  <span style="font-size:13px;color:#96918B;width:52px;text-align:right">52,1%</span>
+                </span>
+                <span style="text-align:right;font-size:13px;color:#E0A340">Atenção</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1.6fr 116px 1fr 104px;gap:20px;align-items:center;padding:14px 0;border-top:1px solid #262422;font-size:14px;cursor:pointer" style-hover="background:#1E1D1C">
+                <span>Frasco 1L</span>
+                <span style="text-align:right">16.000</span>
+                <span style="display:flex;align-items:center;gap:12px">
+                  <span style="flex:1;height:4px;border-radius:2px;background:#262422;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:70%;background:#8A857E"></span></span>
+                  <span style="font-size:13px;color:#96918B;width:52px;text-align:right">70,0%</span>
+                </span>
+                <span style="text-align:right;font-size:13px;color:#96918B">No ritmo</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1.6fr 116px 1fr 104px;gap:20px;align-items:center;padding:14px 0;border-top:1px solid #262422;font-size:14px;cursor:pointer" style-hover="background:#1E1D1C">
+                <span>Tampa flip 38mm</span>
+                <span style="text-align:right">12.500</span>
+                <span style="display:flex;align-items:center;gap:12px">
+                  <span style="flex:1;height:4px;border-radius:2px;background:#262422;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:16%;background:#E2695C"></span></span>
+                  <span style="font-size:13px;color:#96918B;width:52px;text-align:right">16,4%</span>
+                </span>
+                <span style="text-align:right;font-size:13px;color:#E2695C">Inviável</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1.6fr 116px 1fr 104px;gap:20px;align-items:center;padding:14px 0;border-top:1px solid #262422;font-size:13.5px;color:#7A756F">
+                <span>Total · 9 produtos · 2 sem lançamento</span>
+                <span style="text-align:right;color:#F0EEEB">107.500</span>
+                <span>possível 92.400 · falta 28.650</span>
+                <span></span>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:44px">
+            <div style="display:flex;align-items:baseline;justify-content:space-between">
+              <h2 style="margin:0;font-size:17px;font-weight:600;letter-spacing:-.02em">Principais atenções</h2>
+              <span style="font-size:13px;color:#7A756F;cursor:pointer">Ver desvios →</span>
+            </div>
+            <div style="display:flex;flex-direction:column;margin-top:16px">
+              <div style="display:flex;gap:14px;align-items:flex-start;padding:14px 0;border-top:1px solid #262422;cursor:pointer" style-hover="background:#1E1D1C">
+                <span style="width:7px;height:7px;border-radius:50%;background:#E2695C;margin-top:6px;flex:none"></span>
+                <div style="flex:1">
+                  <div style="font-size:14px">Performance de Pote 500ml caiu na Injetora 03</div>
+                  <div style="font-size:12.5px;color:#7A756F;margin-top:4px">96,4% → 71,2% · últimos 28 dias · possíveis fatores, não causa confirmada</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:14px;align-items:flex-start;padding:14px 0;border-top:1px solid #262422;cursor:pointer" style-hover="background:#1E1D1C">
+                <span style="width:7px;height:7px;border-radius:50%;background:#E0A340;margin-top:6px;flex:none"></span>
+                <div style="flex:1">
+                  <div style="font-size:14px">Paradas de setup cresceram na Rotuladora 02</div>
+                  <div style="font-size:12.5px;color:#7A756F;margin-top:4px">84 min → 196 min · semana atual vs. anterior</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:14px;align-items:flex-start;padding:14px 0;border-top:1px solid #262422;cursor:pointer" style-hover="background:#1E1D1C">
+                <span style="width:7px;height:7px;border-radius:50%;background:#E0A340;margin-top:6px;flex:none"></span>
+                <div style="flex:1">
+                  <div style="font-size:14px">Refugo acima da referência em Tampa 200ml</div>
+                  <div style="font-size:12.5px;color:#7A756F;margin-top:4px">0,9% → 2,4% · semana atual</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="border-left:1px solid #262422;padding:22px 30px 44px;display:flex;flex-direction:column;gap:38px;min-width:0">
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <h2 style="margin:0;font-size:15px;font-weight:600;letter-spacing:-.015em">Agora</h2>
+              <span style="font-size:12.5px;color:#E2695C">2 ocorrências abertas</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:16px;margin-top:16px">
+              <div style="cursor:pointer">
+                <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:14px;font-weight:500">Injetora 07</span><span style="font-size:13.5px;color:#E2695C">1h 42min</span></div>
+                <div style="font-size:12.5px;color:#7A756F;margin-top:3px">Manutenção corretiva · Tampa 200ml</div>
+              </div>
+              <div style="cursor:pointer">
+                <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:14px;font-weight:500">Rotuladora 02</span><span style="font-size:13.5px;color:#E0A340">18min</span></div>
+                <div style="font-size:12.5px;color:#7A756F;margin-top:3px">Falta de material · Pote 500ml</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;padding-top:4px">
+                <span style="flex:1;height:4px;border-radius:2px;background:#262422;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:56%;background:#3ECFA5"></span></span>
+                <span style="font-size:12.5px;color:#96918B">9/16 fechadas</span>
+              </div>
+              <span style="font-size:13px;color:#3ECFA5;cursor:pointer">Ir para apontamento →</span>
+            </div>
+          </div>
+
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <h2 style="margin:0;font-size:15px;font-weight:600;letter-spacing:-.015em">Paradas</h2>
+              <span style="font-size:12.5px;color:#7A756F;cursor:pointer">Ver →</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:14px;margin-top:16px">
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:13.5px;color:#96918B">Minutos parados</span><span style="font-size:16px;font-weight:600">1.284</span></div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:13.5px;color:#96918B">Custo do tempo ocioso</span><span style="font-size:16px;font-weight:600">R$ 9.412</span></div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:13.5px;color:#96918B">Capacidade local perdida</span><span style="font-size:16px;font-weight:600">6.140 pç</span></div>
+            </div>
+            <div style="display:flex;gap:3px;height:5px;margin-top:18px;border-radius:3px;overflow:hidden">
+              <span style="flex:34;background:#3ECFA5"></span><span style="flex:24;background:#2C8F73"></span><span style="flex:18;background:#E0A340"></span><span style="flex:13;background:#B87A33"></span><span style="flex:11;background:#3A3734"></span>
+            </div>
+            <div style="font-size:12px;color:#7A756F;margin-top:10px">Setup 34% · material 24% · manutenção 18% · ajuste 13% · outros 11%</div>
+          </div>
+
+          <div>
+            <h2 style="margin:0;font-size:15px;font-weight:600;letter-spacing:-.015em">Recurso mais pressionado</h2>
+            <div style="display:flex;align-items:baseline;gap:10px;margin-top:12px">
+              <span style="font-size:15px;font-weight:500">Injetora 04</span>
+              <span style="font-size:24px;font-weight:600;letter-spacing:-.03em;color:#E2695C">1.123,1%</span>
+            </div>
+            <div style="font-size:12.5px;color:#7A756F;margin-top:8px;line-height:1.55">da capacidade restante da semana. Acima de 100% é demanda acima da capacidade, não erro de cálculo.</div>
+          </div>
+
+          <div>
+            <h2 style="margin:0;font-size:15px;font-weight:600;letter-spacing:-.015em">Equipe</h2>
+            <div style="display:flex;flex-direction:column;gap:13px;margin-top:14px">
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:13.5px;color:#96918B">Merecem atenção</span><span style="font-size:15px;font-weight:600">2</span></div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:13.5px;color:#96918B">Destaques positivos</span><span style="font-size:15px;font-weight:600">3</span></div>
+            </div>
+            <div style="font-size:12.5px;color:#7A756F;margin-top:12px;line-height:1.55">Sempre por contexto comparável — o produto nunca produz ranking.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="4d" style="background:#121110;padding:36px 56px 80px;font-family:'Schibsted Grotesk',sans-serif;color:#F0EEEB">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;max-width:1320px">
+    <span style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#3ECFA5">4D</span>
+    <h2 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.025em">Apontamento</h2>
+    <span style="font-size:12.5px;color:#7A756F">/producao-real · desktop 1320 e tablet 834</span>
+  </div>
+  <p style="margin:0 0 26px;max-width:840px;font-size:14px;line-height:1.65;color:#96918B">Uma pergunta na tela: o que falta fechar. As pendentes vêm primeiro, cada tile tem 108px de altura e é inteiro tocável. Sem meta, sem custo, sem OEE, sem disponibilidade, sem qualidade — a supervisora vê só o que precisa apontar. O botão de máquina parada mora sozinho à direita do cabeçalho, longe da grade.</p>
+
+  <div style="width:1320px;background:#1A1918;border-radius:10px;overflow:hidden;display:flex;margin-bottom:36px">
+    <div style="width:216px;flex:none;background:#161514;padding:26px 0 22px;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 24px 28px">
+        <span style="width:16px;height:16px;border-radius:50%;background:#3ECFA5"></span>
+        <span style="font-size:16px;font-weight:600;letter-spacing:-.02em">Sittech</span>
+      </div>
+      <div style="padding:0 24px 8px;font-size:11.5px;letter-spacing:.05em;color:#635F5A">Produção real</div>
+      <div style="display:flex;align-items:center;gap:12px;padding:8px 24px;font-size:14px;font-weight:600;position:relative">
+        <span style="position:absolute;left:0;top:9px;bottom:9px;width:2px;border-radius:2px;background:#3ECFA5"></span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#3ECFA5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="4" y="3.5" width="12" height="13.5" rx="2.5"></rect><path d="M7.5 10.5l1.8 1.8 3.4-3.8"></path></svg>Apontamento
+      </div>
+      <div style="margin-top:auto;padding:24px 24px 0;display:flex;align-items:center;gap:10px">
+        <span style="width:26px;height:26px;border-radius:50%;background:#2E2B29;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#96918B">RC</span>
+        <span style="font-size:13px;color:#96918B;flex:1">Rita Campos</span>
+      </div>
+    </div>
+
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;gap:16px;padding:18px 32px">
+        <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#7A756F">
+          <span>Produção real</span><span style="color:#4A4642">/</span><span style="color:#F0EEEB">Apontamento</span>
+        </div>
+        <span style="flex:1"></span>
+        <span style="font-size:13px;color:#7A756F;cursor:pointer" style-hover="color:#F0EEEB">Tema</span>
+        <span style="font-size:13px;color:#7A756F;cursor:pointer" style-hover="color:#F0EEEB">Conta</span>
+      </div>
+
+      <div style="padding:14px 32px 0;display:flex;align-items:flex-end;justify-content:space-between;gap:32px">
+        <div style="min-width:0">
+          <div style="display:flex;align-items:baseline;gap:14px">
+            <span style="font-size:13px;color:#7A756F">Período atual</span>
+            <span style="font-size:13px;color:#96918B;background:#211F1E;border-radius:999px;padding:7px 13px;cursor:pointer" style-hover="color:#F0EEEB">Outro período</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:16px;margin-top:12px">
+            <h1 style="margin:0;font-size:40px;font-weight:600;letter-spacing:-.035em;line-height:1">M2</h1>
+            <span style="font-size:15px;color:#96918B">quinta 04 set · 10:00 às 14:00</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;margin-top:18px;max-width:520px">
+            <span style="flex:1;height:6px;border-radius:3px;background:#262422;position:relative;overflow:hidden">
+              <span style="position:absolute;top:0;bottom:0;left:0;width:56%;background:#3ECFA5"></span>
+              <span style="position:absolute;top:0;bottom:0;left:56%;width:12.5%;background:#3A3734"></span>
+            </span>
+            <span style="font-size:14px;color:#96918B"><span style="color:#F0EEEB;font-weight:600">9</span> de 16 máquinas fechadas</span>
+          </div>
+        </div>
+        <button style="font-family:inherit;font-size:14.5px;font-weight:600;color:#141312;background:#E2695C;border:none;border-radius:12px;min-height:56px;padding:0 24px;cursor:pointer;flex:none" style-hover="background:#E97D71">Informar máquina parada</button>
+      </div>
+
+      <div style="padding:32px 32px 40px">
+        <div style="display:flex;align-items:center;gap:20px;margin-bottom:16px">
+          <span style="font-size:13px;color:#7A756F">Pendentes primeiro</span>
+          <span style="flex:1"></span>
+          <div style="display:flex;gap:16px;font-size:12.5px;color:#7A756F">
+            <span style="display:flex;align-items:center;gap:7px"><span style="width:6px;height:6px;border-radius:50%;background:#E0A340"></span>7 pendentes</span>
+            <span style="display:flex;align-items:center;gap:7px"><span style="width:6px;height:6px;border-radius:50%;background:#3ECFA5"></span>7 apontadas</span>
+            <span style="display:flex;align-items:center;gap:7px"><span style="width:6px;height:6px;border-radius:50%;background:#8A857E"></span>2 sem produção</span>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+          <div style="background:#201E1D;border-radius:12px;padding:18px;min-height:108px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer" style-hover="background:#262422">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <span style="font-size:19px;font-weight:600;letter-spacing:-.02em">Injetora 01</span>
+              <span style="font-size:12px;color:#E0A340;background:rgba(224,163,64,.12);border-radius:999px;padding:5px 10px;flex:none">Pendente</span>
+            </div>
+            <div style="font-size:12.5px;color:#7A756F">Injeção · 3 produtos elegíveis</div>
+          </div>
+          <div style="background:#201E1D;border-radius:12px;padding:18px;min-height:108px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer" style-hover="background:#262422">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <span style="font-size:19px;font-weight:600;letter-spacing:-.02em">Injetora 04</span>
+              <span style="font-size:12px;color:#E0A340;background:rgba(224,163,64,.12);border-radius:999px;padding:5px 10px;flex:none">Pendente</span>
+            </div>
+            <div style="font-size:12.5px;color:#7A756F">Injeção · 2 produtos elegíveis</div>
+          </div>
+          <div style="background:#2A1E1D;border-radius:12px;padding:18px;min-height:108px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer" style-hover="background:#33221F">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <span style="font-size:19px;font-weight:600;letter-spacing:-.02em">Injetora 07</span>
+              <span style="font-size:12px;color:#E2695C;background:rgba(226,105,92,.16);border-radius:999px;padding:5px 10px;flex:none">Parada agora</span>
+            </div>
+            <div style="font-size:12.5px;color:#E2695C">Manutenção corretiva · 1h 42min</div>
+          </div>
+          <div style="background:#201E1D;border-radius:12px;padding:18px;min-height:108px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer" style-hover="background:#262422">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <span style="font-size:19px;font-weight:600;letter-spacing:-.02em">Rotuladora 01</span>
+              <span style="font-size:12px;color:#E0A340;background:rgba(224,163,64,.12);border-radius:999px;padding:5px 10px;flex:none">Pendente</span>
+            </div>
+            <div style="font-size:12.5px;color:#7A756F">Rotulagem · 4 produtos elegíveis</div>
+          </div>
+          <div style="background:#2A1E1D;border-radius:12px;padding:18px;min-height:108px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer" style-hover="background:#33221F">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <span style="font-size:19px;font-weight:600;letter-spacing:-.02em">Rotuladora 02</span>
+              <span style="font-size:12px;color:#E2695C;background:rgba(226,105,92,.16);border-radius:999px;padding:5px 10px;flex:none">Parada agora</span>
+            </div>
+            <div style="font-size:12.5px;color:#E2695C">Falta de material · 18min</div>
+          </div>
+          <div style="background:#201E1D;border-radius:12px;padding:18px;min-height:108px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer" style-hover="background:#262422">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <span style="font-size:19px;font-weight:600;letter-spacing:-.02em">Sopradora 02</span>
+              <span style="font-size:12px;color:#E0A340;background:rgba(224,163,64,.12);border-radius:999px;padding:5px 10px;flex:none">Pendente</span>
+            </div>
+            <div style="font-size:12.5px;color:#7A756F">Sopro · 2 produtos elegíveis</div>
+          </div>
+          <div style="background:#201E1D;border-radius:12px;padding:18px;min-height:108px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer" style-hover="background:#262422">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <span style="font-size:19px;font-weight:600;letter-spacing:-.02em">Seladora 01</span>
+              <span style="font-size:12px;color:#E0A340;background:rgba(224,163,64,.12);border-radius:999px;padding:5px 10px;flex:none">Pendente</span>
+            </div>
+            <div style="font-size:12.5px;color:#7A756F">Selagem · 1 produto elegível</div>
+          </div>
+          <div style="background:#201E1D;border-radius:12px;padding:18px;min-height:108px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer" style-hover="background:#262422">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <span style="font-size:19px;font-weight:600;letter-spacing:-.02em">Sopradora 03</span>
+              <span style="font-size:12px;color:#E0A340;background:rgba(224,163,64,.12);border-radius:999px;padding:5px 10px;flex:none">Pendente</span>
+            </div>
+            <div style="font-size:12.5px;color:#7A756F">Sopro · 3 produtos elegíveis</div>
+          </div>
+          <div style="background:#1D1C1B;border-radius:12px;padding:18px;min-height:108px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer" style-hover="background:#232120">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <span style="font-size:19px;font-weight:500;letter-spacing:-.02em;color:#96918B">Injetora 02</span>
+              <span style="font-size:12px;color:#3ECFA5;flex:none">Apontado</span>
+            </div>
+            <div style="font-size:12.5px;color:#7A756F">Tampa 200ml · 1.402 peças</div>
+          </div>
+          <div style="background:#1D1C1B;border-radius:12px;padding:18px;min-height:108px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer" style-hover="background:#232120">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <span style="font-size:19px;font-weight:500;letter-spacing:-.02em;color:#96918B">Injetora 03</span>
+              <span style="font-size:12px;color:#3ECFA5;flex:none">Apontado</span>
+            </div>
+            <div style="font-size:12.5px;color:#7A756F">Pote 500ml · 980 peças</div>
+          </div>
+          <div style="background:#1D1C1B;border-radius:12px;padding:18px;min-height:108px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer" style-hover="background:#232120">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <span style="font-size:19px;font-weight:500;letter-spacing:-.02em;color:#96918B">Injetora 05</span>
+              <span style="font-size:12px;color:#3ECFA5;flex:none">Apontado</span>
+            </div>
+            <div style="font-size:12.5px;color:#7A756F">Tampa 200ml · 1.310 peças</div>
+          </div>
+          <div style="background:#1D1C1B;border-radius:12px;padding:18px;min-height:108px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer" style-hover="background:#232120">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <span style="font-size:19px;font-weight:500;letter-spacing:-.02em;color:#96918B">Sopradora 01</span>
+              <span style="font-size:12px;color:#8A857E;flex:none">Sem produção</span>
+            </div>
+            <div style="font-size:12.5px;color:#7A756F">Sem demanda no período</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:32px;align-items:flex-start;flex-wrap:wrap">
+    <div>
+      <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Tablet 834 · registrar produção, etapa 3 de 5</div>
+      <div style="width:834px;background:#1A1918;border-radius:10px;position:relative;overflow:hidden">
+        <div style="opacity:.3;padding:18px 22px">
+          <div style="display:flex;align-items:baseline;gap:14px"><span style="font-size:28px;font-weight:600;letter-spacing:-.03em">M2</span><span style="font-size:13px;color:#96918B">9 de 16 fechadas</span></div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:18px">
+            <div style="height:92px;border-radius:12px;background:#201E1D"></div>
+            <div style="height:92px;border-radius:12px;background:#201E1D"></div>
+            <div style="height:92px;border-radius:12px;background:#201E1D"></div>
+          </div>
+        </div>
+        <div style="position:absolute;inset:0;background:rgba(12,11,10,.72)"></div>
+        <div style="position:relative;margin:-150px auto 26px;width:660px;background:#201E1D;border-radius:14px;box-shadow:0 30px 70px -30px rgba(0,0,0,.95);padding:24px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between">
+            <div>
+              <div style="font-size:12.5px;color:#7A756F">Injetora 04 · M2 · quinta 04 set</div>
+              <div style="font-size:24px;font-weight:600;letter-spacing:-.03em;margin-top:6px">Quantidade produzida</div>
+            </div>
+            <span style="font-size:15px;color:#7A756F;padding:8px;cursor:pointer">✕</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:20px">
+            <span style="flex:1;height:3px;border-radius:2px;background:#3ECFA5"></span>
+            <span style="flex:1;height:3px;border-radius:2px;background:#3ECFA5"></span>
+            <span style="flex:1;height:3px;border-radius:2px;background:#3ECFA5"></span>
+            <span style="flex:1;height:3px;border-radius:2px;background:#302D2B"></span>
+            <span style="flex:1;height:3px;border-radius:2px;background:#302D2B"></span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px;color:#7A756F">
+            <span>Tampa 200ml</span><span>Marina Souza</span><span style="color:#F0EEEB">Quantidade</span><span>Paradas</span><span>Observação</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:26px">
+            <div>
+              <label style="display:block;font-size:13px;color:#96918B;margin-bottom:8px">Quantidade boa</label>
+              <input value="1.402" readonly style="width:100%;box-sizing:border-box;font-family:inherit;font-size:30px;font-weight:600;letter-spacing:-.03em;color:#F0EEEB;background:#1A1918;border:1px solid #3ECFA5;border-radius:12px;padding:14px 16px;text-align:right;outline:3px solid rgba(62,207,165,.14)">
+            </div>
+            <div>
+              <label style="display:block;font-size:13px;color:#96918B;margin-bottom:8px">Refugo</label>
+              <input value="12" readonly style="width:100%;box-sizing:border-box;font-family:inherit;font-size:30px;font-weight:600;letter-spacing:-.03em;color:#F0EEEB;background:#1A1918;border:1px solid #2C2927;border-radius:12px;padding:14px 16px;text-align:right">
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:14px">
+            <button style="font-family:inherit;min-height:52px;font-size:15px;font-weight:500;color:#F0EEEB;background:#262422;border:none;border-radius:10px;cursor:pointer" style-hover="background:#302D2B">+1</button>
+            <button style="font-family:inherit;min-height:52px;font-size:15px;font-weight:500;color:#F0EEEB;background:#262422;border:none;border-radius:10px;cursor:pointer" style-hover="background:#302D2B">+10</button>
+            <button style="font-family:inherit;min-height:52px;font-size:15px;font-weight:500;color:#F0EEEB;background:#262422;border:none;border-radius:10px;cursor:pointer" style-hover="background:#302D2B">+50</button>
+            <button style="font-family:inherit;min-height:52px;font-size:15px;font-weight:500;color:#F0EEEB;background:#262422;border:none;border-radius:10px;cursor:pointer" style-hover="background:#302D2B">+100</button>
+            <button style="font-family:inherit;min-height:52px;font-size:13.5px;color:#96918B;background:transparent;border:none;border-radius:10px;cursor:pointer" style-hover="background:#232120">Limpar</button>
+          </div>
+          <div style="display:flex;gap:12px;margin-top:22px">
+            <button style="font-family:inherit;flex:none;min-height:56px;padding:0 24px;font-size:14.5px;font-weight:500;color:#F0EEEB;background:#262422;border:none;border-radius:12px;cursor:pointer">Voltar</button>
+            <button style="font-family:inherit;flex:1;min-height:56px;font-size:15px;font-weight:600;color:#141312;background:#3ECFA5;border:none;border-radius:12px;cursor:pointer" style-hover="background:#55DBB4">Continuar para paradas</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:392px;display:flex;flex-direction:column;gap:26px">
+      <div>
+        <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Escolha do fluxo</div>
+        <div style="background:#201E1D;border-radius:14px;padding:22px">
+          <div style="font-size:12.5px;color:#7A756F">Injetora 01 · M2</div>
+          <div style="font-size:20px;font-weight:600;letter-spacing:-.025em;margin-top:6px">O que aconteceu neste período?</div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-top:20px">
+            <button style="font-family:inherit;min-height:72px;font-size:16px;font-weight:600;color:#141312;background:#3ECFA5;border:none;border-radius:12px;cursor:pointer" style-hover="background:#55DBB4">Registrar produção</button>
+            <button style="font-family:inherit;min-height:72px;font-size:16px;font-weight:500;color:#F0EEEB;background:#262422;border:none;border-radius:12px;cursor:pointer" style-hover="background:#302D2B">Sem produção neste período</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Confirmação</div>
+        <div style="background:#201E1D;border-radius:14px;padding:24px;text-align:center">
+          <div style="font-size:13px;color:#3ECFA5">Apontamento salvo</div>
+          <div style="font-size:52px;font-weight:600;letter-spacing:-.04em;line-height:1;margin-top:14px;color:#3ECFA5">108,4%</div>
+          <div style="font-size:13px;color:#96918B;margin-top:8px">performance no período</div>
+          <div style="display:flex;gap:10px;margin-top:22px">
+            <button style="font-family:inherit;flex:1;min-height:56px;font-size:14.5px;font-weight:600;color:#141312;background:#3ECFA5;border:none;border-radius:12px;cursor:pointer">Próxima máquina</button>
+            <button style="font-family:inherit;flex:none;padding:0 18px;min-height:56px;font-size:14.5px;color:#F0EEEB;background:#262422;border:none;border-radius:12px;cursor:pointer">Ver todas</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Paradas do período · item vindo de ocorrência</div>
+        <div style="background:#201E1D;border-radius:14px;padding:18px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;opacity:.75">
+            <div>
+              <div style="font-size:14px">Manutenção corretiva</div>
+              <div style="font-size:12.5px;color:#7A756F;margin-top:3px">Origem: ocorrência aberta · não editável</div>
+            </div>
+            <span style="font-size:14px;font-weight:600">102 min</span>
+          </div>
+          <div style="height:1px;background:#262422;margin:16px 0"></div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline">
+            <div>
+              <div style="font-size:14px">Setup de molde</div>
+              <div style="font-size:12.5px;color:#7A756F;margin-top:3px">Lançada nesta tela</div>
+            </div>
+            <span style="font-size:14px;font-weight:600">24 min</span>
+          </div>
+          <button style="font-family:inherit;width:100%;min-height:48px;margin-top:16px;font-size:14px;font-weight:500;color:#F0EEEB;background:#262422;border:none;border-radius:10px;cursor:pointer" style-hover="background:#302D2B">Adicionar parada</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="4e" style="background:#121110;padding:36px 56px 80px;font-family:'Schibsted Grotesk',sans-serif;color:#F0EEEB">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;max-width:1320px">
+    <span style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#3ECFA5">4E</span>
+    <h2 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.025em">Previsão Semanal</h2>
+    <span style="font-size:12.5px;color:#7A756F">/previsao · desktop 1320</span>
+  </div>
+  <p style="margin:0 0 26px;max-width:840px;font-size:14px;line-height:1.65;color:#96918B">Previsto, possível, realizado e falta ocupam colunas próprias e rotuladas com a origem de cada um — nunca fundidos numa barra só. A percentagem não tem teto em 100%. A coluna de contexto responde a única pergunta que o planejamento faz aqui: a semana é atingível, e o que impede.</p>
+
+  <div style="width:1320px;background:#1A1918;border-radius:10px;overflow:hidden;display:flex">
+    <div style="width:248px;flex:none;background:#161514;padding:26px 0 22px;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 26px 30px">
+        <span style="width:16px;height:16px;border-radius:50%;background:#3ECFA5"></span>
+        <span style="font-size:16px;font-weight:600;letter-spacing:-.02em">Sittech</span>
+      </div>
+      <div style="display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" style="flex:none;opacity:.8"><path d="M3.5 8.6L10 3.5l6.5 5.1v7.4a1 1 0 01-1 1h-11a1 1 0 01-1-1z"></path></svg>Início
+        </div>
+        <div style="padding:22px 26px 8px;font-size:11.5px;letter-spacing:.05em;color:#635F5A">Planejamento</div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;font-weight:600;position:relative">
+          <span style="position:absolute;left:0;top:9px;bottom:9px;width:2px;border-radius:2px;background:#3ECFA5"></span>
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#3ECFA5" stroke-width="1.5" style="flex:none"><rect x="3" y="4.5" width="14" height="12.5" rx="2.5"></rect><path d="M3 8.5h14M7 3v3M13 3v3"></path></svg>Previsão semanal
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.8"><path d="M3.2 14.5a8 8 0 1113.6 0"></path><path d="M10 14.5l3.4-4"></path></svg>Capacidade semanal
+        </div>
+        <div style="padding:22px 26px 8px;font-size:11.5px;letter-spacing:.05em;color:#635F5A">Produção real</div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="flex:none;opacity:.8"><rect x="3" y="3" width="6" height="6" rx="1.8"></rect><rect x="11" y="3" width="6" height="6" rx="1.8"></rect><rect x="3" y="11" width="6" height="6" rx="1.8"></rect><rect x="11" y="11" width="6" height="6" rx="1.8"></rect></svg>Visão geral
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex:none;opacity:.8"><circle cx="10" cy="10" r="7"></circle><path d="M7 10.2l2 2 4-4.4"></path></svg>Validação da previsão
+        </div>
+      </div>
+      <div style="margin-top:auto;padding:26px 26px 0">
+        <div style="font-size:12.5px;color:#7A756F">Meta semanal</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-top:8px">
+          <span style="font-size:22px;font-weight:600;letter-spacing:-.03em">76%</span>
+          <span style="font-size:12.5px;color:#7A756F">R$ 182,4k de 240k</span>
+        </div>
+        <div style="height:4px;border-radius:2px;background:#262422;margin-top:12px;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:76%;background:#3ECFA5"></span></div>
+      </div>
+    </div>
+
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;gap:16px;padding:18px 32px">
+        <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#7A756F">
+          <span>Planejamento</span><span style="color:#4A4642">/</span><span style="color:#F0EEEB">Previsão semanal</span>
+        </div>
+        <span style="flex:1"></span>
+        <div style="display:flex;align-items:center;gap:11px;border-radius:999px;background:#211F1E;padding:6px 8px 6px 13px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 6px 18px -10px rgba(0,0,0,.9)" style-hover="background:#282524">
+          <span style="width:18px;height:18px;border-radius:50%;border:1px solid rgba(62,207,165,.38);display:flex;align-items:center;justify-content:center;flex:none">
+            <span style="width:6px;height:6px;border-radius:50%;background:#3ECFA5;animation:sit-pulse 3.4s ease-in-out infinite"></span>
+          </span>
+          <span style="font-size:13.5px;font-weight:500">Intelligence</span>
+          <span style="font-size:11px;color:#8A857E;background:#2C2927;border-radius:6px;padding:4px 7px">⌘K</span>
+        </div>
+        <span style="font-size:13px;color:#7A756F;cursor:pointer" style-hover="color:#F0EEEB">Tema</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 372px;flex:1;min-height:0">
+        <div style="padding:22px 32px 44px;min-width:0">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px">
+            <div>
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-size:13px;color:#96918B;background:#211F1E;border-radius:999px;padding:8px 12px;cursor:pointer">‹</span>
+                <span style="font-size:13px;color:#96918B">Semana 36 · 1 a 7 de setembro de 2026</span>
+                <span style="font-size:13px;color:#96918B;background:#211F1E;border-radius:999px;padding:8px 12px;cursor:pointer">›</span>
+              </div>
+              <h1 style="margin:14px 0 0;font-size:40px;font-weight:600;letter-spacing:-.035em;line-height:1">Previsão semanal</h1>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex:none">
+              <span style="font-size:13px;color:#96918B;background:#211F1E;border-radius:999px;padding:9px 14px;cursor:pointer" style-hover="color:#F0EEEB">Modo simulação</span>
+              <span style="font-size:13px;color:#96918B;background:#211F1E;border-radius:999px;padding:9px 14px;cursor:pointer" style-hover="color:#F0EEEB">Exportar PDF</span>
+              <button style="font-family:inherit;font-size:13.5px;font-weight:600;color:#141312;background:#3ECFA5;border:none;border-radius:9px;padding:10px 16px;cursor:pointer" style-hover="background:#55DBB4">Ajustar para capacidade</button>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:flex-end;gap:52px;margin-top:38px">
+            <div>
+              <div style="font-size:13px;color:#96918B">Previsto na semana</div>
+              <div style="font-size:60px;font-weight:600;letter-spacing:-.045em;line-height:.95;margin-top:10px">107.500</div>
+            </div>
+            <div style="padding-bottom:6px">
+              <div style="font-size:13px;color:#96918B">Possível</div>
+              <div style="font-size:30px;font-weight:500;letter-spacing:-.03em;margin-top:8px;color:#E0A340">92.400</div>
+            </div>
+            <div style="padding-bottom:6px">
+              <div style="font-size:13px;color:#96918B">Realizado oficial</div>
+              <div style="font-size:30px;font-weight:500;letter-spacing:-.03em;margin-top:8px">81.000</div>
+            </div>
+            <div style="padding-bottom:6px">
+              <div style="font-size:13px;color:#96918B">Falta</div>
+              <div style="font-size:30px;font-weight:500;letter-spacing:-.03em;margin-top:8px">28.650</div>
+            </div>
+          </div>
+          <div style="font-size:12.5px;color:#7A756F;margin-top:14px;line-height:1.6">Previsto e realizado são lançamentos manuais; possível vem do cálculo de capacidade; falta é previsto menos realizado, nunca negativo.</div>
+
+          <div style="margin-top:40px">
+            <div style="display:flex;align-items:baseline;justify-content:space-between">
+              <h2 style="margin:0;font-size:17px;font-weight:600;letter-spacing:-.02em">Itens previstos</h2>
+              <span style="font-size:13px;color:#7A756F">5 produtos</span>
+            </div>
+            <div style="margin-top:16px">
+              <div style="display:grid;grid-template-columns:1.7fr 100px 100px 100px 100px 76px 26px;gap:16px;font-size:12.5px;color:#7A756F;padding-bottom:12px">
+                <span>Produto</span><span style="text-align:right">Previsto</span><span style="text-align:right">Possível</span><span style="text-align:right">Realizado</span><span style="text-align:right">Falta</span><span style="text-align:right">%</span><span></span>
+              </div>
+              <div style="display:grid;grid-template-columns:1.7fr 100px 100px 100px 100px 76px 26px;gap:16px;align-items:center;padding:14px 0;border-top:1px solid #262422;font-size:14px;cursor:pointer" style-hover="background:#1E1D1C">
+                <span>Tampa 200ml <span style="color:#635F5A;font-size:12.5px">TP-200</span></span>
+                <span style="text-align:right">42.000</span>
+                <span style="text-align:right;color:#96918B">42.000</span>
+                <span style="text-align:right">44.150</span>
+                <span style="text-align:right;color:#7A756F">0</span>
+                <span style="text-align:right;color:#3ECFA5">105,1%</span>
+                <span style="color:#4A4642;font-size:11px;text-align:right">›</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1.7fr 100px 100px 100px 100px 76px 26px;gap:16px;align-items:center;padding:14px 0;border-top:1px solid #262422;font-size:14px;background:#1E1D1C;cursor:pointer">
+                <span>Pote 500ml <span style="color:#635F5A;font-size:12.5px">PT-500</span></span>
+                <span style="text-align:right">28.000</span>
+                <span style="text-align:right;color:#E0A340">21.300</span>
+                <span style="text-align:right">14.600</span>
+                <span style="text-align:right">13.400</span>
+                <span style="text-align:right;color:#E0A340">52,1%</span>
+                <span style="color:#7A756F;font-size:11px;text-align:right">⌄</span>
+              </div>
+              <div style="background:#1E1D1C;padding:4px 0 20px">
+                <div style="display:flex;gap:40px;flex-wrap:wrap;padding:0 0 0 2px">
+                  <div><div style="font-size:12.5px;color:#7A756F">Possível limitado por</div><div style="font-size:14px;margin-top:6px">Injetora 04 · injeção</div></div>
+                  <div><div style="font-size:12.5px;color:#7A756F">Produção acabada observada</div><div style="font-size:14px;margin-top:6px">13.980 peças</div></div>
+                  <div><div style="font-size:12.5px;color:#7A756F">Divergência vs. realizado oficial</div><div style="font-size:14px;margin-top:6px;color:#E0A340">−620 peças</div></div>
+                  <div><div style="font-size:12.5px;color:#7A756F">Sequenciamento</div><div style="font-size:14px;margin-top:6px">Após TP-200, economiza 1 setup</div></div>
+                </div>
+                <div style="font-size:12.5px;color:#7A756F;margin-top:14px;line-height:1.55">A divergência é sinal de conferência entre duas fontes distintas — nunca somada ao previsto.</div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.7fr 100px 100px 100px 100px 76px 26px;gap:16px;align-items:center;padding:14px 0;border-top:1px solid #262422;font-size:14px;cursor:pointer" style-hover="background:#1E1D1C">
+                <span>Frasco 1L <span style="color:#635F5A;font-size:12.5px">FR-1000</span></span>
+                <span style="text-align:right">16.000</span>
+                <span style="text-align:right;color:#96918B">16.000</span>
+                <span style="text-align:right">11.200</span>
+                <span style="text-align:right">4.800</span>
+                <span style="text-align:right">70,0%</span>
+                <span style="color:#4A4642;font-size:11px;text-align:right">›</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1.7fr 100px 100px 100px 100px 76px 26px;gap:16px;align-items:center;padding:14px 0;border-top:1px solid #262422;font-size:14px;cursor:pointer" style-hover="background:#1E1D1C">
+                <span>Rótulo premium <span style="color:#635F5A;font-size:12.5px">RT-PRM</span></span>
+                <span style="text-align:right">9.000</span>
+                <span style="text-align:right;color:#96918B">9.000</span>
+                <span style="text-align:right">9.000</span>
+                <span style="text-align:right;color:#7A756F">0</span>
+                <span style="text-align:right;color:#3ECFA5">100,0%</span>
+                <span style="color:#4A4642;font-size:11px;text-align:right">›</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1.7fr 100px 100px 100px 100px 76px 26px;gap:16px;align-items:center;padding:14px 0;border-top:1px solid #262422;font-size:14px;cursor:pointer" style-hover="background:#1E1D1C">
+                <span>Tampa flip 38mm <span style="color:#635F5A;font-size:12.5px">TF-038</span></span>
+                <span style="text-align:right">12.500</span>
+                <span style="text-align:right;color:#E2695C">4.100</span>
+                <span style="text-align:right">2.050</span>
+                <span style="text-align:right">10.450</span>
+                <span style="text-align:right;color:#E2695C">16,4%</span>
+                <span style="color:#4A4642;font-size:11px;text-align:right">›</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1.7fr 100px 100px 100px 100px 76px 26px;gap:16px;align-items:center;padding:14px 0;border-top:1px solid #262422;font-size:13.5px;color:#7A756F">
+                <span>Total</span>
+                <span style="text-align:right;color:#F0EEEB">107.500</span>
+                <span style="text-align:right;color:#F0EEEB">92.400</span>
+                <span style="text-align:right;color:#F0EEEB">81.000</span>
+                <span style="text-align:right;color:#F0EEEB">28.650</span>
+                <span style="text-align:right;color:#F0EEEB">75,3%</span>
+                <span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="border-left:1px solid #262422;padding:22px 30px 44px;display:flex;flex-direction:column;gap:36px;min-width:0">
+          <div>
+            <h2 style="margin:0;font-size:15px;font-weight:600;letter-spacing:-.015em">Status da programação</h2>
+            <div style="font-size:28px;font-weight:600;letter-spacing:-.035em;color:#E0A340;margin-top:12px">Não atingível</div>
+            <div style="font-size:13px;color:#96918B;margin-top:8px;line-height:1.55">Um gargalo impede o previsto: falta capacidade para 15.100 peças na semana.</div>
+          </div>
+
+          <div>
+            <h2 style="margin:0 0 16px;font-size:15px;font-weight:600;letter-spacing:-.015em">Carga por máquina</h2>
+            <div style="display:flex;flex-direction:column;gap:14px">
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:13.5px;margin-bottom:7px"><span>Injetora 04</span><span style="color:#E2695C;font-weight:600">148%</span></div>
+                <div style="height:4px;border-radius:2px;background:#262422;position:relative;overflow:hidden"><span style="position:absolute;inset:0;background:#E2695C"></span><span style="position:absolute;top:0;bottom:0;left:67.5%;width:1px;background:#1A1918"></span></div>
+                <div style="font-size:12px;color:#7A756F;margin-top:6px">Gargalo · TP-200 e TF-038 concorrem</div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:13.5px;margin-bottom:7px"><span>Sopradora 02</span><span style="color:#E0A340">92%</span></div>
+                <div style="height:4px;border-radius:2px;background:#262422;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:92%;background:#E0A340"></span></div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:13.5px;margin-bottom:7px"><span>Rotuladora 01</span><span style="color:#96918B">74%</span></div>
+                <div style="height:4px;border-radius:2px;background:#262422;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:74%;background:#2C8F73"></span></div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:13.5px;margin-bottom:7px"><span>Injetora 01</span><span style="color:#96918B">58%</span></div>
+                <div style="height:4px;border-radius:2px;background:#262422;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:58%;background:#2C8F73"></span></div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:13.5px;margin-bottom:7px"><span>Seladora 01</span><span style="color:#96918B">41%</span></div>
+                <div style="height:4px;border-radius:2px;background:#262422;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:41%;background:#2C8F73"></span></div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h2 style="margin:0 0 12px;font-size:15px;font-weight:600;letter-spacing:-.015em">Gargalos da semana</h2>
+            <div style="font-size:14px;font-weight:500">Injetora 04 · injeção</div>
+            <div style="font-size:13px;color:#96918B;margin-top:8px;line-height:1.6">Tampa 200ml e Tampa flip 38mm disputam a mesma máquina. Reduzir TF-038 em 8.400 peças torna a semana atingível.</div>
+            <div style="display:flex;gap:8px;margin-top:16px">
+              <button style="font-family:inherit;font-size:13px;color:#F0EEEB;background:#262422;border:none;border-radius:999px;padding:9px 15px;cursor:pointer" style-hover="background:#302D2B">Simular</button>
+              <button style="font-family:inherit;font-size:13px;font-weight:600;color:#141312;background:#3ECFA5;border:none;border-radius:999px;padding:9px 15px;cursor:pointer" style-hover="background:#55DBB4">Ajustar</button>
+            </div>
+            <div style="font-size:12.5px;color:#7A756F;margin-top:14px;line-height:1.55">Ajustar reduz apenas o previsto até o possível, com prévia da diferença antes de gravar.</div>
+          </div>
+
+          <div style="background:#211F1E;border-radius:12px;padding:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span style="font-size:13px;color:#E0A340">Simulação ativa · nada é gravado</span>
+              <span style="font-size:12.5px;color:#96918B;cursor:pointer">Sair</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="4f" style="background:#121110;padding:36px 56px 80px;font-family:'Schibsted Grotesk',sans-serif;color:#F0EEEB">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;max-width:1320px">
+    <span style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#3ECFA5">4F</span>
+    <h2 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.025em">Sittech Intelligence</h2>
+    <span style="font-size:12.5px;color:#7A756F">painel global · desktop e mobile</span>
+  </div>
+  <p style="margin:0 0 26px;max-width:840px;font-size:14px;line-height:1.65;color:#96918B">A resposta é o objeto principal: corpo de leitura de 15px, largura confortável, sem bolha, sem avatar, sem indicador de digitação. Cada número citado tem sua evidência logo abaixo, com a confiança dita em palavra. O trace de ferramentas é uma linha discreta no pé. A resposta chega inteira, então o carregamento nunca finge progresso.</p>
+
+  <div style="display:flex;gap:32px;align-items:flex-start;flex-wrap:wrap">
+    <div>
+      <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Desktop · painel de 440px, a página continua visível</div>
+      <div style="width:1160px;height:800px;background:#1A1918;border-radius:10px;display:flex;overflow:hidden">
+        <div style="flex:1;min-width:0;opacity:.28;padding:26px 30px">
+          <div style="font-size:34px;font-weight:600;letter-spacing:-.035em">Paradas</div>
+          <div style="display:flex;gap:40px;margin-top:28px">
+            <div><div style="font-size:12.5px;color:#96918B">Minutos parados</div><div style="font-size:44px;font-weight:600;letter-spacing:-.04em;margin-top:8px">1.284</div></div>
+            <div><div style="font-size:12.5px;color:#96918B">Custo do tempo ocioso</div><div style="font-size:44px;font-weight:600;letter-spacing:-.04em;margin-top:8px">R$ 9.412</div></div>
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:14px;height:160px;margin-top:40px">
+            <div style="flex:1;height:100%;background:#3ECFA5;border-radius:6px 6px 3px 3px"></div>
+            <div style="flex:1;height:71%;background:#2C8F73;border-radius:6px 6px 3px 3px"></div>
+            <div style="flex:1;height:53%;background:#276F60;border-radius:6px 6px 3px 3px"></div>
+            <div style="flex:1;height:38%;background:#245B50;border-radius:6px 6px 3px 3px"></div>
+            <div style="flex:1;height:23%;background:#2A2E2C;border-radius:6px 6px 3px 3px"></div>
+            <div style="flex:1;height:11%;background:#2A2725;border-radius:6px 6px 3px 3px"></div>
+          </div>
+          <div style="margin-top:40px;display:flex;flex-direction:column;gap:14px">
+            <div style="height:1px;background:#262422"></div>
+            <div style="height:1px;background:#262422"></div>
+            <div style="height:1px;background:#262422"></div>
+          </div>
+        </div>
+
+        <div style="width:440px;flex:none;background:#161514;display:flex;flex-direction:column;box-shadow:-24px 0 60px -30px rgba(0,0,0,.9)">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 22px 16px">
+            <div style="display:flex;align-items:center;gap:11px">
+              <span style="width:20px;height:20px;border-radius:50%;border:1px solid rgba(62,207,165,.4);display:flex;align-items:center;justify-content:center">
+                <span style="width:7px;height:7px;border-radius:50%;background:#3ECFA5;animation:sit-pulse 3.4s ease-in-out infinite"></span>
+              </span>
+              <span style="font-size:15px;font-weight:600;letter-spacing:-.015em">Intelligence</span>
+            </div>
+            <span style="font-size:14px;color:#7A756F;cursor:pointer">✕</span>
+          </div>
+
+          <div style="flex:1;padding:6px 22px 0;display:flex;flex-direction:column;gap:22px;overflow:hidden">
+            <div style="font-size:13px;color:#7A756F">Quais foram as principais paradas da semana?</div>
+            <div>
+              <p style="margin:0;font-size:15.5px;line-height:1.62;text-wrap:pretty">Setup respondeu por <span style="font-weight:600">436 minutos</span> dos 1.284 minutos parados da semana, o maior bloco isolado. A Rotuladora 02 concentra <span style="font-weight:600">196 minutos</span> desse total, mais que o dobro da semana anterior.</p>
+              <p style="margin:12px 0 0;font-size:15.5px;line-height:1.62;color:#96918B">Falta de material vem em seguida, com 308 minutos distribuídos entre três máquinas de sopro. O custo do tempo ocioso da semana ficou em R$ 9.412.</p>
+            </div>
+
+            <div>
+              <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+                <span style="font-size:13px;color:#96918B">Evidências · 3</span>
+                <span style="font-size:11px;color:#7A756F">⌄</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:16px;margin-top:16px">
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px"><span style="font-size:13.5px;color:#96918B">Minutos parados por motivo · setup</span><span style="font-size:14.5px;font-weight:600;flex:none">436 min</span></div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+                    <span style="font-size:12.5px;color:#7A756F">Fato · semana 36, todas as máquinas</span>
+                    <span style="font-size:12.5px;color:#3ECFA5;cursor:pointer">Ver dados</span>
+                  </div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px"><span style="font-size:13.5px;color:#96918B">Rotuladora 02 vs. semana anterior</span><span style="font-size:14.5px;font-weight:600;flex:none">196 / 84 min</span></div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+                    <span style="font-size:12.5px;color:#7A756F">Calculado · +133%</span>
+                    <span style="font-size:12.5px;color:#3ECFA5;cursor:pointer">Ver dados</span>
+                  </div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px"><span style="font-size:13.5px;color:#96918B">Custo do tempo ocioso · semana</span><span style="font-size:14.5px;font-weight:600;flex:none">R$ 9.412</span></div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+                    <span style="font-size:12.5px;color:#E0A340">Estimativa · custo/hora médio</span>
+                    <span style="font-size:12.5px;color:#3ECFA5;cursor:pointer">Ver dados</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;padding-top:18px;border-top:1px solid #262422;cursor:pointer">
+              <span style="font-size:12.5px;color:#635F5A">Análise baseada em 3 consultas · 4,2s</span>
+              <span style="font-size:11px;color:#4A4642">›</span>
+            </div>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <span style="font-size:12.5px;color:#96918B;background:#211F1E;border-radius:999px;padding:8px 13px;cursor:pointer" style-hover="color:#F0EEEB;background:#282524">E na semana anterior?</span>
+              <span style="font-size:12.5px;color:#96918B;background:#211F1E;border-radius:999px;padding:8px 13px;cursor:pointer" style-hover="color:#F0EEEB;background:#282524">Só a Rotuladora 02</span>
+            </div>
+          </div>
+
+          <div style="padding:18px 22px 22px">
+            <div style="display:flex;align-items:center;gap:10px;background:#201E1D;border-radius:14px;padding:12px 12px 12px 16px">
+              <span style="flex:1;font-size:14px;color:#635F5A">O que explica a queda no Pote 500ml?</span>
+              <button style="width:34px;height:34px;flex:none;border:none;border-radius:10px;background:#3ECFA5;color:#141312;font-size:15px;cursor:pointer">↑</button>
+            </div>
+            <div style="font-size:11.5px;color:#4A4642;margin-top:10px">Enter envia · Shift+Enter quebra linha</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap">
+      <div>
+        <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Mobile 390 · tela cheia</div>
+        <div style="width:390px;height:800px;background:#161514;border-radius:26px;display:flex;flex-direction:column;overflow:hidden">
+          <div style="height:38px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 20px 4px;font-size:11.5px;color:#7A756F"><span>14:31</span><span>safe area</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px">
+            <div style="display:flex;align-items:center;gap:11px">
+              <span style="width:20px;height:20px;border-radius:50%;border:1px solid rgba(62,207,165,.4);display:flex;align-items:center;justify-content:center"><span style="width:7px;height:7px;border-radius:50%;background:#3ECFA5"></span></span>
+              <span style="font-size:15px;font-weight:600;letter-spacing:-.015em">Intelligence</span>
+            </div>
+            <span style="font-size:17px;color:#7A756F;padding:6px;cursor:pointer">✕</span>
+          </div>
+          <div style="flex:1;padding:10px 20px 0;display:flex;flex-direction:column;gap:20px;overflow:hidden">
+            <div style="font-size:13px;color:#7A756F">Quais foram as principais paradas da semana?</div>
+            <p style="margin:0;font-size:16px;line-height:1.6;text-wrap:pretty">Setup respondeu por <span style="font-weight:600">436 minutos</span> dos 1.284 minutos parados da semana, o maior bloco isolado. A Rotuladora 02 concentra <span style="font-weight:600">196 minutos</span> desse total.</p>
+            <div>
+              <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:13px;color:#96918B">Evidências · 3</span><span style="font-size:11px;color:#7A756F">⌄</span></div>
+              <div style="display:flex;flex-direction:column;gap:16px;margin-top:16px">
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:13.5px;color:#96918B">Setup · total da semana</span><span style="font-size:14.5px;font-weight:600">436 min</span></div>
+                  <div style="font-size:12.5px;color:#7A756F;margin-top:5px">Fato · semana 36</div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:13.5px;color:#96918B">Rotuladora 02 vs. anterior</span><span style="font-size:14.5px;font-weight:600">196 / 84</span></div>
+                  <div style="font-size:12.5px;color:#7A756F;margin-top:5px">Calculado · +133%</div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:13.5px;color:#96918B">Custo do tempo ocioso</span><span style="font-size:14.5px;font-weight:600">R$ 9.412</span></div>
+                  <div style="font-size:12.5px;color:#E0A340;margin-top:5px">Estimativa · custo/hora médio</div>
+                </div>
+              </div>
+            </div>
+            <div style="font-size:12.5px;color:#635F5A;padding-top:16px;border-top:1px solid #262422">Análise baseada em 3 consultas ›</div>
+          </div>
+          <div style="padding:16px 20px 10px">
+            <div style="display:flex;align-items:center;gap:10px;background:#201E1D;border-radius:16px;padding:14px 12px 14px 16px">
+              <span style="flex:1;font-size:14.5px;color:#635F5A">Perguntar…</span>
+              <button style="width:44px;height:44px;flex:none;border:none;border-radius:12px;background:#3ECFA5;color:#141312;font-size:16px;cursor:pointer">↑</button>
+            </div>
+          </div>
+          <div style="height:22px;display:flex;align-items:center;justify-content:center"><span style="width:110px;height:4px;border-radius:2px;background:#302D2B"></span></div>
+        </div>
+      </div>
+
+      <div style="width:380px;display:flex;flex-direction:column;gap:26px">
+        <div>
+          <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Estado inicial</div>
+          <div style="background:#161514;border-radius:14px;padding:22px">
+            <div style="font-size:20px;font-weight:600;letter-spacing:-.025em">O que você quer entender da fábrica?</div>
+            <div style="font-size:13px;color:#7A756F;margin-top:8px;line-height:1.55">Consulta em linguagem natural sobre os dados que o Sittech já calcula. Toda resposta vem com evidência.</div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:20px">
+              <span style="font-size:13.5px;color:#96918B;background:#201E1D;border-radius:10px;padding:13px 14px;cursor:pointer" style-hover="background:#262422;color:#F0EEEB">Quais foram as principais paradas da semana?</span>
+              <span style="font-size:13.5px;color:#96918B;background:#201E1D;border-radius:10px;padding:13px 14px;cursor:pointer" style-hover="background:#262422;color:#F0EEEB">A previsão da semana é atingível?</span>
+              <span style="font-size:13.5px;color:#96918B;background:#201E1D;border-radius:10px;padding:13px 14px;cursor:pointer" style-hover="background:#262422;color:#F0EEEB">Onde o refugo subiu nos últimos 28 dias?</span>
+              <span style="font-size:13.5px;color:#96918B;background:#201E1D;border-radius:10px;padding:13px 14px;cursor:pointer" style-hover="background:#262422;color:#F0EEEB">Qual máquina está mais pressionada?</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Consultando, erro e limite</div>
+          <div style="background:#161514;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:18px">
+            <div>
+              <div style="display:flex;align-items:center;gap:12px">
+                <span style="width:8px;height:8px;border-radius:50%;background:#3ECFA5;animation:sit-pulse 1.8s ease-in-out infinite"></span>
+                <span style="font-size:14px;color:#96918B;flex:1">Cruzando os dados disponíveis…</span>
+                <span style="font-size:13px;color:#7A756F">18s</span>
+              </div>
+              <div style="font-size:12.5px;color:#635F5A;margin-top:10px">A resposta chega inteira; nenhum progresso é simulado.</div>
+            </div>
+            <div style="height:1px;background:#262422"></div>
+            <div>
+              <div style="font-size:14px;color:#E2695C">Temporariamente indisponível</div>
+              <div style="font-size:13px;color:#96918B;margin-top:6px;line-height:1.55">Tente novamente em alguns instantes. Nenhuma pergunta foi perdida.</div>
+            </div>
+            <div style="height:1px;background:#262422"></div>
+            <div>
+              <div style="font-size:14px;color:#96918B">Fora do escopo</div>
+              <div style="font-size:13px;color:#96918B;margin-top:6px;line-height:1.55">Não é possível converter capacidade perdida em faturamento — esse número não existe em nenhum motor do Sittech.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="4g" style="background:#EFECE7;padding:36px 56px 80px;font-family:'Schibsted Grotesk',sans-serif;color:#1A1918">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;max-width:1320px">
+    <span style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#1B8A6D">4G</span>
+    <h2 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.025em">Light mode</h2>
+    <span style="font-size:12.5px;color:#8A857E">mesma estrutura, tokens espelhados</span>
+  </div>
+  <p style="margin:0 0 26px;max-width:840px;font-size:14px;line-height:1.65;color:#6E6963">O claro não é uma inversão automática. O verde escurece para <span style="color:#1B8A6D;font-weight:600">#1B8A6D</span> para segurar contraste sobre branco, o plano recuado da sidebar fica mais quente que o conteúdo (e não mais claro), e a hairline ganha peso relativo maior — é ela que estrutura, já que não há sombra. Nenhuma medida, densidade ou hierarquia muda entre os modos.</p>
+
+  <div style="display:flex;gap:32px;flex-wrap:wrap;margin-bottom:32px">
+    <div style="flex:1;min-width:300px">
+      <div style="font-size:15px;font-weight:600;letter-spacing:-.015em;margin-bottom:16px">Tokens</div>
+      <div style="display:flex;gap:10px">
+        <div style="flex:1"><div style="height:52px;border-radius:8px;background:#FBFAF8"></div><div style="font-size:12.5px;margin-top:8px">#FBFAF8</div><div style="font-size:12px;color:#8A857E">conteúdo</div></div>
+        <div style="flex:1"><div style="height:52px;border-radius:8px;background:#EFECE7"></div><div style="font-size:12.5px;margin-top:8px">#EFECE7</div><div style="font-size:12px;color:#8A857E">plano recuado</div></div>
+        <div style="flex:1"><div style="height:52px;border-radius:8px;background:#FFFFFF"></div><div style="font-size:12.5px;margin-top:8px">#FFFFFF</div><div style="font-size:12px;color:#8A857E">superfície</div></div>
+        <div style="flex:1"><div style="height:52px;border-radius:8px;background:#E3DFD8"></div><div style="font-size:12.5px;margin-top:8px">#E3DFD8</div><div style="font-size:12px;color:#8A857E">hairline</div></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:12px">
+        <div style="flex:1"><div style="height:40px;border-radius:8px;background:#1B8A6D"></div><div style="font-size:12.5px;margin-top:8px">#1B8A6D</div></div>
+        <div style="flex:1"><div style="height:40px;border-radius:8px;background:#146453"></div><div style="font-size:12.5px;margin-top:8px">#146453</div></div>
+        <div style="flex:1"><div style="height:40px;border-radius:8px;background:#B47A15"></div><div style="font-size:12.5px;margin-top:8px">#B47A15</div></div>
+        <div style="flex:1"><div style="height:40px;border-radius:8px;background:#C0483B"></div><div style="font-size:12.5px;margin-top:8px">#C0483B</div></div>
+      </div>
+      <div style="display:flex;gap:22px;margin-top:16px;font-size:13px;color:#6E6963;flex-wrap:wrap">
+        <span>Texto #1A1918</span><span>Secundário #6E6963</span><span>Terciário #8A857E</span><span>Rótulo #A39D95</span>
+      </div>
+    </div>
+
+    <div style="flex:1;min-width:300px">
+      <div style="font-size:15px;font-weight:600;letter-spacing:-.015em;margin-bottom:16px">Controles e estados</div>
+      <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">
+        <button style="font-family:inherit;font-size:13.5px;font-weight:600;color:#fff;background:#1B8A6D;border:none;border-radius:9px;padding:11px 18px;cursor:pointer" style-hover="background:#146453">Salvar</button>
+        <button style="font-family:inherit;font-size:13.5px;font-weight:500;color:#1A1918;background:#E7E3DC;border:none;border-radius:9px;padding:11px 18px;cursor:pointer" style-hover="background:#DFDAD2">Cancelar</button>
+        <button style="font-family:inherit;font-size:13.5px;font-weight:600;color:#fff;background:#C0483B;border:none;border-radius:9px;padding:11px 18px;cursor:pointer">Informar parada</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:11px;margin-top:18px">
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:7px;height:7px;border-radius:50%;background:#1B8A6D"></span><span style="font-size:14px;color:#1B8A6D;width:160px">Concluído</span><span style="font-size:13px;color:#8A857E">previsto atendido</span></div>
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:7px;height:7px;border-radius:50%;background:#B47A15"></span><span style="font-size:14px;color:#B47A15;width:160px">Atenção</span><span style="font-size:13px;color:#8A857E">ritmo insuficiente</span></div>
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:7px;height:7px;border-radius:50%;background:#C0483B"></span><span style="font-size:14px;color:#C0483B;width:160px">Inviável teoricamente</span><span style="font-size:13px;color:#8A857E">capacidade não cobre</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="font-size:13px;color:#8A857E;margin-bottom:12px">Visão geral · light · 1320</div>
+  <div style="width:1320px;background:#FBFAF8;border-radius:10px;overflow:hidden;display:flex">
+    <div style="width:248px;flex:none;background:#EFECE7;padding:26px 0 22px;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 26px 30px">
+        <span style="width:16px;height:16px;border-radius:50%;background:#1B8A6D"></span>
+        <span style="font-size:16px;font-weight:600;letter-spacing:-.02em">Sittech</span>
+      </div>
+      <div style="display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#6E6963;cursor:pointer" style-hover="color:#1A1918">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" style="flex:none;opacity:.75"><path d="M3.5 8.6L10 3.5l6.5 5.1v7.4a1 1 0 01-1 1h-11a1 1 0 01-1-1z"></path></svg>Início
+        </div>
+        <div style="padding:22px 26px 8px;font-size:11.5px;letter-spacing:.05em;color:#A39D95">Planejamento</div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#6E6963;cursor:pointer" style-hover="color:#1A1918">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="flex:none;opacity:.75"><rect x="3" y="4.5" width="14" height="12.5" rx="2.5"></rect><path d="M3 8.5h14M7 3v3M13 3v3"></path></svg>Previsão semanal
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#6E6963;cursor:pointer" style-hover="color:#1A1918">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.75"><path d="M3.2 14.5a8 8 0 1113.6 0"></path><path d="M10 14.5l3.4-4"></path></svg>Capacidade semanal
+        </div>
+        <div style="padding:22px 26px 8px;font-size:11.5px;letter-spacing:.05em;color:#A39D95">Produção real</div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#6E6963;cursor:pointer" style-hover="color:#1A1918">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex:none;opacity:.75"><rect x="4" y="3.5" width="12" height="13.5" rx="2.5"></rect><path d="M7.5 10.5l1.8 1.8 3.4-3.8"></path></svg>Apontamento
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;font-weight:600;position:relative;cursor:pointer">
+          <span style="position:absolute;left:0;top:9px;bottom:9px;width:2px;border-radius:2px;background:#1B8A6D"></span>
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#1B8A6D" stroke-width="1.5" style="flex:none"><rect x="3" y="3" width="6" height="6" rx="1.8"></rect><rect x="11" y="3" width="6" height="6" rx="1.8"></rect><rect x="3" y="11" width="6" height="6" rx="1.8"></rect><rect x="11" y="11" width="6" height="6" rx="1.8"></rect></svg>Visão geral
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#6E6963;cursor:pointer" style-hover="color:#1A1918">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" style="flex:none;opacity:.75"><rect x="3" y="11" width="3.6" height="6" rx="1.4"></rect><rect x="8.2" y="7.5" width="3.6" height="9.5" rx="1.4"></rect><rect x="13.4" y="3.5" width="3.6" height="13.5" rx="1.4"></rect></svg>Produtividade
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#6E6963;cursor:pointer" style-hover="color:#1A1918">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" style="flex:none;opacity:.75"><path d="M10 3.8l6.6 12.4H3.4z"></path><path d="M10 8.6v3.2M10 14.1v.1"></path></svg><span style="flex:1">Desvios</span><span style="font-size:12.5px;color:#B47A15">3</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 26px;font-size:14px;color:#6E6963;cursor:pointer" style-hover="color:#1A1918">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.75"><circle cx="10" cy="10" r="7"></circle><path d="M8.4 7.6v4.8M11.6 7.6v4.8"></path></svg>Paradas
+        </div>
+      </div>
+      <div style="margin-top:auto;padding:26px 26px 0">
+        <div style="font-size:12.5px;color:#8A857E">Meta semanal</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-top:8px">
+          <span style="font-size:22px;font-weight:600;letter-spacing:-.03em">76%</span>
+          <span style="font-size:12.5px;color:#8A857E">R$ 182,4k de 240k</span>
+        </div>
+        <div style="height:4px;border-radius:2px;background:#E3DFD8;margin-top:12px;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:76%;background:#1B8A6D"></span></div>
+      </div>
+    </div>
+
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;gap:16px;padding:18px 32px">
+        <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#8A857E">
+          <span>Produção real</span><span style="color:#C6C0B8">/</span><span style="color:#1A1918">Visão geral</span>
+        </div>
+        <span style="flex:1"></span>
+        <div style="display:flex;align-items:center;gap:11px;border-radius:999px;background:#fff;padding:6px 8px 6px 13px;cursor:pointer;box-shadow:0 1px 2px rgba(26,25,24,.08),0 6px 18px -12px rgba(26,25,24,.3)">
+          <span style="width:18px;height:18px;border-radius:50%;border:1px solid rgba(27,138,109,.4);display:flex;align-items:center;justify-content:center;flex:none">
+            <span style="width:6px;height:6px;border-radius:50%;background:#1B8A6D"></span>
+          </span>
+          <span style="font-size:13.5px;font-weight:500">Intelligence</span>
+          <span style="font-size:11px;color:#8A857E;background:#F1EEE9;border-radius:6px;padding:4px 7px">⌘K</span>
+        </div>
+        <span style="font-size:13px;color:#8A857E;cursor:pointer" style-hover="color:#1A1918">Ocultar valores</span>
+        <span style="font-size:13px;color:#8A857E;cursor:pointer" style-hover="color:#1A1918">Tema</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 372px">
+        <div style="padding:22px 32px 40px;min-width:0">
+          <div style="font-size:13px;color:#8A857E">Semana 36 · 1 a 7 de setembro · composição das seis engines</div>
+          <h1 style="margin:10px 0 0;font-size:40px;font-weight:600;letter-spacing:-.035em;line-height:1">Visão geral</h1>
+
+          <div style="display:flex;align-items:flex-end;gap:56px;margin-top:36px">
+            <div>
+              <div style="font-size:13px;color:#6E6963">Produção acabada</div>
+              <div style="font-size:72px;font-weight:600;letter-spacing:-.045em;line-height:.95;margin-top:10px">18.940</div>
+              <div style="font-size:13.5px;color:#8A857E;margin-top:10px">peças · só a última etapa do roteiro</div>
+            </div>
+            <div style="padding-bottom:8px">
+              <div style="font-size:13px;color:#6E6963">Produção processada</div>
+              <div style="font-size:32px;font-weight:500;letter-spacing:-.03em;margin-top:8px">31.410</div>
+              <div style="font-size:12.5px;color:#8A857E;margin-top:6px">volume bruto, qualquer etapa</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:26px;margin-top:40px">
+            <div>
+              <div style="font-size:12.5px;color:#6E6963">Performance</div>
+              <div style="display:flex;align-items:baseline;gap:8px;margin-top:8px"><span style="font-size:25px;font-weight:600;letter-spacing:-.03em">104,8%</span><span style="font-size:12.5px;color:#1B8A6D">+2,4</span></div>
+              <svg viewBox="0 0 100 18" preserveAspectRatio="none" style="width:100%;height:18px;margin-top:10px;display:block">
+                <polyline points="0,14 20,10 40,15 60,6 80,9 100,3" fill="none" stroke="#1B8A6D" stroke-width="1.3" vector-effect="non-scaling-stroke" stroke-linejoin="round"></polyline>
+              </svg>
+            </div>
+            <div>
+              <div style="font-size:12.5px;color:#6E6963">Disponibilidade</div>
+              <div style="display:flex;align-items:baseline;gap:8px;margin-top:8px"><span style="font-size:25px;font-weight:600;letter-spacing:-.03em">88,2%</span><span style="font-size:12.5px;color:#B47A15">−3,1</span></div>
+              <svg viewBox="0 0 100 18" preserveAspectRatio="none" style="width:100%;height:18px;margin-top:10px;display:block">
+                <polyline points="0,6 20,8 40,7 60,11 80,10 100,14" fill="none" stroke="#B47A15" stroke-width="1.3" vector-effect="non-scaling-stroke" stroke-linejoin="round"></polyline>
+              </svg>
+            </div>
+            <div>
+              <div style="font-size:12.5px;color:#6E6963">Qualidade</div>
+              <div style="font-size:25px;font-weight:600;letter-spacing:-.03em;margin-top:8px">99,1%</div>
+              <div style="font-size:12.5px;color:#8A857E;margin-top:14px">refugo 0,9%</div>
+            </div>
+            <div>
+              <div style="font-size:12.5px;color:#6E6963">OEE</div>
+              <div style="font-size:25px;font-weight:600;letter-spacing:-.03em;margin-top:8px">91,0%</div>
+              <div style="font-size:12.5px;color:#8A857E;margin-top:14px">sem teto em 100%</div>
+            </div>
+          </div>
+
+          <div style="margin-top:42px">
+            <div style="display:flex;align-items:baseline;justify-content:space-between">
+              <h2 style="margin:0;font-size:17px;font-weight:600;letter-spacing:-.02em">Situação da semana</h2>
+              <span style="font-size:13px;color:#8A857E;cursor:pointer">Ver validação da previsão →</span>
+            </div>
+            <div style="margin-top:16px">
+              <div style="display:grid;grid-template-columns:1.6fr 116px 1fr 104px;gap:20px;font-size:12.5px;color:#8A857E;padding-bottom:12px">
+                <span>Produto</span><span style="text-align:right">Previsto</span><span>Realizado vs. possível</span><span style="text-align:right">Estado</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1.6fr 116px 1fr 104px;gap:20px;align-items:center;padding:14px 0;border-top:1px solid #E3DFD8;font-size:14px;cursor:pointer" style-hover="background:#F5F2ED">
+                <span>Tampa 200ml</span><span style="text-align:right">42.000</span>
+                <span style="display:flex;align-items:center;gap:12px">
+                  <span style="flex:1;height:4px;border-radius:2px;background:#E7E3DC;position:relative;overflow:hidden"><span style="position:absolute;inset:0;background:#1B8A6D"></span></span>
+                  <span style="font-size:13px;color:#6E6963;width:52px;text-align:right">105,1%</span>
+                </span>
+                <span style="text-align:right;font-size:13px;color:#1B8A6D">Concluído</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1.6fr 116px 1fr 104px;gap:20px;align-items:center;padding:14px 0;border-top:1px solid #E3DFD8;font-size:14px;cursor:pointer" style-hover="background:#F5F2ED">
+                <span>Pote 500ml</span><span style="text-align:right">28.000</span>
+                <span style="display:flex;align-items:center;gap:12px">
+                  <span style="flex:1;height:4px;border-radius:2px;background:#E7E3DC;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:52%;background:#B47A15"></span></span>
+                  <span style="font-size:13px;color:#6E6963;width:52px;text-align:right">52,1%</span>
+                </span>
+                <span style="text-align:right;font-size:13px;color:#B47A15">Atenção</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1.6fr 116px 1fr 104px;gap:20px;align-items:center;padding:14px 0;border-top:1px solid #E3DFD8;font-size:14px;cursor:pointer" style-hover="background:#F5F2ED">
+                <span>Tampa flip 38mm</span><span style="text-align:right">12.500</span>
+                <span style="display:flex;align-items:center;gap:12px">
+                  <span style="flex:1;height:4px;border-radius:2px;background:#E7E3DC;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:16%;background:#C0483B"></span></span>
+                  <span style="font-size:13px;color:#6E6963;width:52px;text-align:right">16,4%</span>
+                </span>
+                <span style="text-align:right;font-size:13px;color:#C0483B">Inviável</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1.6fr 116px 1fr 104px;gap:20px;align-items:center;padding:14px 0;border-top:1px solid #E3DFD8;font-size:13.5px;color:#8A857E">
+                <span>Total · 9 produtos</span><span style="text-align:right;color:#1A1918">107.500</span><span>possível 92.400 · falta 28.650</span><span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="border-left:1px solid #E3DFD8;padding:22px 30px 40px;display:flex;flex-direction:column;gap:36px;min-width:0">
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <h2 style="margin:0;font-size:15px;font-weight:600;letter-spacing:-.015em">Agora</h2>
+              <span style="font-size:12.5px;color:#C0483B">2 ocorrências abertas</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:16px;margin-top:16px">
+              <div>
+                <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:14px;font-weight:500">Injetora 07</span><span style="font-size:13.5px;color:#C0483B">1h 42min</span></div>
+                <div style="font-size:12.5px;color:#8A857E;margin-top:3px">Manutenção corretiva · Tampa 200ml</div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:14px;font-weight:500">Rotuladora 02</span><span style="font-size:13.5px;color:#B47A15">18min</span></div>
+                <div style="font-size:12.5px;color:#8A857E;margin-top:3px">Falta de material · Pote 500ml</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;padding-top:4px">
+                <span style="flex:1;height:4px;border-radius:2px;background:#E7E3DC;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:56%;background:#1B8A6D"></span></span>
+                <span style="font-size:12.5px;color:#6E6963">9/16 fechadas</span>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h2 style="margin:0 0 16px;font-size:15px;font-weight:600;letter-spacing:-.015em">Paradas</h2>
+            <div style="display:flex;flex-direction:column;gap:14px">
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:13.5px;color:#6E6963">Minutos parados</span><span style="font-size:16px;font-weight:600">1.284</span></div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:13.5px;color:#6E6963">Custo do tempo ocioso</span><span style="font-size:16px;font-weight:600">R$ 9.412</span></div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:13.5px;color:#6E6963">Capacidade local perdida</span><span style="font-size:16px;font-weight:600">6.140 pç</span></div>
+            </div>
+            <div style="display:flex;gap:3px;height:5px;margin-top:18px;border-radius:3px;overflow:hidden">
+              <span style="flex:34;background:#1B8A6D"></span><span style="flex:24;background:#3FA487"></span><span style="flex:18;background:#B47A15"></span><span style="flex:13;background:#D3A354"></span><span style="flex:11;background:#DAD5CD"></span>
+            </div>
+            <div style="font-size:12px;color:#8A857E;margin-top:10px">Setup 34% · material 24% · manutenção 18% · ajuste 13% · outros 11%</div>
+          </div>
+
+          <div>
+            <h2 style="margin:0;font-size:15px;font-weight:600;letter-spacing:-.015em">Recurso mais pressionado</h2>
+            <div style="display:flex;align-items:baseline;gap:10px;margin-top:12px">
+              <span style="font-size:15px;font-weight:500">Injetora 04</span>
+              <span style="font-size:24px;font-weight:600;letter-spacing:-.03em;color:#C0483B">1.123,1%</span>
+            </div>
+            <div style="font-size:12.5px;color:#8A857E;margin-top:8px;line-height:1.55">da capacidade restante da semana. Acima de 100% é demanda acima da capacidade, não erro de cálculo.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:26px;margin-top:34px;flex-wrap:wrap;align-items:flex-start">
+    <div>
+      <div style="font-size:13px;color:#8A857E;margin-bottom:12px">Apontamento · light · tablet 834</div>
+      <div style="width:834px;background:#FBFAF8;border-radius:10px;padding:22px 26px 26px">
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px">
+          <div>
+            <div style="font-size:13px;color:#8A857E">Período atual</div>
+            <div style="display:flex;align-items:baseline;gap:14px;margin-top:10px">
+              <span style="font-size:34px;font-weight:600;letter-spacing:-.035em">M2</span>
+              <span style="font-size:14px;color:#6E6963">quinta 04 set · 10:00 às 14:00</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px;margin-top:16px;width:420px">
+              <span style="flex:1;height:6px;border-radius:3px;background:#E7E3DC;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:56%;background:#1B8A6D"></span></span>
+              <span style="font-size:13.5px;color:#6E6963"><span style="color:#1A1918;font-weight:600">9</span> de 16 fechadas</span>
+            </div>
+          </div>
+          <button style="font-family:inherit;font-size:14px;font-weight:600;color:#fff;background:#C0483B;border:none;border-radius:12px;min-height:56px;padding:0 22px;cursor:pointer;flex:none">Informar máquina parada</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:26px">
+          <div style="background:#fff;border-radius:12px;padding:18px;min-height:104px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer;box-shadow:0 1px 2px rgba(26,25,24,.06)">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+              <span style="font-size:19px;font-weight:600;letter-spacing:-.02em">Injetora 01</span>
+              <span style="font-size:12px;color:#B47A15;background:rgba(180,122,21,.1);border-radius:999px;padding:5px 10px;flex:none">Pendente</span>
+            </div>
+            <div style="font-size:12.5px;color:#8A857E">Injeção · 3 produtos elegíveis</div>
+          </div>
+          <div style="background:#FDF3F1;border-radius:12px;padding:18px;min-height:104px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+              <span style="font-size:19px;font-weight:600;letter-spacing:-.02em">Injetora 07</span>
+              <span style="font-size:12px;color:#C0483B;background:rgba(192,72,59,.12);border-radius:999px;padding:5px 10px;flex:none">Parada agora</span>
+            </div>
+            <div style="font-size:12.5px;color:#C0483B">Manutenção corretiva · 1h 42min</div>
+          </div>
+          <div style="background:#F5F2ED;border-radius:12px;padding:18px;min-height:104px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+              <span style="font-size:19px;font-weight:500;letter-spacing:-.02em;color:#6E6963">Injetora 02</span>
+              <span style="font-size:12px;color:#1B8A6D;flex:none">Apontado</span>
+            </div>
+            <div style="font-size:12.5px;color:#8A857E">Tampa 200ml · 1.402 peças</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:380px">
+      <div style="font-size:13px;color:#8A857E;margin-bottom:12px">Intelligence · light</div>
+      <div style="background:#fff;border-radius:14px;padding:22px;box-shadow:0 1px 2px rgba(26,25,24,.06),0 18px 40px -28px rgba(26,25,24,.4)">
+        <div style="display:flex;align-items:center;gap:11px">
+          <span style="width:20px;height:20px;border-radius:50%;border:1px solid rgba(27,138,109,.4);display:flex;align-items:center;justify-content:center"><span style="width:7px;height:7px;border-radius:50%;background:#1B8A6D"></span></span>
+          <span style="font-size:15px;font-weight:600;letter-spacing:-.015em">Intelligence</span>
+        </div>
+        <div style="font-size:13px;color:#8A857E;margin-top:18px">Quais foram as principais paradas da semana?</div>
+        <p style="margin:12px 0 0;font-size:15.5px;line-height:1.62;text-wrap:pretty">Setup respondeu por <span style="font-weight:600">436 minutos</span> dos 1.284 minutos parados da semana. A Rotuladora 02 concentra <span style="font-weight:600">196 minutos</span> desse total.</p>
+        <div style="display:flex;flex-direction:column;gap:16px;margin-top:20px">
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:13.5px;color:#6E6963">Setup · total da semana</span><span style="font-size:14.5px;font-weight:600">436 min</span></div>
+            <div style="font-size:12.5px;color:#8A857E;margin-top:5px">Fato · semana 36</div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:13.5px;color:#6E6963">Custo do tempo ocioso</span><span style="font-size:14.5px;font-weight:600">R$ 9.412</span></div>
+            <div style="font-size:12.5px;color:#B47A15;margin-top:5px">Estimativa · custo/hora médio</div>
+          </div>
+        </div>
+        <div style="font-size:12.5px;color:#A39D95;margin-top:18px;padding-top:16px;border-top:1px solid #E3DFD8">Análise baseada em 3 consultas · 4,2s</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:40px;max-width:1000px;border-top:1px solid #E3DFD8;padding-top:22px">
+    <div style="font-size:15px;font-weight:600;letter-spacing:-.015em;margin-bottom:14px">Decisões principais</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 32px;font-size:13.5px;color:#6E6963;line-height:1.6">
+      <span>Número em escala tipográfica no lugar de KPI em caixa: produção acabada e processada convivem sem se somar.</span>
+      <span>Coluna de contexto de 372px absorve vigilância (ocorrências, paradas, pressão) e libera a coluna primária.</span>
+      <span>Estado por cor de texto e ponto; pill preenchida só onde o toque precisa de alvo (apontamento).</span>
+      <span>Sem monoespaçada: números em Schibsted 600 com tracking negativo, alinhados à direita.</span>
+      <span>Sidebar como plano recuado, ícones de 16px em traço de 1,5 e item ativo com traço curto.</span>
+      <span>Gatilho da Intelligence é o único elemento com elevação na topbar — presença sem virar chatbot.</span>
+      <span>Sino decorativo removido; acordeão independente; breadcrumb resolvido pela trilha de contexto.</span>
+      <span>Breakpoints em 1024/768/430 para que tablet em retrato receba a versão de toque, não a de desktop.</span>
+    </div>
+  </div>
+</section>
+
+<section id="4h" style="background:#121110;padding:36px 56px 80px;font-family:'Schibsted Grotesk',sans-serif;color:#F0EEEB">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;max-width:1320px">
+    <span style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#3ECFA5">4H</span>
+    <h2 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.025em">Sidebar recolhível · tablet e mobile</h2>
+  </div>
+  <p style="margin:0 0 28px;max-width:860px;font-size:14px;line-height:1.65;color:#96918B">A navegação é a mesma nos três tamanhos, só muda o quanto ela ocupa. No tablet a sidebar recolhe para uma trilha de 72px com ícones e reabre para 248px sobre o conteúdo. No celular ela vira gaveta: fechada por padrão, aberta pelo botão de menu, com fundo escurecido e fechamento por toque fora, arraste ou Esc. O estado recolhido é lembrado por dispositivo.</p>
+
+  <div style="display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap">
+
+    <div>
+      <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Tablet 834 · recolhida (72px)</div>
+      <div style="width:834px;height:520px;background:#1A1918;border-radius:10px;overflow:hidden;display:flex">
+        <div style="width:72px;flex:none;background:#161514;padding:20px 0;display:flex;flex-direction:column;align-items:center;gap:8px">
+          <span style="width:18px;height:18px;border-radius:50%;background:#3ECFA5;margin-bottom:16px"></span>
+          <div style="width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:#201E1D">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="#8A857E" stroke-width="1.5" stroke-linejoin="round"><path d="M3.5 8.6L10 3.5l6.5 5.1v7.4a1 1 0 01-1 1h-11a1 1 0 01-1-1z"></path></svg>
+          </div>
+          <div style="width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:#201E1D">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="#8A857E" stroke-width="1.5"><rect x="3" y="4.5" width="14" height="12.5" rx="2.5"></rect><path d="M3 8.5h14M7 3v3M13 3v3"></path></svg>
+          </div>
+          <div style="width:44px;height:44px;border-radius:12px;background:rgba(62,207,165,.12);display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative">
+            <span style="position:absolute;left:-14px;top:12px;bottom:12px;width:2px;border-radius:2px;background:#3ECFA5"></span>
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="#3ECFA5" stroke-width="1.5"><rect x="3" y="3" width="6" height="6" rx="1.8"></rect><rect x="11" y="3" width="6" height="6" rx="1.8"></rect><rect x="3" y="11" width="6" height="6" rx="1.8"></rect><rect x="11" y="11" width="6" height="6" rx="1.8"></rect></svg>
+          </div>
+          <div style="width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:#201E1D">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="#8A857E" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="12" height="13.5" rx="2.5"></rect><path d="M7.5 10.5l1.8 1.8 3.4-3.8"></path></svg>
+          </div>
+          <div style="width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative" style-hover="background:#201E1D">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="#8A857E" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M10 3.8l6.6 12.4H3.4z"></path><path d="M10 8.6v3.2M10 14.1v.1"></path></svg>
+            <span style="position:absolute;top:9px;right:9px;width:6px;height:6px;border-radius:50%;background:#E0A340"></span>
+          </div>
+          <div style="width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:#201E1D">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="#8A857E" stroke-width="1.5" stroke-linecap="round"><circle cx="10" cy="10" r="7"></circle><path d="M8.4 7.6v4.8M11.6 7.6v4.8"></path></svg>
+          </div>
+          <div style="margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:12px">
+            <div style="width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:#201E1D">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="#8A857E" stroke-width="1.6" stroke-linecap="round"><path d="M8 5l5 5-5 5"></path></svg>
+            </div>
+            <span style="width:28px;height:28px;border-radius:50%;background:#2E2B29;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#96918B">MS</span>
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;padding:20px 24px">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:#7A756F"><span>Produção real</span><span style="color:#4A4642">/</span><span style="color:#F0EEEB">Visão geral</span></div>
+            <span style="flex:1"></span>
+            <div style="display:flex;align-items:center;gap:10px;border-radius:999px;background:#211F1E;padding:6px 8px 6px 12px;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)">
+              <span style="width:16px;height:16px;border-radius:50%;border:1px solid rgba(62,207,165,.38);display:flex;align-items:center;justify-content:center"><span style="width:6px;height:6px;border-radius:50%;background:#3ECFA5;animation:sit-pulse 3.4s ease-in-out infinite"></span></span>
+              <span style="font-size:13px;font-weight:500">Intelligence</span>
+            </div>
+          </div>
+          <h1 style="margin:20px 0 0;font-size:32px;font-weight:600;letter-spacing:-.035em">Visão geral</h1>
+          <div style="display:flex;align-items:flex-end;gap:40px;margin-top:26px">
+            <div>
+              <div style="font-size:12.5px;color:#96918B">Produção acabada</div>
+              <div style="font-size:52px;font-weight:600;letter-spacing:-.045em;line-height:.95;margin-top:8px">18.940</div>
+            </div>
+            <div style="padding-bottom:6px">
+              <div style="font-size:12.5px;color:#96918B">Processada</div>
+              <div style="font-size:26px;font-weight:500;letter-spacing:-.03em;margin-top:6px">31.410</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-top:30px">
+            <div><div style="font-size:12px;color:#96918B">Performance</div><div style="font-size:21px;font-weight:600;letter-spacing:-.03em;margin-top:6px">104,8%</div></div>
+            <div><div style="font-size:12px;color:#96918B">Disponibilidade</div><div style="font-size:21px;font-weight:600;letter-spacing:-.03em;margin-top:6px">88,2%</div></div>
+            <div><div style="font-size:12px;color:#96918B">Qualidade</div><div style="font-size:21px;font-weight:600;letter-spacing:-.03em;margin-top:6px">99,1%</div></div>
+            <div><div style="font-size:12px;color:#96918B">OEE</div><div style="font-size:21px;font-weight:600;letter-spacing:-.03em;margin-top:6px">91,0%</div></div>
+          </div>
+          <div style="margin-top:30px">
+            <div style="display:grid;grid-template-columns:1.6fr 1fr 1fr 96px;gap:16px;font-size:12px;color:#7A756F;padding-bottom:10px"><span>Produto</span><span style="text-align:right">Previsto</span><span style="text-align:right">Falta</span><span style="text-align:right">Estado</span></div>
+            <div style="display:grid;grid-template-columns:1.6fr 1fr 1fr 96px;gap:16px;align-items:center;padding:12px 0;border-top:1px solid #262422;font-size:13.5px"><span>Tampa 200ml</span><span style="text-align:right">42.000</span><span style="text-align:right;color:#7A756F">0</span><span style="text-align:right;font-size:12.5px;color:#3ECFA5">Concluído</span></div>
+            <div style="display:grid;grid-template-columns:1.6fr 1fr 1fr 96px;gap:16px;align-items:center;padding:12px 0;border-top:1px solid #262422;font-size:13.5px"><span>Pote 500ml</span><span style="text-align:right">28.000</span><span style="text-align:right">13.400</span><span style="text-align:right;font-size:12.5px;color:#E0A340">Atenção</span></div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:12.5px;color:#7A756F;margin-top:10px">Ícone com o rótulo em tooltip ao segurar; a seta no pé expande. O item ativo mantém o traço verde à esquerda mesmo recolhido.</div>
+    </div>
+
+    <div>
+      <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Tablet 834 · expandida sobre o conteúdo</div>
+      <div style="width:834px;height:520px;background:#1A1918;border-radius:10px;overflow:hidden;position:relative;display:flex">
+        <div style="width:72px;flex:none;background:#161514"></div>
+        <div style="flex:1;min-width:0;padding:20px 24px;opacity:.75">
+          <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:#7A756F;padding-left:224px"><span>Produção real</span><span style="color:#4A4642">/</span><span style="color:#F0EEEB">Visão geral</span></div>
+          <h1 style="margin:20px 0 0;font-size:32px;font-weight:600;letter-spacing:-.035em;padding-left:224px">Visão geral</h1>
+          <div style="display:flex;align-items:flex-end;gap:36px;margin-top:26px;padding-left:224px">
+            <div>
+              <div style="font-size:12.5px;color:#96918B">Produção acabada</div>
+              <div style="font-size:44px;font-weight:600;letter-spacing:-.045em;line-height:.95;margin-top:8px">18.940</div>
+            </div>
+            <div style="padding-bottom:6px">
+              <div style="font-size:12.5px;color:#96918B">Processada</div>
+              <div style="font-size:24px;font-weight:500;letter-spacing:-.03em;margin-top:6px">31.410</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-top:28px;padding-left:224px">
+            <div><div style="font-size:12px;color:#96918B">Performance</div><div style="font-size:21px;font-weight:600;letter-spacing:-.03em;margin-top:6px">104,8%</div></div>
+            <div><div style="font-size:12px;color:#96918B">Disponibilidade</div><div style="font-size:21px;font-weight:600;letter-spacing:-.03em;margin-top:6px">88,2%</div></div>
+            <div><div style="font-size:12px;color:#96918B">Qualidade</div><div style="font-size:21px;font-weight:600;letter-spacing:-.03em;margin-top:6px">99,1%</div></div>
+            <div><div style="font-size:12px;color:#96918B">OEE</div><div style="font-size:21px;font-weight:600;letter-spacing:-.03em;margin-top:6px">91,0%</div></div>
+          </div>
+          <div style="margin-top:28px;padding-left:224px">
+            <div style="display:grid;grid-template-columns:1.4fr 1fr 96px;gap:14px;align-items:center;padding:12px 0;border-top:1px solid #262422;font-size:13.5px"><span>Tampa 200ml</span><span style="text-align:right">42.000</span><span style="text-align:right;font-size:12.5px;color:#3ECFA5">Concluído</span></div>
+            <div style="display:grid;grid-template-columns:1.4fr 1fr 96px;gap:14px;align-items:center;padding:12px 0;border-top:1px solid #262422;font-size:13.5px"><span>Pote 500ml</span><span style="text-align:right">28.000</span><span style="text-align:right;font-size:12.5px;color:#E0A340">Atenção</span></div>
+          </div>
+        </div>
+        <div style="position:absolute;inset:0 0 0 72px;background:rgba(12,11,10,.45)"></div>
+        <div style="position:absolute;top:0;bottom:0;left:0;width:248px;background:#161514;padding:20px 0;display:flex;flex-direction:column;box-shadow:24px 0 60px -30px rgba(0,0,0,.95)">
+          <div style="display:flex;align-items:center;gap:10px;padding:0 22px 24px">
+            <span style="width:16px;height:16px;border-radius:50%;background:#3ECFA5"></span>
+            <span style="font-size:16px;font-weight:600;letter-spacing:-.02em;flex:1">Sittech</span>
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="#7A756F" stroke-width="1.6" stroke-linecap="round" style="cursor:pointer"><path d="M12 5l-5 5 5 5"></path></svg>
+          </div>
+          <div style="padding:0 22px 8px;font-size:11.5px;letter-spacing:.05em;color:#635F5A">Planejamento</div>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 22px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="flex:none;opacity:.8"><rect x="3" y="4.5" width="14" height="12.5" rx="2.5"></rect><path d="M3 8.5h14M7 3v3M13 3v3"></path></svg>Previsão semanal
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 22px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.8"><path d="M3.2 14.5a8 8 0 1113.6 0"></path><path d="M10 14.5l3.4-4"></path></svg>Capacidade semanal
+          </div>
+          <div style="padding:20px 22px 8px;font-size:11.5px;letter-spacing:.05em;color:#635F5A">Produção real</div>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 22px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex:none;opacity:.8"><rect x="4" y="3.5" width="12" height="13.5" rx="2.5"></rect><path d="M7.5 10.5l1.8 1.8 3.4-3.8"></path></svg>Apontamento
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 22px;font-size:14px;font-weight:600;position:relative">
+            <span style="position:absolute;left:0;top:10px;bottom:10px;width:2px;border-radius:2px;background:#3ECFA5"></span>
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#3ECFA5" stroke-width="1.5" style="flex:none"><rect x="3" y="3" width="6" height="6" rx="1.8"></rect><rect x="11" y="3" width="6" height="6" rx="1.8"></rect><rect x="3" y="11" width="6" height="6" rx="1.8"></rect><rect x="11" y="11" width="6" height="6" rx="1.8"></rect></svg>Visão geral
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 22px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" style="flex:none;opacity:.8"><rect x="3" y="11" width="3.6" height="6" rx="1.4"></rect><rect x="8.2" y="7.5" width="3.6" height="9.5" rx="1.4"></rect><rect x="13.4" y="3.5" width="3.6" height="13.5" rx="1.4"></rect></svg>Produtividade
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 22px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" style="flex:none;opacity:.8"><path d="M10 3.8l6.6 12.4H3.4z"></path><path d="M10 8.6v3.2M10 14.1v.1"></path></svg><span style="flex:1">Desvios</span><span style="font-size:12.5px;color:#E0A340">3</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 22px;font-size:14px;color:#96918B;cursor:pointer" style-hover="color:#F0EEEB">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.8"><circle cx="10" cy="10" r="7"></circle><path d="M8.4 7.6v4.8M11.6 7.6v4.8"></path></svg>Paradas
+          </div>
+          <div style="margin-top:auto;padding:20px 22px 0">
+            <div style="font-size:12.5px;color:#7A756F">Meta semanal</div>
+            <div style="display:flex;align-items:baseline;gap:8px;margin-top:6px"><span style="font-size:20px;font-weight:600;letter-spacing:-.03em">76%</span><span style="font-size:12px;color:#7A756F">R$ 182,4k</span></div>
+            <div style="height:4px;border-radius:2px;background:#262422;margin-top:10px;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:76%;background:#3ECFA5"></span></div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:12.5px;color:#7A756F;margin-top:10px">Expandida, ela sobrepõe em vez de empurrar: a leitura da tabela atrás não reflui. Fecha por toque fora, pela seta ou por Esc.</div>
+    </div>
+
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Mobile 390 · fechada</div>
+        <div style="width:390px;height:660px;background:#161514;border-radius:26px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="height:36px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 20px 4px;font-size:11.5px;color:#7A756F"><span>14:31</span><span>safe area</span></div>
+          <div style="display:flex;align-items:center;gap:14px;padding:12px 18px">
+            <div style="width:44px;height:44px;border-radius:12px;background:#201E1D;display:flex;align-items:center;justify-content:center;cursor:pointer">
+              <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="#F0EEEB" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 6h13M3.5 10h13M3.5 14h9"></path></svg>
+            </div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:11.5px;color:#7A756F">Produção real</div>
+              <div style="font-size:14.5px;font-weight:600;letter-spacing:-.015em">Visão geral</div>
+            </div>
+            <div style="width:44px;height:44px;border-radius:12px;background:#201E1D;display:flex;align-items:center;justify-content:center;cursor:pointer">
+              <span style="width:18px;height:18px;border-radius:50%;border:1px solid rgba(62,207,165,.4);display:flex;align-items:center;justify-content:center"><span style="width:6px;height:6px;border-radius:50%;background:#3ECFA5;animation:sit-pulse 3.4s ease-in-out infinite"></span></span>
+            </div>
+          </div>
+          <div style="padding:14px 20px 0;flex:1;display:flex;flex-direction:column;gap:22px">
+            <div>
+              <div style="font-size:12.5px;color:#7A756F">Semana 36 · 1 a 7 set</div>
+              <div style="font-size:12.5px;color:#96918B;margin-top:16px">Produção acabada</div>
+              <div style="font-size:56px;font-weight:600;letter-spacing:-.045em;line-height:.95;margin-top:8px">18.940</div>
+              <div style="font-size:12.5px;color:#7A756F;margin-top:8px">peças · última etapa · processada 31.410</div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+              <div><div style="font-size:12px;color:#96918B">Performance</div><div style="font-size:22px;font-weight:600;letter-spacing:-.03em;margin-top:6px">104,8%</div></div>
+              <div><div style="font-size:12px;color:#96918B">Disponibilidade</div><div style="font-size:22px;font-weight:600;letter-spacing:-.03em;margin-top:6px">88,2%</div></div>
+              <div><div style="font-size:12px;color:#96918B">Qualidade</div><div style="font-size:22px;font-weight:600;letter-spacing:-.03em;margin-top:6px">99,1%</div></div>
+              <div><div style="font-size:12px;color:#96918B">OEE</div><div style="font-size:22px;font-weight:600;letter-spacing:-.03em;margin-top:6px">91,0%</div></div>
+            </div>
+            <div>
+              <div style="font-size:14px;font-weight:600;letter-spacing:-.015em">Agora</div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;padding:12px 0;border-top:1px solid #262422;margin-top:10px"><span style="font-size:13.5px">Injetora 07</span><span style="font-size:13px;color:#E2695C">1h 42min</span></div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;padding:12px 0;border-top:1px solid #262422"><span style="font-size:13.5px">Rotuladora 02</span><span style="font-size:13px;color:#E0A340">18min</span></div>
+            </div>
+          </div>
+          <div style="height:22px;display:flex;align-items:center;justify-content:center"><span style="width:110px;height:4px;border-radius:2px;background:#302D2B"></span></div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:13px;color:#7A756F;margin-bottom:12px">Mobile 390 · gaveta aberta</div>
+        <div style="width:390px;height:660px;background:#161514;border-radius:26px;overflow:hidden;position:relative">
+          <div style="opacity:.35;padding:36px 20px 0">
+            <div style="font-size:14.5px;font-weight:600;margin-left:58px">Visão geral</div>
+            <div style="font-size:56px;font-weight:600;letter-spacing:-.045em;margin-top:40px">18.940</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:34px">
+              <div style="height:40px;border-radius:8px;background:#201E1D"></div>
+              <div style="height:40px;border-radius:8px;background:#201E1D"></div>
+              <div style="height:40px;border-radius:8px;background:#201E1D"></div>
+              <div style="height:40px;border-radius:8px;background:#201E1D"></div>
+            </div>
+          </div>
+          <div style="position:absolute;inset:0;background:rgba(12,11,10,.66)"></div>
+          <div style="position:absolute;top:0;bottom:0;left:0;width:296px;background:#1A1918;display:flex;flex-direction:column;padding:36px 0 0;box-shadow:24px 0 60px -24px rgba(0,0,0,.95)">
+            <div style="display:flex;align-items:center;gap:11px;padding:10px 20px 22px">
+              <span style="width:18px;height:18px;border-radius:50%;background:#3ECFA5"></span>
+              <span style="font-size:17px;font-weight:600;letter-spacing:-.02em;flex:1">Sittech</span>
+              <div style="width:40px;height:40px;border-radius:12px;background:#201E1D;display:flex;align-items:center;justify-content:center;cursor:pointer">
+                <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="#96918B" stroke-width="1.7" stroke-linecap="round"><path d="M5.5 5.5l9 9M14.5 5.5l-9 9"></path></svg>
+              </div>
+            </div>
+            <div style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+              <div style="display:flex;align-items:center;gap:14px;padding:13px 20px;font-size:15px;color:#96918B;cursor:pointer">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" style="flex:none;opacity:.8"><path d="M3.5 8.6L10 3.5l6.5 5.1v7.4a1 1 0 01-1 1h-11a1 1 0 01-1-1z"></path></svg>Início
+              </div>
+              <div style="padding:18px 20px 6px;font-size:11.5px;letter-spacing:.05em;color:#635F5A">Planejamento</div>
+              <div style="display:flex;align-items:center;gap:14px;padding:13px 20px;font-size:15px;color:#96918B;cursor:pointer">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="flex:none;opacity:.8"><rect x="3" y="4.5" width="14" height="12.5" rx="2.5"></rect><path d="M3 8.5h14M7 3v3M13 3v3"></path></svg>Previsão semanal
+              </div>
+              <div style="padding:18px 20px 6px;font-size:11.5px;letter-spacing:.05em;color:#635F5A">Produção real</div>
+              <div style="display:flex;align-items:center;gap:14px;padding:13px 20px;font-size:15px;color:#96918B;cursor:pointer">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex:none;opacity:.8"><rect x="4" y="3.5" width="12" height="13.5" rx="2.5"></rect><path d="M7.5 10.5l1.8 1.8 3.4-3.8"></path></svg>Apontamento
+              </div>
+              <div style="display:flex;align-items:center;gap:14px;padding:13px 20px;font-size:15px;font-weight:600;position:relative;background:rgba(62,207,165,.08)">
+                <span style="position:absolute;left:0;top:12px;bottom:12px;width:2px;border-radius:2px;background:#3ECFA5"></span>
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="#3ECFA5" stroke-width="1.5" style="flex:none"><rect x="3" y="3" width="6" height="6" rx="1.8"></rect><rect x="11" y="3" width="6" height="6" rx="1.8"></rect><rect x="3" y="11" width="6" height="6" rx="1.8"></rect><rect x="11" y="11" width="6" height="6" rx="1.8"></rect></svg>Visão geral
+              </div>
+              <div style="display:flex;align-items:center;gap:14px;padding:13px 20px;font-size:15px;color:#96918B;cursor:pointer">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" style="flex:none;opacity:.8"><rect x="3" y="11" width="3.6" height="6" rx="1.4"></rect><rect x="8.2" y="7.5" width="3.6" height="9.5" rx="1.4"></rect><rect x="13.4" y="3.5" width="3.6" height="13.5" rx="1.4"></rect></svg>Produtividade
+              </div>
+              <div style="display:flex;align-items:center;gap:14px;padding:13px 20px;font-size:15px;color:#96918B;cursor:pointer">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" style="flex:none;opacity:.8"><path d="M10 3.8l6.6 12.4H3.4z"></path><path d="M10 8.6v3.2M10 14.1v.1"></path></svg><span style="flex:1">Desvios</span><span style="font-size:13px;color:#E0A340">3</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:14px;padding:13px 20px;font-size:15px;color:#96918B;cursor:pointer">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="flex:none;opacity:.8"><circle cx="10" cy="10" r="7"></circle><path d="M8.4 7.6v4.8M11.6 7.6v4.8"></path></svg>Paradas
+              </div>
+            </div>
+            <div style="padding:18px 20px 0;border-top:1px solid #262422;margin-top:8px">
+              <div style="font-size:12.5px;color:#7A756F">Meta semanal</div>
+              <div style="display:flex;align-items:baseline;gap:8px;margin-top:6px"><span style="font-size:20px;font-weight:600;letter-spacing:-.03em">76%</span><span style="font-size:12.5px;color:#7A756F">R$ 182,4k de 240k</span></div>
+              <div style="height:4px;border-radius:2px;background:#262422;margin-top:10px;position:relative;overflow:hidden"><span style="position:absolute;top:0;bottom:0;left:0;width:76%;background:#3ECFA5"></span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:18px 0 20px">
+                <span style="width:28px;height:28px;border-radius:50%;background:#2E2B29;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#96918B">MS</span>
+                <span style="font-size:13.5px;color:#96918B;flex:1">Marina Souza</span>
+                <span style="font-size:13px;color:#635F5A">Sair</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="width:300px;display:flex;flex-direction:column;gap:16px">
+        <div style="font-size:13px;color:#7A756F">Comportamento</div>
+        <div style="display:flex;flex-direction:column;gap:14px;font-size:13.5px;line-height:1.6;color:#96918B">
+          <div>Desktop ≥1280: sidebar fixa de 248px, recolhível para 72px pela mesma seta.</div>
+          <div>Tablet 768–1279: recolhida por padrão; expandir sobrepõe o conteúdo com fundo escurecido.</div>
+          <div>Mobile ≤767: gaveta de 296px, itens com 46px de altura, fecha por toque fora, arraste para a esquerda ou Esc.</div>
+          <div>Estado recolhido é lembrado por dispositivo; a rota atual sempre abre o grupo dono dela.</div>
+          <div>Em modo standalone a gaveta respeita a safe area no topo e no rodapé.</div>
+          <div>No apontamento em tablet a sidebar já entra recolhida: a grade de máquinas ganha a largura inteira.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{}">
+class Component extends DCLogic {}
+</script>
+</body>
+</html>

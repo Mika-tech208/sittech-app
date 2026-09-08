@@ -48,19 +48,27 @@ export function calcularProdutosProgramados(
 
 export interface ResumoProgramacaoPecas {
   totalPrevisto: number;
+  totalPossivel: number;
   totalRealizado: number;
+  totalFalta: number;
   concluidoPct: number | null;
 }
 
 // Soma simples de peças dos produtos PREVISTOS (não inclui produção fora
 // da previsão — ver calcularProdutosNaoPrevistos) — indicador de
 // acompanhamento, não de capacidade (somar peças de produtos diferentes
-// não representa uso de capacidade fabril).
+// não representa uso de capacidade fabril). totalPossivel/totalFalta
+// somam exatamente os mesmos campos por-produto que ProdutoProgramado já
+// carrega (nenhuma fórmula nova, mesmo reduce já usado em
+// totalPrevisto/totalRealizado) — só pra composição visual mostrar os
+// quatro totais lado a lado (Previsto/Possível/Realizado/Falta).
 export function calcularResumoProgramacaoPecas(produtos: ProdutoProgramado[]): ResumoProgramacaoPecas {
   const totalPrevisto = produtos.reduce((s, p) => s + p.previsto, 0);
+  const totalPossivel = produtos.reduce((s, p) => s + p.possivel, 0);
   const totalRealizado = produtos.reduce((s, p) => s + p.realizado, 0);
+  const totalFalta = produtos.reduce((s, p) => s + p.falta, 0);
   const concluidoPct = totalPrevisto > 0 ? (totalRealizado / totalPrevisto) * 100 : null;
-  return { totalPrevisto, totalRealizado, concluidoPct };
+  return { totalPrevisto, totalPossivel, totalRealizado, totalFalta, concluidoPct };
 }
 
 export interface ProdutoNaoPrevisto {

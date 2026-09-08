@@ -17,7 +17,7 @@ import { useProdutos } from "@/hooks/useProdutos";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useApontamentosRealizados, type FiltrosApontamentos, type ApontamentoRealizado } from "@/hooks/useApontamentosRealizados";
-import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
+import { useSidebarState } from "@/hooks/useSidebarState";
 import { LABEL_MOTIVO_SEM_PRODUCAO } from "@/features/producao-real/SemProducaoModal";
 import ResumoApontamentoModal from "@/features/producao-real/ResumoApontamentoModal";
 import PerformanceIndicador from "@/features/producao-real/components/PerformanceIndicador";
@@ -47,7 +47,7 @@ export default function ApontamentosRealizadosPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("producaoRealApontamentos");
+  const shell = useSidebarState("producaoRealApontamentos");
 
   const auth = useAuthSession();
   const cadastrosBase = useCadastrosBase(auth.autenticado);
@@ -181,15 +181,21 @@ export default function ApontamentosRealizadosPage() {
           <Sidebar
             tema={tema}
             abaAtiva="producaoRealApontamentos"
-            onNavigateTab={() => { router.push("/"); }}
-            gruposAbertos={gruposAbertos}
-            toggleGrupo={toggleGrupo}
+            onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+            gruposAbertos={shell.gruposAbertos}
+            toggleGrupo={shell.toggleGrupo}
             usuarioLogado={auth.usuarioLogado}
             metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
             metaInvalida={metaInvalida}
             metaSemanalFinal={metaSemanalFinal}
             formatBRL={formatBRL}
             onMetaClick={() => { router.push("/"); }}
+            onAbrirMinhaConta={auth.abrirMinhaConta}
+            onSair={() => auth.handleLogout()}
+            recolhida={shell.recolhida}
+            onToggleRecolhida={shell.toggleRecolhida}
+            gavetaAberta={shell.gavetaAberta}
+            onFecharGaveta={shell.fecharGaveta}
           />
           <AcessoNegado />
         </div>
@@ -204,52 +210,57 @@ export default function ApontamentosRealizadosPage() {
         <Sidebar
           tema={tema}
           abaAtiva="producaoRealApontamentos"
-          onNavigateTab={() => { router.push("/"); }}
-          gruposAbertos={gruposAbertos}
-          toggleGrupo={toggleGrupo}
+          onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+          gruposAbertos={shell.gruposAbertos}
+          toggleGrupo={shell.toggleGrupo}
           usuarioLogado={auth.usuarioLogado}
           metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
           metaInvalida={metaInvalida}
           metaSemanalFinal={metaSemanalFinal}
           formatBRL={formatBRL}
           onMetaClick={() => { router.push("/"); }}
+          onAbrirMinhaConta={auth.abrirMinhaConta}
+          onSair={() => auth.handleLogout()}
+          recolhida={shell.recolhida}
+          onToggleRecolhida={shell.toggleRecolhida}
+          gavetaAberta={shell.gavetaAberta}
+          onFecharGaveta={shell.fecharGaveta}
         />
 
         <div className="stx-content-wrapper">
+          <TopBarActions
+            modoPrivado={modoPrivado}
+            onToggleModoPrivado={toggleModoPrivado}
+            tema={tema}
+            onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
+            usuarioLogado={auth.usuarioLogado}
+            abaAtiva="producaoRealApontamentos"
+            onAbrirMenu={shell.abrirGaveta}
+          />
           <div className="stx-header">
             <div>
               <h1 className="stx-title">Apontamentos realizados</h1>
             </div>
-            <div className="stx-header-right">
-              <TopBarActions
-                modoPrivado={modoPrivado}
-                onToggleModoPrivado={toggleModoPrivado}
-                tema={tema}
-                onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
-                onAbrirMinhaConta={auth.abrirMinhaConta}
-                onSair={() => auth.handleLogout()}
-              />
-            </div>
           </div>
 
-          <button type="button" className="stx-pr-filtros-toggle" onClick={() => setFiltrosAbertos((v) => !v)}>
+          <button type="button" className="stx-apr-filtros-toggle" onClick={() => setFiltrosAbertos((v) => !v)}>
             {filtrosAbertos ? <ChevronDown size={15} /> : <ChevronRight size={15} />} Filtros
           </button>
 
           {filtrosAbertos && (
-            <div className="stx-panel stx-pr-filtros-painel">
-              <div className="stx-pr-filtros-grid">
+            <div className="stx-apr-filtros-panel">
+              <div className="stx-apr-filtros-grid">
                 <div>
-                  <label className="stx-label">Data inicial</label>
-                  <input type="date" className="stx-input" value={filtrosForm.dataInicial || ""} onChange={(e) => setFiltrosForm((f) => ({ ...f, dataInicial: e.target.value || undefined }))} />
+                  <label className="stx-ap-field-label">Data inicial</label>
+                  <input type="date" className="stx-ap-input" value={filtrosForm.dataInicial || ""} onChange={(e) => setFiltrosForm((f) => ({ ...f, dataInicial: e.target.value || undefined }))} />
                 </div>
                 <div>
-                  <label className="stx-label">Data final</label>
-                  <input type="date" className="stx-input" value={filtrosForm.dataFinal || ""} onChange={(e) => setFiltrosForm((f) => ({ ...f, dataFinal: e.target.value || undefined }))} />
+                  <label className="stx-ap-field-label">Data final</label>
+                  <input type="date" className="stx-ap-input" value={filtrosForm.dataFinal || ""} onChange={(e) => setFiltrosForm((f) => ({ ...f, dataFinal: e.target.value || undefined }))} />
                 </div>
                 <div>
-                  <label className="stx-label">Período</label>
-                  <select className="stx-select" value={filtrosForm.periodoId || ""} onChange={(e) => setFiltrosForm((f) => ({ ...f, periodoId: e.target.value || undefined }))}>
+                  <label className="stx-ap-field-label">Período</label>
+                  <select className="stx-ap-select" value={filtrosForm.periodoId || ""} onChange={(e) => setFiltrosForm((f) => ({ ...f, periodoId: e.target.value || undefined }))}>
                     <option value="">Todos</option>
                     {cadastrosBase.periodos.map((p) => (
                       <option key={p.id} value={p.id}>{p.nome}</option>
@@ -257,8 +268,8 @@ export default function ApontamentosRealizadosPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="stx-label">Máquina</label>
-                  <select className="stx-select" value={filtrosForm.maquinaId || ""} onChange={(e) => setFiltrosForm((f) => ({ ...f, maquinaId: e.target.value || undefined }))}>
+                  <label className="stx-ap-field-label">Máquina</label>
+                  <select className="stx-ap-select" value={filtrosForm.maquinaId || ""} onChange={(e) => setFiltrosForm((f) => ({ ...f, maquinaId: e.target.value || undefined }))}>
                     <option value="">Todas</option>
                     {maquinasHook.maquinas.map((m) => (
                       <option key={m.id} value={m.id}>{m.nome}</option>
@@ -266,8 +277,8 @@ export default function ApontamentosRealizadosPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="stx-label">Produto</label>
-                  <select className="stx-select" value={filtrosForm.produtoId || ""} onChange={(e) => setFiltrosForm((f) => ({ ...f, produtoId: e.target.value || undefined }))}>
+                  <label className="stx-ap-field-label">Produto</label>
+                  <select className="stx-ap-select" value={filtrosForm.produtoId || ""} onChange={(e) => setFiltrosForm((f) => ({ ...f, produtoId: e.target.value || undefined }))}>
                     <option value="">Todos</option>
                     {produtosHook.produtos.map((p) => (
                       <option key={p.id} value={p.id}>{p.nome}</option>
@@ -275,8 +286,8 @@ export default function ApontamentosRealizadosPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="stx-label">Funcionário</label>
-                  <select className="stx-select" value={filtrosForm.funcionarioId || ""} onChange={(e) => setFiltrosForm((f) => ({ ...f, funcionarioId: e.target.value || undefined }))}>
+                  <label className="stx-ap-field-label">Funcionário</label>
+                  <select className="stx-ap-select" value={filtrosForm.funcionarioId || ""} onChange={(e) => setFiltrosForm((f) => ({ ...f, funcionarioId: e.target.value || undefined }))}>
                     <option value="">Todos</option>
                     {funcionariosElegibilidadeHook.funcionarios.map((f) => (
                       <option key={f.id} value={f.id}>{f.nome}</option>
@@ -284,9 +295,9 @@ export default function ApontamentosRealizadosPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="stx-label">Status</label>
+                  <label className="stx-ap-field-label">Status</label>
                   <select
-                    className="stx-select"
+                    className="stx-ap-select"
                     value={filtrosForm.status || ""}
                     onChange={(e) => setFiltrosForm((f) => ({ ...f, status: (e.target.value || undefined) as FiltrosApontamentos["status"] }))}
                   >
@@ -296,9 +307,9 @@ export default function ApontamentosRealizadosPage() {
                   </select>
                 </div>
               </div>
-              <div className="stx-form-actions" style={{ marginTop: 12 }}>
-                <button type="button" className="stx-btn-primary" onClick={aplicarFiltros}>Filtrar</button>
-                <button type="button" className="stx-btn-secondary" onClick={limparFiltros}>Limpar</button>
+              <div className="stx-apr-filtros-actions">
+                <button type="button" className="stx-apr-pill-btn-primary" onClick={aplicarFiltros}>Filtrar</button>
+                <button type="button" className="stx-apr-pill-btn" onClick={limparFiltros}>Limpar</button>
               </div>
             </div>
           )}
@@ -312,19 +323,19 @@ export default function ApontamentosRealizadosPage() {
           ) : (
             <>
               {apontamentosComFuncionario.length >= apontamentosHook.limite && (
-                <p className="stx-panel-sub">Mostrando os {apontamentosHook.limite} mais recentes — refine os filtros para ver outros.</p>
+                <p className="stx-apr-ref">Mostrando os {apontamentosHook.limite} mais recentes — refine os filtros para ver outros.</p>
               )}
-              <div className="stx-pr-lista-realizados">
+              <div className="stx-apr-list">
                 {apontamentosComFuncionario.map((a) => (
-                  <div key={a.id} className="stx-pr-linha-realizado" onClick={() => setApontamentoSelecionado(a)}>
-                    <div className="stx-pr-linha-realizado-topo">
-                      <span className="stx-pr-linha-realizado-data">{a.data.split("-").reverse().join("/")} · {a.periodoNome} · {a.maquinaNome}</span>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <div key={a.id} className="stx-apr-row" onClick={() => setApontamentoSelecionado(a)}>
+                    <div className="stx-apr-row-top">
+                      <span className="stx-apr-row-data">{a.data.split("-").reverse().join("/")} · {a.periodoNome} · {a.maquinaNome}</span>
+                      <div className="stx-apr-row-right">
                         <PerformanceIndicador performancePct={a.performancePct} />
-                        <span className={`stx-pr-pill-status estado-${a.status}`}>{a.status === "produzindo" ? "Apontado" : "Sem produção"}</span>
+                        <span className={`stx-apr-pill estado-${a.status}`}>{a.status === "produzindo" ? "Apontado" : "Sem produção"}</span>
                       </div>
                     </div>
-                    <p className="stx-pr-linha-realizado-detalhe">
+                    <p className="stx-apr-row-detalhe">
                       {a.status === "produzindo"
                         ? `${a.produtoNome} · ${a.funcionarioNome} · ${a.quantidadeProduzida} un. (refugo ${a.quantidadeRefugo})`
                         : LABEL_MOTIVO_SEM_PRODUCAO[a.motivoSemProducao || ""] || a.motivoSemProducao}

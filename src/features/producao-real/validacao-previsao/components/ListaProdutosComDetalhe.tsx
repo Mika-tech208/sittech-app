@@ -36,7 +36,7 @@ export default function ListaProdutosComDetalhe({ itens }: { itens: ItemValidaca
         const expandido = expandidoId === it.itemId;
         const estadoInfo = LABEL_ESTADO[it.estado];
         return (
-          <div key={it.itemId} className="stx-panel" style={{ marginBottom: 10 }}>
+          <div key={it.itemId} className="stx-queue-item">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
               <div style={{ flex: 1 }}>
                 <span className={`stx-performance-badge ${estadoInfo.classe}`}>{estadoInfo.label}</span>

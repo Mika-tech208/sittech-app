@@ -129,48 +129,51 @@ export default function AbrirOcorrenciaModal({ maquinasDisponiveis, funcionarios
 
   return (
     <div className="stx-modal-backdrop" onClick={etapa === "preenchendo" ? onFechar : undefined}>
-      <div className="stx-modal-card stx-pr-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="stx-ap-modal-card" onClick={(e) => e.stopPropagation()}>
         {etapa === "confirmado" ? (
-          <div className="stx-pr-confirmacao">
-            <p className="stx-pr-confirmacao-check">🔴 Máquina parada</p>
-            <p className="stx-pr-confirmacao-produto">{maquinaNomeSalva}</p>
-            <div className="stx-pr-confirmacao-acoes">
-              <button type="button" className="stx-btn-primary" onClick={onFechar}>Fechar</button>
+          <div className="stx-ap-confirm">
+            <p className="stx-ap-confirm-check" style={{ color: "var(--danger)" }}>🔴 Máquina parada</p>
+            <p className="stx-ap-confirm-detail">{maquinaNomeSalva}</p>
+            <div className="stx-ap-confirm-actions">
+              <button type="button" className="stx-ap-btn-primary" onClick={onFechar}>Fechar</button>
             </div>
           </div>
         ) : (
           <>
-            <p className="stx-modal-titulo">Informar máquina parada</p>
+            <div className="stx-ap-modal-head">
+              <p className="stx-ap-modal-title" style={{ margin: 0 }}>Informar máquina parada</p>
+              <button type="button" className="stx-ap-modal-close" onClick={onFechar} aria-label="Fechar">✕</button>
+            </div>
 
-            <div style={{ marginBottom: 12 }}>
-              <label className="stx-label">Máquina</label>
-              <select className="stx-select" value={maquinaId} onChange={(e) => selecionarMaquina(e.target.value)}>
+            <div className="stx-ap-field" style={{ marginTop: 20 }}>
+              <label className="stx-ap-field-label">Máquina</label>
+              <select className="stx-ap-select" value={maquinaId} onChange={(e) => selecionarMaquina(e.target.value)}>
                 <option value="">Selecione…</option>
                 {maquinasDisponiveis.map((m) => (
                   <option key={m.id} value={m.id}>{m.nome}</option>
                 ))}
               </select>
               {maquinasDisponiveis.length === 0 && (
-                <p className="stx-save-error" style={{ marginTop: 6 }}>Nenhuma máquina disponível — todas já têm ocorrência aberta.</p>
+                <p className="stx-ap-error">Nenhuma máquina disponível — todas já têm ocorrência aberta.</p>
               )}
             </div>
 
-            <div style={{ marginBottom: 12 }}>
-              <label className="stx-label">Produto</label>
-              <select className="stx-select" value={produtoId} onChange={(e) => setProdutoId(e.target.value)} disabled={!maquinaId || produtosCarregando}>
+            <div className="stx-ap-field">
+              <label className="stx-ap-field-label">Produto</label>
+              <select className="stx-ap-select" value={produtoId} onChange={(e) => setProdutoId(e.target.value)} disabled={!maquinaId || produtosCarregando}>
                 <option value="">{!maquinaId ? "Selecione a máquina primeiro" : produtosCarregando ? "Carregando…" : "Selecione…"}</option>
                 {produtos.map((p) => (
                   <option key={p.id} value={p.id}>{p.nome}</option>
                 ))}
               </select>
               {maquinaId && !produtosCarregando && produtos.length === 0 && (
-                <p className="stx-save-error" style={{ marginTop: 6 }}>Nenhum produto elegível cadastrado para esta máquina.</p>
+                <p className="stx-ap-error">Nenhum produto elegível cadastrado para esta máquina.</p>
               )}
             </div>
 
-            <div style={{ marginBottom: 12 }}>
-              <label className="stx-label">Funcionário</label>
-              <select className="stx-select" value={funcionarioId} onChange={(e) => setFuncionarioId(e.target.value)}>
+            <div className="stx-ap-field">
+              <label className="stx-ap-field-label">Funcionário</label>
+              <select className="stx-ap-select" value={funcionarioId} onChange={(e) => setFuncionarioId(e.target.value)}>
                 <option value="">Selecione…</option>
                 {funcionariosAtivos.map((f) => (
                   <option key={f.id} value={f.id}>{f.nome}</option>
@@ -178,9 +181,9 @@ export default function AbrirOcorrenciaModal({ maquinasDisponiveis, funcionarios
               </select>
             </div>
 
-            <div style={{ marginBottom: 12 }}>
-              <label className="stx-label">Tipo/motivo</label>
-              <select className="stx-select" value={motivoId} onChange={(e) => setMotivoId(e.target.value)} disabled={motivosCarregando}>
+            <div className="stx-ap-field">
+              <label className="stx-ap-field-label">Tipo/motivo</label>
+              <select className="stx-ap-select" value={motivoId} onChange={(e) => setMotivoId(e.target.value)} disabled={motivosCarregando}>
                 <option value="">{motivosCarregando ? "Carregando…" : "Selecione…"}</option>
                 {motivos.map((mo) => (
                   <option key={mo.id} value={mo.id}>{mo.nome}</option>
@@ -188,18 +191,18 @@ export default function AbrirOcorrenciaModal({ maquinasDisponiveis, funcionarios
               </select>
             </div>
 
-            <div style={{ marginBottom: 16 }}>
-              <label className="stx-label">O que aconteceu?</label>
-              <input type="text" className="stx-input" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Descreva o problema" />
+            <div className="stx-ap-field">
+              <label className="stx-ap-field-label">O que aconteceu?</label>
+              <input type="text" className="stx-ap-input" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Descreva o problema" />
             </div>
 
-            {erro && <p className="stx-save-error" style={{ marginBottom: 12 }}>{erro}</p>}
+            {erro && <p className="stx-ap-error">{erro}</p>}
 
-            <div className="stx-form-actions" style={{ flexDirection: "column" }}>
-              <button type="button" className="stx-btn-primary" disabled={!podeSalvar} onClick={salvar}>
-                {etapa === "salvando" ? "Salvando…" : "INFORMAR MÁQUINA PARADA"}
+            <div className="stx-ap-actions">
+              <button type="button" className="stx-ap-btn-primary" disabled={!podeSalvar} onClick={salvar} style={{ background: "var(--danger)" }}>
+                {etapa === "salvando" ? "Salvando…" : "Informar máquina parada"}
               </button>
-              <button type="button" className="stx-btn-secondary" onClick={onFechar} disabled={etapa === "salvando"}>Cancelar</button>
+              <button type="button" className="stx-ap-btn-secondary" onClick={onFechar} disabled={etapa === "salvando"}>Cancelar</button>
             </div>
           </>
         )}

@@ -21,7 +21,7 @@ import { useOperacoesComId } from "@/hooks/useOperacoesComId";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useDesviosProducao } from "@/hooks/useDesviosProducao";
-import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
+import { useSidebarState } from "@/hooks/useSidebarState";
 import { gerarFilaDesvios } from "@/features/producao-real/desvios";
 import type { DominioDesvio, SeveridadeDesvio } from "@/features/producao-real/desvios/types";
 import ResumoDesviosCards from "@/features/producao-real/desvios/components/ResumoDesviosCards";
@@ -59,7 +59,7 @@ export default function DesviosPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("prDesvios");
+  const shell = useSidebarState("prDesvios");
 
   const auth = useAuthSession();
   const cadastrosBase = useCadastrosBase(auth.autenticado);
@@ -160,10 +160,14 @@ export default function DesviosPage() {
         <GlobalStyles cores={cores} />
         <div className="stx-layout">
           <Sidebar
-            tema={tema} abaAtiva="prDesvios" onNavigateTab={() => { router.push("/"); }}
-            gruposAbertos={gruposAbertos} toggleGrupo={toggleGrupo} usuarioLogado={auth.usuarioLogado}
+            tema={tema}
+            abaAtiva="prDesvios" onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+            gruposAbertos={shell.gruposAbertos} toggleGrupo={shell.toggleGrupo} usuarioLogado={auth.usuarioLogado}
             metaSemanalUsaPrevisto={metaSemanalUsaPrevisto} metaInvalida={metaInvalida} metaSemanalFinal={metaSemanalFinal}
             formatBRL={formatBRL} onMetaClick={() => { router.push("/"); }}
+            onAbrirMinhaConta={auth.abrirMinhaConta} onSair={() => auth.handleLogout()}
+            recolhida={shell.recolhida} onToggleRecolhida={shell.toggleRecolhida}
+            gavetaAberta={shell.gavetaAberta} onFecharGaveta={shell.fecharGaveta}
           />
           <AcessoNegado />
         </div>
@@ -176,25 +180,29 @@ export default function DesviosPage() {
       <GlobalStyles cores={cores} />
       <div className="stx-layout">
         <Sidebar
-          tema={tema} abaAtiva="prDesvios" onNavigateTab={() => { router.push("/"); }}
-          gruposAbertos={gruposAbertos} toggleGrupo={toggleGrupo} usuarioLogado={auth.usuarioLogado}
+          tema={tema}
+          abaAtiva="prDesvios" onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+          gruposAbertos={shell.gruposAbertos} toggleGrupo={shell.toggleGrupo} usuarioLogado={auth.usuarioLogado}
           metaSemanalUsaPrevisto={metaSemanalUsaPrevisto} metaInvalida={metaInvalida} metaSemanalFinal={metaSemanalFinal}
           formatBRL={formatBRL} onMetaClick={() => { router.push("/"); }}
+          onAbrirMinhaConta={auth.abrirMinhaConta} onSair={() => auth.handleLogout()}
+          recolhida={shell.recolhida} onToggleRecolhida={shell.toggleRecolhida}
+          gavetaAberta={shell.gavetaAberta} onFecharGaveta={shell.fecharGaveta}
         />
 
         <div className="stx-content-wrapper">
+          <TopBarActions
+            modoPrivado={modoPrivado} onToggleModoPrivado={toggleModoPrivado} tema={tema}
+            onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
+            usuarioLogado={auth.usuarioLogado}
+            abaAtiva="prDesvios"
+            onAbrirMenu={shell.abrirGaveta}
+          />
           <div className="stx-header">
             <div><h1 className="stx-title">Desvios</h1></div>
-            <div className="stx-header-right">
-              <TopBarActions
-                modoPrivado={modoPrivado} onToggleModoPrivado={toggleModoPrivado} tema={tema}
-                onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
-                onAbrirMinhaConta={auth.abrirMinhaConta} onSair={() => auth.handleLogout()}
-              />
-            </div>
           </div>
 
-          <div className="stx-panel stx-pr-filtros-painel">
+          <div className="stx-pr-filtros-painel">
             <div className="stx-pr-filtros-grid">
               <div>
                 <label className="stx-label">Tipo de desvio</label>
@@ -235,7 +243,7 @@ export default function DesviosPage() {
           ) : (
             <>
               <ResumoDesviosCards incidentes={incidentesFiltrados} />
-              <div className="stx-panel" style={{ marginTop: 12 }}>
+              <div className="stx-section">
                 <p className="stx-panel-title">Fila de atenção</p>
                 <FilaDesvios incidentes={incidentesFiltrados} />
               </div>

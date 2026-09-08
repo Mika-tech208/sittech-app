@@ -22,7 +22,7 @@ export default function EconomiaPorProduto({ itens }: { itens: EconomicoProduto[
   if (itens.length === 0) return <div className="stx-empty">Nenhum apontamento no período/filtro.</div>;
 
   return (
-    <div className="stx-panel">
+    <div className="stx-section">
       <p className="stx-panel-title">Economia por produto</p>
       <p className="stx-panel-sub">
         Custo industrial e margem são aproximações agregadas do período (sem rastreamento de lote/WIP) — não são custo contábil exato. Receita reconhecida só na última etapa do roteiro (produtos.valor_unitario), nunca em etapa intermediária. Clique num produto para ver a possível restrição operacional (estimativa).

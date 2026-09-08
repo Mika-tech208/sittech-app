@@ -151,42 +151,47 @@ export default function ApontamentoModal({
 
   return (
     <div className="stx-modal-backdrop" onClick={etapa === "preenchendo" ? onFechar : undefined}>
-      <div className="stx-modal-card stx-pr-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="stx-ap-modal-card" onClick={(e) => e.stopPropagation()}>
         {etapa === "confirmado" ? (
-          <div className="stx-pr-confirmacao">
-            <p className="stx-pr-confirmacao-check">✓ Apontamento salvo</p>
-            <p className="stx-pr-confirmacao-produto">{produtoNomeSalvo} · {quantidadeSalva} un.</p>
-            <p className="stx-pr-performance-label">PERFORMANCE</p>
-            <p className="stx-pr-performance-valor">{performance == null ? "N/A" : `${performance.toFixed(0)}%`}</p>
-            {tempoParadoSalvo > 0 && <p className="stx-pr-parada-total">Tempo parado: {tempoParadoSalvo} min</p>}
-            <div className="stx-pr-confirmacao-acoes">
+          <div className="stx-ap-confirm">
+            <p className="stx-ap-confirm-check">✓ Apontamento salvo</p>
+            <p className="stx-ap-confirm-detail">{produtoNomeSalvo} · {quantidadeSalva} un.</p>
+            <p className="stx-ap-confirm-label">Performance</p>
+            <p className="stx-ap-confirm-value">{performance == null ? "N/A" : `${performance.toFixed(0)}%`}</p>
+            {tempoParadoSalvo > 0 && <p className="stx-ap-confirm-sub">Tempo parado: {tempoParadoSalvo} min</p>}
+            <div className="stx-ap-confirm-actions">
               {temProximaPendente && (
-                <button type="button" className="stx-btn-primary" onClick={onProximaMaquina}>PRÓXIMA MÁQUINA</button>
+                <button type="button" className="stx-ap-btn-primary" onClick={onProximaMaquina}>Próxima máquina</button>
               )}
-              <button type="button" className="stx-btn-secondary" onClick={onFechar}>VER TODAS</button>
+              <button type="button" className="stx-ap-btn-secondary" onClick={onFechar}>Ver todas</button>
             </div>
           </div>
         ) : (
           <>
-            <p className="stx-modal-titulo">{maquinaNome}</p>
-            <p className="stx-panel-sub" style={{ marginTop: -10, marginBottom: 16 }}>{periodoNome} · {periodoHorario}</p>
+            <div className="stx-ap-modal-head">
+              <div>
+                <p className="stx-ap-modal-eyebrow">{maquinaNome} · {periodoNome} · {periodoHorario}</p>
+                <p className="stx-ap-modal-title">Quantidade produzida</p>
+              </div>
+              <button type="button" className="stx-ap-modal-close" onClick={onFechar} aria-label="Fechar">✕</button>
+            </div>
 
-            <div style={{ marginBottom: 12 }}>
-              <label className="stx-label">Produto</label>
-              <select className="stx-select" value={produtoId} onChange={(e) => setProdutoId(e.target.value)} disabled={produtosCarregando}>
+            <div className="stx-ap-field" style={{ marginTop: 20 }}>
+              <label className="stx-ap-field-label">Produto</label>
+              <select className="stx-ap-select" value={produtoId} onChange={(e) => setProdutoId(e.target.value)} disabled={produtosCarregando}>
                 <option value="">{produtosCarregando ? "Carregando…" : "Selecione…"}</option>
                 {produtos.map((p) => (
                   <option key={p.id} value={p.id}>{p.nome}</option>
                 ))}
               </select>
               {!produtosCarregando && produtos.length === 0 && (
-                <p className="stx-save-error" style={{ marginTop: 6 }}>Nenhum produto elegível cadastrado para esta máquina.</p>
+                <p className="stx-ap-error">Nenhum produto elegível cadastrado para esta máquina.</p>
               )}
             </div>
 
-            <div style={{ marginBottom: 12 }}>
-              <label className="stx-label">Funcionário</label>
-              <select className="stx-select" value={funcionarioId} onChange={(e) => setFuncionarioId(e.target.value)}>
+            <div className="stx-ap-field">
+              <label className="stx-ap-field-label">Funcionário</label>
+              <select className="stx-ap-select" value={funcionarioId} onChange={(e) => setFuncionarioId(e.target.value)}>
                 <option value="">Selecione…</option>
                 {funcionariosAtivos.map((f) => (
                   <option key={f.id} value={f.id}>{f.nome}</option>
@@ -194,31 +199,31 @@ export default function ApontamentoModal({
               </select>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div className="stx-ap-grid-2 stx-ap-field">
               <div>
-                <label className="stx-label">Quantidade produzida</label>
-                <input type="number" inputMode="numeric" min={0} className="stx-input" value={quantidadeProduzida} onChange={(e) => setQuantidadeProduzida(e.target.value)} />
+                <label className="stx-ap-field-label">Quantidade produzida</label>
+                <input type="number" inputMode="numeric" min={0} className="stx-ap-input" value={quantidadeProduzida} onChange={(e) => setQuantidadeProduzida(e.target.value)} style={{ textAlign: "right", fontWeight: 600 }} />
               </div>
               <div>
-                <label className="stx-label">Refugo</label>
-                <input type="number" inputMode="numeric" min={0} className="stx-input" value={quantidadeRefugo} onChange={(e) => setQuantidadeRefugo(e.target.value)} />
+                <label className="stx-ap-field-label">Refugo</label>
+                <input type="number" inputMode="numeric" min={0} className="stx-ap-input" value={quantidadeRefugo} onChange={(e) => setQuantidadeRefugo(e.target.value)} style={{ textAlign: "right", fontWeight: 600 }} />
               </div>
             </div>
 
             <ParadasManuaisEditor paradasManuais={paradasManuais} onChange={setParadasManuais} motivosParada={motivosParada} />
 
-            <div style={{ marginBottom: 16 }}>
-              <label className="stx-label">Observação (opcional)</label>
-              <input type="text" className="stx-input" value={observacao} onChange={(e) => setObservacao(e.target.value)} />
+            <div className="stx-ap-field">
+              <label className="stx-ap-field-label">Observação (opcional)</label>
+              <input type="text" className="stx-ap-input" value={observacao} onChange={(e) => setObservacao(e.target.value)} />
             </div>
 
-            {erro && <p className="stx-save-error" style={{ marginBottom: 12 }}>{erro}</p>}
+            {erro && <p className="stx-ap-error">{erro}</p>}
 
-            <div className="stx-form-actions" style={{ flexDirection: "column" }}>
-              <button type="button" className="stx-btn-primary" disabled={!podeSalvar} onClick={salvar}>
-                {etapa === "salvando" ? "Salvando…" : "SALVAR APONTAMENTO"}
+            <div className="stx-ap-actions">
+              <button type="button" className="stx-ap-btn-primary" disabled={!podeSalvar} onClick={salvar}>
+                {etapa === "salvando" ? "Salvando…" : "Salvar apontamento"}
               </button>
-              <button type="button" className="stx-btn-secondary" onClick={onFechar} disabled={etapa === "salvando"}>Cancelar</button>
+              <button type="button" className="stx-ap-btn-secondary" onClick={onFechar} disabled={etapa === "salvando"}>Cancelar</button>
             </div>
           </>
         )}

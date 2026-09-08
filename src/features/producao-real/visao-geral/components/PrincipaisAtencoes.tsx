@@ -10,8 +10,8 @@ import { useRouter } from "next/navigation";
 import type { AttentionItem } from "@/features/producao-real/visao-geral/types";
 import { rotuloContexto } from "@/features/producao-real/desvios/contexto";
 
-const LABEL_SEVERIDADE: Record<AttentionItem["severidade"], string> = {
-  critico: "Crítico", atencao: "Atenção", informativo: "Informativo",
+const COR_SEVERIDADE: Record<AttentionItem["severidade"], string> = {
+  critico: "var(--danger)", atencao: "var(--warning)", informativo: "var(--text-3)",
 };
 
 export default function PrincipaisAtencoes({ incidentes }: { incidentes: AttentionItem[] }) {
@@ -31,23 +31,28 @@ export default function PrincipaisAtencoes({ incidentes }: { incidentes: Attenti
   }
 
   return (
-    <div className="stx-panel">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <p className="stx-panel-title">Principais atenções</p>
-        <button type="button" className="stx-btn-secondary" onClick={() => router.push("/producao-real/desvios")}>Ver Desvios</button>
+    <div className="stx-vg-section">
+      <div className="stx-vg-section-head">
+        <h2 className="stx-vg-section-title">Principais atenções</h2>
+        <button type="button" className="stx-vg-section-link" onClick={() => router.push("/producao-real/desvios")}>Ver desvios →</button>
       </div>
 
       {incidentes.length === 0 ? (
-        <p className="stx-panel-sub" style={{ marginTop: 6 }}>Nenhum desvio identificado — tudo dentro do esperado, ou amostra insuficiente pra comparar.</p>
+        <p className="stx-vg-empty">Nenhum desvio identificado — tudo dentro do esperado, ou amostra insuficiente pra comparar.</p>
       ) : (
-        <div style={{ marginTop: 8 }}>
+        <div className="stx-vg-list">
           {incidentes.map((inc) => (
-            <div key={inc.id} className="stx-ind-tabela-linha" style={{ cursor: inc.desvioPrincipal.linkSugerido ? "pointer" : "default", flexDirection: "column", alignItems: "flex-start", gap: 2 }} onClick={() => verNaOrigem(inc)}>
-              <span className={`stx-performance-badge ${inc.severidade}`}>{LABEL_SEVERIDADE[inc.severidade]}</span>
-              <p className="stx-panel-title" style={{ marginTop: 4 }}>{inc.desvioPrincipal.titulo}</p>
-              <p className="stx-panel-sub">{rotuloContexto(inc.contexto)}</p>
-              <p className="stx-panel-sub">{inc.desvioPrincipal.justificativaSeveridade}</p>
-            </div>
+            <button
+              key={inc.id} type="button" className="stx-vg-list-row"
+              style={{ cursor: inc.desvioPrincipal.linkSugerido ? "pointer" : "default" }}
+              onClick={() => verNaOrigem(inc)}
+            >
+              <span className="stx-vg-dot" style={{ background: COR_SEVERIDADE[inc.severidade] }} />
+              <div>
+                <div className="stx-vg-list-title">{inc.desvioPrincipal.titulo}</div>
+                <div className="stx-vg-list-sub">{rotuloContexto(inc.contexto)} · {inc.desvioPrincipal.justificativaSeveridade}</div>
+              </div>
+            </button>
           ))}
         </div>
       )}

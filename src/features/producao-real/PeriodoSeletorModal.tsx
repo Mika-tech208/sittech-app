@@ -32,46 +32,49 @@ export default function PeriodoSeletorModal({ periodos, onSelecionar, onFechar }
 
   return (
     <div className="stx-modal-backdrop" onClick={onFechar}>
-      <div className="stx-modal-card stx-pr-modal" onClick={(e) => e.stopPropagation()}>
-        <p className="stx-modal-titulo">Outro período</p>
-        <p className="stx-panel-sub" style={{ marginTop: -10, marginBottom: 16 }}>
+      <div className="stx-ap-modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="stx-ap-modal-head">
+          <p className="stx-ap-modal-title" style={{ margin: 0 }}>Outro período</p>
+          <button type="button" className="stx-ap-modal-close" onClick={onFechar} aria-label="Fechar">✕</button>
+        </div>
+        <p className="stx-ap-modal-eyebrow" style={{ marginTop: 8 }}>
           Só mostra períodos já encerrados — não é possível lançar um período futuro ou ainda em andamento.
         </p>
 
-        <div style={{ marginBottom: 12 }}>
-          <label className="stx-label">Data</label>
+        <div className="stx-ap-field" style={{ marginTop: 16 }}>
+          <label className="stx-ap-field-label">Data</label>
           <input
             type="date"
-            className="stx-input"
+            className="stx-ap-input"
             value={data}
             max={hoje}
             onChange={(e) => { setData(e.target.value); setPeriodoId(""); }}
           />
         </div>
 
-        <div style={{ marginBottom: 16 }}>
-          <label className="stx-label">Período</label>
-          <select className="stx-select" value={periodoId} onChange={(e) => setPeriodoId(e.target.value)}>
+        <div className="stx-ap-field">
+          <label className="stx-ap-field-label">Período</label>
+          <select className="stx-ap-select" value={periodoId} onChange={(e) => setPeriodoId(e.target.value)}>
             <option value="">Selecione…</option>
             {periodosValidos.map((p) => (
               <option key={p.id} value={p.id}>{p.nome} · {p.inicio}–{p.fim}</option>
             ))}
           </select>
           {periodosValidos.length === 0 && (
-            <p className="stx-save-error" style={{ marginTop: 6 }}>Nenhum período encerrado nessa data ainda.</p>
+            <p className="stx-ap-error">Nenhum período encerrado nessa data ainda.</p>
           )}
         </div>
 
-        <div className="stx-form-actions" style={{ flexDirection: "column" }}>
+        <div className="stx-ap-actions">
           <button
             type="button"
-            className="stx-btn-primary"
+            className="stx-ap-btn-primary"
             disabled={!podeConfirmar}
             onClick={() => onSelecionar(data, periodoId)}
           >
-            VER ESTE PERÍODO
+            Ver este período
           </button>
-          <button type="button" className="stx-btn-secondary" onClick={onFechar}>Cancelar</button>
+          <button type="button" className="stx-ap-btn-secondary" onClick={onFechar}>Cancelar</button>
         </div>
       </div>
     </div>

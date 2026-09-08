@@ -8,7 +8,7 @@ body {
   min-height: 100%;
   /* mesmo tom do tema escuro padrão do app (THEMES.dark.bg em src/lib/constants.ts) —
      evita um flash de fundo branco antes do componente montar. */
-  background: #000000;
+  background: #1A1918;
 }
 
 * {

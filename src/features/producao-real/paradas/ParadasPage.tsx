@@ -19,7 +19,7 @@ import { useOperacoesComId } from "@/hooks/useOperacoesComId";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useParadasProducao } from "@/hooks/useParadasProducao";
-import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
+import { useSidebarState } from "@/hooks/useSidebarState";
 import { calcularResumoParadas, type OrigemParada } from "@/features/producao-real/paradas/calculations";
 import ResumoParadasCards from "@/features/producao-real/paradas/components/ResumoParadasCards";
 import ParetoParadasSeletor from "@/features/producao-real/paradas/components/ParetoParadasSeletor";
@@ -73,7 +73,7 @@ export default function ParadasPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("prParadas");
+  const shell = useSidebarState("prParadas");
 
   const auth = useAuthSession();
   const cadastrosBase = useCadastrosBase(auth.autenticado);
@@ -220,15 +220,21 @@ export default function ParadasPage() {
           <Sidebar
             tema={tema}
             abaAtiva="prParadas"
-            onNavigateTab={() => { router.push("/"); }}
-            gruposAbertos={gruposAbertos}
-            toggleGrupo={toggleGrupo}
+            onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+            gruposAbertos={shell.gruposAbertos}
+            toggleGrupo={shell.toggleGrupo}
             usuarioLogado={auth.usuarioLogado}
             metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
             metaInvalida={metaInvalida}
             metaSemanalFinal={metaSemanalFinal}
             formatBRL={formatBRL}
             onMetaClick={() => { router.push("/"); }}
+            onAbrirMinhaConta={auth.abrirMinhaConta}
+            onSair={() => auth.handleLogout()}
+            recolhida={shell.recolhida}
+            onToggleRecolhida={shell.toggleRecolhida}
+            gavetaAberta={shell.gavetaAberta}
+            onFecharGaveta={shell.fecharGaveta}
           />
           <AcessoNegado />
         </div>
@@ -243,31 +249,36 @@ export default function ParadasPage() {
         <Sidebar
           tema={tema}
           abaAtiva="prParadas"
-          onNavigateTab={() => { router.push("/"); }}
-          gruposAbertos={gruposAbertos}
-          toggleGrupo={toggleGrupo}
+          onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+          gruposAbertos={shell.gruposAbertos}
+          toggleGrupo={shell.toggleGrupo}
           usuarioLogado={auth.usuarioLogado}
           metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
           metaInvalida={metaInvalida}
           metaSemanalFinal={metaSemanalFinal}
           formatBRL={formatBRL}
           onMetaClick={() => { router.push("/"); }}
+          onAbrirMinhaConta={auth.abrirMinhaConta}
+          onSair={() => auth.handleLogout()}
+          recolhida={shell.recolhida}
+          onToggleRecolhida={shell.toggleRecolhida}
+          gavetaAberta={shell.gavetaAberta}
+          onFecharGaveta={shell.fecharGaveta}
         />
 
         <div className="stx-content-wrapper">
+          <TopBarActions
+            modoPrivado={modoPrivado}
+            onToggleModoPrivado={toggleModoPrivado}
+            tema={tema}
+            onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
+            usuarioLogado={auth.usuarioLogado}
+            abaAtiva="prParadas"
+            onAbrirMenu={shell.abrirGaveta}
+          />
           <div className="stx-header">
             <div>
               <h1 className="stx-title">Paradas</h1>
-            </div>
-            <div className="stx-header-right">
-              <TopBarActions
-                modoPrivado={modoPrivado}
-                onToggleModoPrivado={toggleModoPrivado}
-                tema={tema}
-                onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
-                onAbrirMinhaConta={auth.abrirMinhaConta}
-                onSair={() => auth.handleLogout()}
-              />
             </div>
           </div>
 
@@ -276,7 +287,7 @@ export default function ParadasPage() {
           </button>
 
           {filtrosAbertos && (
-            <div className="stx-panel stx-pr-filtros-painel">
+            <div className="stx-pr-filtros-painel">
               <div className="stx-pr-filtros-grid">
                 <div>
                   <label className="stx-label">Data inicial</label>
@@ -364,7 +375,7 @@ export default function ParadasPage() {
               {visao === "resumo" && <ResumoParadasCards resumo={resumo} />}
 
               {visao === "pareto" && (
-                <div className="stx-panel">
+                <div className="stx-section">
                   <p className="stx-panel-title">Pareto de paradas</p>
                   <p className="stx-panel-sub">
                     Manuais e automáticas (vinculadas a ocorrências encerradas) somadas uma única vez cada — nunca duplicadas. O maior número de minutos não é necessariamente o maior impacto: troque pra custo/capacidade pra ver.
@@ -374,7 +385,7 @@ export default function ParadasPage() {
               )}
 
               {visao === "evolucao" && (
-                <div className="stx-panel">
+                <div className="stx-section">
                   <EvolucaoTendenciaParadas
                     paradas={paradasFiltradas}
                     apontamentos={paradasHook.apontamentos}
@@ -386,14 +397,14 @@ export default function ParadasPage() {
               )}
 
               {visao === "recorrencia" && (
-                <div className="stx-panel">
+                <div className="stx-section">
                   <p className="stx-panel-title">Recorrência</p>
                   <RecorrenciaParadas paradas={paradasFiltradas} apontamentos={paradasHook.apontamentos} />
                 </div>
               )}
 
               {visao === "recurso" && (
-                <div className="stx-panel">
+                <div className="stx-section">
                   <p className="stx-panel-title">Por máquina / operação / produto</p>
                   <AnaliseParadasPorRecurso paradas={paradasFiltradas} apontamentos={paradasHook.apontamentos} />
                 </div>
@@ -402,7 +413,7 @@ export default function ParadasPage() {
               {visao === "semProducao" && <SemProducaoResumoView apontamentos={paradasHook.apontamentos} />}
 
               {visao === "detalhado" && (
-                <div className="stx-panel">
+                <div className="stx-section">
                   <p className="stx-panel-title">Detalhado</p>
                   <DrillDownParadasLista paradas={paradasFiltradas} />
                 </div>

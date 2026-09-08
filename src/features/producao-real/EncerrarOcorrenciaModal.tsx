@@ -56,46 +56,49 @@ export default function EncerrarOcorrenciaModal({ maquinaId, maquinaNome, ocorre
 
   return (
     <div className="stx-modal-backdrop" onClick={etapa === "resumo" ? onFechar : undefined}>
-      <div className="stx-modal-card stx-pr-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="stx-ap-modal-card" onClick={(e) => e.stopPropagation()}>
         {etapa === "confirmado" ? (
-          <div className="stx-pr-confirmacao">
-            <p className="stx-pr-confirmacao-check">✓ Parada encerrada</p>
-            <p className="stx-pr-confirmacao-produto">{maquinaNome}</p>
-            <div className="stx-pr-confirmacao-acoes">
-              <button type="button" className="stx-btn-primary" onClick={onFechar}>Fechar</button>
+          <div className="stx-ap-confirm">
+            <p className="stx-ap-confirm-check">✓ Parada encerrada</p>
+            <p className="stx-ap-confirm-detail">{maquinaNome}</p>
+            <div className="stx-ap-confirm-actions">
+              <button type="button" className="stx-ap-btn-primary" onClick={onFechar}>Fechar</button>
             </div>
           </div>
         ) : (
           <>
-            <p className="stx-modal-titulo">{maquinaNome} — 🔴 parada agora</p>
-
-            <div className="stx-pr-resumo-linhas">
-              <div className="stx-pr-resumo-linha"><span>Produto</span><b>{ocorrencia.produtoNome}</b></div>
-              <div className="stx-pr-resumo-linha"><span>Funcionário</span><b>{ocorrencia.funcionarioNome}</b></div>
-              <div className="stx-pr-resumo-linha"><span>Motivo</span><b>{ocorrencia.motivoNome}</b></div>
-              <div className="stx-pr-resumo-linha"><span>O que aconteceu</span><b>{ocorrencia.descricao}</b></div>
-              <div className="stx-pr-resumo-linha"><span>Parou às</span><b>{formatHorario(ocorrencia.abertaEm)}</b></div>
-              <div className="stx-pr-resumo-linha"><span>Tempo decorrido</span><b>{formatarTempoDecorrido(ocorrencia.abertaEm)}</b></div>
+            <div className="stx-ap-modal-head">
+              <p className="stx-ap-modal-title" style={{ margin: 0 }}>{maquinaNome} <span style={{ color: "var(--danger)" }}>· parada agora</span></p>
+              <button type="button" className="stx-ap-modal-close" onClick={onFechar} aria-label="Fechar">✕</button>
             </div>
 
-            <div style={{ marginTop: 16, marginBottom: 16 }}>
-              <label className="stx-label">O que foi feito para resolver?</label>
+            <div className="stx-ap-resumo-linhas" style={{ marginTop: 20 }}>
+              <div className="stx-ap-resumo-linha"><span>Produto</span><b>{ocorrencia.produtoNome}</b></div>
+              <div className="stx-ap-resumo-linha"><span>Funcionário</span><b>{ocorrencia.funcionarioNome}</b></div>
+              <div className="stx-ap-resumo-linha"><span>Motivo</span><b>{ocorrencia.motivoNome}</b></div>
+              <div className="stx-ap-resumo-linha"><span>O que aconteceu</span><b>{ocorrencia.descricao}</b></div>
+              <div className="stx-ap-resumo-linha"><span>Parou às</span><b>{formatHorario(ocorrencia.abertaEm)}</b></div>
+              <div className="stx-ap-resumo-linha"><span>Tempo decorrido</span><b style={{ color: "var(--danger)" }}>{formatarTempoDecorrido(ocorrencia.abertaEm)}</b></div>
+            </div>
+
+            <div className="stx-ap-field">
+              <label className="stx-ap-field-label">O que foi feito para resolver?</label>
               <input
                 type="text"
-                className="stx-input"
+                className="stx-ap-input"
                 value={descricaoSolucao}
                 onChange={(e) => setDescricaoSolucao(e.target.value)}
                 placeholder="Descreva a solução"
               />
             </div>
 
-            {erro && <p className="stx-save-error" style={{ marginBottom: 12 }}>{erro}</p>}
+            {erro && <p className="stx-ap-error">{erro}</p>}
 
-            <div className="stx-form-actions" style={{ flexDirection: "column" }}>
-              <button type="button" className="stx-btn-primary" disabled={!podeEncerrar} onClick={encerrar}>
-                {etapa === "salvando" ? "Salvando…" : "ENCERRAR PARADA"}
+            <div className="stx-ap-actions">
+              <button type="button" className="stx-ap-btn-primary" disabled={!podeEncerrar} onClick={encerrar}>
+                {etapa === "salvando" ? "Salvando…" : "Encerrar parada"}
               </button>
-              <button type="button" className="stx-btn-secondary" onClick={onFechar} disabled={etapa === "salvando"}>Cancelar</button>
+              <button type="button" className="stx-ap-btn-secondary" onClick={onFechar} disabled={etapa === "salvando"}>Cancelar</button>
             </div>
           </>
         )}

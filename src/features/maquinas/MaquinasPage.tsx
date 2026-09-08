@@ -9,7 +9,7 @@ import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
-import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
+import { useSidebarState } from "@/hooks/useSidebarState";
 import LoginScreen from "@/components/shell/LoginScreen";
 import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import Sidebar from "@/components/shell/Sidebar";
@@ -38,7 +38,7 @@ export default function MaquinasPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("maquinas");
+  const shell = useSidebarState("maquinas");
 
   const auth = useAuthSession();
   // operacoes é cadastro-base — vem do Supabase, mesma fonte usada em
@@ -179,15 +179,21 @@ export default function MaquinasPage() {
           <Sidebar
             tema={tema}
             abaAtiva="maquinas"
-            onNavigateTab={() => { router.push("/"); }}
-            gruposAbertos={gruposAbertos}
-            toggleGrupo={toggleGrupo}
+            onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+            gruposAbertos={shell.gruposAbertos}
+            toggleGrupo={shell.toggleGrupo}
             usuarioLogado={auth.usuarioLogado}
             metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
             metaInvalida={metaInvalida}
             metaSemanalFinal={metaSemanalFinal}
             formatBRL={formatBRL}
             onMetaClick={() => { router.push("/"); }}
+            onAbrirMinhaConta={auth.abrirMinhaConta}
+            onSair={() => auth.handleLogout()}
+            recolhida={shell.recolhida}
+            onToggleRecolhida={shell.toggleRecolhida}
+            gavetaAberta={shell.gavetaAberta}
+            onFecharGaveta={shell.fecharGaveta}
           />
           <AcessoNegado />
         </div>
@@ -202,45 +208,51 @@ export default function MaquinasPage() {
         <Sidebar
           tema={tema}
           abaAtiva="maquinas"
-          onNavigateTab={() => { router.push("/"); }}
-          gruposAbertos={gruposAbertos}
-          toggleGrupo={toggleGrupo}
+          onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+          gruposAbertos={shell.gruposAbertos}
+          toggleGrupo={shell.toggleGrupo}
           usuarioLogado={auth.usuarioLogado}
           metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
           metaInvalida={metaInvalida}
           metaSemanalFinal={metaSemanalFinal}
           formatBRL={formatBRL}
           onMetaClick={() => { router.push("/"); }}
+          onAbrirMinhaConta={auth.abrirMinhaConta}
+          onSair={() => auth.handleLogout()}
+          recolhida={shell.recolhida}
+          onToggleRecolhida={shell.toggleRecolhida}
+          gavetaAberta={shell.gavetaAberta}
+          onFecharGaveta={shell.fecharGaveta}
         />
 
         <div className="stx-content-wrapper">
-          <div className="stx-header">
+          <TopBarActions
+            modoPrivado={modoPrivado}
+            onToggleModoPrivado={toggleModoPrivado}
+            tema={tema}
+            onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
+            usuarioLogado={auth.usuarioLogado}
+            abaAtiva="maquinas"
+            onAbrirMenu={shell.abrirGaveta}
+          />
+          <div className="stx-prod-header">
             <div>
-              <h1 className="stx-title">Máquinas</h1>
+              <p className="stx-prod-count">{maquinasOrdenadas.filter((m) => m.ativo).length} máquinas ativas</p>
+              <h1 className="stx-prod-h1">Máquinas</h1>
             </div>
-            <div className="stx-header-right">
-              <TopBarActions
-                modoPrivado={modoPrivado}
-                onToggleModoPrivado={toggleModoPrivado}
-                tema={tema}
-                onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
-                onAbrirMinhaConta={auth.abrirMinhaConta}
-                onSair={() => auth.handleLogout()}
-              />
-            </div>
+            {!showMaquinaForm && (
+              <button className="stx-prod-btn-primary" onClick={() => setShowMaquinaForm(true)}>+ Nova máquina</button>
+            )}
           </div>
 
-          <div className="stx-grid" style={{ gridTemplateColumns: "1fr" }}>
-            <div className="stx-panel">
-              <div className="stx-panel-title-row">
-                <p className="stx-panel-title">Máquinas</p>
-              </div>
-              <p className="stx-panel-sub">Cadastro das máquinas por operação — depois você seleciona quais estão disponíveis em cada etapa dos produtos.</p>
+          {cadastrosBase.erro && <p className="stx-save-error">{cadastrosBase.erro}</p>}
+          {funcionariosHook.erro && <p className="stx-save-error">{funcionariosHook.erro}</p>}
+          {maquinasHook.erro && <p className="stx-save-error">{maquinasHook.erro}</p>}
+          {produtosHook.erro && <p className="stx-save-error">{produtosHook.erro}</p>}
+          {previsoesHook.erro && <p className="stx-save-error">{previsoesHook.erro}</p>}
+          {custosHook.erro && <p className="stx-save-error">{custosHook.erro}</p>}
 
-              {!showMaquinaForm && (
-                <button className="stx-add-btn blueprint" onClick={() => setShowMaquinaForm(true)}>+ Nova máquina</button>
-              )}
-
+          <div className="stx-section" style={{ marginTop: 28 }}>
               {showMaquinaForm && (
                 <MaquinaForm
                   form={maquinaForm}
@@ -311,13 +323,6 @@ export default function MaquinasPage() {
                   );
                 })
               )}
-            </div>
-            {cadastrosBase.erro && <p className="stx-save-error">{cadastrosBase.erro}</p>}
-            {funcionariosHook.erro && <p className="stx-save-error">{funcionariosHook.erro}</p>}
-            {maquinasHook.erro && <p className="stx-save-error">{maquinasHook.erro}</p>}
-            {produtosHook.erro && <p className="stx-save-error">{produtosHook.erro}</p>}
-            {previsoesHook.erro && <p className="stx-save-error">{previsoesHook.erro}</p>}
-            {custosHook.erro && <p className="stx-save-error">{custosHook.erro}</p>}
           </div>
         </div>
       </div>

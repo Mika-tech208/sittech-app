@@ -9,7 +9,7 @@ import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
-import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
+import { useSidebarState } from "@/hooks/useSidebarState";
 import LoginScreen from "@/components/shell/LoginScreen";
 import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import Sidebar from "@/components/shell/Sidebar";
@@ -19,7 +19,7 @@ import AcessoNegado from "@/components/shell/AcessoNegado";
 import GlobalStyles from "@/components/shell/GlobalStyles";
 import { temPermissao } from "@/lib/permissoes";
 import { THEMES } from "@/lib/constants";
-import { formatBRL, toNumber, setModoPrivadoAtivo } from "@/lib/format";
+import { formatBRL, formatQtd, toNumber, setModoPrivadoAtivo } from "@/lib/format";
 import { weekLabel, shiftWeek, toISODate, mondayOf } from "@/lib/date";
 import {
   calcularPeriodosComDuracao, filtrarPeriodosValidos, calcularHorasPorDia, calcularDuracaoMediaPeriodo, calcularHorasPorMaquinaSemana,
@@ -52,7 +52,7 @@ export default function PrevisaoSemanalPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("previsao");
+  const shell = useSidebarState("previsao");
 
   const auth = useAuthSession();
   // periodos/diasUteis/diasUteisSemana são cadastro-base — vêm do Supabase,
@@ -269,15 +269,21 @@ export default function PrevisaoSemanalPage() {
           <Sidebar
             tema={tema}
             abaAtiva="previsao"
-            onNavigateTab={() => { router.push("/"); }}
-            gruposAbertos={gruposAbertos}
-            toggleGrupo={toggleGrupo}
+            onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+            gruposAbertos={shell.gruposAbertos}
+            toggleGrupo={shell.toggleGrupo}
             usuarioLogado={auth.usuarioLogado}
             metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
             metaInvalida={metaInvalida}
             metaSemanalFinal={metaSemanalFinal}
             formatBRL={formatBRL}
             onMetaClick={() => { router.push("/"); }}
+            onAbrirMinhaConta={auth.abrirMinhaConta}
+            onSair={() => auth.handleLogout()}
+            recolhida={shell.recolhida}
+            onToggleRecolhida={shell.toggleRecolhida}
+            gavetaAberta={shell.gavetaAberta}
+            onFecharGaveta={shell.fecharGaveta}
           />
           <AcessoNegado />
         </div>
@@ -292,73 +298,71 @@ export default function PrevisaoSemanalPage() {
         <Sidebar
           tema={tema}
           abaAtiva="previsao"
-          onNavigateTab={() => { router.push("/"); }}
-          gruposAbertos={gruposAbertos}
-          toggleGrupo={toggleGrupo}
+          onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+          gruposAbertos={shell.gruposAbertos}
+          toggleGrupo={shell.toggleGrupo}
           usuarioLogado={auth.usuarioLogado}
           metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
           metaInvalida={metaInvalida}
           metaSemanalFinal={metaSemanalFinal}
           formatBRL={formatBRL}
           onMetaClick={() => { router.push("/"); }}
+          onAbrirMinhaConta={auth.abrirMinhaConta}
+          onSair={() => auth.handleLogout()}
+          recolhida={shell.recolhida}
+          onToggleRecolhida={shell.toggleRecolhida}
+          gavetaAberta={shell.gavetaAberta}
+          onFecharGaveta={shell.fecharGaveta}
         />
 
         <div className="stx-content-wrapper">
+          <TopBarActions
+            modoPrivado={modoPrivado}
+            onToggleModoPrivado={toggleModoPrivado}
+            tema={tema}
+            onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
+            usuarioLogado={auth.usuarioLogado}
+            abaAtiva="previsao"
+            onAbrirMenu={shell.abrirGaveta}
+          />
           {cadastrosBase.erro && <p className="stx-save-error">{cadastrosBase.erro}</p>}
           {funcionariosHook.erro && <p className="stx-save-error">{funcionariosHook.erro}</p>}
           {maquinasHook.erro && <p className="stx-save-error">{maquinasHook.erro}</p>}
           {produtosHook.erro && <p className="stx-save-error">{produtosHook.erro}</p>}
           {previsoesHook.erro && <p className="stx-save-error">{previsoesHook.erro}</p>}
           {custosHook.erro && <p className="stx-save-error">{custosHook.erro}</p>}
-          <div className="stx-header">
+          <div className="stx-prev-header">
             <div>
-              <h1 className="stx-title">Previsão semanal</h1>
-            </div>
-            <div className="stx-header-right">
-              <TopBarActions
-                modoPrivado={modoPrivado}
-                onToggleModoPrivado={toggleModoPrivado}
-                tema={tema}
-                onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
-                onAbrirMinhaConta={auth.abrirMinhaConta}
-                onSair={() => auth.handleLogout()}
-              />
-              <div className="stx-total-box">
-                <p className="stx-total-label">Previsão da semana</p>
-                <p className="stx-total-value">{formatBRL(resumoSemana.valorPrevisto)}</p>
-                <p className="stx-total-split">realizado {formatBRL(resumoSemana.valorRealizado)} · {resumoSemana.percentualConcluido.toFixed(1)}%</p>
+              <div className="stx-prev-week-nav">
+                <button className="stx-prev-week-pill" onClick={() => setSemanaAtual(shiftWeek(semanaAtual, -1))}>‹</button>
+                <span className="stx-prev-week-label">{weekLabel(semanaAtual)}</span>
+                <button className="stx-prev-week-pill" onClick={() => setSemanaAtual(shiftWeek(semanaAtual, 1))}>›</button>
               </div>
+              <h1 className="stx-prev-h1">Previsão semanal</h1>
             </div>
+
+            {semanaAtualRec.itens.length > 0 && (
+              <div className="stx-prev-header-actions">
+                {!modoSimulacao ? (
+                  <button className="stx-prev-pill-btn" onClick={() => { setItensSimulados(semanaAtualRec.itens.map((it) => ({ ...it }))); setModoSimulacao(true); }}>🧪 Modo simulação</button>
+                ) : (
+                  <>
+                    <button className="stx-prev-pill-btn" onClick={() => { setModoSimulacao(false); setItensSimulados(null); }}>Sair sem aplicar</button>
+                    <button className="stx-prev-pill-btn-primary" onClick={async () => { await upsertSemana({ itens: itensSimulados! }); setModoSimulacao(false); setItensSimulados(null); }}>Aplicar simulação</button>
+                  </>
+                )}
+                <div>
+                  <button className="stx-prev-pill-btn" onClick={() => baixarProgramacaoSemanaPDF({
+                    semanaAtual, semanaAtualRec, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana,
+                    duracaoMediaPeriodo, diasUteisSemana, funcionariosAtivos, getLucroHora,
+                  })}>Exportar PDF</button>
+                  <p className="stx-prev-pdf-hint">Cmd/Ctrl+P → Salvar como PDF</p>
+                </div>
+              </div>
+            )}
           </div>
 
           <div>
-            <div className="stx-month-nav" style={{ marginBottom: 18, justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
-                <button className="stx-nav-btn" onClick={() => setSemanaAtual(shiftWeek(semanaAtual, -1))}>‹</button>
-                <span className="stx-month-label" style={{ minWidth: 220 }}>{weekLabel(semanaAtual)}</span>
-                <button className="stx-nav-btn" onClick={() => setSemanaAtual(shiftWeek(semanaAtual, 1))}>›</button>
-              </div>
-              {semanaAtualRec.itens.length > 0 && (
-                <div style={{ textAlign: "right", display: "flex", gap: 8, alignItems: "flex-start" }}>
-                  {!modoSimulacao ? (
-                    <button className="stx-btn-secondary" onClick={() => { setItensSimulados(semanaAtualRec.itens.map((it) => ({ ...it }))); setModoSimulacao(true); }}>🧪 Modo simulação</button>
-                  ) : (
-                    <>
-                      <button className="stx-btn-secondary" onClick={() => { setModoSimulacao(false); setItensSimulados(null); }}>Sair sem aplicar</button>
-                      <button className="stx-btn-primary" onClick={async () => { await upsertSemana({ itens: itensSimulados! }); setModoSimulacao(false); setItensSimulados(null); }}>Aplicar simulação</button>
-                    </>
-                  )}
-                  <div>
-                    <button className="stx-btn-secondary" onClick={() => baixarProgramacaoSemanaPDF({
-                      semanaAtual, semanaAtualRec, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana,
-                      duracaoMediaPeriodo, diasUteisSemana, funcionariosAtivos, getLucroHora,
-                    })}>GERAR PDF</button>
-                    <p className="stx-panel-sub" style={{ margin: "4px 0 0 0", fontSize: 11 }}>Baixa um arquivo — abre ele e usa Cmd+P (ou Ctrl+P) → Salvar como PDF</p>
-                  </div>
-                </div>
-              )}
-            </div>
-
             {modoSimulacao && (
               <div className="stx-simulacao-faixa">
                 <p className="stx-simulacao-titulo">🧪 MODO SIMULAÇÃO — nada aqui está salvo ainda</p>
@@ -382,56 +386,71 @@ export default function PrevisaoSemanalPage() {
               </div>
             )}
 
-            {semanaAtualRec.itens.length > 0 && (
-              <StatusProgramacao
-                analise={analiseCapacidadeSemana}
-                capacidadeMaximaSemana={capacidadeMaximaSemana}
-                observacoesSetup={observacoesSetup}
-                modoSimulacao={modoSimulacao}
-                onAjustar={() => setShowAjustarModal(true)}
-                formatBRL={formatBRL}
-              />
-            )}
-
-            <ProdutosProgramados
-              produtos={produtosProgramados}
-              naoPrevistos={produtosNaoPrevistos}
-              resumoPecas={resumoProgramacaoPecas}
-            />
-
-            <div className="stx-panel">
-              <div className="stx-panel-title-row">
-                <p className="stx-panel-title">Meta de faturamento</p>
-              </div>
-              <p className="stx-panel-sub">
-                Com os custos fixos e de funcionários de hoje ({formatBRL(custoTotalMensalAtual)}/mês) e 9% de imposto, quanto precisa faturar pra bater a margem desejada.
-              </p>
-              <div style={{ maxWidth: 220, marginBottom: 14 }}>
-                <label className="stx-label">Margem de lucro líquido desejada (%)</label>
-                <input className="stx-input" value={margemDesejada} onChange={(e) => setMargemDesejada(e.target.value)} placeholder="20" inputMode="decimal" />
-              </div>
-              {metaInvalida ? (
-                <p className="stx-import-resultado" style={{ color: "var(--danger)" }}>
-                  Essa margem + os 9% de imposto passam de 100% do faturamento — não tem valor que feche essa conta. Tenta uma margem menor.
-                </p>
-              ) : (
-                <div className="stx-destaque-grid">
-                  <div className="stx-destaque-box">
-                    <p className="stx-destaque-label">Faturamento mensal necessário</p>
-                    <p className="stx-destaque-value">{formatBRL(faturamentoMensalNecessario)}</p>
-                    <p className="stx-destaque-sub">lucro líquido de {formatBRL(lucroMeta)} ({margemDesejada}%)</p>
+            {produtosProgramados.length > 0 && (
+              <>
+                <div className="stx-prev-hero-row">
+                  <div>
+                    <p className="stx-prev-hero-label">Previsto</p>
+                    <p className="stx-prev-hero-value">{formatQtd(resumoProgramacaoPecas.totalPrevisto)}</p>
                   </div>
-                  <div className="stx-destaque-box">
-                    <p className="stx-destaque-label">Meta semanal</p>
-                    <p className="stx-destaque-value">{formatBRL(faturamentoSemanalNecessario)}</p>
-                    <p className="stx-destaque-sub">considerando 4,33 semanas/mês</p>
+                  <div>
+                    <p className="stx-prev-hero-label">Possível</p>
+                    <p className="stx-prev-sec-value" style={{ color: "var(--warning)" }}>{formatQtd(resumoProgramacaoPecas.totalPossivel)}</p>
+                  </div>
+                  <div>
+                    <p className="stx-prev-hero-label">Realizado</p>
+                    <p className="stx-prev-sec-value" style={{ color: "var(--accent)" }}>{formatQtd(resumoProgramacaoPecas.totalRealizado)}</p>
+                  </div>
+                  <div>
+                    <p className="stx-prev-hero-label">Falta</p>
+                    <p className="stx-prev-sec-value">{formatQtd(resumoProgramacaoPecas.totalFalta)}</p>
                   </div>
                 </div>
-              )}
-            </div>
+                <p className="stx-prev-hero-caption">
+                  <b>{resumoProgramacaoPecas.concluidoPct === null ? "N/A" : `${resumoProgramacaoPecas.concluidoPct.toFixed(0)}%`}</b> concluído da previsão em peças — soma simples entre produtos, indicador de acompanhamento, não de capacidade fabril.
+                </p>
+              </>
+            )}
 
-            <div className="stx-grid">
-              <div>
+            <div className="stx-prev-grid">
+              <div className="stx-prev-primary">
+                <ProdutosProgramados
+                  produtos={produtosProgramados}
+                  naoPrevistos={produtosNaoPrevistos}
+                  resumoPecas={resumoProgramacaoPecas}
+                />
+
+                <div className="stx-prev-section">
+                  <div className="stx-prev-section-head">
+                    <h2 className="stx-prev-section-title">Meta de faturamento</h2>
+                  </div>
+                  <p className="stx-prev-ref" style={{ marginBottom: 14 }}>
+                    Com os custos fixos e de funcionários de hoje ({formatBRL(custoTotalMensalAtual)}/mês) e 9% de imposto, quanto precisa faturar pra bater a margem desejada.
+                  </p>
+                  <div style={{ maxWidth: 220, marginBottom: 14 }}>
+                    <label className="stx-label">Margem de lucro líquido desejada (%)</label>
+                    <input className="stx-input" value={margemDesejada} onChange={(e) => setMargemDesejada(e.target.value)} placeholder="20" inputMode="decimal" />
+                  </div>
+                  {metaInvalida ? (
+                    <p className="stx-import-resultado" style={{ color: "var(--danger)" }}>
+                      Essa margem + os 9% de imposto passam de 100% do faturamento — não tem valor que feche essa conta. Tenta uma margem menor.
+                    </p>
+                  ) : (
+                    <div className="stx-destaque-grid">
+                      <div className="stx-destaque-box">
+                        <p className="stx-destaque-label">Faturamento mensal necessário</p>
+                        <p className="stx-destaque-value">{formatBRL(faturamentoMensalNecessario)}</p>
+                        <p className="stx-destaque-sub">lucro líquido de {formatBRL(lucroMeta)} ({margemDesejada}%)</p>
+                      </div>
+                      <div className="stx-destaque-box">
+                        <p className="stx-destaque-label">Meta semanal</p>
+                        <p className="stx-destaque-value">{formatBRL(faturamentoSemanalNecessario)}</p>
+                        <p className="stx-destaque-sub">considerando 4,33 semanas/mês</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <ItensPrevistos
                   loading={previsoesHook.loading}
                   produtos={produtos}
@@ -466,9 +485,22 @@ export default function PrevisaoSemanalPage() {
                 />
               </div>
 
-              <div>
-                <div className="stx-panel">
-                  <p className="stx-panel-title" style={{ marginBottom: 14 }}>Resultado da semana</p>
+              <div className="stx-prev-context">
+                {semanaAtualRec.itens.length > 0 && (
+                  <StatusProgramacao
+                    analise={analiseCapacidadeSemana}
+                    capacidadeMaximaSemana={capacidadeMaximaSemana}
+                    observacoesSetup={observacoesSetup}
+                    modoSimulacao={modoSimulacao}
+                    onAjustar={() => setShowAjustarModal(true)}
+                    formatBRL={formatBRL}
+                  />
+                )}
+
+                <div className="stx-prev-section" style={{ marginTop: 0 }}>
+                  <div className="stx-prev-section-head">
+                    <h2 className="stx-prev-section-title">Resultado da semana</h2>
+                  </div>
                   <div className="stx-rateio-line">
                     <span className="l">Previsto</span>
                     <span className="v">{formatBRL(resumoSemana.valorPrevisto)}</span>
@@ -490,8 +522,10 @@ export default function PrevisaoSemanalPage() {
                   </div>
                 </div>
 
-                <div className="stx-panel">
-                  <p className="stx-panel-title" style={{ marginBottom: 14 }}>Histórico semanal</p>
+                <div className="stx-prev-section" style={{ marginTop: 0 }}>
+                  <div className="stx-prev-section-head">
+                    <h2 className="stx-prev-section-title">Histórico semanal</h2>
+                  </div>
                   {historicoSemanas.length === 0 ? (
                     <div className="stx-empty">Nenhuma semana lançada ainda.</div>
                   ) : (

@@ -18,7 +18,7 @@ import { useOperacoesComId } from "@/hooks/useOperacoesComId";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useAnaliseFuncionariosProducao } from "@/hooks/useAnaliseFuncionariosProducao";
-import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
+import { useSidebarState } from "@/hooks/useSidebarState";
 import { gerarAnaliseFuncionarios } from "@/features/producao-real/funcionarios";
 import ResumoEquipeCards from "@/features/producao-real/funcionarios/components/ResumoEquipeCards";
 import CardsSinais from "@/features/producao-real/funcionarios/components/CardsSinais";
@@ -56,7 +56,7 @@ export default function FuncionariosPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("prFuncionarios");
+  const shell = useSidebarState("prFuncionarios");
 
   const auth = useAuthSession();
   const cadastrosBase = useCadastrosBase(auth.autenticado);
@@ -167,10 +167,14 @@ export default function FuncionariosPage() {
         <GlobalStyles cores={cores} />
         <div className="stx-layout">
           <Sidebar
-            tema={tema} abaAtiva="prFuncionarios" onNavigateTab={() => { router.push("/"); }}
-            gruposAbertos={gruposAbertos} toggleGrupo={toggleGrupo} usuarioLogado={auth.usuarioLogado}
+            tema={tema}
+            abaAtiva="prFuncionarios" onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+            gruposAbertos={shell.gruposAbertos} toggleGrupo={shell.toggleGrupo} usuarioLogado={auth.usuarioLogado}
             metaSemanalUsaPrevisto={metaSemanalUsaPrevisto} metaInvalida={metaInvalida} metaSemanalFinal={metaSemanalFinal}
             formatBRL={formatBRL} onMetaClick={() => { router.push("/"); }}
+            onAbrirMinhaConta={auth.abrirMinhaConta} onSair={() => auth.handleLogout()}
+            recolhida={shell.recolhida} onToggleRecolhida={shell.toggleRecolhida}
+            gavetaAberta={shell.gavetaAberta} onFecharGaveta={shell.fecharGaveta}
           />
           <AcessoNegado />
         </div>
@@ -183,28 +187,31 @@ export default function FuncionariosPage() {
       <GlobalStyles cores={cores} />
       <div className="stx-layout">
         <Sidebar
-          tema={tema} abaAtiva="prFuncionarios" onNavigateTab={() => { router.push("/"); }}
-          gruposAbertos={gruposAbertos} toggleGrupo={toggleGrupo} usuarioLogado={auth.usuarioLogado}
+          tema={tema}
+          abaAtiva="prFuncionarios" onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+          gruposAbertos={shell.gruposAbertos} toggleGrupo={shell.toggleGrupo} usuarioLogado={auth.usuarioLogado}
           metaSemanalUsaPrevisto={metaSemanalUsaPrevisto} metaInvalida={metaInvalida} metaSemanalFinal={metaSemanalFinal}
           formatBRL={formatBRL} onMetaClick={() => { router.push("/"); }}
+          onAbrirMinhaConta={auth.abrirMinhaConta} onSair={() => auth.handleLogout()}
+          recolhida={shell.recolhida} onToggleRecolhida={shell.toggleRecolhida}
+          gavetaAberta={shell.gavetaAberta} onFecharGaveta={shell.fecharGaveta}
         />
 
         <div className="stx-content-wrapper">
+          <TopBarActions
+            modoPrivado={modoPrivado} onToggleModoPrivado={toggleModoPrivado} tema={tema}
+            onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
+            usuarioLogado={auth.usuarioLogado}
+            abaAtiva="prFuncionarios"
+            onAbrirMenu={shell.abrirGaveta}
+          />
           <div className="stx-header">
             <div><h1 className="stx-title">Funcionários</h1></div>
-            <div className="stx-header-right">
-              <TopBarActions
-                modoPrivado={modoPrivado} onToggleModoPrivado={toggleModoPrivado} tema={tema}
-                onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
-                onAbrirMinhaConta={auth.abrirMinhaConta} onSair={() => auth.handleLogout()}
-              />
-            </div>
           </div>
 
-          <p className="stx-panel-sub" style={{ marginBottom: 8 }}>
-            Semana atual até agora, comparada ao mesmo trecho da semana anterior. Sempre por contexto (produto + operação + máquina) — nunca ranking ou nota geral.
-            {contextoFiltroAtivo && " Filtrado a partir de um desvio (contexto preservado)."}
-          </p>
+          {contextoFiltroAtivo && (
+            <p className="stx-panel-sub" style={{ marginBottom: 8 }}>Filtrado a partir de um desvio (contexto preservado).</p>
+          )}
 
           {analiseHook.erro && <p className="stx-save-error">{analiseHook.erro}</p>}
 
@@ -224,7 +231,7 @@ export default function FuncionariosPage() {
                 ))}
               </div>
 
-              <div className="stx-panel" style={{ marginTop: 12 }}>
+              <div className="stx-section" style={{ marginTop: 4 }}>
                 {visao === "atencao" && <CardsSinais sinais={resultadoFiltrado.atencao} polaridade="atencao" onVerAnalise={setFuncionarioSelecionado} />}
                 {visao === "destaques" && <CardsSinais sinais={resultadoFiltrado.destaques} polaridade="positivo" onVerAnalise={setFuncionarioSelecionado} />}
                 {visao === "lista" && <ListaFuncionarios resultado={resultadoFiltrado} onSelecionar={setFuncionarioSelecionado} />}

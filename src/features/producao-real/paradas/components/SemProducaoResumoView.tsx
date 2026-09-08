@@ -28,7 +28,7 @@ export default function SemProducaoResumoView({ apontamentos }: { apontamentos: 
   const resumo = calcularSemProducaoResumo(apontamentos);
 
   return (
-    <div className="stx-panel">
+    <div className="stx-section">
       <p className="stx-panel-title">Sem produção — registros explícitos</p>
       <p className="stx-panel-sub">
         Nunca misturado com parada — motivos e significado operacional diferentes. Só contagem de registros (fato); não existe base confiável pra minutos, custo ou capacidade perdida nesses períodos (meta e custo/hora ficam vazios por design quando o status é &quot;sem produção&quot;).

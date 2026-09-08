@@ -17,7 +17,7 @@ import { useProdutos } from "@/hooks/useProdutos";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useIndicadoresJanelaHistorica } from "@/hooks/useIndicadoresJanelaHistorica";
-import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
+import { useSidebarState } from "@/hooks/useSidebarState";
 import { calcularPeriodosComDuracao } from "@/lib/calculations/periodos";
 import { selecionarSemana, calcularResumoSemana } from "@/features/capacidade/selectors";
 import { gerarValidacaoPrevisao, JANELA_HISTORICA_DIAS } from "@/features/producao-real/validacao-previsao";
@@ -53,7 +53,7 @@ export default function ValidacaoPrevisaoPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("prValidacao");
+  const shell = useSidebarState("prValidacao");
 
   const auth = useAuthSession();
   const cadastrosBase = useCadastrosBase(auth.autenticado);
@@ -146,10 +146,14 @@ export default function ValidacaoPrevisaoPage() {
         <GlobalStyles cores={cores} />
         <div className="stx-layout">
           <Sidebar
-            tema={tema} abaAtiva="prValidacao" onNavigateTab={() => { router.push("/"); }}
-            gruposAbertos={gruposAbertos} toggleGrupo={toggleGrupo} usuarioLogado={auth.usuarioLogado}
+            tema={tema}
+            abaAtiva="prValidacao" onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+            gruposAbertos={shell.gruposAbertos} toggleGrupo={shell.toggleGrupo} usuarioLogado={auth.usuarioLogado}
             metaSemanalUsaPrevisto={metaSemanalUsaPrevisto} metaInvalida={metaInvalida} metaSemanalFinal={metaSemanalFinal}
             formatBRL={formatBRL} onMetaClick={() => { router.push("/"); }}
+            onAbrirMinhaConta={auth.abrirMinhaConta} onSair={() => auth.handleLogout()}
+            recolhida={shell.recolhida} onToggleRecolhida={shell.toggleRecolhida}
+            gavetaAberta={shell.gavetaAberta} onFecharGaveta={shell.fecharGaveta}
           />
           <AcessoNegado />
         </div>
@@ -162,22 +166,26 @@ export default function ValidacaoPrevisaoPage() {
       <GlobalStyles cores={cores} />
       <div className="stx-layout">
         <Sidebar
-          tema={tema} abaAtiva="prValidacao" onNavigateTab={() => { router.push("/"); }}
-          gruposAbertos={gruposAbertos} toggleGrupo={toggleGrupo} usuarioLogado={auth.usuarioLogado}
+          tema={tema}
+          abaAtiva="prValidacao" onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+          gruposAbertos={shell.gruposAbertos} toggleGrupo={shell.toggleGrupo} usuarioLogado={auth.usuarioLogado}
           metaSemanalUsaPrevisto={metaSemanalUsaPrevisto} metaInvalida={metaInvalida} metaSemanalFinal={metaSemanalFinal}
           formatBRL={formatBRL} onMetaClick={() => { router.push("/"); }}
+          onAbrirMinhaConta={auth.abrirMinhaConta} onSair={() => auth.handleLogout()}
+          recolhida={shell.recolhida} onToggleRecolhida={shell.toggleRecolhida}
+          gavetaAberta={shell.gavetaAberta} onFecharGaveta={shell.fecharGaveta}
         />
 
         <div className="stx-content-wrapper">
+          <TopBarActions
+            modoPrivado={modoPrivado} onToggleModoPrivado={toggleModoPrivado} tema={tema}
+            onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
+            usuarioLogado={auth.usuarioLogado}
+            abaAtiva="prValidacao"
+            onAbrirMenu={shell.abrirGaveta}
+          />
           <div className="stx-header">
             <div><h1 className="stx-title">Validação da Previsão</h1></div>
-            <div className="stx-header-right">
-              <TopBarActions
-                modoPrivado={modoPrivado} onToggleModoPrivado={toggleModoPrivado} tema={tema}
-                onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
-                onAbrirMinhaConta={auth.abrirMinhaConta} onSair={() => auth.handleLogout()}
-              />
-            </div>
           </div>
 
           <p className="stx-panel-sub" style={{ marginBottom: 8 }}>

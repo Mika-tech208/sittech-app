@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Percent, Clock } from "lucide-react";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useCadastrosBase } from "@/hooks/useCadastrosBase";
 import { useFuncionarios } from "@/hooks/useFuncionarios";
@@ -10,7 +9,7 @@ import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
-import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
+import { useSidebarState } from "@/hooks/useSidebarState";
 import LoginScreen from "@/components/shell/LoginScreen";
 import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import Sidebar from "@/components/shell/Sidebar";
@@ -47,7 +46,7 @@ export default function ProdutosPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("produtos");
+  const shell = useSidebarState("produtos");
 
   const auth = useAuthSession();
   // periodos/diasUteis/operacoes são cadastro-base — vêm do Supabase, mesma
@@ -209,15 +208,21 @@ export default function ProdutosPage() {
           <Sidebar
             tema={tema}
             abaAtiva="produtos"
-            onNavigateTab={() => { router.push("/"); }}
-            gruposAbertos={gruposAbertos}
-            toggleGrupo={toggleGrupo}
+            onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+            gruposAbertos={shell.gruposAbertos}
+            toggleGrupo={shell.toggleGrupo}
             usuarioLogado={auth.usuarioLogado}
             metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
             metaInvalida={metaInvalida}
             metaSemanalFinal={metaSemanalFinal}
             formatBRL={formatBRL}
             onMetaClick={() => { router.push("/"); }}
+            onAbrirMinhaConta={auth.abrirMinhaConta}
+            onSair={() => auth.handleLogout()}
+            recolhida={shell.recolhida}
+            onToggleRecolhida={shell.toggleRecolhida}
+            gavetaAberta={shell.gavetaAberta}
+            onFecharGaveta={shell.fecharGaveta}
           />
           <AcessoNegado />
         </div>
@@ -232,144 +237,140 @@ export default function ProdutosPage() {
         <Sidebar
           tema={tema}
           abaAtiva="produtos"
-          onNavigateTab={() => { router.push("/"); }}
-          gruposAbertos={gruposAbertos}
-          toggleGrupo={toggleGrupo}
+          onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+          gruposAbertos={shell.gruposAbertos}
+          toggleGrupo={shell.toggleGrupo}
           usuarioLogado={auth.usuarioLogado}
           metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
           metaInvalida={metaInvalida}
           metaSemanalFinal={metaSemanalFinal}
           formatBRL={formatBRL}
           onMetaClick={() => { router.push("/"); }}
+          onAbrirMinhaConta={auth.abrirMinhaConta}
+          onSair={() => auth.handleLogout()}
+          recolhida={shell.recolhida}
+          onToggleRecolhida={shell.toggleRecolhida}
+          gavetaAberta={shell.gavetaAberta}
+          onFecharGaveta={shell.fecharGaveta}
         />
 
         <div className="stx-content-wrapper">
-          <div className="stx-header">
+          <TopBarActions
+            modoPrivado={modoPrivado}
+            onToggleModoPrivado={toggleModoPrivado}
+            tema={tema}
+            onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
+            usuarioLogado={auth.usuarioLogado}
+            abaAtiva="produtos"
+            onAbrirMenu={shell.abrirGaveta}
+          />
+          <div className="stx-prod-header">
             <div>
-              <h1 className="stx-title">Produtos</h1>
+              <p className="stx-prod-count">{produtosOrdenados.filter((p) => p.ativo).length} produtos ativos · ordenados por lucro por hora</p>
+              <h1 className="stx-prod-h1">Produtos</h1>
             </div>
-            <div className="stx-header-right">
-              <TopBarActions
-                modoPrivado={modoPrivado}
-                onToggleModoPrivado={toggleModoPrivado}
-                tema={tema}
-                onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
-                onAbrirMinhaConta={auth.abrirMinhaConta}
-                onSair={() => auth.handleLogout()}
-              />
-            </div>
+            {!showProdutoForm && (
+              <button className="stx-prod-btn-primary" onClick={() => setShowProdutoForm(true)}>+ Novo produto</button>
+            )}
           </div>
 
-          <div className="stx-grid" style={{ gridTemplateColumns: "1fr" }}>
-            <div className="stx-panel">
-              <div className="stx-panel-title-row">
-                <p className="stx-panel-title">Produtos</p>
-              </div>
-              <p className="stx-panel-sub">
-                Cadastro com o valor recebido por peça pronta, o fluxo de produção (etapas, meta por período e máquinas), a margem e o lucro/hora calculados automaticamente. A lista abaixo já ordena pelo maior lucro/hora primeiro — é isso que vale mais priorizar produzir.
-              </p>
+          {cadastrosBase.erro && <p className="stx-save-error">{cadastrosBase.erro}</p>}
+          {funcionariosHook.erro && <p className="stx-save-error">{funcionariosHook.erro}</p>}
+          {maquinasHook.erro && <p className="stx-save-error">{maquinasHook.erro}</p>}
+          {produtosHook.erro && <p className="stx-save-error">{produtosHook.erro}</p>}
+          {previsoesHook.erro && <p className="stx-save-error">{previsoesHook.erro}</p>}
+          {custosHook.erro && <p className="stx-save-error">{custosHook.erro}</p>}
 
-              {!showProdutoForm && (
-                <button className="stx-add-btn blueprint" onClick={() => setShowProdutoForm(true)}>+ Novo produto</button>
-              )}
+          {showProdutoForm && (
+            <div className="stx-section" style={{ marginTop: 28 }}>
+              <ProdutoForm
+                form={produtoForm}
+                setForm={setProdutoForm}
+                roteiro={produtoRoteiro}
+                operacoes={operacoes}
+                maquinas={maquinas}
+                periodos={periodos}
+                editingProdutoId={editingProdutoId}
+                novaOperacaoEtapaId={novaOperacaoEtapaId}
+                textoNovaOperacaoEtapa={textoNovaOperacaoEtapa}
+                setTextoNovaOperacaoEtapa={setTextoNovaOperacaoEtapa}
+                onIniciarNovaOperacao={(etapaId) => setNovaOperacaoEtapaId(etapaId)}
+                onConfirmarNovaOperacao={confirmarNovaOperacaoEtapa}
+                onCancelarNovaOperacao={() => { setNovaOperacaoEtapaId(null); setTextoNovaOperacaoEtapa(""); }}
+                onTrocarOperacaoEtapa={(etapaId, operacao) => setProdutoRoteiro(trocarOperacaoEtapa(produtoRoteiro, etapaId, operacao))}
+                onRemoverEtapa={(etapaId) => setProdutoRoteiro(removerEtapa(produtoRoteiro, etapaId))}
+                onAdicionarEtapa={() => setProdutoRoteiro(adicionarEtapa(produtoRoteiro, operacoes[0] || ""))}
+                onAtualizarMetaEtapa={(etapaId, periodoId, valor) => setProdutoRoteiro(atualizarMetaEtapa(produtoRoteiro, etapaId, periodoId, valor))}
+                onAlternarMaquinaNaEtapa={(etapaId, maquinaId) => setProdutoRoteiro(alternarMaquinaNaEtapa(produtoRoteiro, etapaId, maquinaId))}
+                onSubmit={submitProduto}
+                onCancelar={resetProdutoForm}
+              />
+            </div>
+          )}
 
-              {showProdutoForm && (
-                <ProdutoForm
-                  form={produtoForm}
-                  setForm={setProdutoForm}
-                  roteiro={produtoRoteiro}
-                  operacoes={operacoes}
-                  maquinas={maquinas}
-                  periodos={periodos}
-                  editingProdutoId={editingProdutoId}
-                  novaOperacaoEtapaId={novaOperacaoEtapaId}
-                  textoNovaOperacaoEtapa={textoNovaOperacaoEtapa}
-                  setTextoNovaOperacaoEtapa={setTextoNovaOperacaoEtapa}
-                  onIniciarNovaOperacao={(etapaId) => setNovaOperacaoEtapaId(etapaId)}
-                  onConfirmarNovaOperacao={confirmarNovaOperacaoEtapa}
-                  onCancelarNovaOperacao={() => { setNovaOperacaoEtapaId(null); setTextoNovaOperacaoEtapa(""); }}
-                  onTrocarOperacaoEtapa={(etapaId, operacao) => setProdutoRoteiro(trocarOperacaoEtapa(produtoRoteiro, etapaId, operacao))}
-                  onRemoverEtapa={(etapaId) => setProdutoRoteiro(removerEtapa(produtoRoteiro, etapaId))}
-                  onAdicionarEtapa={() => setProdutoRoteiro(adicionarEtapa(produtoRoteiro, operacoes[0] || ""))}
-                  onAtualizarMetaEtapa={(etapaId, periodoId, valor) => setProdutoRoteiro(atualizarMetaEtapa(produtoRoteiro, etapaId, periodoId, valor))}
-                  onAlternarMaquinaNaEtapa={(etapaId, maquinaId) => setProdutoRoteiro(alternarMaquinaNaEtapa(produtoRoteiro, etapaId, maquinaId))}
-                  onSubmit={submitProduto}
-                  onCancelar={resetProdutoForm}
-                />
-              )}
-
-              {produtosHook.loading ? (
-                <div className="stx-empty">Carregando…</div>
-              ) : produtosOrdenados.length === 0 ? (
-                <div className="stx-empty">Nenhum produto cadastrado ainda.</div>
-              ) : (
-                produtosOrdenados.map((p) => {
+          <div className="stx-section" style={{ marginTop: 32 }}>
+            {produtosHook.loading ? (
+              <div className="stx-empty">Carregando…</div>
+            ) : produtosOrdenados.length === 0 ? (
+              <div className="stx-empty">Nenhum produto cadastrado ainda.</div>
+            ) : (
+              <>
+                <div className="stx-prod-table-head">
+                  <span>Produto</span>
+                  <span className="num">Valor recebido</span>
+                  <span className="num">Custo de produção</span>
+                  <span className="num">Margem</span>
+                  <span className="num">Lucro/hora</span>
+                  <span></span>
+                </div>
+                {produtosOrdenados.map((p) => {
                   const temRoteiro = produtoTemRoteiro(p);
                   const { custo, margemRS, margemPct, lucroHora } = calcularMargem(p);
                   return (
-                    <div className={`stx-func-card ${!p.ativo ? "paused" : ""}`} key={p.id}>
-                      <div className="stx-func-top">
-                        <div>
-                          <p className="stx-func-nome">
-                            {p.nome}
-                            {p.referencia && <span className="stx-badge blueprint">{p.referencia}</span>}
-                            {!p.ativo && <span className="stx-badge">pausado</span>}
-                          </p>
-                          <p className="stx-func-itens">
-                            {temRoteiro
-                              ? p.roteiro.map((e) => {
-                                  const nomesMaquinas = maquinas.filter((m) => (e.maquinasIds || []).includes(m.id)).map((m) => m.nome);
-                                  const metasTexto = periodos.map((per) => `${per.nome}:${(e.metas || {})[per.id as keyof typeof e.metas] || 0}`).join(" ");
-                                  return `${e.operacao} (${metasTexto}${nomesMaquinas.length ? " · " + nomesMaquinas.join(", ") : ""})`;
-                                }).join(" → ")
-                              : "sem fluxo de produção cadastrado"}
-                          </p>
-                        </div>
-                        <div className="stx-entry-right">
-                          <button
-                            className={`stx-icon-btn ${p.ativo ? "on" : ""}`}
-                            title={p.ativo ? "Pausar" : "Retomar"}
-                            onClick={() => toggleProdutoAtivo(p.id)}
-                          >
-                            {p.ativo ? "⏸" : "▶"}
-                          </button>
-                          <button className="stx-icon-btn" title="Editar" onClick={() => editProduto(p)}>✎</button>
-                          <button className="stx-icon-btn danger" title="Excluir" onClick={() => deleteProduto(p.id)}>✕</button>
-                        </div>
+                    <div className="stx-prod-table-row" key={p.id} style={!p.ativo ? { opacity: .55 } : undefined}>
+                      <div>
+                        <p className="stx-prod-nome">
+                          {p.nome}
+                          {p.referencia && <span className="stx-prod-ref">{p.referencia}</span>}
+                          {!p.ativo && <span className="stx-prod-ref">· pausado</span>}
+                        </p>
+                        <p className="stx-prod-fluxo">
+                          {temRoteiro
+                            ? p.roteiro.map((e) => {
+                                const nomesMaquinas = maquinas.filter((m) => (e.maquinasIds || []).includes(m.id)).map((m) => m.nome);
+                                const metasTexto = periodos.map((per) => `${per.nome}:${(e.metas || {})[per.id as keyof typeof e.metas] || 0}`).join(" ");
+                                return `${e.operacao} (${metasTexto}${nomesMaquinas.length ? " · " + nomesMaquinas.join(", ") : ""})`;
+                              }).join(" → ")
+                            : "sem fluxo de produção cadastrado"}
+                        </p>
                       </div>
-                      <div className="stx-func-rates">
-                        <div className="stx-func-rate">
-                          <span className="stx-func-rate-label">Valor recebido</span>
-                          <span className="stx-func-rate-value">{formatBRL(p.valorUnitario)}</span>
-                        </div>
-                        <div className="stx-func-rate">
-                          <span className="stx-func-rate-label">Custo de produção</span>
-                          <span className="stx-func-rate-value">{temRoteiro ? formatBRL(custo) : "—"}</span>
-                        </div>
-                        <div className="stx-func-rate">
-                          <span className="stx-func-rate-label"><Percent size={11} className="stx-rate-icon" />Margem</span>
-                          <span className="stx-func-rate-value" style={temRoteiro ? { color: corPorMargemPct(margemPct) } : undefined}>
-                            {temRoteiro ? `${formatBRL(margemRS)} (${margemPct.toFixed(0)}%)` : "—"}
-                          </span>
-                        </div>
-                        <div className="stx-func-rate">
-                          <span className="stx-func-rate-label"><Clock size={11} className="stx-rate-icon" />Lucro/hora</span>
-                          <span className="stx-func-rate-value highlight" style={temRoteiro ? { color: corPorLucroHora(lucroHora) } : undefined}>
-                            {temRoteiro ? `${formatBRL(lucroHora)}/h` : "—"}
-                          </span>
-                        </div>
-                      </div>
+                      <span className="num">{formatBRL(p.valorUnitario)}</span>
+                      <span className="num" style={{ color: "var(--text-2)" }}>{temRoteiro ? formatBRL(custo) : "—"}</span>
+                      <span className="num" style={temRoteiro ? { color: corPorMargemPct(margemPct) } : undefined}>
+                        {temRoteiro ? `${margemPct.toFixed(0)}%` : "—"}
+                      </span>
+                      <span className="num" style={temRoteiro ? { color: corPorLucroHora(lucroHora) } : undefined}>
+                        {temRoteiro ? formatBRL(lucroHora) : "—"}
+                      </span>
+                      <span className="stx-prod-actions">
+                        <button
+                          className={`stx-icon-btn ${p.ativo ? "on" : ""}`}
+                          title={p.ativo ? "Pausar" : "Retomar"}
+                          onClick={() => toggleProdutoAtivo(p.id)}
+                        >
+                          {p.ativo ? "⏸" : "▶"}
+                        </button>
+                        <button className="stx-icon-btn" title="Editar" onClick={() => editProduto(p)}>✎</button>
+                        <button className="stx-icon-btn danger" title="Excluir" onClick={() => deleteProduto(p.id)}>✕</button>
+                      </span>
                     </div>
                   );
-                })
-              )}
-            </div>
-            {cadastrosBase.erro && <p className="stx-save-error">{cadastrosBase.erro}</p>}
-            {funcionariosHook.erro && <p className="stx-save-error">{funcionariosHook.erro}</p>}
-            {maquinasHook.erro && <p className="stx-save-error">{maquinasHook.erro}</p>}
-            {produtosHook.erro && <p className="stx-save-error">{produtosHook.erro}</p>}
-            {previsoesHook.erro && <p className="stx-save-error">{previsoesHook.erro}</p>}
-            {custosHook.erro && <p className="stx-save-error">{custosHook.erro}</p>}
+                })}
+                <p className="stx-panel-sub" style={{ marginTop: 16, marginBottom: 0 }}>
+                  Valor recebido é cadastrado; custo, margem e lucro/hora são calculados a partir do fluxo de produção e do custo por hora — nenhum dos três é editável aqui.
+                </p>
+              </>
+            )}
           </div>
         </div>
       </div>

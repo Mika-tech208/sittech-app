@@ -1,17 +1,19 @@
 "use client";
 
-// "Produtos programados" — visão consolidada por produto: Previsto,
-// Possível (capacidade — calcularCapacidadeMaximaSemana, inalterado),
-// Realizado, Falta e % concluído. Substitui a antiga tabela "Produção
-// possível por produto" (Previsto/Possível/Diferença) que ficava dentro
-// do painel de capacidade — mesmos dois primeiros números, só que agora
-// ao lado do Realizado, sem duplicar a lista de produtos em dois lugares
-// da tela.
+// "Itens previstos" (tabela de comparação) — visão consolidada por
+// produto: Previsto, Possível (capacidade — calcularCapacidadeMaximaSemana,
+// inalterado), Realizado, Falta e % concluído. Substitui a antiga tabela
+// "Produção possível por produto" (Previsto/Possível/Diferença) que ficava
+// dentro do painel de capacidade — mesmos dois primeiros números, só que
+// agora ao lado do Realizado, sem duplicar a lista de produtos em dois
+// lugares da tela.
 //
 // Realizado vem dos "Itens realizados" da própria Previsão Semanal
 // (previsao_itens, tipo='realizado') — NÃO de apontamentos_producao/
-// Produção Real. Decisão de negócio revertida — ver
-// PrevisaoSemanalPage.tsx e o relatório desta etapa.
+// Produção Real. Decisão de negócio revertida — ver PrevisaoSemanalPage.tsx
+// e o relatório desta etapa. Por isso a tabela não expande linha (não há
+// dado de Produção Real aqui pra mostrar — misturar seria contrariar a
+// regra de negócio).
 //
 // A barra representa Realizado/Previsto (não Possível/Previsto) — se
 // passar de 100%, a barra visual para no limite do componente mas o
@@ -30,65 +32,61 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
   if (produtos.length === 0) return null;
 
   return (
-    <div className="stx-panel">
-      <div className="stx-panel-title-row">
-        <p className="stx-panel-title">Produtos programados</p>
+    <div className="stx-prev-section">
+      <div className="stx-prev-section-head">
+        <h2 className="stx-prev-section-title">Itens previstos</h2>
       </div>
-      <p className="stx-panel-sub">
-        Previsto, possível (capacidade) e realizado (conforme lançamentos da previsão, em &quot;Itens realizados&quot;) de cada produto da semana.
-      </p>
 
-      {resumoPecas.totalPrevisto > 0 && (
-        <p className="stx-custos-total" style={{ marginBottom: 14 }}>
-          {formatQtd(resumoPecas.totalPrevisto)} peças previstas · {formatQtd(resumoPecas.totalRealizado)} realizadas
-          {" · "}
-          <b>{resumoPecas.concluidoPct === null ? "N/A" : `${resumoPecas.concluidoPct.toFixed(0)}%`}</b> concluído
-          <span style={{ fontWeight: 400, color: "var(--text-muted)", fontSize: 11.5 }}> (soma simples de peças entre produtos — indicador de acompanhamento, não de capacidade)</span>
-        </p>
-      )}
+      <div className="stx-prev-table-head">
+        <span>Produto</span>
+        <span className="num">Previsto</span>
+        <span className="num">Possível</span>
+        <span className="num">Realizado</span>
+        <span className="num">Falta</span>
+        <span className="num">%</span>
+      </div>
 
       {produtos.map((p) => {
-        const pctTexto = p.concluidoPct === null ? "N/A" : `${p.concluidoPct.toFixed(0)}% concluído`;
+        const pctTexto = p.concluidoPct === null ? "N/A" : `${p.concluidoPct.toFixed(0)}%`;
         const pctBarra = p.concluidoPct === null ? 0 : Math.min(100, Math.max(0, p.concluidoPct));
         return (
-          <div className="stx-produto-programado" key={p.itemId}>
-            <p className="stx-entry-desc" style={{ marginBottom: 8 }}>{p.produtoNome}</p>
-            <div className="stx-produto-programado-grid">
-              <div>
-                <p className="stx-capacidade-reais-label">Previsto</p>
-                <p className="stx-produto-programado-valor">{formatQtd(p.previsto)}</p>
-              </div>
-              <div>
-                <p className="stx-capacidade-reais-label">Possível</p>
-                <p className="stx-produto-programado-valor">{formatQtd(p.possivel)}</p>
-              </div>
-              <div>
-                <p className="stx-capacidade-reais-label">Realizado</p>
-                <p className="stx-produto-programado-valor" style={{ color: "var(--accent)" }}>{formatQtd(p.realizado)}</p>
-              </div>
-              <div>
-                <p className="stx-capacidade-reais-label">Falta</p>
-                <p className="stx-produto-programado-valor" style={{ color: p.falta > 0 ? "var(--warning)" : "var(--accent)" }}>{formatQtd(p.falta)}</p>
-              </div>
-            </div>
-            <div className="stx-analise-barra-bg" style={{ marginTop: 8 }}>
-              <div className="stx-analise-barra-fill stx-status-normal" style={{ width: `${pctBarra}%` }} />
-            </div>
-            <p className="stx-analise-maquina-detalhe">{pctTexto}</p>
+          <div className="stx-prev-table-row" key={p.itemId}>
+            <span>{p.produtoNome}</span>
+            <span className="num">{formatQtd(p.previsto)}</span>
+            <span className="num">{formatQtd(p.possivel)}</span>
+            <span className="num" style={{ color: "var(--accent)" }}>{formatQtd(p.realizado)}</span>
+            <span className="num" style={{ color: p.falta > 0 ? "var(--warning)" : "var(--text-3)" }}>{formatQtd(p.falta)}</span>
+            <span className="stx-prev-bar-cell">
+              <span className="num">{pctTexto}</span>
+              <span className="stx-prev-bar-track">
+                <span className="stx-prev-bar-fill" style={{ width: `${pctBarra}%`, background: p.concluidoPct !== null && p.concluidoPct >= 100 ? "var(--accent)" : "var(--text-3)" }} />
+              </span>
+            </span>
           </div>
         );
       })}
 
+      {resumoPecas.totalPrevisto > 0 && (
+        <div className="stx-prev-table-row total">
+          <span>Total</span>
+          <span className="num">{formatQtd(resumoPecas.totalPrevisto)}</span>
+          <span className="num">{formatQtd(resumoPecas.totalPossivel)}</span>
+          <span className="num">{formatQtd(resumoPecas.totalRealizado)}</span>
+          <span className="num">{formatQtd(resumoPecas.totalFalta)}</span>
+          <span className="num">{resumoPecas.concluidoPct === null ? "N/A" : `${resumoPecas.concluidoPct.toFixed(0)}%`}</span>
+        </div>
+      )}
+
       {naoPrevistos.length > 0 && (
-        <div className="stx-analise-lista">
-          <p className="stx-analise-secao-titulo">Produzido fora da previsão</p>
-          <p className="stx-panel-sub" style={{ margin: "0 0 8px 0" }}>
+        <div style={{ marginTop: 28 }}>
+          <p className="stx-prev-section-title" style={{ fontSize: 14 }}>Produzido fora da previsão</p>
+          <p className="stx-prev-ref" style={{ margin: "4px 0 10px" }}>
             Teve item realizado lançado essa semana, mas não estava programado — não conta pra nenhum número acima.
           </p>
           {naoPrevistos.map((p) => (
-            <div className="stx-tabela-producao-linha" key={p.produtoId} style={{ gridTemplateColumns: "2fr 1fr" }}>
+            <div className="stx-prev-table-row" key={p.produtoId} style={{ gridTemplateColumns: "1.7fr 90px" }}>
               <span>{p.produtoNome}</span>
-              <span>{formatQtd(p.realizado)}</span>
+              <span className="num">{formatQtd(p.realizado)}</span>
             </div>
           ))}
         </div>

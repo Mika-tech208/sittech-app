@@ -85,30 +85,35 @@ export default function SemProducaoModal({
 
   return (
     <div className="stx-modal-backdrop" onClick={etapa === "preenchendo" ? onFechar : undefined}>
-      <div className="stx-modal-card stx-pr-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="stx-ap-modal-card" onClick={(e) => e.stopPropagation()}>
         {etapa === "confirmado" ? (
-          <div className="stx-pr-confirmacao">
-            <p className="stx-pr-confirmacao-check">✓ Período fechado</p>
-            <p className="stx-pr-confirmacao-produto">Sem produção — {LABEL_MOTIVO_SEM_PRODUCAO[motivoSalvo] || motivoSalvo}</p>
-            <div className="stx-pr-confirmacao-acoes">
+          <div className="stx-ap-confirm">
+            <p className="stx-ap-confirm-check">✓ Período fechado</p>
+            <p className="stx-ap-confirm-detail">Sem produção — {LABEL_MOTIVO_SEM_PRODUCAO[motivoSalvo] || motivoSalvo}</p>
+            <div className="stx-ap-confirm-actions">
               {temProximaPendente && (
-                <button type="button" className="stx-btn-primary" onClick={onProximaMaquina}>PRÓXIMA MÁQUINA</button>
+                <button type="button" className="stx-ap-btn-primary" onClick={onProximaMaquina}>Próxima máquina</button>
               )}
-              <button type="button" className="stx-btn-secondary" onClick={onFechar}>VER TODAS</button>
+              <button type="button" className="stx-ap-btn-secondary" onClick={onFechar}>Ver todas</button>
             </div>
           </div>
         ) : (
           <>
-            <p className="stx-modal-titulo">{maquinaNome}</p>
-            <p className="stx-panel-sub" style={{ marginTop: -10, marginBottom: 16 }}>{periodoNome} · {periodoHorario} · Sem produção</p>
+            <div className="stx-ap-modal-head">
+              <div>
+                <p className="stx-ap-modal-eyebrow">{maquinaNome} · {periodoNome} · {periodoHorario}</p>
+                <p className="stx-ap-modal-title">Sem produção neste período</p>
+              </div>
+              <button type="button" className="stx-ap-modal-close" onClick={onFechar} aria-label="Fechar">✕</button>
+            </div>
 
-            <label className="stx-label">Motivo</label>
-            <div className="stx-pr-motivos-grid">
+            <label className="stx-ap-field-label" style={{ marginTop: 20 }}>Motivo</label>
+            <div className="stx-ap-motivo-grid">
               {MOTIVOS.map((m) => (
                 <button
                   key={m.valor}
                   type="button"
-                  className={`stx-pr-motivo-btn ${motivo === m.valor ? "selecionado" : ""}`}
+                  className={`stx-ap-motivo-btn ${motivo === m.valor ? "selecionado" : ""}`}
                   onClick={() => setMotivo(m.valor)}
                 >
                   {m.label}
@@ -117,11 +122,11 @@ export default function SemProducaoModal({
             </div>
 
             {precisaDescricao && (
-              <div style={{ marginTop: 14, marginBottom: 4 }}>
-                <label className="stx-label">Descrição</label>
+              <div className="stx-ap-field" style={{ marginTop: 16 }}>
+                <label className="stx-ap-field-label">Descrição</label>
                 <input
                   type="text"
-                  className="stx-input"
+                  className="stx-ap-input"
                   value={descricao}
                   onChange={(e) => setDescricao(e.target.value)}
                   placeholder="Descreva o motivo"
@@ -129,13 +134,13 @@ export default function SemProducaoModal({
               </div>
             )}
 
-            {erro && <p className="stx-save-error" style={{ marginTop: 12, marginBottom: 4 }}>{erro}</p>}
+            {erro && <p className="stx-ap-error">{erro}</p>}
 
-            <div className="stx-form-actions" style={{ flexDirection: "column", marginTop: 16 }}>
-              <button type="button" className="stx-btn-primary" disabled={!podeConfirmar} onClick={confirmar}>
-                {etapa === "salvando" ? "Salvando…" : "CONFIRMAR"}
+            <div className="stx-ap-actions">
+              <button type="button" className="stx-ap-btn-primary" disabled={!podeConfirmar} onClick={confirmar}>
+                {etapa === "salvando" ? "Salvando…" : "Confirmar"}
               </button>
-              <button type="button" className="stx-btn-secondary" onClick={onFechar} disabled={etapa === "salvando"}>Cancelar</button>
+              <button type="button" className="stx-ap-btn-secondary" onClick={onFechar} disabled={etapa === "salvando"}>Cancelar</button>
             </div>
           </>
         )}

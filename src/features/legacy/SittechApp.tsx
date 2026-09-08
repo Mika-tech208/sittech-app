@@ -19,10 +19,10 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Package, Clock, Users,
-  DollarSign, TrendingUp, TrendingDown, Scale, Target, Sparkles, ClipboardList, Layers,
+  DollarSign, TrendingUp, Scale, ClipboardList, Layers,
   AlertTriangle, Factory, Activity, PauseCircle, ClipboardCheck, Database,
 } from "lucide-react";
 import {
@@ -47,7 +47,7 @@ import { useCustos } from "@/hooks/useCustos";
 import { useFaturamentos } from "@/hooks/useFaturamentos";
 import { useUsuarios } from "@/hooks/useUsuarios";
 import { useAuditoria } from "@/hooks/useAuditoria";
-import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
+import { useSidebarState } from "@/hooks/useSidebarState";
 import { GRUPOS_PERMISSOES, PRESET_SUPERVISAO_PRODUCAO, temPermissao } from "@/lib/permissoes";
 import GlobalStyles from "@/components/shell/GlobalStyles";
 import Sidebar from "@/components/shell/Sidebar";
@@ -120,7 +120,14 @@ function PainelAguardandoIntegracao({ icone, titulo, pergunta, descricao }) {
 
 export default function SittechApp() {
   const router = useRouter();
-  const [abaAtiva, setAbaAtiva] = useState("inicio"); // 'inicio' | 'custos' | 'funcionarios' | 'produtos' | 'previsao' | 'horaEmpresa' | 'faturamento' | 'bi' | 'importar'
+  const searchParams = useSearchParams();
+  // Corrige o bug de navegação documentado no handoff (§1.1/§23): uma
+  // página migrada que aponta pra um item ainda-legado (Custos mensais,
+  // Funcionários, Faturamento mensal, Análise de faturamento, Usuários,
+  // Importar dados, Dados Importados) navega pra `/?aba=<chave>` — lido só
+  // na entrada (lazy initializer), nunca ressincronizado depois; a partir
+  // daí a navegação interna volta a ser 100% local state, como sempre foi.
+  const [abaAtiva, setAbaAtiva] = useState(() => searchParams.get("aba") || "inicio"); // 'inicio' | 'custos' | 'funcionarios' | 'produtos' | 'previsao' | 'horaEmpresa' | 'faturamento' | 'bi' | 'importar'
   const [tema, setTema] = useState("dark"); // 'dark' | 'light'
   const cores = THEMES[tema];
   const [modoPrivado, setModoPrivado] = useState(false);
@@ -129,7 +136,7 @@ export default function SittechApp() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar(abaAtiva);
+  const shell = useSidebarState(abaAtiva);
 
   // Autenticação unificada — Supabase Auth + public.usuarios, mesmo hook
   // usado por /previsao, /capacidade, /custo-hora, /produtos, /maquinas.
@@ -955,17 +962,32 @@ export default function SittechApp() {
           tema={tema}
           abaAtiva={abaAtiva}
           onNavigateTab={setAbaAtiva}
-          gruposAbertos={gruposAbertos}
-          toggleGrupo={toggleGrupo}
+          gruposAbertos={shell.gruposAbertos}
+          toggleGrupo={shell.toggleGrupo}
           usuarioLogado={usuarioLogado}
           metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
           metaInvalida={metaInvalida}
           metaSemanalFinal={metaSemanalFinal}
           formatBRL={formatBRL}
           onMetaClick={() => setAbaAtiva("inicio")}
+          onAbrirMinhaConta={abrirMinhaConta}
+          onSair={() => handleLogout()}
+          recolhida={shell.recolhida}
+          onToggleRecolhida={shell.toggleRecolhida}
+          gavetaAberta={shell.gavetaAberta}
+          onFecharGaveta={shell.fecharGaveta}
         />
 
         <div className="stx-content-wrapper">
+      <TopBarActions
+        modoPrivado={modoPrivado}
+        onToggleModoPrivado={toggleModoPrivado}
+        tema={tema}
+        onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
+        usuarioLogado={usuarioLogado}
+        abaAtiva={abaAtiva}
+        onAbrirMenu={shell.abrirGaveta}
+      />
       {cadastrosBase.erro && <p className="stx-save-error">{cadastrosBase.erro}</p>}
       {funcionariosHook.erro && <p className="stx-save-error">{funcionariosHook.erro}</p>}
       {maquinasHook.erro && <p className="stx-save-error">{maquinasHook.erro}</p>}
@@ -991,26 +1013,8 @@ export default function SittechApp() {
             </div>
           )}
         </div>
-        <div className="stx-header-right">
-          <TopBarActions
-            modoPrivado={modoPrivado}
-            onToggleModoPrivado={toggleModoPrivado}
-            tema={tema}
-            onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
-            onAbrirMinhaConta={abrirMinhaConta}
-            onSair={() => handleLogout()}
-          />
-          <div className={`stx-total-box ${abaAtiva === "inicio" ? "stx-total-box-com-icone" : ""}`}>
-          {abaAtiva === "inicio" && (
-            <>
-              <span className="stx-total-icone-alvo"><Target size={20} /></span>
-              <p className="stx-total-label">Meta semanal</p>
-              <p className="stx-total-value">{metaSemanalUsaPrevisto || !metaInvalida ? formatBRL(metaSemanalFinal) : "—"}</p>
-              <p className="stx-total-split">
-                {metaSemanalUsaPrevisto ? "da previsão já lançada essa semana" : `calculada pela margem de ${margemDesejada}%`}
-              </p>
-            </>
-          )}
+        <div className="stx-header-right" style={{ display: ["custos", "funcionarios", "faturamento", "bi", "previsao"].includes(abaAtiva) ? undefined : "none" }}>
+          <div className="stx-total-box">
           {abaAtiva === "custos" && (
             <>
               <p className="stx-total-label">Total do mês</p>
@@ -1054,77 +1058,70 @@ export default function SittechApp() {
 
       {abaAtiva === "inicio" && (
         <div>
-          <div className="stx-bi-stats">
-            <div className="stx-destaque-box stx-destaque-com-icone">
-              <div>
-                <p className="stx-destaque-label">Faturamento do mês</p>
-                <p className="stx-destaque-value">{dadosMesAtual ? formatBRL(dadosMesAtual.bruto) : "—"}</p>
-                <p className="stx-destaque-sub">
-                  {crescimentoFaturamento === null
-                    ? "sem mês anterior pra comparar"
-                    : `${crescimentoFaturamento >= 0 ? "▲" : "▼"} ${Math.abs(crescimentoFaturamento).toFixed(1)}% vs mês passado`}
-                </p>
-              </div>
-              <span className="stx-destaque-icone verde"><DollarSign size={18} /></span>
+          <div className="stx-home-hero-row">
+            <div>
+              <p className="stx-home-hero-label">Lucro líquido do mês</p>
+              <p className="stx-home-hero-value" style={dadosMesAtual ? { color: corPorMargemPct(dadosMesAtual.margem) } : undefined}>
+                {dadosMesAtual ? formatBRL(dadosMesAtual.lucro) : "—"}
+              </p>
+              <p className="stx-home-hero-sub">
+                {dadosMesAtual
+                  ? `margem de ${dadosMesAtual.margem.toFixed(1)}%${crescimentoLucro !== null ? ` · ${crescimentoLucro >= 0 ? "▲" : "▼"} ${Math.abs(crescimentoLucro).toFixed(1)}% vs mês passado` : ""}`
+                  : "sem dados lançados"}
+              </p>
             </div>
-            <div className="stx-destaque-box stx-destaque-com-icone">
-              <div>
-                <p className="stx-destaque-label">Lucro líquido do mês</p>
-                <p className="stx-destaque-value" style={dadosMesAtual ? { color: corPorMargemPct(dadosMesAtual.margem) } : undefined}>
-                  {dadosMesAtual ? formatBRL(dadosMesAtual.lucro) : "—"}
-                </p>
-                <p className="stx-destaque-sub">
-                  {dadosMesAtual
-                    ? `${dadosMesAtual.margem.toFixed(1)}% de margem${crescimentoLucro !== null ? ` · ${crescimentoLucro >= 0 ? "▲" : "▼"} ${Math.abs(crescimentoLucro).toFixed(1)}%` : ""}`
-                    : "sem dados lançados"}
-                </p>
-              </div>
-              <span className={`stx-destaque-icone ${dadosMesAtual && dadosMesAtual.margem < 0 ? "vermelho" : dadosMesAtual && dadosMesAtual.margem < 20 ? "amarelo" : "verde"}`}>
-                {dadosMesAtual && dadosMesAtual.margem < 0 ? <TrendingDown size={18} /> : <TrendingUp size={18} />}
-              </span>
+            <div className="stx-home-hero-secondary">
+              <p className="stx-home-hero-label">Faturamento bruto</p>
+              <p className="stx-home-sec-value">{dadosMesAtual ? formatBRL(dadosMesAtual.bruto) : "—"}</p>
+              <p className="stx-home-hero-sub-small">
+                {crescimentoFaturamento === null
+                  ? "receita lançada no mês"
+                  : `${crescimentoFaturamento >= 0 ? "▲" : "▼"} ${Math.abs(crescimentoFaturamento).toFixed(1)}% vs mês passado`}
+              </p>
             </div>
-            <div className="stx-destaque-box stx-destaque-com-icone">
-              <div>
-                <p className="stx-destaque-label">Ponto de equilíbrio / semana</p>
-                <p className="stx-destaque-value">{formatBRL(faturamentoBreakevenSemanal)}</p>
-                <p className="stx-destaque-sub">cobre fixo + funcionários + imposto</p>
-              </div>
-              <span className="stx-destaque-icone azul"><Scale size={18} /></span>
+          </div>
+
+          <div className="stx-home-stats-grid">
+            <div>
+              <p className="stx-home-stat-label">Imposto (9%)</p>
+              <p className="stx-home-stat-value">{dadosMesAtual ? formatBRL(dadosMesAtual.imposto) : "—"}</p>
+              <p className="stx-home-stat-sub">sobre o bruto</p>
             </div>
-            <div className="stx-destaque-box stx-destaque-com-icone">
-              <div>
-                <p className="stx-destaque-label">Meta semanal</p>
-                <p className="stx-destaque-value">{metaSemanalUsaPrevisto || !metaInvalida ? formatBRL(metaSemanalFinal) : "—"}</p>
-                <p className="stx-destaque-sub">
-                  {metaSemanalUsaPrevisto ? "da previsão já lançada essa semana" : `pela margem de ${margemDesejada}% (sem previsão lançada)`}
-                </p>
-              </div>
-              <span className="stx-destaque-icone verde"><Target size={18} /></span>
+            <div>
+              <p className="stx-home-stat-label">Custo total</p>
+              <p className="stx-home-stat-value">{dadosMesAtual ? formatBRL(dadosMesAtual.custoTotal) : "—"}</p>
+              <p className="stx-home-stat-sub">fixos e pessoal</p>
             </div>
-            <div className="stx-destaque-box stx-destaque-com-icone">
-              <div>
-                <p className="stx-destaque-label">Faturado essa semana</p>
-                <p className="stx-destaque-value">{formatBRL(realizadoSemanaHoje)}</p>
-                <p className="stx-destaque-sub">
-                  {metaSemanalFinal > 0 ? `${((realizadoSemanaHoje / metaSemanalFinal) * 100).toFixed(0)}% da meta semanal` : "sem meta pra comparar ainda"}
-                </p>
-              </div>
-              <span className="stx-destaque-icone roxo"><Sparkles size={18} /></span>
+            <div>
+              <p className="stx-home-stat-label">Ponto de equilíbrio / mês</p>
+              <p className="stx-home-stat-value">{formatBRL(faturamentoBreakevenMensal)}</p>
+              <p className="stx-home-stat-sub" style={{ color: dadosMesAtual && dadosMesAtual.bruto >= faturamentoBreakevenMensal ? "var(--accent)" : "var(--text-3)" }}>
+                {dadosMesAtual
+                  ? (dadosMesAtual.bruto >= faturamentoBreakevenMensal
+                      ? "atingido"
+                      : `faltavam ${formatBRL(faturamentoBreakevenMensal - dadosMesAtual.bruto)}`)
+                  : "cobre fixo + funcionários + imposto"}
+              </p>
+            </div>
+            <div>
+              <p className="stx-home-stat-label">Meta semanal</p>
+              <p className="stx-home-stat-value">{metaSemanalUsaPrevisto || !metaInvalida ? formatBRL(metaSemanalFinal) : "—"}</p>
+              <p className="stx-home-stat-sub">
+                {metaSemanalUsaPrevisto ? "da previsão já lançada essa semana" : `pela margem de ${margemDesejada}%`}
+              </p>
             </div>
           </div>
 
           {!dadosMesAtual && (
-            <div className="stx-panel">
-              <p className="stx-empty">Ainda não tem faturamento lançado pra {monthLabel(mesAtualReal)}. Lance na aba "Faturamento mensal" pra essa visão ficar completa.</p>
-            </div>
+            <p className="stx-home-empty-nota">Ainda não tem faturamento lançado pra {monthLabel(mesAtualReal)}. Lance na aba &quot;Faturamento mensal&quot; pra essa visão ficar completa.</p>
           )}
 
-          <div className="stx-panel">
-            <p className="stx-panel-title" style={{ marginBottom: 14 }}>Tendência dos últimos meses</p>
+          <div className="stx-section" style={{ marginTop: 48 }}>
+            <p className="stx-panel-title">Tendência dos últimos meses</p>
             {tendenciaUltimosMeses.length === 0 ? (
               <div className="stx-empty">Sem histórico suficiente ainda.</div>
             ) : (
-              <ResponsiveContainer width="100%" height={240}>
+              <ResponsiveContainer width="100%" height={220}>
                 <AreaChart data={tendenciaUltimosMeses} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={cores.border} vertical={false} />
                   <XAxis dataKey="mesLabel" tick={{ fill: cores.textMuted, fontSize: 11 }} axisLine={{ stroke: cores.border }} tickLine={false} />
@@ -1132,16 +1129,16 @@ export default function SittechApp() {
                   <Tooltip content={<BITooltip unit="currency" />} />
                   <Legend wrapperStyle={{ fontSize: 11, color: cores.textMuted }} />
                   <ReferenceLine y={0} stroke={cores.border} />
-                  <Area type="monotone" dataKey="bruto" name="Faturamento bruto" stroke={cores.blueprint} strokeWidth={3} fill={cores.blueprint} fillOpacity={0.4} />
-                  <Area type="monotone" dataKey="lucro" name="Lucro líquido" stroke={cores.accent} strokeWidth={3} fill={cores.accent} fillOpacity={0.3} dot={dotPorMargem} />
+                  <Area type="monotone" dataKey="bruto" name="Faturamento bruto" stroke={cores.blueprint} strokeWidth={2} fill={cores.blueprint} fillOpacity={0} />
+                  <Area type="monotone" dataKey="lucro" name="Lucro líquido" stroke={cores.accent} strokeWidth={2.5} fill={cores.accent} fillOpacity={0} dot={dotPorMargem} />
                 </AreaChart>
               </ResponsiveContainer>
             )}
           </div>
 
-          <div className="stx-grid">
-            <div className="stx-panel">
-              <p className="stx-panel-title" style={{ marginBottom: 4 }}>Semana atual</p>
+          <div className="stx-home-grid-2">
+            <div className="stx-section">
+              <p className="stx-panel-title">Semana atual</p>
               <p className="stx-panel-sub">{weekLabel(semanaHojeISO)}</p>
               <div className="stx-rateio-line">
                 <span className="l"><ClipboardList size={14} className="stx-indicador-icon" />Previsto</span>
@@ -1163,8 +1160,8 @@ export default function SittechApp() {
               </p>
             </div>
 
-            <div className="stx-panel">
-              <p className="stx-panel-title" style={{ marginBottom: 14 }}>Outros indicadores</p>
+            <div className="stx-section">
+              <p className="stx-panel-title">Outros indicadores</p>
               <div className="stx-rateio-line">
                 <span className="l"><Users size={14} className="stx-indicador-icon" />Funcionários ativos</span>
                 <span className="v">{funcionariosAtivos.length}</span>
@@ -1193,10 +1190,8 @@ export default function SittechApp() {
       {abaAtiva === "custos" && (
         <div className="stx-grid">
           <div>
-            <div className="stx-panel">
-              <div className="stx-panel-title-row">
-                <p className="stx-panel-title">Custos fixos</p>
-              </div>
+            <div className="stx-section">
+              <p className="stx-panel-title">Custos fixos</p>
               <p className="stx-panel-sub">Repetem automaticamente todo mês, até você pausar ou excluir.</p>
 
               {!showFixedForm && (
@@ -1294,10 +1289,8 @@ export default function SittechApp() {
               )}
             </div>
 
-            <div className="stx-panel">
-              <div className="stx-panel-title-row">
-                <p className="stx-panel-title">Custos pontuais de {monthLabel(currentMonth)}</p>
-              </div>
+            <div className="stx-section">
+              <p className="stx-panel-title">Custos pontuais de {monthLabel(currentMonth)}</p>
               <p className="stx-panel-sub">Valem só para o mês selecionado.</p>
 
               {!showVarForm && (
@@ -1387,8 +1380,8 @@ export default function SittechApp() {
             </div>
           </div>
 
-          <div className="stx-panel">
-            <p className="stx-panel-title" style={{ marginBottom: 14 }}>Por categoria</p>
+          <div className="stx-section">
+            <p className="stx-panel-title">Por categoria</p>
             {porCategoria.length === 0 ? (
               <div className="stx-empty">Sem dados neste mês.</div>
             ) : (
@@ -1409,11 +1402,8 @@ export default function SittechApp() {
       )}
 
       {abaAtiva === "funcionarios" && (
-        <div className="stx-grid" style={{ gridTemplateColumns: "1fr" }}>
-          <div className="stx-panel">
-            <div className="stx-panel-title-row">
-              <p className="stx-panel-title">Funcionários</p>
-            </div>
+        <div className="stx-section">
+            <p className="stx-panel-title">Funcionários</p>
             <p className="stx-panel-sub">Cadastre o salário base e todos os custos extras do funcionário. O custo por hora é calculado na aba "Custo por hora".</p>
 
             {!showFuncForm && (
@@ -1549,7 +1539,6 @@ export default function SittechApp() {
                 </div>
               ))
             )}
-          </div>
         </div>
       )}
 
@@ -1557,10 +1546,8 @@ export default function SittechApp() {
       {abaAtiva === "faturamento" && (
         <div className="stx-grid">
           <div>
-            <div className="stx-panel">
-              <div className="stx-panel-title-row">
-                <p className="stx-panel-title">Faturamento por data — {monthLabel(currentMonth)}</p>
-              </div>
+            <div className="stx-section">
+              <p className="stx-panel-title">Faturamento por data — {monthLabel(currentMonth)}</p>
               <p className="stx-panel-sub">Lance cada recebimento/nota do mês; a soma vira o faturamento bruto.</p>
 
               {!showReceitaForm && (
@@ -1631,10 +1618,8 @@ export default function SittechApp() {
               <p className="stx-custos-total" style={{ marginTop: 10 }}>Faturamento bruto do mês: <b>{formatBRL(faturamentoBruto)}</b></p>
             </div>
 
-            <div className="stx-panel">
-              <div className="stx-panel-title-row">
-                <p className="stx-panel-title">Custos do mês</p>
-              </div>
+            <div className="stx-section">
+              <p className="stx-panel-title">Custos do mês</p>
               <p className="stx-panel-sub">
                 Meses antigos (antes do sistema): preencha na mão, já que os custos eram diferentes de hoje. Mês atual: pode puxar os dados já cadastrados no app.
               </p>
@@ -1675,8 +1660,8 @@ export default function SittechApp() {
           </div>
 
           <div>
-            <div className="stx-panel">
-              <p className="stx-panel-title" style={{ marginBottom: 14 }}>Resultado de {monthLabel(currentMonth)}</p>
+            <div className="stx-section">
+              <p className="stx-panel-title">Resultado de {monthLabel(currentMonth)}</p>
               <div className="stx-rateio-line">
                 <span className="l">Faturamento bruto</span>
                 <span className="v">{formatBRL(faturamentoBruto)}</span>
@@ -1696,8 +1681,8 @@ export default function SittechApp() {
               </div>
             </div>
 
-            <div className="stx-panel">
-              <p className="stx-panel-title" style={{ marginBottom: 14 }}>Histórico mensal</p>
+            <div className="stx-section">
+              <p className="stx-panel-title">Histórico mensal</p>
               {historicoFaturamento.length === 0 ? (
                 <div className="stx-empty">Nenhum mês lançado ainda.</div>
               ) : (
@@ -1723,7 +1708,7 @@ export default function SittechApp() {
 
       {abaAtiva === "bi" && (
         <div>
-          <div className="stx-panel stx-bi-filtro">
+          <div className="stx-bi-filtro" style={{ borderBottom: "1px solid var(--line)", paddingBottom: 18 }}>
             <div className="stx-bi-filtro-modos">
               <button className={`stx-tab ${biFiltroModo === "todos" ? "active" : ""}`} onClick={() => setBiFiltroModo("todos")}>Todo o período</button>
               <button className={`stx-tab ${biFiltroModo === "mes" ? "active" : ""}`} onClick={() => setBiFiltroModo("mes")}>Um mês específico</button>
@@ -1775,10 +1760,10 @@ export default function SittechApp() {
           </div>
 
           {dadosBI.length === 0 ? (
-            <div className="stx-panel"><div className="stx-empty">{dadosBITodos.length === 0 ? 'Lance alguns meses na aba "Faturamento mensal" pra ver os gráficos aqui.' : "Nenhum mês lançado dentro do período selecionado."}</div></div>
+            <div className="stx-section"><div className="stx-empty">{dadosBITodos.length === 0 ? 'Lance alguns meses na aba "Faturamento mensal" pra ver os gráficos aqui.' : "Nenhum mês lançado dentro do período selecionado."}</div></div>
           ) : (
             <>
-              <div className="stx-panel">
+              <div className="stx-section">
                 <div className="stx-chart-header">
                   <p className="stx-panel-title" style={{ marginBottom: 0 }}>Faturamento bruto x Custo total</p>
                   <ChartTypeToggle value={tipoGraficoBrutoCusto} onChange={setTipoGraficoBrutoCusto} />
@@ -1797,7 +1782,7 @@ export default function SittechApp() {
                 </ResponsiveContainer>
               </div>
 
-              <div className="stx-panel">
+              <div className="stx-section">
                 <div className="stx-chart-header">
                   <p className="stx-panel-title" style={{ marginBottom: 0 }}>Lucro líquido por mês</p>
                   <ChartTypeToggle value={tipoGraficoLucro} onChange={setTipoGraficoLucro} />
@@ -1812,7 +1797,7 @@ export default function SittechApp() {
                 </p>
               </div>
 
-              <div className="stx-panel">
+              <div className="stx-section">
                 <div className="stx-chart-header">
                   <p className="stx-panel-title" style={{ marginBottom: 0 }}>Margem de lucro (%)</p>
                   <ChartTypeToggle value={tipoGraficoMargem} onChange={setTipoGraficoMargem} />
@@ -1827,7 +1812,7 @@ export default function SittechApp() {
                 </p>
               </div>
 
-              <div className="stx-panel">
+              <div className="stx-section">
                 <div className="stx-chart-header">
                   <p className="stx-panel-title" style={{ marginBottom: 0 }}>Composição do custo (funcionários x fixo)</p>
                   <ChartTypeToggle value={tipoGraficoComposicao} onChange={setTipoGraficoComposicao} />
@@ -1848,7 +1833,7 @@ export default function SittechApp() {
               </div>
 
               <div className="stx-grid">
-                <div className="stx-panel">
+                <div className="stx-section">
                   <div className="stx-chart-header">
                     <p className="stx-panel-title" style={{ marginBottom: 0 }}>Número de funcionários</p>
                     <ChartTypeToggle value={tipoGraficoFuncionarios} onChange={setTipoGraficoFuncionarios} />
@@ -1863,7 +1848,7 @@ export default function SittechApp() {
                     })}
                   </ResponsiveContainer>
                 </div>
-                <div className="stx-panel">
+                <div className="stx-section">
                   <div className="stx-chart-header">
                     <p className="stx-panel-title" style={{ marginBottom: 0 }}>Custo médio por funcionário</p>
                     <ChartTypeToggle value={tipoGraficoCustoMedio} onChange={setTipoGraficoCustoMedio} />
@@ -1881,7 +1866,7 @@ export default function SittechApp() {
               </div>
 
               {pieCategoriasBI.length > 0 && (
-                <div className="stx-panel">
+                <div className="stx-section">
                   <p className="stx-panel-title" style={{ marginBottom: 4 }}>Custos do mês atual por categoria</p>
                   <p className="stx-panel-sub">Referente a {monthLabel(currentMonth)} (fixos ativos + pontuais).</p>
                   <ResponsiveContainer width="100%" height={280}>
@@ -1901,8 +1886,8 @@ export default function SittechApp() {
 
       {abaAtiva === "importar" && (
         <div className="stx-grid" style={{ gridTemplateColumns: "1fr" }}>
-          <div className="stx-panel stx-resumo-panel">
-            <p className="stx-panel-title" style={{ marginBottom: 4 }}>Backup completo (somente leitura)</p>
+          <div className="stx-section">
+            <p className="stx-panel-title">Backup completo (somente leitura)</p>
             <p className="stx-panel-sub">
               Gera um retrato dos dados atuais (custos, funcionários, produtos, máquinas, previsões e faturamento),
               lido direto do banco. Serve só como registro/consulta — restaurar um backup antigo por aqui não está
@@ -1924,8 +1909,8 @@ export default function SittechApp() {
             )}
           </div>
 
-          <div className="stx-panel">
-            <p className="stx-panel-title" style={{ marginBottom: 4 }}>Restaurar backup</p>
+          <div className="stx-section">
+            <p className="stx-panel-title">Restaurar backup</p>
             <p className="stx-panel-sub">
               A restauração de backup não está disponível nesta versão. Os dados do sistema agora vivem no Supabase
               (banco compartilhado, não mais no navegador) — restaurar um backup antigo com segurança exige
@@ -1934,8 +1919,8 @@ export default function SittechApp() {
             </p>
           </div>
 
-          <div className="stx-panel">
-            <p className="stx-panel-title" style={{ marginBottom: 4 }}>Importar funcionários em massa</p>
+          <div className="stx-section">
+            <p className="stx-panel-title">Importar funcionários em massa</p>
             <p className="stx-panel-sub">Uma linha por funcionário. Cola várias linhas de uma vez.</p>
             <p className="stx-import-formato">
               Nome;Operação;SalárioBase;Item1:Valor1;Item2:Valor2;...{"\n"}
@@ -1955,8 +1940,8 @@ export default function SittechApp() {
             {resultadoImportFunc && <p className="stx-import-resultado">{resultadoImportFunc}</p>}
           </div>
 
-          <div className="stx-panel">
-            <p className="stx-panel-title" style={{ marginBottom: 4 }}>Importar dados mensais (Faturamento → Custos do mês)</p>
+          <div className="stx-section">
+            <p className="stx-panel-title">Importar dados mensais (Faturamento → Custos do mês)</p>
             <p className="stx-panel-sub">Uma linha por mês. Preenche número de funcionários, custo funcionários e custo fixo daquele mês.</p>
             <p className="stx-import-formato">
               AAAA-MM;NúmeroFuncionários;CustoFuncionariosTotal;CustoFixoTotal{"\n"}
@@ -1977,8 +1962,8 @@ export default function SittechApp() {
             {resultadoImportFatMeses && <p className="stx-import-resultado">{resultadoImportFatMeses}</p>}
           </div>
 
-          <div className="stx-panel">
-            <p className="stx-panel-title" style={{ marginBottom: 4 }}>Importar faturamento por data</p>
+          <div className="stx-section">
+            <p className="stx-panel-title">Importar faturamento por data</p>
             <p className="stx-panel-sub">Uma linha por lançamento/nota. O mês é identificado automaticamente pela data.</p>
             <p className="stx-import-formato">
               AAAA-MM-DD;Valor;Descrição (opcional){"\n"}
@@ -2079,14 +2064,14 @@ export default function SittechApp() {
       )}
 
       {abaAtiva === "usuarios" && usuarioLogado?.papel !== "admin" && (
-        <div className="stx-panel">
+        <div className="stx-section">
           <p className="stx-panel-title">Acesso restrito</p>
           <p className="stx-panel-sub">Essa área é só para administradores.</p>
         </div>
       )}
       {abaAtiva === "usuarios" && usuarioLogado?.papel === "admin" && (
         <div>
-          <div className="stx-panel">
+          <div className="stx-section">
             <div className="stx-panel-title-row">
               <p className="stx-panel-title">Usuários com acesso ao sistema</p>
               {!showUsuarioForm && (
@@ -2199,8 +2184,8 @@ export default function SittechApp() {
             )}
           </div>
 
-          <div className="stx-panel">
-            <p className="stx-panel-title" style={{ marginBottom: 10 }}>Registro de atividade</p>
+          <div className="stx-section">
+            <p className="stx-panel-title">Registro de atividade</p>
             {auditoriaHook.registros.length === 0 ? (
               <div className="stx-empty">Nenhuma ação administrativa registrada ainda.</div>
             ) : (

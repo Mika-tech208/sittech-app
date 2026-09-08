@@ -18,17 +18,17 @@ export default function EscolhaFluxoModal({
 }: EscolhaFluxoModalProps) {
   return (
     <div className="stx-modal-backdrop" onClick={onFechar}>
-      <div className="stx-modal-card stx-pr-modal" onClick={(e) => e.stopPropagation()}>
-        <p className="stx-modal-titulo">{maquinaNome}</p>
-        <p className="stx-panel-sub" style={{ marginTop: -10, marginBottom: 20 }}>{periodoNome} · {periodoHorario}</p>
+      <div className="stx-ap-modal-card" onClick={(e) => e.stopPropagation()}>
+        <p className="stx-ap-modal-eyebrow">{maquinaNome} · {periodoNome} · {periodoHorario}</p>
+        <p className="stx-ap-modal-title">O que aconteceu neste período?</p>
 
-        <div className="stx-pr-escolha-acoes">
-          <button type="button" className="stx-btn-primary" onClick={onRegistrarProducao}>REGISTRAR PRODUÇÃO</button>
-          <button type="button" className="stx-btn-secondary" onClick={onSemProducao}>SEM PRODUÇÃO NESTE PERÍODO</button>
+        <div className="stx-ap-choice-actions">
+          <button type="button" className="stx-ap-choice-btn primario" onClick={onRegistrarProducao}>Registrar produção</button>
+          <button type="button" className="stx-ap-choice-btn secundario" onClick={onSemProducao}>Sem produção neste período</button>
         </div>
 
-        <div className="stx-form-actions" style={{ marginTop: 16 }}>
-          <button type="button" className="stx-btn-secondary" onClick={onFechar}>Cancelar</button>
+        <div className="stx-ap-actions">
+          <button type="button" className="stx-ap-btn-secondary" onClick={onFechar}>Cancelar</button>
         </div>
       </div>
     </div>

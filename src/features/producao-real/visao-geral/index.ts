@@ -102,6 +102,16 @@ export function gerarVisaoGeralProducaoReal(
     temPrevisao,
     porEstado,
     maiorDeficit,
+    // Composição visual (redesign "Estúdio") — mesmos itens que
+    // resultadoValidacao já calculou linhas acima, só reduzidos aos
+    // campos que a tela precisa mostrar por produto. Nenhuma soma entre
+    // produtos aqui.
+    itens: resultadoValidacao
+      ? resultadoValidacao.itens.map((it) => ({
+          produtoId: it.produtoId, produtoNome: it.produtoNome,
+          previsto: it.previsto, producaoAcabadaObservada: it.producaoAcabadaObservada, estado: it.estado,
+        }))
+      : [],
     filtrosDrillDown: { dataInicial: janelaOperacional.dataInicial, dataFinal: janelaOperacional.dataFinal },
   };
 
@@ -127,6 +137,11 @@ export function gerarVisaoGeralProducaoReal(
     principalMotivo: paretoMinutos.length > 0 ? { motivoNome: paretoMinutos[0].motivoNome, minutos: paretoMinutos[0].minutos } : null,
     maquinaMaisAfetada: porMaquina.length > 0 ? { maquinaNome: porMaquina[0].rotulo, minutos: porMaquina[0].resumo.minutosParadosTotal } : null,
     capacidadePerdidaTotal: resumoParadasSemana.capacidadePerdidaTotal,
+    custoTempoOciosoTotal: resumoParadasSemana.custoTempoOciosoTotal,
+    // Composição visual — 5 maiores fatias do mesmo paretoMinutos já
+    // calculado acima (percentualDoTotal já vem oficial de
+    // calcularParetoParadasPorMetrica, nunca recalculado aqui).
+    paretoPorMotivo: paretoMinutos.slice(0, 5).map((p) => ({ motivoNome: p.motivoNome, minutos: p.minutos, percentualDoTotal: p.percentualDoTotal })),
   };
 
   // ---- Faixa 6 — Recurso mais pressionado (§11): reaproveita recursosPressionados, sem capar pctUso ----

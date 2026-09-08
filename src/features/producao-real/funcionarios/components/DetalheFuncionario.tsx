@@ -22,7 +22,7 @@ function blocoContexto(a: AnaliseFuncionarioContexto, router: ReturnType<typeof 
   }
 
   return (
-    <div key={`${a.contexto.produtoId}-${a.contexto.operacaoId}-${a.contexto.maquinaId}`} className="stx-panel" style={{ marginTop: 10 }}>
+    <div key={`${a.contexto.produtoId}-${a.contexto.operacaoId}-${a.contexto.maquinaId}`} className="stx-queue-item">
       <p className="stx-panel-title" style={{ fontSize: 14 }}>{rotuloContextoFuncionario(a.contexto)}</p>
 
       {!a.amostraFuncionario.suficiente ? (
@@ -113,7 +113,7 @@ export default function DetalheFuncionario({
   if (!cobertura) return null;
 
   return (
-    <div className="stx-panel">
+    <div className="stx-section">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <p className="stx-panel-title">{cobertura.funcionarioNome}</p>
         <button type="button" className="stx-btn-secondary" onClick={onFechar}>Fechar</button>

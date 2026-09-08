@@ -36,7 +36,7 @@ export default function CardsSinais({
       {sinais.map((s) => {
         const periodosComSinal = s.persistencia.percentual !== null ? Math.round((s.persistencia.percentual / 100) * s.amostraFuncionario.periodos) : null;
         return (
-          <div key={s.id} className="stx-panel" style={{ marginBottom: 10 }}>
+          <div key={s.id} className="stx-queue-item">
             <span className={`stx-performance-badge ${polaridade === "atencao" ? "critico" : "atingido"}`}>
               {polaridade === "atencao" ? "Atenção" : "Destaque positivo"}
             </span>

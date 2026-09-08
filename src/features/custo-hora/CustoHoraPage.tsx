@@ -7,7 +7,7 @@ import { useCadastrosBase } from "@/hooks/useCadastrosBase";
 import { useFuncionarios } from "@/hooks/useFuncionarios";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
-import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
+import { useSidebarState } from "@/hooks/useSidebarState";
 import LoginScreen from "@/components/shell/LoginScreen";
 import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import Sidebar from "@/components/shell/Sidebar";
@@ -39,7 +39,7 @@ export default function CustoHoraPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("horaEmpresa");
+  const shell = useSidebarState("horaEmpresa");
 
   const auth = useAuthSession();
   // periodos/diasUteis são cadastro-base — já vêm do Supabase, mesma fonte
@@ -144,15 +144,21 @@ export default function CustoHoraPage() {
           <Sidebar
             tema={tema}
             abaAtiva="horaEmpresa"
-            onNavigateTab={() => { router.push("/"); }}
-            gruposAbertos={gruposAbertos}
-            toggleGrupo={toggleGrupo}
+            onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+            gruposAbertos={shell.gruposAbertos}
+            toggleGrupo={shell.toggleGrupo}
             usuarioLogado={auth.usuarioLogado}
             metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
             metaInvalida={metaInvalida}
             metaSemanalFinal={metaSemanalFinal}
             formatBRL={formatBRL}
             onMetaClick={() => { router.push("/"); }}
+            onAbrirMinhaConta={auth.abrirMinhaConta}
+            onSair={() => auth.handleLogout()}
+            recolhida={shell.recolhida}
+            onToggleRecolhida={shell.toggleRecolhida}
+            gavetaAberta={shell.gavetaAberta}
+            onFecharGaveta={shell.fecharGaveta}
           />
           <AcessoNegado />
         </div>
@@ -167,38 +173,44 @@ export default function CustoHoraPage() {
         <Sidebar
           tema={tema}
           abaAtiva="horaEmpresa"
-          onNavigateTab={() => { router.push("/"); }}
-          gruposAbertos={gruposAbertos}
-          toggleGrupo={toggleGrupo}
+          onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+          gruposAbertos={shell.gruposAbertos}
+          toggleGrupo={shell.toggleGrupo}
           usuarioLogado={auth.usuarioLogado}
           metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
           metaInvalida={metaInvalida}
           metaSemanalFinal={metaSemanalFinal}
           formatBRL={formatBRL}
           onMetaClick={() => { router.push("/"); }}
+          onAbrirMinhaConta={auth.abrirMinhaConta}
+          onSair={() => auth.handleLogout()}
+          recolhida={shell.recolhida}
+          onToggleRecolhida={shell.toggleRecolhida}
+          gavetaAberta={shell.gavetaAberta}
+          onFecharGaveta={shell.fecharGaveta}
         />
 
         <div className="stx-content-wrapper">
-          <div className="stx-header">
+          <TopBarActions
+            modoPrivado={modoPrivado}
+            onToggleModoPrivado={toggleModoPrivado}
+            tema={tema}
+            onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
+            usuarioLogado={auth.usuarioLogado}
+            abaAtiva="horaEmpresa"
+            onAbrirMenu={shell.abrirGaveta}
+          />
+          <div className="stx-prod-header">
             <div>
-              <h1 className="stx-title">Custo por hora</h1>
-            </div>
-            <div className="stx-header-right">
-              <TopBarActions
-                modoPrivado={modoPrivado}
-                onToggleModoPrivado={toggleModoPrivado}
-                tema={tema}
-                onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
-                onAbrirMinhaConta={auth.abrirMinhaConta}
-                onSair={() => auth.handleLogout()}
-              />
+              <p className="stx-prod-count">derivado dos períodos de trabalho e do custo total do mês</p>
+              <h1 className="stx-prod-h1">Custo por hora</h1>
             </div>
           </div>
 
-          <div className="stx-grid">
+          <div className="stx-grid" style={{ marginTop: 28 }}>
             <div>
-              <div className="stx-panel">
-                <p className="stx-panel-title" style={{ marginBottom: 4 }}>Períodos de trabalho</p>
+              <div className="stx-section">
+                <p className="stx-panel-title">Períodos de trabalho</p>
                 <p className="stx-panel-sub">Horário real de cada período (3 no turno da manhã, 3 no da tarde). É a partir daqui que o sistema calcula as horas produtivas.</p>
                 {cadastrosBase.periodos.map((p) => (
                   <div className="stx-periodo-row" key={p.id}>
@@ -258,8 +270,8 @@ export default function CustoHoraPage() {
                 </div>
               </div>
 
-              <div className="stx-panel">
-                <p className="stx-panel-title" style={{ marginBottom: 14 }}>Indicadores principais</p>
+              <div className="stx-section">
+                <p className="stx-panel-title">Indicadores principais</p>
                 <div className="stx-destaque-grid">
                   <div className="stx-destaque-box">
                     <p className="stx-destaque-label">Custo médio / funcionário</p>
@@ -275,8 +287,8 @@ export default function CustoHoraPage() {
               </div>
             </div>
 
-            <div className="stx-panel">
-              <p className="stx-panel-title" style={{ marginBottom: 14 }}>Custo por operação</p>
+            <div className="stx-section">
+              <p className="stx-panel-title">Custo por operação</p>
               {resumoPorOperacao.length === 0 ? (
                 <div className="stx-empty">Sem funcionários cadastrados.</div>
               ) : (

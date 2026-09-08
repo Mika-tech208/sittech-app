@@ -34,10 +34,25 @@ export interface MaiorDeficitSemana {
   deficitProjetado: number;
 }
 
+// Linha por produto pra composição visual (fidelidade ao redesign
+// "Estúdio", etapa de shell/Visão Geral) — mesmos campos que
+// ItemValidacaoPrevisao já calcula, só um subconjunto pra não carregar o
+// objeto inteiro (restrições/evidências/etc. continuam só na tela de
+// Validação). NUNCA somado entre produtos aqui (ver comentário em
+// SaudeFabricaCards/SituacaoSemanaCard) — cada linha é seu próprio número.
+export interface ForecastItemResumo {
+  produtoId: string;
+  produtoNome: string;
+  previsto: number;
+  producaoAcabadaObservada: number;
+  estado: EstadoValidacao;
+}
+
 export interface ForecastSemana {
   temPrevisao: boolean; // false = nenhuma previsão lançada pra esta semana.
   porEstado: Record<EstadoValidacao, number>;
   maiorDeficit: MaiorDeficitSemana | null; // sempre 1 produto — nunca somado entre produtos.
+  itens: ForecastItemResumo[]; // mesma ordem de ItemValidacaoPrevisao.itens — nunca reordenado/filtrado aqui.
   filtrosDrillDown: FiltrosIndicadores;
 }
 
@@ -58,6 +73,17 @@ export type AttentionItem = IncidenteDesvio;
 
 // Faixa 5 — Paradas (§10). Só funções oficiais de Paradas V1 — nunca
 // misturar minutos/R$/peças no mesmo número.
+// Fatias do pareto de motivos pra composição visual (barra segmentada) —
+// mesmos itens/percentuais que calcularParetoParadasPorMetrica já
+// calcula (percentualDoTotal já vem pronto de lá, nunca recalculado
+// aqui). Só as N maiores fatias — Pareto completo continua exclusivo da
+// tela de Paradas.
+export interface FatiaParetoParadas {
+  motivoNome: string;
+  minutos: number;
+  percentualDoTotal: number;
+}
+
 export interface DowntimeResumo {
   janela: JanelaRotulada;
   temDados: boolean;
@@ -65,6 +91,8 @@ export interface DowntimeResumo {
   principalMotivo: { motivoNome: string; minutos: number } | null;
   maquinaMaisAfetada: { maquinaNome: string; minutos: number } | null;
   capacidadePerdidaTotal: number | null; // peças — campo separado, nunca somado a minutos.
+  custoTempoOciosoTotal: number | null; // R$ — campo separado, nunca somado a minutos/peças.
+  paretoPorMotivo: FatiaParetoParadas[];
 }
 
 // Faixa 6 — Recurso mais pressionado (§11). SOMENTE o item mais

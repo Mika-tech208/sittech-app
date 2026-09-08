@@ -15,7 +15,7 @@ const LABEL_MOTIVO: Record<string, string> = {
 export default function RecursosEEvidencias({ resultado }: { resultado: ResultadoValidacaoPrevisao }) {
   return (
     <div>
-      <div className="stx-panel">
+      <div className="stx-section">
         <p className="stx-panel-title">Recursos mais pressionados</p>
         <p className="stx-panel-sub">Horas restantes por máquina até o fim da semana útil — nunca "total de peças da fábrica" somando produtos diferentes.</p>
         {resultado.recursosPressionados.length === 0 ? (
@@ -37,7 +37,7 @@ export default function RecursosEEvidencias({ resultado }: { resultado: Resultad
         )}
       </div>
 
-      <div className="stx-panel" style={{ marginTop: 12 }}>
+      <div className="stx-section">
         <p className="stx-panel-title">Produção não programada</p>
         <p className="stx-panel-sub">
           Produto fora da previsão utilizou recurso compartilhado durante a semana — evidência do que já aconteceu, nunca desconta da capacidade futura (o tempo já passou) e nunca vira item previsto.
@@ -53,7 +53,7 @@ export default function RecursosEEvidencias({ resultado }: { resultado: Resultad
         )}
       </div>
 
-      <div className="stx-panel" style={{ marginTop: 12 }}>
+      <div className="stx-section">
         <p className="stx-panel-title">Sem produção (registros explícitos)</p>
         <p className="stx-panel-sub">Nunca inventa minutos/custo — só contagem de registros explícitos. &quot;Sem programação&quot; não é tratado automaticamente como perda evitável.</p>
         {resultado.evidenciasSemProducao.length === 0 ? (

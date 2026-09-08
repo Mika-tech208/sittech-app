@@ -15,13 +15,14 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
+import { formatarTempoDecorrido } from "@/lib/tempoDecorrido";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useCadastrosBase } from "@/hooks/useCadastrosBase";
 import { useFuncionarios } from "@/hooks/useFuncionarios";
 import { useFuncionariosElegibilidade } from "@/hooks/useFuncionariosElegibilidade";
 import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProducaoRealPainel, type EstadoPeriodoMaquina, type PeriodoSelecionado } from "@/hooks/useProducaoRealPainel";
-import { useGruposAbertosSidebar } from "@/hooks/useGruposAbertosSidebar";
+import { useSidebarState } from "@/hooks/useSidebarState";
 import ApontamentoModal from "@/features/producao-real/ApontamentoModal";
 import EscolhaFluxoModal from "@/features/producao-real/EscolhaFluxoModal";
 import SemProducaoModal, { LABEL_MOTIVO_SEM_PRODUCAO } from "@/features/producao-real/SemProducaoModal";
@@ -61,7 +62,7 @@ export default function ProducaoRealPainelPage() {
     setModoPrivadoAtivo(next);
     setModoPrivado(next);
   }
-  const { gruposAbertos, toggleGrupo } = useGruposAbertosSidebar("producaoRealPainel");
+  const shell = useSidebarState("producaoRealPainel");
 
   const auth = useAuthSession();
   const cadastrosBase = useCadastrosBase(auth.autenticado);
@@ -117,6 +118,20 @@ export default function ProducaoRealPainelPage() {
   const totalMaquinas = painel.maquinasView.length;
   const totalFechadas = painel.maquinasView.filter((m) => m.estadoPeriodo !== "pendente").length;
   const tudoFechado = totalMaquinas > 0 && totalFechadas === totalMaquinas;
+  const pctFechadas = totalMaquinas > 0 ? (totalFechadas / totalMaquinas) * 100 : 0;
+
+  // Só contagem de estados já presentes em painel.maquinasView — nenhum
+  // dado novo, nenhuma busca nova (legenda "N pendentes/apontadas/sem
+  // produção" da composição visual).
+  const contagemEstados = useMemo(() => {
+    let pendentes = 0, apontadas = 0, semProducao = 0;
+    painel.maquinasView.forEach((m) => {
+      if (m.estadoPeriodo === "pendente") pendentes++;
+      else if (m.estadoPeriodo === "apontado") apontadas++;
+      else if (m.estadoPeriodo === "sem_producao") semProducao++;
+    });
+    return { pendentes, apontadas, semProducao };
+  }, [painel.maquinasView]);
 
   // ---- fluxo de "Registrar produção" ----
   // Só ativos aqui — não dá pra escolher um funcionário inativo num
@@ -231,15 +246,21 @@ export default function ProducaoRealPainelPage() {
           <Sidebar
             tema={tema}
             abaAtiva="producaoRealPainel"
-            onNavigateTab={() => { router.push("/"); }}
-            gruposAbertos={gruposAbertos}
-            toggleGrupo={toggleGrupo}
+            onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+            gruposAbertos={shell.gruposAbertos}
+            toggleGrupo={shell.toggleGrupo}
             usuarioLogado={auth.usuarioLogado}
             metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
             metaInvalida={metaInvalida}
             metaSemanalFinal={metaSemanalFinal}
             formatBRL={formatBRL}
             onMetaClick={() => { router.push("/"); }}
+            onAbrirMinhaConta={auth.abrirMinhaConta}
+            onSair={() => auth.handleLogout()}
+            recolhida={shell.recolhida}
+            onToggleRecolhida={shell.toggleRecolhida}
+            gavetaAberta={shell.gavetaAberta}
+            onFecharGaveta={shell.fecharGaveta}
           />
           <AcessoNegado />
         </div>
@@ -256,116 +277,150 @@ export default function ProducaoRealPainelPage() {
         <Sidebar
           tema={tema}
           abaAtiva="producaoRealPainel"
-          onNavigateTab={() => { router.push("/"); }}
-          gruposAbertos={gruposAbertos}
-          toggleGrupo={toggleGrupo}
+          onNavigateTab={(key) => { router.push(`/?aba=${key}`); }}
+          gruposAbertos={shell.gruposAbertos}
+          toggleGrupo={shell.toggleGrupo}
           usuarioLogado={auth.usuarioLogado}
           metaSemanalUsaPrevisto={metaSemanalUsaPrevisto}
           metaInvalida={metaInvalida}
           metaSemanalFinal={metaSemanalFinal}
           formatBRL={formatBRL}
           onMetaClick={() => { router.push("/"); }}
+          onAbrirMinhaConta={auth.abrirMinhaConta}
+          onSair={() => auth.handleLogout()}
+          recolhida={shell.recolhida}
+          onToggleRecolhida={shell.toggleRecolhida}
+          gavetaAberta={shell.gavetaAberta}
+          onFecharGaveta={shell.fecharGaveta}
         />
 
         <div className="stx-content-wrapper">
-          <div className="stx-header">
-            <div>
-              <h1 className="stx-title">Apontamento</h1>
-            </div>
-            <div className="stx-header-right">
-              {!painel.modoRetroativo && (
-                <button type="button" className="stx-btn-secondary" onClick={() => setSeletorPeriodoAberto(true)}>
-                  Outro período
-                </button>
+          <TopBarActions
+            modoPrivado={modoPrivado}
+            onToggleModoPrivado={toggleModoPrivado}
+            tema={tema}
+            onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
+            usuarioLogado={auth.usuarioLogado}
+            abaAtiva="producaoRealPainel"
+            onAbrirMenu={shell.abrirGaveta}
+          />
+          {painel.modoRetroativo && (
+            <span className="stx-ap-retroativo-badge">Período anterior</span>
+          )}
+
+          <div className="stx-ap-toprow">
+            <div style={{ minWidth: 0 }}>
+              <div className="stx-ap-header-top">
+                <span className="stx-ap-header-label">{painel.modoRetroativo ? "Outro período" : "Período atual"}</span>
+                {!painel.modoRetroativo ? (
+                  <button type="button" className="stx-ap-outro-periodo-pill" onClick={() => setSeletorPeriodoAberto(true)}>
+                    Outro período
+                  </button>
+                ) : (
+                  <button type="button" className="stx-ap-outro-periodo-pill" onClick={() => setPeriodoSelecionado(null)}>
+                    Voltar para período atual
+                  </button>
+                )}
+              </div>
+
+              {painel.periodoAtual && (
+                <div className="stx-ap-period-row">
+                  <h1 className="stx-ap-period-h1">{painel.periodoAtual.nome}</h1>
+                  <span className="stx-ap-period-datetime">
+                    {painel.modoRetroativo && `${painel.periodoAtual.data.split("-").reverse().join("/")} · `}
+                    {painel.periodoAtual.inicio} às {painel.periodoAtual.fim}
+                  </span>
+                </div>
               )}
-              <TopBarActions
-                modoPrivado={modoPrivado}
-                onToggleModoPrivado={toggleModoPrivado}
-                tema={tema}
-                onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
-                onAbrirMinhaConta={auth.abrirMinhaConta}
-                onSair={() => auth.handleLogout()}
-              />
+
+              {totalMaquinas > 0 && (
+                <div className="stx-ap-progress-row">
+                  <span className="stx-ap-progress-track">
+                    <span className="stx-ap-progress-fill" style={{ width: `${pctFechadas}%` }} />
+                  </span>
+                  <span className="stx-ap-progress-text"><b>{totalFechadas}</b> de {totalMaquinas} máquinas fechadas</span>
+                </div>
+              )}
             </div>
+
+            {podeOcorrencia && (
+              <button type="button" className="stx-ap-btn-ocorrencia" onClick={() => setAbrirOcorrenciaAberto(true)}>
+                <AlertTriangle size={18} />
+                Informar máquina parada
+              </button>
+            )}
           </div>
 
-          {painel.modoRetroativo && (
-            <div className="stx-pr-retroativo-aviso">PERÍODO ANTERIOR</div>
-          )}
-
-          {painel.periodoAtual && (
-            <div className={`stx-pr-periodo-banner ${painel.modoRetroativo ? "retroativo" : ""}`}>
-              <div>
-                <span className="stx-pr-periodo-nome">
-                  {painel.modoRetroativo && `${painel.periodoAtual.data.split("-").reverse().join("/")} · `}
-                  {painel.periodoAtual.nome}
-                </span>
-                <span className="stx-pr-periodo-horario">{painel.periodoAtual.inicio}–{painel.periodoAtual.fim}</span>
-              </div>
-              {painel.modoRetroativo ? (
-                <button type="button" className="stx-btn-secondary" onClick={() => setPeriodoSelecionado(null)}>
-                  Voltar para período atual
-                </button>
-              ) : (
-                <span className={`stx-pr-progresso ${tudoFechado ? "completo" : ""}`}>
-                  {totalFechadas} de {totalMaquinas} máquinas fechadas
-                </span>
-              )}
-            </div>
-          )}
-
-          {painel.modoRetroativo && (
-            <p className="stx-pr-progresso" style={{ marginBottom: 16 }}>{totalFechadas} de {totalMaquinas} máquinas fechadas</p>
-          )}
-
           {tudoFechado && (
-            <div className="stx-pr-completo-banner">✓ Período fechado — todas as máquinas apontadas</div>
+            <div className="stx-ap-completo-banner">✓ Período fechado — todas as máquinas apontadas</div>
           )}
 
-          {painel.erro && <p className="stx-save-error">{painel.erro}</p>}
-
-          {podeOcorrencia && (
-            <button type="button" className="stx-pr-btn-ocorrencia" onClick={() => setAbrirOcorrenciaAberto(true)}>
-              <AlertTriangle size={18} />
-              INFORMAR MÁQUINA PARADA
-            </button>
-          )}
+          {painel.erro && <p className="stx-save-error" style={{ marginTop: 16 }}>{painel.erro}</p>}
 
           {totalMaquinas === 0 ? (
             <div className="stx-empty">Nenhuma máquina ativa cadastrada.</div>
           ) : (
-            <div className="stx-pr-grid">
-              {painel.maquinasView.map((m) => (
-                <div
-                  key={m.id}
-                  className={`stx-pr-card ${m.estadoMaquina === "parada" ? "parada" : ""} ${m.estadoPeriodo === "pendente" ? "stx-pr-card-clicavel" : ""}`}
-                  onClick={() => abrirEscolha(m)}
-                >
-                  <p className="stx-pr-card-nome">{m.nome}</p>
-                  {m.estadoMaquina === "parada" && podeOcorrencia && (
-                    <button
-                      type="button"
-                      className="stx-pr-pill-parada"
-                      onClick={(e) => { e.stopPropagation(); setMaquinaEncerrandoId(m.id); }}
-                    >
-                      🔴 PARADA AGORA
-                    </button>
-                  )}
-                  {m.estadoMaquina === "parada" && !podeOcorrencia && (
-                    <p className="stx-pr-pill-parada" style={{ cursor: "default" }}>🔴 PARADA AGORA</p>
-                  )}
-                  <p className="stx-pr-linha-estado">
-                    {painel.periodoAtual?.nome} · <span className={`estado estado-${m.estadoPeriodo}`}>{LABEL_ESTADO[m.estadoPeriodo]}</span>
-                  </p>
-                  {m.estadoPeriodo === "apontado" && (
-                    <p className="stx-pr-card-detalhe">{m.produtoNome || "Produto"} · {m.quantidadeProduzida} un.</p>
-                  )}
-                  {m.estadoPeriodo === "sem_producao" && (
-                    <p className="stx-pr-card-detalhe">{m.motivoSemProducao ? LABEL_MOTIVO_SEM_PRODUCAO[m.motivoSemProducao] || m.motivoSemProducao : ""}</p>
-                  )}
+            <>
+              <div className="stx-ap-legend-row">
+                <span className="stx-ap-legend-label">Pendentes primeiro</span>
+                <span style={{ flex: 1 }} />
+                <div className="stx-ap-legend-counts">
+                  <span className="stx-ap-legend-item"><span className="stx-ap-legend-dot" style={{ background: "var(--warning)" }} />{contagemEstados.pendentes} pendentes</span>
+                  <span className="stx-ap-legend-item"><span className="stx-ap-legend-dot" style={{ background: "var(--accent)" }} />{contagemEstados.apontadas} apontadas</span>
+                  <span className="stx-ap-legend-item"><span className="stx-ap-legend-dot" style={{ background: "var(--text-3)" }} />{contagemEstados.semProducao} sem produção</span>
                 </div>
-              ))}
-            </div>
+              </div>
+
+              <div className="stx-ap-grid">
+                {painel.maquinasView.map((m) => {
+                  const parada = m.estadoMaquina === "parada";
+                  const fechada = !parada && m.estadoPeriodo !== "pendente";
+                  const clicavel = m.estadoPeriodo === "pendente";
+                  return (
+                    <div
+                      key={m.id}
+                      role={clicavel ? "button" : undefined}
+                      tabIndex={clicavel ? 0 : undefined}
+                      className={`stx-ap-tile ${parada ? "parada" : ""} ${fechada ? "fechada" : ""} ${!clicavel ? "stx-ap-tile-static" : ""}`}
+                      onClick={() => abrirEscolha(m)}
+                      onKeyDown={(e) => { if (clicavel && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); abrirEscolha(m); } }}
+                    >
+                      <div className="stx-ap-tile-top">
+                        <span className="stx-ap-tile-nome">{m.nome}</span>
+                        {parada ? (
+                          podeOcorrencia ? (
+                            <button
+                              type="button"
+                              className="stx-ap-tile-pill parada-agora"
+                              onClick={(e) => { e.stopPropagation(); setMaquinaEncerrandoId(m.id); }}
+                            >
+                              Parada agora
+                            </button>
+                          ) : (
+                            <span className="stx-ap-tile-pill parada-agora" style={{ cursor: "default" }}>Parada agora</span>
+                          )
+                        ) : m.estadoPeriodo === "pendente" ? (
+                          <span className="stx-ap-tile-pill pendente">{LABEL_ESTADO.pendente}</span>
+                        ) : (
+                          <span className={`stx-ap-tile-estado-inline ${m.estadoPeriodo === "apontado" ? "apontado" : "sem-producao"}`}>
+                            {LABEL_ESTADO[m.estadoPeriodo]}
+                          </span>
+                        )}
+                      </div>
+                      <p className="stx-ap-tile-footer">
+                        {parada && m.ocorrenciaAberta
+                          ? `${m.ocorrenciaAberta.motivoNome} · ${formatarTempoDecorrido(m.ocorrenciaAberta.abertaEm)}`
+                          : m.estadoPeriodo === "apontado"
+                          ? `${m.produtoNome || "Produto"} · ${m.quantidadeProduzida} un.`
+                          : m.estadoPeriodo === "sem_producao"
+                          ? (m.motivoSemProducao ? LABEL_MOTIVO_SEM_PRODUCAO[m.motivoSemProducao] || m.motivoSemProducao : "")
+                          : ""}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
       </div>

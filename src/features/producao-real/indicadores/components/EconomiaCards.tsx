@@ -11,7 +11,7 @@ import { formatarBRLIndicador } from "@/features/producao-real/indicadores/forma
 
 export default function EconomiaCards({ resumo }: { resumo: ResumoEconomico }) {
   return (
-    <div className="stx-panel">
+    <div className="stx-section">
       <p className="stx-panel-title">Custo observado do período</p>
       <p className="stx-panel-sub">
         Direto dos snapshots já gravados em cada apontamento (custo/hora da operação × tempo, congelado no momento do lançamento) — nunca recalculado a partir do cadastro atual.

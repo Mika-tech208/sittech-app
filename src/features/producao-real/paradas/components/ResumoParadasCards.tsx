@@ -16,7 +16,7 @@ function formatarMinutosLongo(min: number | null): string {
 
 export default function ResumoParadasCards({ resumo }: { resumo: ResumoParadas }) {
   return (
-    <div className="stx-panel">
+    <div className="stx-section">
       <p className="stx-panel-title">Resumo do período</p>
       <p className="stx-panel-sub">
         Minutos, quantidade, origem e motivo são fatos diretos dos apontamentos. Custo do tempo ocioso e capacidade perdida são calculados a partir dos mesmos snapshots do Motor Econômico V1 — nunca faturamento perdido.

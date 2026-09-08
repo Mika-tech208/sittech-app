@@ -79,23 +79,23 @@ export default function ParadasManuaisEditor({ paradasManuais, onChange, motivos
     paradasManuais.reduce((soma, p) => soma + p.minutos, 0);
 
   return (
-    <div className="stx-pr-paradas" style={{ marginBottom: 16 }}>
-      <label className="stx-label">Paradas do período</label>
+    <div className="stx-ap-paradas">
+      <label className="stx-ap-field-label">Paradas do período</label>
 
       {(paradasAutomaticas && paradasAutomaticas.length > 0) || paradasManuais.length > 0 ? (
-        <div className="stx-pr-paradas-lista">
+        <div className="stx-ap-paradas-lista">
           {(paradasAutomaticas || []).map((p, i) => (
-            <div key={`auto-${i}`} className="stx-pr-parada-linha bloqueada">
+            <div key={`auto-${i}`} className="stx-ap-parada-linha bloqueada">
               <div>
-                <span className="stx-pr-parada-nome">{p.motivoNome} — {p.minutos} min 🔒</span>
-                <span className="stx-pr-parada-legenda">Registrada automaticamente por ocorrência</span>
+                <span className="stx-ap-parada-nome">{p.motivoNome} — {p.minutos} min 🔒</span>
+                <span className="stx-ap-parada-legenda">Registrada automaticamente por ocorrência</span>
               </div>
             </div>
           ))}
           {paradasManuais.map((p, i) => (
-            <div key={`manual-${i}`} className="stx-pr-parada-linha">
-              <span className="stx-pr-parada-nome">{motivosParada.find((m) => m.id === p.motivoId)?.nome || "Motivo"} — {p.minutos} min</span>
-              <div className="stx-pr-parada-acoes">
+            <div key={`manual-${i}`} className="stx-ap-parada-linha">
+              <span className="stx-ap-parada-nome">{motivosParada.find((m) => m.id === p.motivoId)?.nome || "Motivo"} — {p.minutos} min</span>
+              <div className="stx-ap-parada-acoes">
                 <button type="button" className="stx-icon-btn" title="Editar" onClick={() => editarParada(i)}>✎</button>
                 <button type="button" className="stx-icon-btn danger" title="Remover" onClick={() => removerParada(i)}>✕</button>
               </div>
@@ -105,35 +105,35 @@ export default function ParadasManuaisEditor({ paradasManuais, onChange, motivos
       ) : null}
 
       {formAberto ? (
-        <div className="stx-pr-parada-form">
-          <select className="stx-select" value={motivoId} onChange={(e) => setMotivoId(e.target.value)}>
+        <div className="stx-ap-parada-form">
+          <select className="stx-ap-select" value={motivoId} onChange={(e) => setMotivoId(e.target.value)}>
             <option value="">Motivo…</option>
             {motivosParada.map((m) => (
               <option key={m.id} value={m.id}>{m.nome}</option>
             ))}
           </select>
           <input
-            type="number" inputMode="numeric" min={1} className="stx-input"
+            type="number" inputMode="numeric" min={1} className="stx-ap-input"
             placeholder="Minutos" value={minutos} onChange={(e) => setMinutos(e.target.value)}
           />
           {precisaDescricao && (
             <input
-              type="text" className="stx-input" placeholder="Descreva o motivo"
+              type="text" className="stx-ap-input" placeholder="Descreva o motivo"
               value={descricao} onChange={(e) => setDescricao(e.target.value)}
             />
           )}
-          <div className="stx-pr-parada-form-acoes">
-            <button type="button" className="stx-btn-primary" disabled={!podeAdicionar} onClick={confirmarParada}>
+          <div className="stx-ap-parada-form-acoes">
+            <button type="button" className="stx-ap-btn-primary" disabled={!podeAdicionar} onClick={confirmarParada}>
               {editandoIndex !== null ? "Salvar" : "Adicionar"}
             </button>
-            <button type="button" className="stx-btn-secondary" onClick={() => { setFormAberto(false); setEditandoIndex(null); }}>Cancelar</button>
+            <button type="button" className="stx-ap-btn-secondary" onClick={() => { setFormAberto(false); setEditandoIndex(null); }}>Cancelar</button>
           </div>
         </div>
       ) : (
-        <button type="button" className="stx-pr-add-parada-btn" onClick={abrirNovaParada}>+ Adicionar parada</button>
+        <button type="button" className="stx-ap-add-parada-btn" onClick={abrirNovaParada}>+ Adicionar parada</button>
       )}
 
-      {totalMinutos > 0 && <p className="stx-pr-parada-total">Tempo parado total: {totalMinutos} min</p>}
+      {totalMinutos > 0 && <p className="stx-ap-parada-total">Tempo parado total: {totalMinutos} min</p>}
     </div>
   );
 }

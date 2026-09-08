@@ -26,7 +26,7 @@ export default function FilaDesvios({ incidentes }: { incidentes: IncidenteDesvi
       {incidentes.map((inc) => {
         const expandido = expandidoId === inc.id;
         return (
-          <div key={inc.id} className="stx-panel" style={{ marginBottom: 10 }}>
+          <div key={inc.id} className="stx-queue-item">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
               <div style={{ flex: 1 }}>
                 <span className={`stx-performance-badge ${inc.severidade}`}>{LABEL_SEVERIDADE[inc.severidade]}</span>

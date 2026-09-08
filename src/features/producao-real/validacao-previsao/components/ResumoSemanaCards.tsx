@@ -15,7 +15,7 @@ const LABELS: { key: ResultadoValidacaoPrevisao["itens"][number]["estado"]; labe
 
 export default function ResumoSemanaCards({ resultado }: { resultado: ResultadoValidacaoPrevisao }) {
   return (
-    <div className="stx-panel">
+    <div className="stx-section">
       <p className="stx-panel-title">Resumo da semana</p>
       <p className="stx-panel-sub">
         Tempo restante desta semana: {resultado.tempoRestanteHoras.toFixed(1)}h. Falta operacional sempre calculada com a produção acabada observada (Produção Real, última etapa) — nunca com o Realizado oficial manual.

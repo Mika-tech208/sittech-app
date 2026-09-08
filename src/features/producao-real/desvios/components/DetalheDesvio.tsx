@@ -18,7 +18,7 @@ function formatarValor(valor: number, unidade: DesvioDetectado["unidade"]): stri
 
 function linhaDesvio(d: DesvioDetectado) {
   return (
-    <div key={d.id} className="stx-panel" style={{ marginTop: 10 }}>
+    <div key={d.id} className="stx-queue-item">
       <p className="stx-panel-title" style={{ fontSize: 14 }}>{d.titulo}</p>
 
       <p className="stx-panel-sub" style={{ marginTop: 8 }}><strong>Comparação</strong> ({d.origemJanela === "operacional" ? "semana atual até agora vs. mesmo trecho da semana anterior" : "últimos 28 dias vs. 28 dias anteriores"})</p>
