@@ -154,7 +154,7 @@ export default function Sidebar({
                   <button className={`stx-tab-v ${abaAtiva === "custos" ? "active" : ""}`} onClick={() => onNavigateTab("custos")} title="Custos mensais"><Wallet size={16} />{!recolhida && "Custos mensais"}</button>
                 )}
                 {temPermissao(usuarioLogado, "funcionarios") && (
-                  <button className={`stx-tab-v ${abaAtiva === "funcionarios" ? "active" : ""}`} onClick={() => onNavigateTab("funcionarios")} title="Funcionários"><Users size={16} />{!recolhida && "Funcionários"}</button>
+                  <button className={`stx-tab-v ${abaAtiva === "funcionarios" ? "active" : ""}`} onClick={() => { onNavigateTab("funcionarios"); onFecharGaveta(); }} title="Funcionários"><Users size={16} />{!recolhida && "Funcionários"}</button>
                 )}
                 {temPermissao(usuarioLogado, "produtos") && (
                   <Link href="/produtos" className={`stx-tab-v ${abaAtiva === "produtos" ? "active" : ""}`} title="Produtos"><Package size={16} />{!recolhida && "Produtos"}</Link>
@@ -180,7 +180,7 @@ export default function Sidebar({
             {(recolhida || gruposAbertos.financeiro) && (
               <>
                 <button className={`stx-tab-v ${abaAtiva === "faturamento" ? "active" : ""}`} onClick={() => onNavigateTab("faturamento")} title="Faturamento mensal"><Receipt size={16} />{!recolhida && "Faturamento mensal"}</button>
-                <button className={`stx-tab-v ${abaAtiva === "bi" ? "active" : ""}`} onClick={() => onNavigateTab("bi")} title="Análise de faturamento"><LineChartIcon size={16} />{!recolhida && "Análise de faturamento"}</button>
+                <button className={`stx-tab-v ${abaAtiva === "bi" ? "active" : ""}`} onClick={() => { onNavigateTab("bi"); onFecharGaveta(); }} title="Análise de faturamento"><LineChartIcon size={16} />{!recolhida && "Análise de faturamento"}</button>
               </>
             )}
           </>
