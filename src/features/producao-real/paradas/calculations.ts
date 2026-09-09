@@ -257,6 +257,50 @@ export function calcularResumoParadas(paradas: ParadaComContexto[], apontamentos
   };
 }
 
+// "Impacto econômico estimado" agregado (migration 38) — DELIBERADAMENTE
+// separado de calcularResumoParadas/ResumoParadas: esse tipo é consumido
+// também por src/features/producao-real/desvios/deteccao.ts e pela tool
+// get_downtime_analysis do Intelligence (que devolve `data.resumo`
+// inteiro pro modelo) — estender ResumoParadas vazaria os campos novos
+// pra Desvios/Intelligence silenciosamente, violando a decisão explícita
+// de manter esta métrica só na tela de Paradas por enquanto. Por isso
+// esta função fica à parte, chamada só pelos consumidores que
+// explicitamente precisam dela (Resumo da tela de Paradas, mini-card
+// "Paradas" da Visão Geral) — nunca pelos três consumidores acima.
+export interface ImpactoEconomicoResumo {
+  valorProducaoNaoRealizadaTotal: number | null;
+  // Soma de calcularImpactoEconomicoEstimadoParada PARADA A PARADA (nunca
+  // soma custoTempoOciosoTotal e valorProducaoNaoRealizadaTotal como dois
+  // totais agregados separados — isso misturaria o custo de uma parada
+  // com o valor não realizado de outra parada diferente, se uma das duas
+  // tiver contexto parcial). Só entram no total as paradas cujo impacto
+  // individual pôde ser calculado (custo E valor, os dois, presentes).
+  impactoEconomicoEstimadoTotal: number | null;
+  // true quando ALGUMAS paradas entraram no total mas OUTRAS não tinham
+  // contexto suficiente (o total existe, mas é PARCIAL — precisa dizer
+  // isso na UI, nunca deixar parecer completo). false quando todas as
+  // paradas calculáveis entraram (nada faltando) OU quando nenhuma pôde
+  // ser calculada (nesse caso impactoEconomicoEstimadoTotal já é null e
+  // a UI mostra "—", não "parcial").
+  impactoParcial: boolean;
+  // Quantas paradas do filtro NÃO entraram no impactoEconomicoEstimadoTotal
+  // por falta de contexto (custo ocioso ou valor atribuído ausente) — pra
+  // UI mostrar "N parada(s) sem contexto econômico" quando impactoParcial.
+  quantidadeSemContextoEconomico: number;
+}
+
+export function calcularImpactoEconomicoResumo(paradas: ParadaComContexto[]): ImpactoEconomicoResumo {
+  const valorProducaoNaoRealizadaTotal = somarOuNull(paradas.map(calcularValorProducaoNaoRealizadaParada));
+
+  const impactosPorParada = paradas.map(calcularImpactoEconomicoEstimadoParada);
+  const impactosValidos = impactosPorParada.filter((v): v is number => v !== null);
+  const quantidadeSemContextoEconomico = impactosPorParada.length - impactosValidos.length;
+  const impactoEconomicoEstimadoTotal = impactosValidos.length > 0 ? impactosValidos.reduce((s, v) => s + v, 0) : null;
+  const impactoParcial = impactoEconomicoEstimadoTotal !== null && quantidadeSemContextoEconomico > 0;
+
+  return { valorProducaoNaoRealizadaTotal, impactoEconomicoEstimadoTotal, impactoParcial, quantidadeSemContextoEconomico };
+}
+
 // ---------------------------------------------------------------------
 // Pareto com seletor de métrica — minutos/quantidade sempre confiáveis
 // (fato); custo/capacidade marcam `baseConfiavel=false` quando NENHUMA

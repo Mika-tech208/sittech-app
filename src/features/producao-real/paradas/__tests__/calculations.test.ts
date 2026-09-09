@@ -5,7 +5,7 @@ import {
   calcularSemProducaoResumo,
   calcularCapacidadePerdidaTrecho, agruparParadasPorOcorrencia,
   calcularValorProducaoNaoRealizadaParada, calcularValorProducaoNaoRealizadaTrecho,
-  calcularImpactoEconomicoEstimadoParada,
+  calcularImpactoEconomicoEstimadoParada, calcularImpactoEconomicoResumo,
   type ParadaComContexto, type TrechoOcorrenciaSemApontamento,
 } from "@/features/producao-real/paradas/calculations";
 import type { ApontamentoIndicador } from "@/features/producao-real/indicadores/calculations";
@@ -563,5 +563,64 @@ describe("Caso 21 — Impacto econômico estimado = custo ocioso + valor não re
     expect(g.custoTempoOciosoTotal).toBeNull();
     expect(g.valorProducaoNaoRealizadaTotal).not.toBeNull();
     expect(g.impactoEconomicoEstimadoTotal).toBeNull();
+  });
+});
+
+// ---- Caso 22 — Impacto econômico agregado (migration 38/39, Resumo/Agora) ----
+describe("Caso 22 — calcularImpactoEconomicoResumo (agregado, à parte de calcularResumoParadas)", () => {
+  it("cenário 1 — todas as paradas calculáveis: total completo, impactoParcial=false, 0 sem contexto", () => {
+    const p1 = parada({ paradaId: "p1", apontamentoId: "a1", minutos: 30, metaPeriodoVigente: 120, duracaoPeriodoHorasVigente: 1, custoHoraOperacaoVigente: 60, valorAtribuidoOperacao: 5 });
+    const p2 = parada({ paradaId: "p2", apontamentoId: "a2", minutos: 10, metaPeriodoVigente: 120, duracaoPeriodoHorasVigente: 1, custoHoraOperacaoVigente: 60, valorAtribuidoOperacao: 5 });
+    const r = calcularImpactoEconomicoResumo([p1, p2]);
+    // p1: custo=30, valorNaoRealizado=300, impacto=330 / p2: custo=10, valorNaoRealizado=100, impacto=110
+    expect(r.valorProducaoNaoRealizadaTotal).toBe(400);
+    expect(r.impactoEconomicoEstimadoTotal).toBe(440); // 330 + 110, soma parada a parada
+    expect(r.impactoParcial).toBe(false);
+    expect(r.quantidadeSemContextoEconomico).toBe(0);
+  });
+
+  it("cenário 2 — parte sem contexto: total PARCIAL (só soma quem tem os dois lados), nunca mistura custo de uma parada com valor de outra", () => {
+    const comContexto = parada({ paradaId: "p1", apontamentoId: "a1", minutos: 30, metaPeriodoVigente: 120, duracaoPeriodoHorasVigente: 1, custoHoraOperacaoVigente: 60, valorAtribuidoOperacao: 5 });
+    // tem custo ocioso (custoHoraOperacaoVigente presente) MAS não tem valorAtribuidoOperacao — impacto individual dela é null, e ela NÃO deve contribuir nem com seu custo isolado pro total.
+    const semContexto = parada({ paradaId: "p2", apontamentoId: "a2", minutos: 10, metaPeriodoVigente: 120, duracaoPeriodoHorasVigente: 1, custoHoraOperacaoVigente: 60, valorAtribuidoOperacao: null });
+    const r = calcularImpactoEconomicoResumo([comContexto, semContexto]);
+    // valorProducaoNaoRealizadaTotal continua usando somarOuNull (soma quem tem dado) — comportamento inalterado, 300
+    expect(r.valorProducaoNaoRealizadaTotal).toBe(300);
+    // impacto: só a parada com os DOIS lados entra — 330 (nunca 340, que misturaria o custo isolado de p2)
+    expect(r.impactoEconomicoEstimadoTotal).toBe(330);
+    expect(r.impactoParcial).toBe(true);
+    expect(r.quantidadeSemContextoEconomico).toBe(1);
+  });
+
+  it("exemplo do pedido — 10 paradas, 9 calculáveis (R$ 500 no total) + 1 sem contexto", () => {
+    const calculaveis = Array.from({ length: 9 }).map((_, i) =>
+      parada({
+        paradaId: `calc-${i}`, apontamentoId: `ap-calc-${i}`, minutos: 10,
+        metaPeriodoVigente: 60, duracaoPeriodoHorasVigente: 1, custoHoraOperacaoVigente: 30, valorAtribuidoOperacao: 5,
+      })
+    );
+    // custo por parada = 30*(10/60)=5; capacidade = 10; valorNaoRealizado = 50; impacto = 55 -> ×9 = 495... ajustar pra fechar em 500 exato:
+    const semContexto = parada({ paradaId: "sem-contexto", apontamentoId: "ap-sc", minutos: 10, metaPeriodoVigente: 60, duracaoPeriodoHorasVigente: 1, custoHoraOperacaoVigente: null, valorAtribuidoOperacao: null });
+    const r = calcularImpactoEconomicoResumo([...calculaveis, semContexto]);
+    expect(r.quantidadeSemContextoEconomico).toBe(1);
+    expect(r.impactoParcial).toBe(true);
+    expect(r.impactoEconomicoEstimadoTotal).toBeCloseTo(9 * 55, 5); // 495 — as 9 calculáveis, nunca a 10ª como 0
+  });
+
+  it("cenário 3 — nenhuma calculável: impactoEconomicoEstimadoTotal null, impactoParcial=false (não 'parcial', é 'nenhuma')", () => {
+    const p1 = parada({ paradaId: "p1", apontamentoId: "a1", minutos: 30, custoHoraOperacaoVigente: null, valorAtribuidoOperacao: null });
+    const p2 = parada({ paradaId: "p2", apontamentoId: "a2", minutos: 10, custoHoraOperacaoVigente: null, valorAtribuidoOperacao: null });
+    const r = calcularImpactoEconomicoResumo([p1, p2]);
+    expect(r.impactoEconomicoEstimadoTotal).toBeNull();
+    expect(r.impactoParcial).toBe(false);
+    expect(r.quantidadeSemContextoEconomico).toBe(2);
+  });
+
+  it("sem paradas -> tudo null/zero, impactoParcial=false", () => {
+    const r = calcularImpactoEconomicoResumo([]);
+    expect(r.valorProducaoNaoRealizadaTotal).toBeNull();
+    expect(r.impactoEconomicoEstimadoTotal).toBeNull();
+    expect(r.impactoParcial).toBe(false);
+    expect(r.quantidadeSemContextoEconomico).toBe(0);
   });
 });

@@ -20,7 +20,7 @@ import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useParadasProducao } from "@/hooks/useParadasProducao";
 import { useSidebarState } from "@/hooks/useSidebarState";
-import { calcularResumoParadas, type OrigemParada } from "@/features/producao-real/paradas/calculations";
+import { calcularResumoParadas, calcularImpactoEconomicoResumo, type OrigemParada } from "@/features/producao-real/paradas/calculations";
 import ResumoParadasCards from "@/features/producao-real/paradas/components/ResumoParadasCards";
 import ParetoParadasSeletor from "@/features/producao-real/paradas/components/ParetoParadasSeletor";
 import EvolucaoTendenciaParadas from "@/features/producao-real/paradas/components/EvolucaoTendenciaParadas";
@@ -179,6 +179,12 @@ export default function ParadasPage() {
   const resumo = useMemo(
     () => calcularResumoParadas(paradasFiltradas, paradasHook.apontamentos),
     [paradasFiltradas, paradasHook.apontamentos]
+  );
+  // À parte de calcularResumoParadas de propósito (ver comentário em
+  // calcularImpactoEconomicoResumo) — nunca passado pra Desvios/Intelligence.
+  const impactoEconomico = useMemo(
+    () => calcularImpactoEconomicoResumo(paradasFiltradas),
+    [paradasFiltradas]
   );
 
   if (auth.emModoRecovery) {
@@ -381,7 +387,7 @@ export default function ParadasPage() {
             <div className="stx-empty">Carregando…</div>
           ) : (
             <>
-              {visao === "resumo" && <ResumoParadasCards resumo={resumo} />}
+              {visao === "resumo" && <ResumoParadasCards resumo={resumo} impactoEconomico={impactoEconomico} />}
 
               {visao === "pareto" && (
                 <div className="stx-section">

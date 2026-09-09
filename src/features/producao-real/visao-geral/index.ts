@@ -17,7 +17,7 @@ import type { Produto, Maquina, PeriodoComDuracao, Previsao } from "@/types/doma
 import type { ApontamentoIndicador } from "@/features/producao-real/indicadores/calculations";
 import type { ParadaComContexto } from "@/features/producao-real/paradas/calculations";
 import { calcularResumoIndicadores } from "@/features/producao-real/indicadores/calculations";
-import { calcularResumoParadas, calcularParetoParadasPorMetrica, agruparParadasPorMaquina } from "@/features/producao-real/paradas/calculations";
+import { calcularResumoParadas, calcularImpactoEconomicoResumo, calcularParetoParadasPorMetrica, agruparParadasPorMaquina } from "@/features/producao-real/paradas/calculations";
 import { calcularJanelaOperacional } from "@/features/producao-real/desvios/janelas";
 import { gerarFilaDesvios } from "@/features/producao-real/desvios";
 import { gerarValidacaoPrevisao } from "@/features/producao-real/validacao-previsao";
@@ -128,6 +128,10 @@ export function gerarVisaoGeralProducaoReal(
 
   // ---- Faixa 5 — Paradas (§10): mesma janela "semana atual", só funções oficiais ----
   const resumoParadasSemana = calcularResumoParadas(paradasSemana, apontamentosSemana);
+  // À parte de calcularResumoParadas de propósito — ver comentário em
+  // calcularImpactoEconomicoResumo (calculations.ts): nunca deve entrar
+  // em Desvios/Intelligence, só no card visual "Paradas" da Visão Geral.
+  const impactoEconomicoSemana = calcularImpactoEconomicoResumo(paradasSemana);
   const paretoMinutos = calcularParetoParadasPorMetrica(paradasSemana, "minutos");
   const porMaquina = agruparParadasPorMaquina(paradasSemana, apontamentosSemana); // já vem ordenado desc por minutos
   const downtime: DowntimeResumo = {
@@ -138,6 +142,10 @@ export function gerarVisaoGeralProducaoReal(
     maquinaMaisAfetada: porMaquina.length > 0 ? { maquinaNome: porMaquina[0].rotulo, minutos: porMaquina[0].resumo.minutosParadosTotal } : null,
     capacidadePerdidaTotal: resumoParadasSemana.capacidadePerdidaTotal,
     custoTempoOciosoTotal: resumoParadasSemana.custoTempoOciosoTotal,
+    valorProducaoNaoRealizadaTotal: impactoEconomicoSemana.valorProducaoNaoRealizadaTotal,
+    impactoEconomicoEstimadoTotal: impactoEconomicoSemana.impactoEconomicoEstimadoTotal,
+    impactoParcial: impactoEconomicoSemana.impactoParcial,
+    quantidadeSemContextoEconomico: impactoEconomicoSemana.quantidadeSemContextoEconomico,
     // Composição visual — 5 maiores fatias do mesmo paretoMinutos já
     // calculado acima (percentualDoTotal já vem oficial de
     // calcularParetoParadasPorMetrica, nunca recalculado aqui).

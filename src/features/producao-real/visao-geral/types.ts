@@ -92,6 +92,17 @@ export interface DowntimeResumo {
   maquinaMaisAfetada: { maquinaNome: string; minutos: number } | null;
   capacidadePerdidaTotal: number | null; // peças — campo separado, nunca somado a minutos.
   custoTempoOciosoTotal: number | null; // R$ — campo separado, nunca somado a minutos/peças.
+  // Sempre ESTIMATIVA (peso por esforço-tempo padrão da operação) —
+  // nunca faturamento/receita/prejuízo real. impactoEconomicoEstimadoTotal
+  // soma só as paradas com contexto suficiente (custo E valor, os dois) —
+  // null quando NENHUMA parada é calculável. impactoParcial=true quando
+  // ALGUMAS paradas entraram mas outras (quantidadeSemContextoEconomico)
+  // ficaram de fora por falta de contexto — nesse caso o total existe mas
+  // é parcial, e a UI precisa deixar isso explícito.
+  valorProducaoNaoRealizadaTotal: number | null;
+  impactoEconomicoEstimadoTotal: number | null;
+  impactoParcial: boolean;
+  quantidadeSemContextoEconomico: number;
   paretoPorMotivo: FatiaParetoParadas[];
 }
 
