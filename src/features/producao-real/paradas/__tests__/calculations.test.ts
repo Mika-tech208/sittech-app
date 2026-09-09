@@ -5,6 +5,7 @@ import {
   calcularSemProducaoResumo,
   calcularCapacidadePerdidaTrecho, agruparParadasPorOcorrencia,
   calcularValorProducaoNaoRealizadaParada, calcularValorProducaoNaoRealizadaTrecho,
+  calcularImpactoEconomicoEstimadoParada,
   type ParadaComContexto, type TrechoOcorrenciaSemApontamento,
 } from "@/features/producao-real/paradas/calculations";
 import type { ApontamentoIndicador } from "@/features/producao-real/indicadores/calculations";
@@ -489,5 +490,78 @@ describe("Caso 20 — Valor de produção não realizada (peso por esforço-temp
     expect(g.custoTempoOciosoTotal).toBeCloseTo(9.5766, 3); // só M1, real
     // valor de produção não realizada: 583,33 × 0,064962 ≈ 37,89 (bate com o caso real validado)
     expect(g.valorProducaoNaoRealizadaTotal).toBeCloseTo(37.89, 1);
+  });
+});
+
+// ---- Caso 21 — Impacto econômico estimado (migration 37) ----
+describe("Caso 21 — Impacto econômico estimado = custo ocioso + valor não realizado", () => {
+  it("soma os dois quando ambos existem", () => {
+    const p = parada({
+      paradaId: "p1", apontamentoId: "a1", minutos: 30,
+      metaPeriodoVigente: 120, duracaoPeriodoHorasVigente: 1, custoHoraOperacaoVigente: 60, valorAtribuidoOperacao: 5,
+    });
+    // custo ocioso = 60*(30/60) = 30; capacidade = 60; valor não realizado = 60*5 = 300
+    expect(calcularCustoTempoOciosoParada(p)).toBe(30);
+    expect(calcularValorProducaoNaoRealizadaParada(p)).toBe(300);
+    expect(calcularImpactoEconomicoEstimadoParada(p)).toBe(330);
+  });
+
+  it("custo ocioso null (sem custoHoraOperacaoVigente) -> impacto null, nunca soma o lado ausente como 0", () => {
+    const p = parada({
+      paradaId: "p1", apontamentoId: "a1", minutos: 30,
+      metaPeriodoVigente: 120, duracaoPeriodoHorasVigente: 1, custoHoraOperacaoVigente: null, valorAtribuidoOperacao: 5,
+    });
+    expect(calcularValorProducaoNaoRealizadaParada(p)).not.toBeNull();
+    expect(calcularImpactoEconomicoEstimadoParada(p)).toBeNull();
+  });
+
+  it("valor não realizado null (sem valorAtribuidoOperacao) -> impacto null, nunca soma o lado ausente como 0", () => {
+    const p = parada({
+      paradaId: "p1", apontamentoId: "a1", minutos: 30,
+      metaPeriodoVigente: 120, duracaoPeriodoHorasVigente: 1, custoHoraOperacaoVigente: 60, valorAtribuidoOperacao: null,
+    });
+    expect(calcularCustoTempoOciosoParada(p)).not.toBeNull();
+    expect(calcularImpactoEconomicoEstimadoParada(p)).toBeNull();
+  });
+
+  it("caso real Rosqueadeira 3 — M1 e M2 AMBOS reais (situação atual em PROD): impacto econômico ≈ R$56,51", () => {
+    const abertaEm = "2026-09-09T11:29:31.259Z";
+    const encerradaEm = "2026-09-09T12:05:08.998Z";
+    const valorAtribuido = 0.064961743772241992882562277580072354;
+
+    const segM1 = parada({
+      paradaId: "seg-m1", apontamentoId: "ap-m1", origem: "ocorrencia", periodoId: "m1", minutos: 18,
+      metaPeriodoVigente: 1600, duracaoPeriodoHorasVigente: 1.6, custoHoraOperacaoVigente: 31.9220406744307320,
+      ocorrenciaId: "oc-rosq3", ocorrenciaAbertaEm: abertaEm, ocorrenciaEncerradaEm: encerradaEm,
+      valorAtribuidoOperacao: valorAtribuido,
+    });
+    const segM2 = parada({
+      paradaId: "seg-m2", apontamentoId: "ap-m2", origem: "ocorrencia", periodoId: "m2", minutos: 17,
+      metaPeriodoVigente: 1600, duracaoPeriodoHorasVigente: 1.6, custoHoraOperacaoVigente: 31.9220406744307320,
+      ocorrenciaId: "oc-rosq3", ocorrenciaAbertaEm: abertaEm, ocorrenciaEncerradaEm: encerradaEm,
+      valorAtribuidoOperacao: valorAtribuido,
+    });
+
+    const grupos = agruparParadasPorOcorrencia([segM1, segM2], []);
+    expect(grupos).toHaveLength(1);
+    const g = grupos[0];
+
+    expect(g.custoTempoOciosoTotal).toBeCloseTo(18.62, 1);
+    expect(g.valorProducaoNaoRealizadaTotal).toBeCloseTo(37.89, 1);
+    expect(g.impactoEconomicoEstimadoTotal).toBeCloseTo(56.51, 1);
+    expect(g.impactoEconomicoEstimadoTotal).toBeCloseTo(
+      (g.custoTempoOciosoTotal as number) + (g.valorProducaoNaoRealizadaTotal as number),
+      6
+    );
+  });
+
+  it("ocorrência só com trecho estimado (sem nenhum segmento real) -> custo ocioso total null -> impacto total null", () => {
+    const t = trecho({ ocorrenciaId: "oc-orfa", periodoId: "m1", valorAtribuidoOperacao: 5 });
+    const grupos = agruparParadasPorOcorrencia([], [t]);
+    expect(grupos).toHaveLength(1);
+    const g = grupos[0];
+    expect(g.custoTempoOciosoTotal).toBeNull();
+    expect(g.valorProducaoNaoRealizadaTotal).not.toBeNull();
+    expect(g.impactoEconomicoEstimadoTotal).toBeNull();
   });
 });

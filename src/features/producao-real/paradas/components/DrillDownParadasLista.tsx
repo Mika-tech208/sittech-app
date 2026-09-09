@@ -17,8 +17,10 @@
 // "Valor de produção não realizada" (migration 36) — coluna sempre
 // marcada "(estimativa)" no cabeçalho, mesmo pra segmento real: é uma
 // alocação gerencial de valor por esforço-tempo padrão da operação, não
-// um fato financeiro. Fica sempre separada de "Custo ocioso" — nunca
-// somadas.
+// um fato financeiro. Fica sempre separada de "Custo ocioso" na tabela
+// compacta — "Impacto econômico estimado" (migration 37, custo ocioso +
+// valor não realizado) só aparece no card expandido da ocorrência, nunca
+// como coluna, e nunca chamado de prejuízo/perda/faturamento perdido.
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -171,9 +173,14 @@ export default function DrillDownParadasLista({
                   )}
                   {g.valorProducaoNaoRealizadaTotal !== null && (
                     <p style={{ margin: "4px 0 0", fontStyle: "italic" }}>
-                      Valor de produção não realizada é sempre ESTIMATIVA — peso por esforço-tempo padrão da operação (calculado com custo/hora, meta e roteiro vigentes agora), nunca faturamento/receita real, nunca somado ao custo do tempo ocioso.
+                      Valor de produção não realizada é sempre ESTIMATIVA — peso por esforço-tempo padrão da operação (calculado com custo/hora, meta e roteiro vigentes agora), nunca faturamento/receita real.
                     </p>
                   )}
+                  <div style={{ margin: "8px 0 0", padding: "8px 10px", background: "rgba(255,255,255,0.04)", borderRadius: 6 }}>
+                    <p style={{ margin: 0 }}>Custo do tempo ocioso: <strong>{formatarBRLIndicador(g.custoTempoOciosoTotal)}</strong></p>
+                    <p style={{ margin: "2px 0 0" }}>Valor de produção não realizada: <strong>{formatarBRLIndicador(g.valorProducaoNaoRealizadaTotal)}</strong></p>
+                    <p style={{ margin: "2px 0 0" }}>Impacto econômico estimado: <strong>{formatarBRLIndicador(g.impactoEconomicoEstimadoTotal)}</strong></p>
+                  </div>
                   <p style={{ margin: "8px 0 0", opacity: 0.75 }}>Distribuição por período:</p>
                   {g.segmentos.map((s) => (
                     <p key={s.chave} style={{ margin: "2px 0 0" }}>

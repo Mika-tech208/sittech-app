@@ -163,9 +163,12 @@ export function calcularCapacidadePerdidaTrecho(t: TrechoOcorrenciaSemApontament
 // "Valor de produção não realizada" (migration 36) — SEMPRE ESTIMATIVA,
 // mesmo pra segmento real: é uma alocação gerencial de valor por
 // esforço-tempo padrão da etapa (ver valorAtribuidoOperacao), não um fato
-// financeiro. NUNCA é faturamento/receita/prejuízo real, NUNCA deve ser
-// somada com calcularCustoTempoOciosoParada ("custo do tempo ocioso" —
-// conceito separado, sempre exibido à parte). Calculada com os
+// financeiro. NUNCA é faturamento/receita/prejuízo real. Continua exibida
+// separada de "custo do tempo ocioso" (calcularCustoTempoOciosoParada) —
+// a soma controlada e explicitamente rotulada dos dois vive em
+// calcularImpactoEconomicoEstimadoParada (migration 37), mais abaixo; os
+// dois nunca devem ser silenciosamente conflados como se fossem a mesma
+// coisa. Calculada com os
 // parâmetros ATUAIS (custo_hora/meta/roteiro vigentes agora) — se esses
 // mudarem depois, o valor recalculado muda junto; não é um snapshot
 // histórico reproduzível, e não deve ser tratada como tal.
@@ -181,6 +184,27 @@ export function calcularValorProducaoNaoRealizadaTrecho(t: TrechoOcorrenciaSemAp
   if (capacidadePerdida === null || t.valorAtribuidoOperacao === null) return null;
   return capacidadePerdida * t.valorAtribuidoOperacao;
 }
+
+// "Impacto econômico estimado" (migration 37) = custo do tempo ocioso +
+// valor de produção não realizada — soma EXPLÍCITA e rotulada dos dois
+// (nunca "prejuízo total"/"perda financeira real"/"faturamento
+// perdido"). Só existe quando OS DOIS componentes existem — se qualquer
+// um for null (sem contexto suficiente), o total inteiro é null, nunca
+// trata o componente ausente como 0.
+export function calcularImpactoEconomicoEstimadoParada(p: ParadaComContexto): number | null {
+  const custoTempoOcioso = calcularCustoTempoOciosoParada(p);
+  const valorProducaoNaoRealizada = calcularValorProducaoNaoRealizadaParada(p);
+  if (custoTempoOcioso === null || valorProducaoNaoRealizada === null) return null;
+  return custoTempoOcioso + valorProducaoNaoRealizada;
+}
+
+// Não existe calcularImpactoEconomicoEstimadoTrecho — um trecho estimado
+// nunca tem custo do tempo ocioso (falta contexto de operação/
+// funcionário), então o impacto econômico de um segmento estimado é
+// sempre null por definição (atribuído diretamente como null onde o
+// segmento é montado, ver agruparParadasPorOcorrencia). O total da
+// ocorrência é calculado à parte, a partir dos totais já somados de
+// custo ocioso e valor não realizado — não segmento a segmento.
 
 function somarOuNull(valores: (number | null)[]): number | null {
   const validos = valores.filter((v): v is number => v !== null);
@@ -608,6 +632,10 @@ export interface SegmentoOcorrenciaAgrupada {
   capacidadePerdida: number | null;
   custoTempoOcioso: number | null;
   valorProducaoNaoRealizada: number | null;
+  // custoTempoOcioso + valorProducaoNaoRealizada — null quando qualquer
+  // um dos dois for null (nunca soma um lado desconhecido como 0). Pra
+  // segmento estimado é sempre null (custoTempoOcioso nunca existe ali).
+  impactoEconomicoEstimado: number | null;
 }
 
 export interface OcorrenciaAgrupada {
@@ -626,9 +654,14 @@ export interface OcorrenciaAgrupada {
   custoTempoOciosoTotal: number | null;
   // Sempre ESTIMATIVA (ver calcularValorProducaoNaoRealizadaParada) —
   // soma real + estimado, igual capacidadePerdidaTotal (nunca igual
-  // custoTempoOciosoTotal, que é só real). Nunca somar com
-  // custoTempoOciosoTotal como "prejuízo total".
+  // custoTempoOciosoTotal, que é só real).
   valorProducaoNaoRealizadaTotal: number | null;
+  // "Impacto econômico estimado" (migration 37) = custoTempoOciosoTotal +
+  // valorProducaoNaoRealizadaTotal — soma EXPLÍCITA e rotulada dos dois,
+  // nunca "prejuízo total"/"perda financeira real"/"faturamento
+  // perdido". Null se qualquer um dos dois componentes for null (nunca
+  // trata o ausente como 0) — ver calcularImpactoEconomicoEstimadoParada.
+  impactoEconomicoEstimadoTotal: number | null;
   segmentos: SegmentoOcorrenciaAgrupada[];
 }
 
@@ -678,6 +711,7 @@ export function agruparParadasPorOcorrencia(
       capacidadePerdida: calcularCapacidadePerdidaParada(p),
       custoTempoOcioso: calcularCustoTempoOciosoParada(p),
       valorProducaoNaoRealizada: calcularValorProducaoNaoRealizadaParada(p),
+      impactoEconomicoEstimado: calcularImpactoEconomicoEstimadoParada(p),
     }));
 
     const segmentosEstimados: SegmentoOcorrenciaAgrupada[] = grupo.estimados.map((t) => ({
@@ -689,9 +723,22 @@ export function agruparParadasPorOcorrencia(
       capacidadePerdida: calcularCapacidadePerdidaTrecho(t),
       custoTempoOcioso: null,
       valorProducaoNaoRealizada: calcularValorProducaoNaoRealizadaTrecho(t),
+      // trecho estimado nunca tem custo do tempo ocioso -> impacto
+      // econômico do segmento é sempre null (ver comentário acima da
+      // interface, e a nota logo depois de calcularValorProducaoNaoRealizadaTrecho).
+      impactoEconomicoEstimado: null,
     }));
 
     const segmentos = [...segmentosReais, ...segmentosEstimados].sort((a, b) => a.periodoId.localeCompare(b.periodoId));
+
+    const custoTempoOciosoTotal = somarOuNull(segmentosReais.map((s) => s.custoTempoOcioso));
+    const valorProducaoNaoRealizadaTotal = somarOuNull(segmentos.map((s) => s.valorProducaoNaoRealizada));
+    // Impacto econômico estimado só existe quando OS DOIS totais existem
+    // — nunca trata o lado ausente como 0.
+    const impactoEconomicoEstimadoTotal =
+      custoTempoOciosoTotal !== null && valorProducaoNaoRealizadaTotal !== null
+        ? custoTempoOciosoTotal + valorProducaoNaoRealizadaTotal
+        : null;
 
     resultado.push({
       ocorrenciaId,
@@ -706,8 +753,9 @@ export function agruparParadasPorOcorrencia(
       descricaoSolucao,
       temEstimativa: segmentosEstimados.length > 0,
       capacidadePerdidaTotal: somarOuNull(segmentos.map((s) => s.capacidadePerdida)),
-      custoTempoOciosoTotal: somarOuNull(segmentosReais.map((s) => s.custoTempoOcioso)),
-      valorProducaoNaoRealizadaTotal: somarOuNull(segmentos.map((s) => s.valorProducaoNaoRealizada)),
+      custoTempoOciosoTotal,
+      valorProducaoNaoRealizadaTotal,
+      impactoEconomicoEstimadoTotal,
       segmentos,
     });
   });
