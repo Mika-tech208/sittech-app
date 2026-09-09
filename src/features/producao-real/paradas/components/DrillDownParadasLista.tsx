@@ -17,14 +17,14 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
-  calcularCapacidadePerdidaParada, calcularCustoTempoOciosoParada, calcularFaturamentoPotencialParada,
+  calcularCapacidadePerdidaParada, calcularCustoTempoOciosoParada,
   agruparParadasPorOcorrencia,
   type ParadaComContexto, type TrechoOcorrenciaSemApontamento, type OcorrenciaAgrupada,
 } from "@/features/producao-real/paradas/calculations";
 import { formatarBRLIndicador, formatarMinutos, formatarPecas } from "@/features/producao-real/indicadores/format";
 
 const LIMITE = 200;
-const TEMPLATE_COLUNAS = "0.9fr 0.6fr 1.1fr 1fr 1.3fr 1.1fr 0.8fr 0.8fr 0.9fr 1fr";
+const TEMPLATE_COLUNAS = "0.9fr 0.6fr 1.1fr 1fr 1.3fr 1.1fr 0.8fr 0.8fr 0.9fr";
 
 function formatarHorario(iso: string): string {
   return new Date(iso).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
@@ -79,7 +79,6 @@ export default function DrillDownParadasLista({
           <span>Minutos</span>
           <span>Custo ocioso</span>
           <span>Cap. perdida</span>
-          <span>Faturamento potencial</span>
         </div>
         {ordenado.map((linha) => {
           if (linha.tipo === "manual") {
@@ -105,7 +104,6 @@ export default function DrillDownParadasLista({
                   <span>{formatarMinutos(p.minutos)}</span>
                   <span>{formatarBRLIndicador(calcularCustoTempoOciosoParada(p))}</span>
                   <span>{formatarPecas(calcularCapacidadePerdidaParada(p))}</span>
-                  <span>{formatarBRLIndicador(calcularFaturamentoPotencialParada(p))}</span>
                 </div>
                 {aberto && temDetalhe && (
                   <div className="stx-panel-sub" style={{ padding: "8px 4px 12px", fontFamily: "inherit", lineHeight: 1.5 }}>
@@ -145,7 +143,6 @@ export default function DrillDownParadasLista({
                 <span>{formatarMinutosDecimal(g.duracaoTotalMinutos)}</span>
                 <span>{formatarBRLIndicador(g.custoTempoOciosoTotal)}</span>
                 <span>{formatarPecas(g.capacidadePerdidaTotal)}</span>
-                <span>{formatarBRLIndicador(g.faturamentoPotencialTotal)}</span>
               </div>
               {aberto && (
                 <div className="stx-panel-sub" style={{ padding: "8px 4px 12px", fontFamily: "inherit", lineHeight: 1.5 }}>
@@ -160,7 +157,7 @@ export default function DrillDownParadasLista({
                   )}
                   {g.temEstimativa && (
                     <p style={{ margin: "8px 0 0", fontStyle: "italic" }}>
-                      Faturamento potencial e capacidade perdida incluem trecho(s) ESTIMADO(S) — produto presumido do último apontamento anterior da máquina, meta/valor reais do cadastro pra esse produto. Custo do tempo ocioso não inclui esse trecho (sem contexto suficiente).
+                      Capacidade perdida inclui trecho(s) ESTIMADO(S) — produto presumido do último apontamento anterior da máquina, meta real do cadastro pra esse produto. Custo do tempo ocioso não inclui esse trecho (sem contexto suficiente de operação/funcionário).
                     </p>
                   )}
                   <p style={{ margin: "8px 0 0", opacity: 0.75 }}>Distribuição por período:</p>

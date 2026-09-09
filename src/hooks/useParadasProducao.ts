@@ -2,10 +2,10 @@
 
 // Paradas V1 — busca obter_indicadores_producao (contexto/denominadores),
 // obter_paradas_producao (migration 34, segmentos reais já com
-// ocorrencia_id/janela/valor_unitario) e obter_trechos_ocorrencia_sem_
-// apontamento (migration 34, trechos estimados de ocorrências com
-// cobertura parcial ou nenhuma) pros filtros próprios da página
-// /producao-real/paradas. Nenhuma agregação acontece aqui — isso é sempre
+// ocorrencia_id/janela real) e obter_trechos_ocorrencia_sem_apontamento
+// (migration 34, trechos estimados de ocorrências com cobertura parcial
+// ou nenhuma) pros filtros próprios da página /producao-real/paradas.
+// Nenhuma agregação acontece aqui — isso é sempre
 // src/features/producao-real/paradas/calculations.ts, reaproveitando o
 // mesmo formato de linha (ApontamentoIndicador) que Indicadores V1 já usa.
 
@@ -70,7 +70,6 @@ interface ParadaIndicadorRow {
   ocorrencia_id: string | null;
   ocorrencia_aberta_em: string | null;
   ocorrencia_encerrada_em: string | null;
-  produto_valor_unitario: number | null;
 }
 
 interface TrechoOcorrenciaSemApontamentoRow {
@@ -92,7 +91,6 @@ interface TrechoOcorrenciaSemApontamentoRow {
   produto_estimado_id: string | null;
   produto_estimado_nome: string | null;
   meta_periodo_estimada: number | null;
-  valor_unitario_estimado: number | null;
   tem_estimativa: boolean;
 }
 
@@ -116,7 +114,6 @@ function linhaParaTrechoSemApontamento(r: TrechoOcorrenciaSemApontamentoRow): Tr
     produtoEstimadoId: r.produto_estimado_id,
     produtoEstimadoNome: r.produto_estimado_nome,
     metaPeriodoEstimada: r.meta_periodo_estimada === null ? null : Number(r.meta_periodo_estimada),
-    valorUnitarioEstimado: r.valor_unitario_estimado === null ? null : Number(r.valor_unitario_estimado),
     temEstimativa: r.tem_estimativa,
   };
 }
@@ -180,7 +177,6 @@ function linhaParaParada(r: ParadaIndicadorRow): ParadaComContexto {
     ocorrenciaId: r.ocorrencia_id,
     ocorrenciaAbertaEm: r.ocorrencia_aberta_em,
     ocorrenciaEncerradaEm: r.ocorrencia_encerrada_em,
-    produtoValorUnitario: r.produto_valor_unitario === null ? null : Number(r.produto_valor_unitario),
   };
 }
 

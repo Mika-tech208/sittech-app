@@ -63,12 +63,8 @@ export interface ParadaComContexto {
   descricaoProblema: string | null;
   descricaoSolucao: string | null;
   // Migration 34 — pra agrupar segmentos da MESMA ocorrência em um único
-  // card na tela (§"Ajuste da regra — exibir como uma única parada") e pra
-  // calcular Faturamento potencial não realizado por segmento REAL (ver
-  // calcularFaturamentoPotencialParada). ocorrenciaId é null pra paradas
-  // manuais (nada a agrupar). produtoValorUnitario é o mesmo snapshot já
-  // congelado no apontamento (apontamentos_producao.valor_unitario_
-  // produto_vigente, migration 27) — nunca um valor novo.
+  // card na tela (§"Ajuste da regra — exibir como uma única parada").
+  // ocorrenciaId é null pra paradas manuais (nada a agrupar).
   ocorrenciaId: string | null;
   // Janela real da ocorrência-mãe (null pra paradas manuais) — usada pra
   // calcular a duração TOTAL exibida no card agrupado a partir de
@@ -76,7 +72,6 @@ export interface ParadaComContexto {
   // cada segmento.
   ocorrenciaAbertaEm: string | null;
   ocorrenciaEncerradaEm: string | null;
-  produtoValorUnitario: number | null;
 }
 
 // Trecho (intervalo de tempo) de uma ocorrência de máquina encerrada SEM
@@ -89,10 +84,15 @@ export interface ParadaComContexto {
 //
 // Contexto é ESTIMATIVA, minimizada ao máximo: só produtoEstimadoId/Nome
 // são presumidos (apontamento anterior da mesma máquina, em ordem
-// OPERACIONAL — nunca criado_em). metaPeriodoEstimada e
-// valorUnitarioEstimado são REAIS pro produto presumido (vêm do cadastro
-// — roteiro/produtos —, não são inventados) — só ficam null quando a
-// elegibilidade produto×máquina é ambígua/inexistente. Nenhum snapshot é
+// OPERACIONAL — nunca criado_em). metaPeriodoEstimada é REAL pro produto
+// presumido (vem do cadastro — roteiro —, não é inventada) — só fica null
+// quando a elegibilidade produto×máquina é ambígua/inexistente. Não busca
+// valor_unitario do produto — capacidade local perdida NÃO é faturamento
+// bloqueado (decisão explícita: monetizar perda de uma operação pelo
+// preço do produto ACABADO ignora que o produto ainda passa por outras
+// etapas do roteiro; essa conta pertence ao Motor Econômico/Intelligence
+// futuramente, considerando roteiro completo/gargalos/capacidade
+// recuperável). Nenhum snapshot é
 // persistido em lugar nenhum — sempre recalculado na consulta; quando um
 // apontamento real cobrir esse período, o trecho some sozinho da próxima
 // busca (não precisa "substituir" nada).
@@ -121,7 +121,6 @@ export interface TrechoOcorrenciaSemApontamento {
   produtoEstimadoId: string | null;
   produtoEstimadoNome: string | null;
   metaPeriodoEstimada: number | null;
-  valorUnitarioEstimado: number | null;
   temEstimativa: boolean;
 }
 
@@ -141,37 +140,18 @@ export function calcularCapacidadePerdidaParada(p: ParadaComContexto): number | 
   return (p.metaPeriodoVigente / duracaoMinutos) * p.minutos;
 }
 
-// Faturamento potencial não realizado (migration 34) — "se essa máquina
-// estivesse produzindo durante esse tempo, qual valor de serviço poderia
-// ter sido gerado?". Métrica gerencial de OPORTUNIDADE/capacidade, nunca
-// faturamento contábil/realizado (esse é outro conceito, calculado em
-// Início/Visão Geral a partir de dados reais de venda) — vive só dentro de
-// src/features/producao-real/paradas/, nunca importada por
-// src/features/producao-real/desvios/deteccao.ts nem por nenhuma tool do
-// Intelligence (os testes que proíbem "faturamento"/"throughput" nessas
-// duas features continuam valendo, sem alteração). produtoValorUnitario é
-// o mesmo snapshot já congelado no apontamento — nada novo é inventado
-// aqui, só multiplicado pela capacidade já calculada acima.
-export function calcularFaturamentoPotencialParada(p: ParadaComContexto): number | null {
-  const capacidadePerdida = calcularCapacidadePerdidaParada(p);
-  if (capacidadePerdida === null || p.produtoValorUnitario === null) return null;
-  return capacidadePerdida * p.produtoValorUnitario;
-}
-
-// Mesmas duas fórmulas acima, pro trecho ESTIMADO de uma ocorrência sem
-// apontamento (migration 34) — usa metaPeriodoEstimada/duracaoPeriodoMinutos/
-// valorUnitarioEstimado no lugar dos snapshots do apontamento, porque não
-// existe apontamento nesse trecho. Sempre null quando a estimativa não foi
-// possível (temEstimativa=false) — nunca um 0 fictício.
+// Mesma fórmula acima, pro trecho ESTIMADO de uma ocorrência sem
+// apontamento (migration 34) — usa metaPeriodoEstimada/duracaoPeriodoMinutos
+// no lugar dos snapshots do apontamento, porque não existe apontamento
+// nesse trecho. Sempre null quando a estimativa não foi possível
+// (temEstimativa=false) — nunca um 0 fictício. Deliberadamente NÃO existe
+// um "custo do tempo ocioso" pro trecho estimado — custo/hora depende de
+// contexto de operação/funcionário que um trecho sem apontamento não tem;
+// inventar isso seria o mesmo erro que motivou a remoção do Faturamento
+// potencial.
 export function calcularCapacidadePerdidaTrecho(t: TrechoOcorrenciaSemApontamento): number | null {
   if (t.metaPeriodoEstimada === null || t.duracaoPeriodoMinutos <= 0) return null;
   return (t.metaPeriodoEstimada / t.duracaoPeriodoMinutos) * t.minutos;
-}
-
-export function calcularFaturamentoPotencialTrecho(t: TrechoOcorrenciaSemApontamento): number | null {
-  const capacidadePerdida = calcularCapacidadePerdidaTrecho(t);
-  if (capacidadePerdida === null || t.valorUnitarioEstimado === null) return null;
-  return capacidadePerdida * t.valorUnitarioEstimado;
 }
 
 function somarOuNull(valores: (number | null)[]): number | null {
@@ -572,14 +552,23 @@ export function calcularSemProducaoResumo(apontamentosDoFiltro: ApontamentoIndic
 //
 // Duração total vem de ocorrenciaEncerradaEm − ocorrenciaAbertaEm (não da
 // soma dos minutos já arredondados de cada segmento — evita o
-// 18+17=35 ≠ 35,63 real do caso Rosqueadeira 3). Capacidade perdida e
-// Faturamento potencial somam os segmentos (reais + estimados, quando
-// houver) — nunca duplicam, porque cada segmento é uma fatia de tempo
-// disjunta da mesma ocorrência (garantido por not exists na RPC de
-// trechos). Custo do tempo ocioso só soma segmentos REAIS — um trecho
-// estimado não tem custo_hora_operacao_vigente (dependeria de assumir
-// também operação/funcionário, não só produto) e fica de fora do total,
-// nunca um 0 fictício.
+// 18+17=35 ≠ 35,63 real do caso Rosqueadeira 3). Capacidade perdida soma
+// os segmentos (reais + estimados, quando houver) — nunca duplica, porque
+// cada segmento é uma fatia de tempo disjunta da mesma ocorrência
+// (garantido por not exists na RPC de trechos). Custo do tempo ocioso só
+// soma segmentos REAIS — um trecho estimado não tem
+// custo_hora_operacao_vigente (dependeria de assumir também operação/
+// funcionário, não só produto) e fica de fora do total, nunca um 0
+// fictício.
+//
+// Deliberadamente SEM nenhuma métrica monetizando capacidade perdida pelo
+// valor do produto acabado — "capacidade local perdida" (peças, numa
+// operação) não é "produção final perdida" (o produto ainda passa por
+// outras etapas do roteiro; uma perda local não implica perda equivalente
+// de faturamento). Qualquer métrica de faturamento/throughput/margem
+// bloqueados pertence ao Motor Econômico/Intelligence futuramente,
+// considerando o roteiro completo, gargalos, capacidade recuperável e
+// recursos compartilhados — não a esta tela.
 // ---------------------------------------------------------------------
 
 export interface SegmentoOcorrenciaAgrupada {
@@ -590,7 +579,6 @@ export interface SegmentoOcorrenciaAgrupada {
   produtoNome: string | null;
   capacidadePerdida: number | null;
   custoTempoOcioso: number | null;
-  faturamentoPotencial: number | null;
 }
 
 export interface OcorrenciaAgrupada {
@@ -607,7 +595,6 @@ export interface OcorrenciaAgrupada {
   temEstimativa: boolean;
   capacidadePerdidaTotal: number | null;
   custoTempoOciosoTotal: number | null;
-  faturamentoPotencialTotal: number | null;
   segmentos: SegmentoOcorrenciaAgrupada[];
 }
 
@@ -656,7 +643,6 @@ export function agruparParadasPorOcorrencia(
       produtoNome: p.produtoNome,
       capacidadePerdida: calcularCapacidadePerdidaParada(p),
       custoTempoOcioso: calcularCustoTempoOciosoParada(p),
-      faturamentoPotencial: calcularFaturamentoPotencialParada(p),
     }));
 
     const segmentosEstimados: SegmentoOcorrenciaAgrupada[] = grupo.estimados.map((t) => ({
@@ -667,7 +653,6 @@ export function agruparParadasPorOcorrencia(
       produtoNome: t.produtoEstimadoNome,
       capacidadePerdida: calcularCapacidadePerdidaTrecho(t),
       custoTempoOcioso: null,
-      faturamentoPotencial: calcularFaturamentoPotencialTrecho(t),
     }));
 
     const segmentos = [...segmentosReais, ...segmentosEstimados].sort((a, b) => a.periodoId.localeCompare(b.periodoId));
@@ -686,7 +671,6 @@ export function agruparParadasPorOcorrencia(
       temEstimativa: segmentosEstimados.length > 0,
       capacidadePerdidaTotal: somarOuNull(segmentos.map((s) => s.capacidadePerdida)),
       custoTempoOciosoTotal: somarOuNull(segmentosReais.map((s) => s.custoTempoOcioso)),
-      faturamentoPotencialTotal: somarOuNull(segmentos.map((s) => s.faturamentoPotencial)),
       segmentos,
     });
   });
