@@ -55,6 +55,16 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
           color: var(--text);
           font-family: var(--font-body);
           padding: 0;
+          /* PWA standalone iOS (Adicionar à Tela de Início) — único ponto de
+             aplicação de safe-area do app: max() com o padding já existente
+             de cada contexto (0 aqui, 14px no mobile abaixo), nunca somado
+             por cima — mesma disciplina já usada em .stx-sidebar-gaveta. Em
+             navegador comum (sem safe-area), env() resolve pra 0 e isso vira
+             um no-op. */
+          padding-top: max(0px, env(safe-area-inset-top));
+          padding-right: max(0px, env(safe-area-inset-right));
+          padding-bottom: max(0px, env(safe-area-inset-bottom));
+          padding-left: max(0px, env(safe-area-inset-left));
           border-radius: 0;
           min-height: 100vh;
           box-sizing: border-box;
@@ -2257,7 +2267,14 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
 
         /* ---- ajustes gerais pra celular ---- */
         @media (max-width: 600px) {
-          .stx-root { padding: 14px; border-radius: 0; }
+          .stx-root {
+            padding: 14px;
+            padding-top: max(14px, env(safe-area-inset-top));
+            padding-right: max(14px, env(safe-area-inset-right));
+            padding-bottom: max(14px, env(safe-area-inset-bottom));
+            padding-left: max(14px, env(safe-area-inset-left));
+            border-radius: 0;
+          }
           .stx-header { gap: 14px; margin-bottom: 18px; padding-bottom: 18px; }
           .stx-header-right { width: 100%; align-items: stretch; }
           .stx-header-right > div { justify-content: flex-end; }
