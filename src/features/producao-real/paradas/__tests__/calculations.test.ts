@@ -4,6 +4,7 @@ import {
   calcularParetoParadasPorMetrica, calcularRecorrenciaParadas, calcularComparativoTendenciaParadas,
   calcularSemProducaoResumo,
   calcularCapacidadePerdidaTrecho, agruparParadasPorOcorrencia,
+  calcularValorProducaoNaoRealizadaParada, calcularValorProducaoNaoRealizadaTrecho,
   type ParadaComContexto, type TrechoOcorrenciaSemApontamento,
 } from "@/features/producao-real/paradas/calculations";
 import type { ApontamentoIndicador } from "@/features/producao-real/indicadores/calculations";
@@ -65,6 +66,7 @@ function parada(over: Partial<ParadaComContexto> & Pick<ParadaComContexto, "para
     ocorrenciaId: null,
     ocorrenciaAbertaEm: null,
     ocorrenciaEncerradaEm: null,
+    valorAtribuidoOperacao: null,
     ...over,
   };
 }
@@ -277,6 +279,7 @@ function trecho(over: Partial<TrechoOcorrenciaSemApontamento> & Pick<TrechoOcorr
     produtoEstimadoId: "prod-1",
     produtoEstimadoNome: "Produto 1",
     metaPeriodoEstimada: 1600,
+    valorAtribuidoOperacao: null,
     temEstimativa: true,
     ...over,
   };
@@ -428,5 +431,63 @@ describe("Caso 19 — agruparParadasPorOcorrencia: uma ocorrência = um card", (
     // custo do tempo ocioso só soma os 2 segmentos REAIS (m1+m3) — o
     // trecho estimado (m2) não entra
     expect(g.custoTempoOciosoTotal).toBeCloseTo(60 * (30 / 60) * 2, 5);
+  });
+});
+
+// ---- Caso 20 — Valor de produção não realizada (migration 36) ----
+describe("Caso 20 — Valor de produção não realizada (peso por esforço-tempo padrão)", () => {
+  it("capacidade perdida × valor atribuído à operação, quando ambos existem", () => {
+    const p = parada({ paradaId: "p1", apontamentoId: "a1", minutos: 30, metaPeriodoVigente: 120, duracaoPeriodoHorasVigente: 1, valorAtribuidoOperacao: 5 });
+    // capacidade perdida = (120/60)*30 = 60 -> valor não realizado = 60*5 = 300
+    expect(calcularCapacidadePerdidaParada(p)).toBe(60);
+    expect(calcularValorProducaoNaoRealizadaParada(p)).toBe(300);
+  });
+
+  it("valorAtribuidoOperacao null (ambíguo/não resolvido) -> valor não realizado null, nunca 0 inventado", () => {
+    const p = parada({ paradaId: "p1", apontamentoId: "a1", minutos: 30, metaPeriodoVigente: 120, duracaoPeriodoHorasVigente: 1, valorAtribuidoOperacao: null });
+    expect(calcularValorProducaoNaoRealizadaParada(p)).toBeNull();
+  });
+
+  it("sem capacidade perdida (meta/duração ausente) -> valor não realizado também null", () => {
+    const p = parada({ paradaId: "p1", apontamentoId: "a1", metaPeriodoVigente: null, valorAtribuidoOperacao: 5 });
+    expect(calcularValorProducaoNaoRealizadaParada(p)).toBeNull();
+  });
+
+  it("trecho estimado: mesma fórmula, null quando ambíguo", () => {
+    const comValor = trecho({ ocorrenciaId: "oc-1", periodoId: "m1", valorAtribuidoOperacao: 0.06496 });
+    // capacidade = (1600/96)*18 = 300 -> valor não realizado = 300*0,06496 ≈ 19,49
+    expect(calcularValorProducaoNaoRealizadaTrecho(comValor)).toBeCloseTo(300 * 0.06496, 4);
+
+    const semOperacaoResolvida = trecho({ ocorrenciaId: "oc-1", periodoId: "m1", valorAtribuidoOperacao: null });
+    expect(calcularValorProducaoNaoRealizadaTrecho(semOperacaoResolvida)).toBeNull();
+  });
+
+  it("caso real Rosqueadeira 3 / Luva 3/4\" — M1 real (18min) + M2 estimado (17min), mesmo valor atribuído (meta_m1=meta_m2 pra Rosquear) -> ≈R$37,89 total", () => {
+    const abertaEm = "2026-09-09T11:29:31.259Z";
+    const encerradaEm = "2026-09-09T12:05:08.998Z";
+    const valorAtribuido = 0.064961743772241992882562277580072354; // Rosquear, Luva 3/4", peso 28,0249% × 0,2318 (validado com dado real de PROD)
+
+    const segM1 = parada({
+      paradaId: "seg-m1", apontamentoId: "ap-m1", origem: "ocorrencia", periodoId: "m1", minutos: 18,
+      metaPeriodoVigente: 1600, duracaoPeriodoHorasVigente: 1.6, custoHoraOperacaoVigente: 31.9220406744307320,
+      ocorrenciaId: "oc-rosq3", ocorrenciaAbertaEm: abertaEm, ocorrenciaEncerradaEm: encerradaEm,
+      descricaoProblema: "Sensor e soltou padrão", descricaoSolucao: "Foi trocado o sensor",
+      valorAtribuidoOperacao: valorAtribuido,
+    });
+    const trechoM2 = trecho({
+      ocorrenciaId: "oc-rosq3", periodoId: "m2", minutos: 17, duracaoPeriodoMinutos: 96,
+      ocorrenciaAbertaEm: abertaEm, ocorrenciaEncerradaEm: encerradaEm,
+      metaPeriodoEstimada: 1600, valorAtribuidoOperacao: valorAtribuido,
+    });
+
+    const grupos = agruparParadasPorOcorrencia([segM1], [trechoM2]);
+    expect(grupos).toHaveLength(1);
+    const g = grupos[0];
+
+    expect(g.duracaoTotalMinutos).toBeCloseTo(35.629, 2);
+    expect(g.capacidadePerdidaTotal).toBeCloseTo(583.33, 1);
+    expect(g.custoTempoOciosoTotal).toBeCloseTo(9.5766, 3); // só M1, real
+    // valor de produção não realizada: 583,33 × 0,064962 ≈ 37,89 (bate com o caso real validado)
+    expect(g.valorProducaoNaoRealizadaTotal).toBeCloseTo(37.89, 1);
   });
 });

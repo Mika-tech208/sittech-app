@@ -70,6 +70,7 @@ interface ParadaIndicadorRow {
   ocorrencia_id: string | null;
   ocorrencia_aberta_em: string | null;
   ocorrencia_encerrada_em: string | null;
+  valor_atribuido_operacao: number | null;
 }
 
 interface TrechoOcorrenciaSemApontamentoRow {
@@ -92,6 +93,7 @@ interface TrechoOcorrenciaSemApontamentoRow {
   produto_estimado_nome: string | null;
   meta_periodo_estimada: number | null;
   tem_estimativa: boolean;
+  valor_atribuido_operacao: number | null;
 }
 
 function linhaParaTrechoSemApontamento(r: TrechoOcorrenciaSemApontamentoRow): TrechoOcorrenciaSemApontamento {
@@ -115,6 +117,7 @@ function linhaParaTrechoSemApontamento(r: TrechoOcorrenciaSemApontamentoRow): Tr
     produtoEstimadoNome: r.produto_estimado_nome,
     metaPeriodoEstimada: r.meta_periodo_estimada === null ? null : Number(r.meta_periodo_estimada),
     temEstimativa: r.tem_estimativa,
+    valorAtribuidoOperacao: r.valor_atribuido_operacao === null ? null : Number(r.valor_atribuido_operacao),
   };
 }
 
@@ -177,6 +180,7 @@ function linhaParaParada(r: ParadaIndicadorRow): ParadaComContexto {
     ocorrenciaId: r.ocorrencia_id,
     ocorrenciaAbertaEm: r.ocorrencia_aberta_em,
     ocorrenciaEncerradaEm: r.ocorrencia_encerrada_em,
+    valorAtribuidoOperacao: r.valor_atribuido_operacao === null ? null : Number(r.valor_atribuido_operacao),
   };
 }
 

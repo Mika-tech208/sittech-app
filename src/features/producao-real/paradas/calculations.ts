@@ -72,6 +72,13 @@ export interface ParadaComContexto {
   // cada segmento.
   ocorrenciaAbertaEm: string | null;
   ocorrenciaEncerradaEm: string | null;
+  // Migration 36 — "peso por esforço-tempo padrão" já resolvido em R$/peça
+  // pra ESTA etapa/período (produto.valor_unitario × peso), calculado no
+  // banco (calcular_valor_atribuido_operacao). Sempre parâmetros ATUAIS
+  // (custo_hora/meta/roteiro vigentes agora, não um snapshot congelado no
+  // momento da parada) — ver calcularValorProducaoNaoRealizadaParada pra
+  // a ressalva de que isso NUNCA é um fato financeiro histórico.
+  valorAtribuidoOperacao: number | null;
 }
 
 // Trecho (intervalo de tempo) de uma ocorrência de máquina encerrada SEM
@@ -84,16 +91,14 @@ export interface ParadaComContexto {
 //
 // Contexto é ESTIMATIVA, minimizada ao máximo: só produtoEstimadoId/Nome
 // são presumidos (apontamento anterior da mesma máquina, em ordem
-// OPERACIONAL — nunca criado_em). metaPeriodoEstimada é REAL pro produto
-// presumido (vem do cadastro — roteiro —, não é inventada) — só fica null
-// quando a elegibilidade produto×máquina é ambígua/inexistente. Não busca
-// valor_unitario do produto — capacidade local perdida NÃO é faturamento
-// bloqueado (decisão explícita: monetizar perda de uma operação pelo
-// preço do produto ACABADO ignora que o produto ainda passa por outras
-// etapas do roteiro; essa conta pertence ao Motor Econômico/Intelligence
-// futuramente, considerando roteiro completo/gargalos/capacidade
-// recuperável). Nenhum snapshot é
-// persistido em lugar nenhum — sempre recalculado na consulta; quando um
+// OPERACIONAL — nunca criado_em). metaPeriodoEstimada e
+// valorAtribuidoOperacao (migration 36) são REAIS pro produto/operação
+// presumidos (vêm do cadastro — roteiro/custo-hora —, não são
+// inventados) — ficam null quando a elegibilidade produto×máquina é
+// ambígua/inexistente (nunca escolhe arbitrariamente entre etapas
+// possíveis). Nenhum snapshot é
+// persistido em lugar nenhum — sempre recalculado na consulta, com os
+// parâmetros ATUAIS (custo_hora/meta/roteiro vigentes agora); quando um
 // apontamento real cobrir esse período, o trecho some sozinho da próxima
 // busca (não precisa "substituir" nada).
 //
@@ -121,6 +126,7 @@ export interface TrechoOcorrenciaSemApontamento {
   produtoEstimadoId: string | null;
   produtoEstimadoNome: string | null;
   metaPeriodoEstimada: number | null;
+  valorAtribuidoOperacao: number | null;
   temEstimativa: boolean;
 }
 
@@ -152,6 +158,28 @@ export function calcularCapacidadePerdidaParada(p: ParadaComContexto): number | 
 export function calcularCapacidadePerdidaTrecho(t: TrechoOcorrenciaSemApontamento): number | null {
   if (t.metaPeriodoEstimada === null || t.duracaoPeriodoMinutos <= 0) return null;
   return (t.metaPeriodoEstimada / t.duracaoPeriodoMinutos) * t.minutos;
+}
+
+// "Valor de produção não realizada" (migration 36) — SEMPRE ESTIMATIVA,
+// mesmo pra segmento real: é uma alocação gerencial de valor por
+// esforço-tempo padrão da etapa (ver valorAtribuidoOperacao), não um fato
+// financeiro. NUNCA é faturamento/receita/prejuízo real, NUNCA deve ser
+// somada com calcularCustoTempoOciosoParada ("custo do tempo ocioso" —
+// conceito separado, sempre exibido à parte). Calculada com os
+// parâmetros ATUAIS (custo_hora/meta/roteiro vigentes agora) — se esses
+// mudarem depois, o valor recalculado muda junto; não é um snapshot
+// histórico reproduzível, e não deve ser tratada como tal.
+export function calcularValorProducaoNaoRealizadaParada(p: ParadaComContexto): number | null {
+  const capacidadePerdida = calcularCapacidadePerdidaParada(p);
+  if (capacidadePerdida === null || p.valorAtribuidoOperacao === null) return null;
+  return capacidadePerdida * p.valorAtribuidoOperacao;
+}
+
+// Mesma fórmula acima, pro trecho ESTIMADO — mesmas ressalvas.
+export function calcularValorProducaoNaoRealizadaTrecho(t: TrechoOcorrenciaSemApontamento): number | null {
+  const capacidadePerdida = calcularCapacidadePerdidaTrecho(t);
+  if (capacidadePerdida === null || t.valorAtribuidoOperacao === null) return null;
+  return capacidadePerdida * t.valorAtribuidoOperacao;
 }
 
 function somarOuNull(valores: (number | null)[]): number | null {
@@ -579,6 +607,7 @@ export interface SegmentoOcorrenciaAgrupada {
   produtoNome: string | null;
   capacidadePerdida: number | null;
   custoTempoOcioso: number | null;
+  valorProducaoNaoRealizada: number | null;
 }
 
 export interface OcorrenciaAgrupada {
@@ -595,6 +624,11 @@ export interface OcorrenciaAgrupada {
   temEstimativa: boolean;
   capacidadePerdidaTotal: number | null;
   custoTempoOciosoTotal: number | null;
+  // Sempre ESTIMATIVA (ver calcularValorProducaoNaoRealizadaParada) —
+  // soma real + estimado, igual capacidadePerdidaTotal (nunca igual
+  // custoTempoOciosoTotal, que é só real). Nunca somar com
+  // custoTempoOciosoTotal como "prejuízo total".
+  valorProducaoNaoRealizadaTotal: number | null;
   segmentos: SegmentoOcorrenciaAgrupada[];
 }
 
@@ -643,6 +677,7 @@ export function agruparParadasPorOcorrencia(
       produtoNome: p.produtoNome,
       capacidadePerdida: calcularCapacidadePerdidaParada(p),
       custoTempoOcioso: calcularCustoTempoOciosoParada(p),
+      valorProducaoNaoRealizada: calcularValorProducaoNaoRealizadaParada(p),
     }));
 
     const segmentosEstimados: SegmentoOcorrenciaAgrupada[] = grupo.estimados.map((t) => ({
@@ -653,6 +688,7 @@ export function agruparParadasPorOcorrencia(
       produtoNome: t.produtoEstimadoNome,
       capacidadePerdida: calcularCapacidadePerdidaTrecho(t),
       custoTempoOcioso: null,
+      valorProducaoNaoRealizada: calcularValorProducaoNaoRealizadaTrecho(t),
     }));
 
     const segmentos = [...segmentosReais, ...segmentosEstimados].sort((a, b) => a.periodoId.localeCompare(b.periodoId));
@@ -671,6 +707,7 @@ export function agruparParadasPorOcorrencia(
       temEstimativa: segmentosEstimados.length > 0,
       capacidadePerdidaTotal: somarOuNull(segmentos.map((s) => s.capacidadePerdida)),
       custoTempoOciosoTotal: somarOuNull(segmentosReais.map((s) => s.custoTempoOcioso)),
+      valorProducaoNaoRealizadaTotal: somarOuNull(segmentos.map((s) => s.valorProducaoNaoRealizada)),
       segmentos,
     });
   });

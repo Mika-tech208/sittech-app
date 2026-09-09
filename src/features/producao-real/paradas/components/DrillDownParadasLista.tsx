@@ -13,18 +13,24 @@
 // Expansão de detalhe — parada manual só quando existir descricaoProblema
 // ou descricaoSolucao; card de ocorrência sempre expansível (tem
 // problema/solução garantidos + distribuição por segmento).
+//
+// "Valor de produção não realizada" (migration 36) — coluna sempre
+// marcada "(estimativa)" no cabeçalho, mesmo pra segmento real: é uma
+// alocação gerencial de valor por esforço-tempo padrão da operação, não
+// um fato financeiro. Fica sempre separada de "Custo ocioso" — nunca
+// somadas.
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
-  calcularCapacidadePerdidaParada, calcularCustoTempoOciosoParada,
+  calcularCapacidadePerdidaParada, calcularCustoTempoOciosoParada, calcularValorProducaoNaoRealizadaParada,
   agruparParadasPorOcorrencia,
   type ParadaComContexto, type TrechoOcorrenciaSemApontamento, type OcorrenciaAgrupada,
 } from "@/features/producao-real/paradas/calculations";
 import { formatarBRLIndicador, formatarMinutos, formatarPecas } from "@/features/producao-real/indicadores/format";
 
 const LIMITE = 200;
-const TEMPLATE_COLUNAS = "0.9fr 0.6fr 1.1fr 1fr 1.3fr 1.1fr 0.8fr 0.8fr 0.9fr";
+const TEMPLATE_COLUNAS = "0.9fr 0.6fr 1.1fr 1fr 1.3fr 1.1fr 0.8fr 0.8fr 0.9fr 1.1fr";
 
 function formatarHorario(iso: string): string {
   return new Date(iso).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
@@ -79,6 +85,7 @@ export default function DrillDownParadasLista({
           <span>Minutos</span>
           <span>Custo ocioso</span>
           <span>Cap. perdida</span>
+          <span>Valor não realizado (estimativa)</span>
         </div>
         {ordenado.map((linha) => {
           if (linha.tipo === "manual") {
@@ -104,6 +111,7 @@ export default function DrillDownParadasLista({
                   <span>{formatarMinutos(p.minutos)}</span>
                   <span>{formatarBRLIndicador(calcularCustoTempoOciosoParada(p))}</span>
                   <span>{formatarPecas(calcularCapacidadePerdidaParada(p))}</span>
+                  <span>{formatarBRLIndicador(calcularValorProducaoNaoRealizadaParada(p))}</span>
                 </div>
                 {aberto && temDetalhe && (
                   <div className="stx-panel-sub" style={{ padding: "8px 4px 12px", fontFamily: "inherit", lineHeight: 1.5 }}>
@@ -143,6 +151,7 @@ export default function DrillDownParadasLista({
                 <span>{formatarMinutosDecimal(g.duracaoTotalMinutos)}</span>
                 <span>{formatarBRLIndicador(g.custoTempoOciosoTotal)}</span>
                 <span>{formatarPecas(g.capacidadePerdidaTotal)}</span>
+                <span>{formatarBRLIndicador(g.valorProducaoNaoRealizadaTotal)}</span>
               </div>
               {aberto && (
                 <div className="stx-panel-sub" style={{ padding: "8px 4px 12px", fontFamily: "inherit", lineHeight: 1.5 }}>
@@ -160,10 +169,15 @@ export default function DrillDownParadasLista({
                       Capacidade perdida inclui trecho(s) ESTIMADO(S) — produto presumido do último apontamento anterior da máquina, meta real do cadastro pra esse produto. Custo do tempo ocioso não inclui esse trecho (sem contexto suficiente de operação/funcionário).
                     </p>
                   )}
+                  {g.valorProducaoNaoRealizadaTotal !== null && (
+                    <p style={{ margin: "4px 0 0", fontStyle: "italic" }}>
+                      Valor de produção não realizada é sempre ESTIMATIVA — peso por esforço-tempo padrão da operação (calculado com custo/hora, meta e roteiro vigentes agora), nunca faturamento/receita real, nunca somado ao custo do tempo ocioso.
+                    </p>
+                  )}
                   <p style={{ margin: "8px 0 0", opacity: 0.75 }}>Distribuição por período:</p>
                   {g.segmentos.map((s) => (
                     <p key={s.chave} style={{ margin: "2px 0 0" }}>
-                      {s.periodoId.toUpperCase()} — {formatarMinutos(s.minutos)} — {s.produtoNome || "—"} — {s.real ? "real" : "estimativa"}
+                      {s.periodoId.toUpperCase()} — {formatarMinutos(s.minutos)} — {s.produtoNome || "—"} — {s.real ? "real" : "estimativa"} — {formatarBRLIndicador(s.valorProducaoNaoRealizada)}
                     </p>
                   ))}
                 </div>

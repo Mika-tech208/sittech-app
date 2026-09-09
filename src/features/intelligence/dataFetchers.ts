@@ -44,6 +44,7 @@ interface ParadaIndicadorRow {
   custo_hora_operacao_vigente: number | null; meta_periodo_vigente: number | null; duracao_periodo_horas_vigente: number | null;
   descricao_problema: string | null; descricao_solucao: string | null;
   ocorrencia_id: string | null; ocorrencia_aberta_em: string | null; ocorrencia_encerrada_em: string | null;
+  valor_atribuido_operacao: number | null;
 }
 
 function linhaParaApontamento(r: ApontamentoIndicadorRow): ApontamentoIndicador {
@@ -82,6 +83,7 @@ function linhaParaParada(r: ParadaIndicadorRow): ParadaComContexto {
     ocorrenciaId: r.ocorrencia_id,
     ocorrenciaAbertaEm: r.ocorrencia_aberta_em,
     ocorrenciaEncerradaEm: r.ocorrencia_encerrada_em,
+    valorAtribuidoOperacao: r.valor_atribuido_operacao === null ? null : Number(r.valor_atribuido_operacao),
   };
 }
 
