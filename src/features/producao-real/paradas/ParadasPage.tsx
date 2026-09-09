@@ -167,6 +167,15 @@ export default function ParadasPage() {
     [paradasHook.paradas, origemFiltro]
   );
 
+  // Trecho sem apontamento é sempre de uma ocorrência (nunca "manual") —
+  // some do Detalhado só quando o filtro de origem exclui ocorrências. Não
+  // entra em nenhum outro cálculo (Resumo/Pareto/etc. continuam recebendo
+  // só paradasFiltradas, intocado).
+  const trechosSemApontamentoFiltrados = useMemo(
+    () => (origemFiltro === "manual" ? [] : paradasHook.trechosSemApontamento),
+    [paradasHook.trechosSemApontamento, origemFiltro]
+  );
+
   const resumo = useMemo(
     () => calcularResumoParadas(paradasFiltradas, paradasHook.apontamentos),
     [paradasFiltradas, paradasHook.apontamentos]
@@ -415,7 +424,7 @@ export default function ParadasPage() {
               {visao === "detalhado" && (
                 <div className="stx-section">
                   <p className="stx-panel-title">Detalhado</p>
-                  <DrillDownParadasLista paradas={paradasFiltradas} />
+                  <DrillDownParadasLista paradas={paradasFiltradas} trechosSemApontamento={trechosSemApontamentoFiltrados} />
                 </div>
               )}
             </>

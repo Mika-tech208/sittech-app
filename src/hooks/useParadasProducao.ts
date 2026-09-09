@@ -1,16 +1,18 @@
 "use client";
 
-// Paradas V1 — busca obter_indicadores_producao (contexto/denominadores) e
-// obter_paradas_producao (migration 28, já com os snapshots do
-// apontamento pai) pros filtros próprios da página /producao-real/paradas.
-// Nenhuma agregação acontece aqui — isso é sempre
+// Paradas V1 — busca obter_indicadores_producao (contexto/denominadores),
+// obter_paradas_producao (migration 34, segmentos reais já com
+// ocorrencia_id/janela/valor_unitario) e obter_trechos_ocorrencia_sem_
+// apontamento (migration 34, trechos estimados de ocorrências com
+// cobertura parcial ou nenhuma) pros filtros próprios da página
+// /producao-real/paradas. Nenhuma agregação acontece aqui — isso é sempre
 // src/features/producao-real/paradas/calculations.ts, reaproveitando o
 // mesmo formato de linha (ApontamentoIndicador) que Indicadores V1 já usa.
 
 import { useCallback, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import type { ApontamentoIndicador, FiltrosIndicadores, StatusApontamento } from "@/features/producao-real/indicadores/calculations";
-import type { ParadaComContexto } from "@/features/producao-real/paradas/calculations";
+import type { ParadaComContexto, TrechoOcorrenciaSemApontamento } from "@/features/producao-real/paradas/calculations";
 
 interface ApontamentoIndicadorRow {
   apontamento_id: string;
@@ -65,6 +67,58 @@ interface ParadaIndicadorRow {
   duracao_periodo_horas_vigente: number | null;
   descricao_problema: string | null;
   descricao_solucao: string | null;
+  ocorrencia_id: string | null;
+  ocorrencia_aberta_em: string | null;
+  ocorrencia_encerrada_em: string | null;
+  produto_valor_unitario: number | null;
+}
+
+interface TrechoOcorrenciaSemApontamentoRow {
+  ocorrencia_id: string;
+  maquina_id: string;
+  maquina_nome: string;
+  motivo_id: string;
+  motivo_nome: string;
+  motivo_categoria: string;
+  ocorrencia_aberta_em: string;
+  ocorrencia_encerrada_em: string;
+  descricao_problema: string;
+  descricao_solucao: string;
+  periodo_id: string;
+  trecho_inicio: string;
+  trecho_fim: string;
+  minutos: number;
+  duracao_periodo_minutos: number;
+  produto_estimado_id: string | null;
+  produto_estimado_nome: string | null;
+  meta_periodo_estimada: number | null;
+  valor_unitario_estimado: number | null;
+  tem_estimativa: boolean;
+}
+
+function linhaParaTrechoSemApontamento(r: TrechoOcorrenciaSemApontamentoRow): TrechoOcorrenciaSemApontamento {
+  return {
+    ocorrenciaId: r.ocorrencia_id,
+    maquinaId: r.maquina_id,
+    maquinaNome: r.maquina_nome,
+    motivoId: r.motivo_id,
+    motivoNome: r.motivo_nome,
+    motivoCategoria: r.motivo_categoria,
+    ocorrenciaAbertaEm: r.ocorrencia_aberta_em,
+    ocorrenciaEncerradaEm: r.ocorrencia_encerrada_em,
+    descricaoProblema: r.descricao_problema,
+    descricaoSolucao: r.descricao_solucao,
+    periodoId: r.periodo_id,
+    trechoInicio: r.trecho_inicio,
+    trechoFim: r.trecho_fim,
+    minutos: Number(r.minutos),
+    duracaoPeriodoMinutos: Number(r.duracao_periodo_minutos),
+    produtoEstimadoId: r.produto_estimado_id,
+    produtoEstimadoNome: r.produto_estimado_nome,
+    metaPeriodoEstimada: r.meta_periodo_estimada === null ? null : Number(r.meta_periodo_estimada),
+    valorUnitarioEstimado: r.valor_unitario_estimado === null ? null : Number(r.valor_unitario_estimado),
+    temEstimativa: r.tem_estimativa,
+  };
 }
 
 function linhaParaApontamento(r: ApontamentoIndicadorRow): ApontamentoIndicador {
@@ -123,12 +177,22 @@ function linhaParaParada(r: ParadaIndicadorRow): ParadaComContexto {
     duracaoPeriodoHorasVigente: r.duracao_periodo_horas_vigente === null ? null : Number(r.duracao_periodo_horas_vigente),
     descricaoProblema: r.descricao_problema,
     descricaoSolucao: r.descricao_solucao,
+    ocorrenciaId: r.ocorrencia_id,
+    ocorrenciaAbertaEm: r.ocorrencia_aberta_em,
+    ocorrenciaEncerradaEm: r.ocorrencia_encerrada_em,
+    produtoValorUnitario: r.produto_valor_unitario === null ? null : Number(r.produto_valor_unitario),
   };
 }
 
 export function useParadasProducao() {
   const [apontamentos, setApontamentos] = useState<ApontamentoIndicador[]>([]);
   const [paradas, setParadas] = useState<ParadaComContexto[]>([]);
+  // Trechos de ocorrências sem segmento correspondente (migration 34) —
+  // array à parte, nunca misturado em `paradas`: os indicadores agregados
+  // (calculations.ts) continuam recebendo só `paradas`, exatamente como
+  // antes. Só agruparParadasPorOcorrencia (consumido pelo Detalhado)
+  // combina os dois.
+  const [trechosSemApontamento, setTrechosSemApontamento] = useState<TrechoOcorrenciaSemApontamento[]>([]);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [buscou, setBuscou] = useState(false);
@@ -147,26 +211,29 @@ export function useParadasProducao() {
       p_periodo_id: filtros.periodoId || null,
     };
 
-    const [apontamentosResp, paradasResp] = await Promise.all([
+    const [apontamentosResp, paradasResp, trechosResp] = await Promise.all([
       supabase.rpc("obter_indicadores_producao", params),
       supabase.rpc("obter_paradas_producao", params),
+      supabase.rpc("obter_trechos_ocorrencia_sem_apontamento", params),
     ]);
 
     setBuscou(true);
-    if (apontamentosResp.error || paradasResp.error) {
+    if (apontamentosResp.error || paradasResp.error || trechosResp.error) {
       setErro("Não foi possível carregar os dados de paradas.");
       setApontamentos([]);
       setParadas([]);
+      setTrechosSemApontamento([]);
       setLoading(false);
       return;
     }
 
     setApontamentos(((apontamentosResp.data || []) as ApontamentoIndicadorRow[]).map(linhaParaApontamento));
     setParadas(((paradasResp.data || []) as ParadaIndicadorRow[]).map(linhaParaParada));
+    setTrechosSemApontamento(((trechosResp.data || []) as TrechoOcorrenciaSemApontamentoRow[]).map(linhaParaTrechoSemApontamento));
     setLoading(false);
   }, []);
 
-  return { apontamentos, paradas, loading, erro, buscou, buscar };
+  return { apontamentos, paradas, trechosSemApontamento, loading, erro, buscou, buscar };
 }
 
 export type ParadasProducaoHook = ReturnType<typeof useParadasProducao>;

@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   calcularCustoTempoOciosoParada, calcularCapacidadePerdidaParada, calcularResumoParadas,
   calcularParetoParadasPorMetrica, calcularRecorrenciaParadas, calcularComparativoTendenciaParadas,
-  calcularSemProducaoResumo, type ParadaComContexto,
+  calcularSemProducaoResumo, calcularFaturamentoPotencialParada,
+  calcularCapacidadePerdidaTrecho, calcularFaturamentoPotencialTrecho, agruparParadasPorOcorrencia,
+  type ParadaComContexto, type TrechoOcorrenciaSemApontamento,
 } from "@/features/producao-real/paradas/calculations";
 import type { ApontamentoIndicador } from "@/features/producao-real/indicadores/calculations";
 
@@ -60,6 +62,10 @@ function parada(over: Partial<ParadaComContexto> & Pick<ParadaComContexto, "para
     duracaoPeriodoHorasVigente: 1, // 60 min
     descricaoProblema: null,
     descricaoSolucao: null,
+    ocorrenciaId: null,
+    ocorrenciaAbertaEm: null,
+    ocorrenciaEncerradaEm: null,
+    produtoValorUnitario: null,
     ...over,
   };
 }
@@ -250,5 +256,206 @@ describe("Caso 14 — filtro por origem separa manual de ocorrência sem perder 
     const resumo = calcularResumoParadas(soManual, [apontamento({ apontamentoId: "a1" })]);
     expect(resumo.minutosParadosTotal).toBe(10);
     expect(resumo.quantidadeParadas).toBe(1);
+  });
+});
+
+// ---- Caso 15 — Faturamento potencial não realizado (migration 34) ----
+describe("Caso 15 — Faturamento potencial não realizado", () => {
+  it("capacidade perdida × valor unitário do produto, quando o snapshot existe", () => {
+    const p = parada({ paradaId: "p1", apontamentoId: "a1", minutos: 30, metaPeriodoVigente: 120, duracaoPeriodoHorasVigente: 1, produtoValorUnitario: 5 });
+    // capacidade perdida = (120/60)*30 = 60 peças -> faturamento = 60*5 = 300
+    expect(calcularCapacidadePerdidaParada(p)).toBe(60);
+    expect(calcularFaturamentoPotencialParada(p)).toBe(300);
+  });
+
+  it("produtoValorUnitario null -> faturamento potencial null, nunca 0 inventado", () => {
+    const p = parada({ paradaId: "p1", apontamentoId: "a1", minutos: 30, metaPeriodoVigente: 120, duracaoPeriodoHorasVigente: 1, produtoValorUnitario: null });
+    expect(calcularFaturamentoPotencialParada(p)).toBeNull();
+  });
+
+  it("sem meta/duração (capacidade já null) -> faturamento potencial também null", () => {
+    const p = parada({ paradaId: "p1", apontamentoId: "a1", metaPeriodoVigente: null, produtoValorUnitario: 5 });
+    expect(calcularFaturamentoPotencialParada(p)).toBeNull();
+  });
+});
+
+// ---- Caso 16 — trecho estimado (ocorrência sem apontamento) ----
+function trecho(over: Partial<TrechoOcorrenciaSemApontamento> & Pick<TrechoOcorrenciaSemApontamento, "ocorrenciaId" | "periodoId">): TrechoOcorrenciaSemApontamento {
+  return {
+    maquinaId: "maq-1",
+    maquinaNome: "Máquina 1",
+    motivoId: "motivo-1",
+    motivoNome: "Quebra",
+    motivoCategoria: "operacional",
+    ocorrenciaAbertaEm: "2026-09-09T11:29:31.000Z",
+    ocorrenciaEncerradaEm: "2026-09-09T12:05:08.000Z",
+    descricaoProblema: "Sensor soltou",
+    descricaoSolucao: "Trocado o sensor",
+    trechoInicio: "2026-09-09T11:29:31.000Z",
+    trechoFim: "2026-09-09T11:48:00.000Z",
+    minutos: 18,
+    duracaoPeriodoMinutos: 96,
+    produtoEstimadoId: "prod-1",
+    produtoEstimadoNome: "Produto 1",
+    metaPeriodoEstimada: 1600,
+    valorUnitarioEstimado: 5,
+    temEstimativa: true,
+    ...over,
+  };
+}
+
+describe("Caso 16 — trecho estimado de ocorrência sem apontamento", () => {
+  it("capacidade e faturamento do trecho usam meta/valor do produto estimado", () => {
+    const t = trecho({ ocorrenciaId: "oc-1", periodoId: "m1" });
+    // capacidade = (1600/96)*18 = 300 -> faturamento = 300*5 = 1500
+    expect(calcularCapacidadePerdidaTrecho(t)).toBeCloseTo(300, 5);
+    expect(calcularFaturamentoPotencialTrecho(t)).toBeCloseTo(1500, 5);
+  });
+
+  it("sem produto estimado (temEstimativa=false) -> capacidade e faturamento null, nunca inventados", () => {
+    const t = trecho({
+      ocorrenciaId: "oc-1", periodoId: "m1",
+      produtoEstimadoId: null, produtoEstimadoNome: null, metaPeriodoEstimada: null, valorUnitarioEstimado: null, temEstimativa: false,
+    });
+    expect(calcularCapacidadePerdidaTrecho(t)).toBeNull();
+    expect(calcularFaturamentoPotencialTrecho(t)).toBeNull();
+  });
+});
+
+// ---- Caso 17 — agrupamento por ocorrência (migration 34) ----
+describe("Caso 17 — agruparParadasPorOcorrencia: uma ocorrência = um card", () => {
+  it("ocorrência com 2 segmentos reais (M1+M2) vira 1 card, duração real (não soma arredondada)", () => {
+    const abertaEm = "2026-09-09T11:29:31.259Z";
+    const encerradaEm = "2026-09-09T12:05:08.998Z"; // ~35,63 min reais
+    const segM1 = parada({
+      paradaId: "seg-m1", apontamentoId: "ap-m1", origem: "ocorrencia", periodoId: "m1", minutos: 18,
+      metaPeriodoVigente: 1600, duracaoPeriodoHorasVigente: 1.6, custoHoraOperacaoVigente: 60,
+      ocorrenciaId: "oc-1", ocorrenciaAbertaEm: abertaEm, ocorrenciaEncerradaEm: encerradaEm,
+      descricaoProblema: "Sensor soltou", descricaoSolucao: "Trocado o sensor", produtoValorUnitario: 5,
+    });
+    const segM2 = parada({
+      paradaId: "seg-m2", apontamentoId: "ap-m2", origem: "ocorrencia", periodoId: "m2", minutos: 17,
+      metaPeriodoVigente: 1600, duracaoPeriodoHorasVigente: 1.6, custoHoraOperacaoVigente: 60,
+      ocorrenciaId: "oc-1", ocorrenciaAbertaEm: abertaEm, ocorrenciaEncerradaEm: encerradaEm,
+      descricaoProblema: "Sensor soltou", descricaoSolucao: "Trocado o sensor", produtoValorUnitario: 5,
+    });
+
+    const grupos = agruparParadasPorOcorrencia([segM1, segM2], []);
+    expect(grupos).toHaveLength(1);
+    const g = grupos[0];
+    expect(g.ocorrenciaId).toBe("oc-1");
+    expect(g.segmentos).toHaveLength(2);
+    // duração real: (encerradaEm - abertaEm) em minutos, não 18+17=35
+    expect(g.duracaoTotalMinutos).toBeCloseTo(35.629, 2);
+    expect(g.duracaoTotalMinutos).not.toBe(35);
+    expect(g.temEstimativa).toBe(false);
+    // capacidade: (1600/96)*18 + (1600/96)*17 = 300+283,33 = 583,33 — soma sem duplicar
+    expect(g.capacidadePerdidaTotal).toBeCloseTo(583.33, 1);
+    expect(g.custoTempoOciosoTotal).toBeCloseTo(60 * (18 / 60) + 60 * (17 / 60), 5);
+  });
+
+  it("ocorrência com 1 segmento real (M1) + 1 trecho estimado (M2) -> mesmo card, custo ocioso só do real, faturamento soma os dois", () => {
+    const abertaEm = "2026-09-09T11:29:31.259Z";
+    const encerradaEm = "2026-09-09T12:05:08.998Z";
+    const segM1 = parada({
+      paradaId: "seg-m1", apontamentoId: "ap-m1", origem: "ocorrencia", periodoId: "m1", minutos: 18,
+      metaPeriodoVigente: 1600, duracaoPeriodoHorasVigente: 1.6, custoHoraOperacaoVigente: 60,
+      ocorrenciaId: "oc-1", ocorrenciaAbertaEm: abertaEm, ocorrenciaEncerradaEm: encerradaEm,
+      descricaoProblema: "Sensor soltou", descricaoSolucao: "Trocado o sensor", produtoValorUnitario: 5,
+    });
+    const trechoM2 = trecho({ ocorrenciaId: "oc-1", periodoId: "m2", minutos: 17, ocorrenciaAbertaEm: abertaEm, ocorrenciaEncerradaEm: encerradaEm });
+
+    const grupos = agruparParadasPorOcorrencia([segM1], [trechoM2]);
+    expect(grupos).toHaveLength(1);
+    const g = grupos[0];
+    expect(g.segmentos).toHaveLength(2);
+    expect(g.temEstimativa).toBe(true);
+    expect(g.duracaoTotalMinutos).toBeCloseTo(35.629, 2);
+    // custo ocioso só do segmento real (M1) — trecho estimado não tem custo/hora
+    expect(g.custoTempoOciosoTotal).toBeCloseTo(60 * (18 / 60), 5);
+    // faturamento soma real (M1) + estimado (M2)
+    const fatEsperado = (1600 / 96) * 18 * 5 + calcularFaturamentoPotencialTrecho(trechoM2)!;
+    expect(g.faturamentoPotencialTotal).toBeCloseTo(fatEsperado, 1);
+  });
+
+  it("duas ocorrências diferentes nunca se misturam num único card", () => {
+    const seg1 = parada({ paradaId: "s1", apontamentoId: "a1", origem: "ocorrencia", ocorrenciaId: "oc-1", ocorrenciaAbertaEm: "2026-09-09T10:00:00Z", ocorrenciaEncerradaEm: "2026-09-09T10:10:00Z" });
+    const seg2 = parada({ paradaId: "s2", apontamentoId: "a2", origem: "ocorrencia", ocorrenciaId: "oc-2", ocorrenciaAbertaEm: "2026-09-09T14:00:00Z", ocorrenciaEncerradaEm: "2026-09-09T14:20:00Z" });
+    const grupos = agruparParadasPorOcorrencia([seg1, seg2], []);
+    expect(grupos).toHaveLength(2);
+    expect(grupos.map((g) => g.ocorrenciaId).sort()).toEqual(["oc-1", "oc-2"]);
+  });
+
+  it("paradas manuais (sem ocorrenciaId) não geram card — devem ser filtradas antes de chamar a função", () => {
+    // ParadaComContexto de origem manual sempre tem ocorrenciaId null — a
+    // função ignora silenciosamente (nada a agrupar), mas o padrão
+    // correto (ver DrillDownParadasLista) é nunca passar paradas manuais
+    // pra cá.
+    const manual = parada({ paradaId: "p1", apontamentoId: "a1", origem: "manual", ocorrenciaId: null });
+    const grupos = agruparParadasPorOcorrencia([manual], []);
+    expect(grupos).toHaveLength(0);
+  });
+
+  it("ocorrência atravessando 3 períodos, cobertura só no 1º e no 3º: só o intervalo do meio vira trecho estimado, sem duplicar nem perder minuto", () => {
+    const abertaEm = "2026-09-09T10:00:00.000Z";
+    const encerradaEm = "2026-09-09T11:30:00.000Z"; // 90 min exatos, de propósito (sem ambiguidade de arredondamento)
+
+    const segM1 = parada({
+      paradaId: "seg-m1", apontamentoId: "ap-m1", origem: "ocorrencia", periodoId: "m1", minutos: 30,
+      metaPeriodoVigente: 900, duracaoPeriodoHorasVigente: 1.6, custoHoraOperacaoVigente: 60,
+      ocorrenciaId: "oc-3p", ocorrenciaAbertaEm: abertaEm, ocorrenciaEncerradaEm: encerradaEm,
+      descricaoProblema: "Falha X", descricaoSolucao: "Reparo Y", produtoValorUnitario: 4,
+    });
+    const trechoM2 = trecho({
+      ocorrenciaId: "oc-3p", periodoId: "m2", minutos: 30, duracaoPeriodoMinutos: 96,
+      ocorrenciaAbertaEm: abertaEm, ocorrenciaEncerradaEm: encerradaEm,
+      metaPeriodoEstimada: 900, valorUnitarioEstimado: 4,
+    });
+    const segM3 = parada({
+      paradaId: "seg-m3", apontamentoId: "ap-m3", origem: "ocorrencia", periodoId: "m3", minutos: 30,
+      metaPeriodoVigente: 900, duracaoPeriodoHorasVigente: 1.6, custoHoraOperacaoVigente: 60,
+      ocorrenciaId: "oc-3p", ocorrenciaAbertaEm: abertaEm, ocorrenciaEncerradaEm: encerradaEm,
+      descricaoProblema: "Falha X", descricaoSolucao: "Reparo Y", produtoValorUnitario: 4,
+    });
+
+    // segM1/segM3 vêm de obter_paradas_producao (segmentos reais);
+    // trechoM2 vem de obter_trechos_ocorrencia_sem_apontamento (só o
+    // período do meio, que é o único sem apontamento) — a mesma
+    // reconstrução que a RPC faria fatiando pelo catálogo de períodos.
+    const grupos = agruparParadasPorOcorrencia([segM1, segM3], [trechoM2]);
+
+    expect(grupos).toHaveLength(1); // 1 única ocorrência, nunca 3
+    const g = grupos[0];
+
+    expect(g.segmentos).toHaveLength(3);
+    expect(g.segmentos.map((s) => s.periodoId)).toEqual(["m1", "m2", "m3"]);
+    expect(g.segmentos.filter((s) => s.real).map((s) => s.periodoId)).toEqual(["m1", "m3"]);
+    expect(g.segmentos.filter((s) => !s.real).map((s) => s.periodoId)).toEqual(["m2"]); // só o intervalo realmente descoberto
+    expect(g.temEstimativa).toBe(true);
+
+    // duração total vem da janela real da ocorrência, não da soma dos
+    // segmentos (mesma checagem do caso Rosqueadeira 3, agora com 3
+    // segmentos em vez de 2)
+    expect(g.duracaoTotalMinutos).toBeCloseTo(90, 5);
+
+    // soma dos minutos dos 3 segmentos (cobertura real + trecho sem
+    // cobertura) corresponde à janela temporal real — desconsiderando só
+    // a regra de arredondamento de exibição (aqui os números foram
+    // escolhidos exatos, então a tolerância é praticamente zero)
+    const somaMinutosSegmentos = g.segmentos.reduce((soma, s) => soma + s.minutos, 0);
+    expect(somaMinutosSegmentos).toBeCloseTo(g.duracaoTotalMinutos, 5);
+
+    // capacidade perdida soma os 3 segmentos, sem duplicar — (900/96)*30
+    // por segmento × 3
+    expect(g.capacidadePerdidaTotal).toBeCloseTo((900 / 96) * 30 * 3, 1);
+
+    // custo do tempo ocioso só soma os 2 segmentos REAIS (m1+m3) — o
+    // trecho estimado (m2) não entra
+    expect(g.custoTempoOciosoTotal).toBeCloseTo(60 * (30 / 60) * 2, 5);
+
+    // faturamento potencial soma os 3 (2 reais + 1 estimado)
+    expect(g.faturamentoPotencialTotal).not.toBeNull();
+    const fatEsperado = (900 / 96) * 30 * 4 * 2 + calcularFaturamentoPotencialTrecho(trechoM2)!;
+    expect(g.faturamentoPotencialTotal).toBeCloseTo(fatEsperado, 1);
   });
 });

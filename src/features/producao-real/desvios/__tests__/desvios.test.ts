@@ -37,6 +37,7 @@ function parada(over: Partial<ParadaComContexto> = {}): ParadaComContexto {
     operacaoId: "op-1", operacaoNome: "Operação 1", funcionarioId: "func-1", funcionarioNome: "Funcionário 1",
     custoHoraOperacaoVigente: 30, metaPeriodoVigente: 100, duracaoPeriodoHorasVigente: 1.5,
     descricaoProblema: null, descricaoSolucao: null,
+    ocorrenciaId: null, ocorrenciaAbertaEm: null, ocorrenciaEncerradaEm: null, produtoValorUnitario: null,
     ...over,
   };
 }
