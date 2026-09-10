@@ -17,6 +17,7 @@ import { supabase } from "@/services/supabase-client";
 import { useProdutosElegiveisPorMaquina } from "@/hooks/useProdutosElegiveisPorMaquina";
 import type { OcorrenciaAberta } from "@/hooks/useProducaoRealPainel";
 import { mensagemErroOcorrencia } from "./calculations";
+import { notificarOcorrencia } from "@/lib/push/browserPush";
 
 interface MaquinaSimples {
   id: string;
@@ -38,26 +39,6 @@ interface OcorrenciaRpcResult {
   aberta_em: string;
 }
 
-// Fire-and-forget: chama /api/push/notify-ocorrencia SÓ DEPOIS da ocorrência
-// já ter sido salva com sucesso (chamado logo abaixo). Nunca aguardado, erro
-// nunca sobe pra UI — a notificação é efeito colateral, não pode atrasar nem
-// falhar a abertura da ocorrência, que já aconteceu antes desta chamada.
-function notificarOcorrenciaAberta(ocorrenciaId: string) {
-  (async () => {
-    try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      if (!token) return;
-      await fetch("/api/push/notify-ocorrencia", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ocorrencia_id: ocorrenciaId }),
-      });
-    } catch {
-      // Best-effort — nunca deixa um erro de rede/push aparecer pro usuário.
-    }
-  })();
-}
 
 export interface AbrirOcorrenciaModalProps {
   maquinasDisponiveis: MaquinaSimples[];
@@ -138,7 +119,7 @@ export default function AbrirOcorrenciaModal({ maquinasDisponiveis, funcionarios
 
     setMaquinaNomeSalva(maquina?.nome || "");
     setEtapa("confirmado");
-    notificarOcorrenciaAberta(ocorrencia.id);
+    notificarOcorrencia(ocorrencia.id);
     onAberta(maquinaId, {
       id: ocorrencia.id,
       produtoNome: produto?.nome || "",

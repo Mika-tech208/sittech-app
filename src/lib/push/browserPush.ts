@@ -12,6 +12,31 @@ export function suportaPush(): boolean {
   return typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 }
 
+// Fire-and-forget: chama /api/push/notify-ocorrencia SÓ DEPOIS que a
+// ocorrência já foi aberta OU encerrada com sucesso (chamado por
+// AbrirOcorrenciaModal.tsx e EncerrarOcorrenciaModal.tsx). Nunca aguardado,
+// erro nunca sobe pra UI — a notificação é efeito colateral, não pode
+// atrasar nem falhar a operação real, que já aconteceu antes desta chamada.
+// O endpoint decide sozinho se é "aberta" ou "encerrada" olhando o estado
+// atual da ocorrência no banco (encerrada_em) — por isso a mesma chamada
+// serve pros dois eventos, sem precisar dizer qual é.
+export function notificarOcorrencia(ocorrenciaId: string) {
+  (async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return;
+      await fetch("/api/push/notify-ocorrencia", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ocorrencia_id: ocorrenciaId }),
+      });
+    } catch {
+      // Best-effort — nunca deixa um erro de rede/push aparecer pro usuário.
+    }
+  })();
+}
+
 export function permissaoAtual(): NotificationPermission | "indisponivel" {
   if (typeof window === "undefined" || !("Notification" in window)) return "indisponivel";
   return Notification.permission;

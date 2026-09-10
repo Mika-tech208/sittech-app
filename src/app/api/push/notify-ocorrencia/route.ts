@@ -1,7 +1,11 @@
 // Route Handler — chamado pelo navegador logo depois que
-// abrir_ocorrencia_maquina retorna sucesso (ver AbrirOcorrenciaModal.tsx),
-// fire-and-forget: a ocorrência já foi salva antes disso, e nada aqui pode
-// fazer essa abertura falhar ou ser revertida — só efeito colateral.
+// abrir_ocorrencia_maquina OU encerrar_ocorrencia_maquina retorna sucesso
+// (ver AbrirOcorrenciaModal.tsx e EncerrarOcorrenciaModal.tsx, mesma
+// chamada nos dois — notificarOcorrencia() em src/lib/push/browserPush.ts),
+// fire-and-forget: a operação real já aconteceu antes disso, e nada aqui
+// pode fazer ela falhar ou ser revertida — só efeito colateral. O endpoint
+// não recebe qual dos dois eventos foi — descobre sozinho olhando se
+// `encerrada_em` já está preenchido no estado ATUAL da ocorrência.
 //
 // V1 simplificada (sem trigger de banco/pg_net/Vault) — autenticado pela
 // sessão normal do usuário (Bearer token do Supabase Auth), igual toda
@@ -40,6 +44,7 @@ interface OcorrenciaRow {
   id: string;
   descricao: string;
   aberta_em: string;
+  encerrada_em: string | null;
   maquinas: { nome: string } | { nome: string }[] | null;
   motivos_parada: { nome: string } | { nome: string }[] | null;
 }
@@ -47,6 +52,18 @@ interface OcorrenciaRow {
 function primeiro<T>(v: T | T[] | null): T | null {
   if (!v) return null;
   return Array.isArray(v) ? v[0] ?? null : v;
+}
+
+// "8 min" / "36 min" / "1h" / "1h 12min" — formato específico do corpo do
+// push (com espaço entre "h" e os minutos), diferente do helper
+// formatarMinutos() usado na tela (que não usa espaço); local de propósito
+// pra não mudar nada da UI já em produção.
+function formatarDuracaoHumana(minutosExatos: number): string {
+  const totalMin = Math.max(0, Math.round(minutosExatos));
+  if (totalMin < 60) return `${totalMin} min`;
+  const horas = Math.floor(totalMin / 60);
+  const min = totalMin % 60;
+  return min === 0 ? `${horas}h` : `${horas}h ${min}min`;
 }
 
 export async function POST(request: Request) {
@@ -78,7 +95,7 @@ export async function POST(request: Request) {
 
   const { data: ocorrencia, error: erroOcorrencia } = await admin
     .from("ocorrencias_maquina")
-    .select("id, descricao, aberta_em, maquinas(nome), motivos_parada(nome)")
+    .select("id, descricao, aberta_em, encerrada_em, maquinas(nome), motivos_parada(nome)")
     .eq("id", ocorrenciaId)
     .maybeSingle<OcorrenciaRow>();
 
@@ -91,13 +108,35 @@ export async function POST(request: Request) {
   const motivoNome = primeiro(ocorrencia.motivos_parada)?.nome || "Parada";
   const descricao = ocorrencia.descricao?.trim();
 
-  const titulo = `${maquinaNome} parou`;
-  const corpo = descricao ? `${motivoNome} — ${descricao}` : motivoNome;
+  // O estado ATUAL da ocorrência decide o evento — não o payload recebido
+  // (que só tem ocorrencia_id). Chamado tanto por AbrirOcorrenciaModal
+  // quanto por EncerrarOcorrenciaModal (mesma chamada, mesmo endpoint);
+  // aqui é onde se descobre qual dos dois realmente aconteceu.
+  const evento: "aberta" | "encerrada" = ocorrencia.encerrada_em ? "encerrada" : "aberta";
+
+  let titulo: string;
+  let corpo: string;
+  if (evento === "encerrada") {
+    // Duração real (encerrada_em - aberta_em), nunca soma de minutos já
+    // arredondados por período — mesmo princípio já usado em
+    // src/features/producao-real/paradas/calculations.ts:747.
+    const duracaoMinutos = (new Date(ocorrencia.encerrada_em as string).getTime() - new Date(ocorrencia.aberta_em).getTime()) / 60000;
+    titulo = `${maquinaNome} voltou a produzir`;
+    corpo = `${motivoNome} • ${formatarDuracaoHumana(duracaoMinutos)} parada`;
+  } else {
+    titulo = `${maquinaNome} parou`;
+    corpo = descricao ? `${motivoNome} — ${descricao}` : motivoNome;
+  }
+
   const payload = JSON.stringify({
     title: titulo,
     body: corpo,
     url: "/producao-real/paradas",
-    tag: `ocorrencia-${ocorrenciaId}`,
+    // Tag inclui o evento — sem isso, a notificação de encerramento
+    // substituiria silenciosamente a de abertura (mesma tag = mesmo slot
+    // de notificação na maioria dos navegadores), em vez de aparecer como
+    // um aviso novo e independente.
+    tag: `ocorrencia-${ocorrenciaId}-${evento}`,
   });
 
   const { data: subscriptions, error: erroSubs } = await admin
@@ -128,6 +167,7 @@ export async function POST(request: Request) {
     const { data: reivindicada } = await admin.rpc("reivindicar_notificacao_ocorrencia", {
       p_ocorrencia_id: ocorrenciaId,
       p_subscription_id: sub.id,
+      p_evento: evento,
       p_processando_stale_antes: staleAntes,
     });
 
@@ -143,7 +183,8 @@ export async function POST(request: Request) {
         .from("push_notificacoes_ocorrencia")
         .update({ status: "enviado", atualizado_em: new Date().toISOString() })
         .eq("ocorrencia_id", ocorrenciaId)
-        .eq("subscription_id", sub.id);
+        .eq("subscription_id", sub.id)
+        .eq("evento", evento);
       await admin.from("push_subscriptions").update({ ultimo_uso_em: new Date().toISOString() }).eq("id", sub.id);
       enviados++;
       continue;
@@ -158,7 +199,8 @@ export async function POST(request: Request) {
         .from("push_notificacoes_ocorrencia")
         .update({ status: "subscription_invalida", ultimo_erro: resultado.mensagem, atualizado_em: new Date().toISOString() })
         .eq("ocorrencia_id", ocorrenciaId)
-        .eq("subscription_id", sub.id);
+        .eq("subscription_id", sub.id)
+        .eq("evento", evento);
       await admin.from("push_subscriptions").delete().eq("id", sub.id);
     } else {
       // Falhou nas 2 tentativas (imediata + 1 retry) por erro não-terminal
@@ -169,7 +211,8 @@ export async function POST(request: Request) {
         .from("push_notificacoes_ocorrencia")
         .update({ status: "falha_transitoria", ultimo_erro: resultado.mensagem, atualizado_em: new Date().toISOString() })
         .eq("ocorrencia_id", ocorrenciaId)
-        .eq("subscription_id", sub.id);
+        .eq("subscription_id", sub.id)
+        .eq("evento", evento);
     }
     console.error("push/notify-ocorrencia: falha ao enviar para subscription", sub.id, resultado.status, resultado.mensagem);
   }
