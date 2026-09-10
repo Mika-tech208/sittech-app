@@ -1,31 +1,32 @@
-// Route Handler — chamado SOMENTE pelo trigger de banco (via pg_net) quando
-// uma ocorrência de máquina é aberta. Nunca chamado pelo navegador: protegido
-// por um segredo compartilhado (header `x-webhook-secret`), não por sessão de
-// usuário — não é uma ação de usuário, é um evento de sistema.
+// Route Handler — chamado pelo navegador logo depois que
+// abrir_ocorrencia_maquina retorna sucesso (ver AbrirOcorrenciaModal.tsx),
+// fire-and-forget: a ocorrência já foi salva antes disso, e nada aqui pode
+// fazer essa abertura falhar ou ser revertida — só efeito colateral.
+//
+// V1 simplificada (sem trigger de banco/pg_net/Vault) — autenticado pela
+// sessão normal do usuário (Bearer token do Supabase Auth), igual toda
+// outra rota autenticada do app. Exige usuário ativo com a permissão
+// 'producao_real_ocorrencias' (a mesma que já governa quem pode abrir
+// ocorrência) — nunca aceita chamada anônima/pública.
 //
 // Recebe só `{ ocorrencia_id }` — todo o resto (máquina, motivo, descrição)
 // é buscado aqui dentro com o cliente service_role, nunca confiado do
-// payload recebido. Isso fecha a possibilidade de alguém que descubra o
-// segredo mandar notificação com conteúdo arbitrário.
+// payload recebido. Isso fecha a possibilidade de alguém autenticado mas
+// sem a ocorrência real mandar notificação com conteúdo arbitrário.
 //
-// Segredo do webhook ausente/incorreto → 403, sempre (ver primeiro check
-// abaixo) — isso NÃO é o "sempre 200" do parágrafo seguinte.
-//
-// Push é efeito colateral: uma requisição AUTENTICADA (segredo correto)
-// sempre responde 200, mesmo com falhas parciais/totais de ENVIO — cada
-// falha de envio já fica registrada por subscription em
-// push_notificacoes_ocorrencia (status/ultimo_erro), então "200 com
-// falhas" não é "silenciar erro", é "o estado individual está no banco,
-// não precisa virar erro HTTP". Quem chama (pg_net) não deve tratar
-// "nenhum dispositivo notificado" como motivo de retry agressivo, e a
-// abertura da ocorrência (já commitada antes do trigger disparar) nunca
-// depende do resultado disto.
+// Push é efeito colateral: uma requisição autorizada sempre responde 200,
+// mesmo com falhas parciais/totais de ENVIO — cada falha já fica
+// registrada por subscription em push_notificacoes_ocorrencia
+// (status/ultimo_erro), então "200 com falhas" não é "silenciar erro", é
+// "o estado individual está no banco, não precisa virar erro HTTP".
 //
 // runtime nodejs (não edge): a lib `web-push` usa `crypto` do Node.
 
 import { NextResponse } from "next/server";
 import webpush from "web-push";
 import { criarClienteAdmin } from "@/lib/supabase-admin";
+import { autenticarRequisicaoIntelligence } from "@/features/intelligence/auth";
+import { temPermissao } from "@/lib/permissoes";
 
 export const runtime = "nodejs";
 
@@ -49,9 +50,12 @@ function primeiro<T>(v: T | T[] | null): T | null {
 }
 
 export async function POST(request: Request) {
-  const segredoEsperado = process.env.PUSH_WEBHOOK_SECRET;
-  const segredoRecebido = request.headers.get("x-webhook-secret");
-  if (!segredoEsperado || !segredoRecebido || segredoRecebido !== segredoEsperado) {
+  // Reaproveita o mesmo auth de src/features/intelligence/auth.ts (valida
+  // o Bearer token, resolve usuarios.ativo e as permissões concedidas) —
+  // é genérico o bastante, evita duplicar a lógica de "usuário
+  // autenticado e ativo" numa terceira versão.
+  const auth = await autenticarRequisicaoIntelligence(request);
+  if (!auth || !temPermissao(auth.usuario, "producao_real_ocorrencias")) {
     return NextResponse.json({ erro: "Não autorizado." }, { status: 403 });
   }
 
