@@ -121,11 +121,12 @@ export async function POST(request: Request) {
     // arredondados por período — mesmo princípio já usado em
     // src/features/producao-real/paradas/calculations.ts:747.
     const duracaoMinutos = (new Date(ocorrencia.encerrada_em as string).getTime() - new Date(ocorrencia.aberta_em).getTime()) / 60000;
-    titulo = `${maquinaNome} voltou a produzir`;
-    corpo = `${motivoNome} • ${formatarDuracaoHumana(duracaoMinutos)} parada`;
+    titulo = "🟢 Máquina liberada";
+    corpo = `${maquinaNome} • ${motivoNome} • ${formatarDuracaoHumana(duracaoMinutos)} parada`;
   } else {
-    titulo = `${maquinaNome} parou`;
-    corpo = descricao ? `${motivoNome} — ${descricao}` : motivoNome;
+    titulo = "🔴 Parada de máquina";
+    // Sem descrição, não deixa "—" sobrando — corpo termina só no motivo.
+    corpo = descricao ? `${maquinaNome} • ${motivoNome} — ${descricao}` : `${maquinaNome} • ${motivoNome}`;
   }
 
   const payload = JSON.stringify({
