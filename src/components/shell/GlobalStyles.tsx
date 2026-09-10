@@ -2341,6 +2341,13 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
           justify-content: space-between;
           align-items: center;
           padding: 20px 18px 16px 22px;
+          /* .stx-intel-panel é position:fixed (não herda o padding-top de
+             .stx-root) — mesmo tratamento já usado no drawer mobile do
+             Sidebar (.stx-sidebar.gaveta-aberta) pra não ficar embaixo do
+             notch/status bar no PWA standalone do iOS (black-translucent).
+             env() resolve pra 0 fora desse contexto, sem efeito em
+             desktop/Android. */
+          padding-top: max(20px, env(safe-area-inset-top));
           flex-shrink: 0;
         }
         .stx-intel-header-marca { display: flex; align-items: center; gap: 11px; }
