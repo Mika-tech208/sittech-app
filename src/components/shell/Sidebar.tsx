@@ -117,6 +117,22 @@ export default function Sidebar({
   onAbrirMinhaConta, onSair, recolhida, onToggleRecolhida, gavetaAberta, onFecharGaveta,
 }: SidebarProps) {
   const logoSrc = tema === "dark" ? LOGO_DARK : LOGO_LIGHT;
+
+  // Ponto único: fecha a gaveta mobile em QUALQUER clique de navegação real
+  // (.stx-tab-v — todo <Link> e todo <button onNavigateTab> já usam essa
+  // classe, item por item, sem precisar editar cada onClick individual, e
+  // cobre item novo que venha a ser adicionado depois sem exigir alteração
+  // aqui). Delegação de evento no container, não no item: só dispara pra
+  // cliques que realmente vieram de um .stx-tab-v — clique num cabeçalho de
+  // grupo (.stx-sidebar-grupo-header, outra classe) nunca fecha, exatamente
+  // o "expandir não fecha, navegar fecha" pedido. `gavetaAberta` só é true
+  // no drawer mobile (<768px) — em desktop/tablet-rail (recolhida) é
+  // sempre false, então isto nunca dispara lá, comportamento inalterado.
+  function fecharGavetaAoNavegar(e: React.MouseEvent<HTMLDivElement>) {
+    if (!gavetaAberta) return;
+    if ((e.target as HTMLElement).closest(".stx-tab-v")) onFecharGaveta();
+  }
+
   const conteudo = (
     <>
       <div className="stx-sidebar-marca">
@@ -134,7 +150,7 @@ export default function Sidebar({
         )}
       </div>
 
-      <div className="stx-sidebar-itens">
+      <div className="stx-sidebar-itens" onClick={fecharGavetaAoNavegar}>
         <button className={`stx-tab-v ${abaAtiva === "inicio" ? "active" : ""}`} onClick={() => onNavigateTab("inicio")} title="Início">
           <Home size={16} />{!recolhida && "Início"}
         </button>
@@ -154,7 +170,7 @@ export default function Sidebar({
                   <button className={`stx-tab-v ${abaAtiva === "custos" ? "active" : ""}`} onClick={() => onNavigateTab("custos")} title="Custos mensais"><Wallet size={16} />{!recolhida && "Custos mensais"}</button>
                 )}
                 {temPermissao(usuarioLogado, "funcionarios") && (
-                  <button className={`stx-tab-v ${abaAtiva === "funcionarios" ? "active" : ""}`} onClick={() => { onNavigateTab("funcionarios"); onFecharGaveta(); }} title="Funcionários"><Users size={16} />{!recolhida && "Funcionários"}</button>
+                  <button className={`stx-tab-v ${abaAtiva === "funcionarios" ? "active" : ""}`} onClick={() => onNavigateTab("funcionarios")} title="Funcionários"><Users size={16} />{!recolhida && "Funcionários"}</button>
                 )}
                 {temPermissao(usuarioLogado, "produtos") && (
                   <Link href="/produtos" className={`stx-tab-v ${abaAtiva === "produtos" ? "active" : ""}`} title="Produtos"><Package size={16} />{!recolhida && "Produtos"}</Link>
@@ -180,7 +196,7 @@ export default function Sidebar({
             {(recolhida || gruposAbertos.financeiro) && (
               <>
                 <button className={`stx-tab-v ${abaAtiva === "faturamento" ? "active" : ""}`} onClick={() => onNavigateTab("faturamento")} title="Faturamento mensal"><Receipt size={16} />{!recolhida && "Faturamento mensal"}</button>
-                <button className={`stx-tab-v ${abaAtiva === "bi" ? "active" : ""}`} onClick={() => { onNavigateTab("bi"); onFecharGaveta(); }} title="Análise de faturamento"><LineChartIcon size={16} />{!recolhida && "Análise de faturamento"}</button>
+                <button className={`stx-tab-v ${abaAtiva === "bi" ? "active" : ""}`} onClick={() => onNavigateTab("bi")} title="Análise de faturamento"><LineChartIcon size={16} />{!recolhida && "Análise de faturamento"}</button>
               </>
             )}
           </>
