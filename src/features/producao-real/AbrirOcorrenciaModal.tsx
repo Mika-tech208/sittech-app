@@ -17,6 +17,7 @@ import { supabase } from "@/services/supabase-client";
 import { useProdutosElegiveisPorMaquina } from "@/hooks/useProdutosElegiveisPorMaquina";
 import type { OcorrenciaAberta } from "@/hooks/useProducaoRealPainel";
 import { mensagemErroOcorrencia } from "./calculations";
+import { notificarOcorrencia } from "@/lib/push/browserPush";
 
 interface MaquinaSimples {
   id: string;
@@ -37,6 +38,7 @@ interface OcorrenciaRpcResult {
   id: string;
   aberta_em: string;
 }
+
 
 export interface AbrirOcorrenciaModalProps {
   maquinasDisponiveis: MaquinaSimples[];
@@ -117,6 +119,7 @@ export default function AbrirOcorrenciaModal({ maquinasDisponiveis, funcionarios
 
     setMaquinaNomeSalva(maquina?.nome || "");
     setEtapa("confirmado");
+    notificarOcorrencia(ocorrencia.id);
     onAberta(maquinaId, {
       id: ocorrencia.id,
       produtoNome: produto?.nome || "",

@@ -1,9 +1,15 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { ativarNotificacoes, desativarNotificacoes, permissaoAtual, subscriptionLocalExiste, suportaPush } from "@/lib/push/browserPush";
+
 export interface AccountModalProps {
   // Formato do `UsuarioLogado` (useAuthSession.ts) — mesmo componente usado
   // pelo app legado e pelas rotas migradas, ambos já 100% Supabase Auth.
-  usuarioLogado: { nome: string; papel: string; email: string } | null;
+  // `id` é usado só pela seção de notificações abaixo (todo call-site já
+  // passa o `usuarioLogado` inteiro, que sempre tem `id` — nenhum dos ~13
+  // lugares que instanciam este modal precisou mudar).
+  usuarioLogado: { id: string; nome: string; papel: string; email: string } | null;
   aberta: boolean;
   onFechar: () => void;
   minhaSenhaAtual: string;
@@ -16,12 +22,44 @@ export interface AccountModalProps {
   onSalvar: () => void;
 }
 
-// Modal "Minha conta" (trocar a própria senha) — mesmo componente pro app
-// legado e pras novas rotas, disparado pelo botão "Minha conta" do TopBar.
+// Modal "Minha conta" (trocar a própria senha + notificações) — mesmo
+// componente pro app legado e pras novas rotas, disparado pelo botão
+// "Minha conta" do TopBar.
 export default function AccountModal({
   usuarioLogado, aberta, onFechar, minhaSenhaAtual, setMinhaSenhaAtual, minhaSenhaNova, setMinhaSenhaNova,
   minhaSenhaConfirma, setMinhaSenhaConfirma, minhaContaMsg, onSalvar,
 }: AccountModalProps) {
+  const [notifSuportado, setNotifSuportado] = useState(false);
+  const [notifAtiva, setNotifAtiva] = useState(false);
+  const [notifCarregando, setNotifCarregando] = useState(false);
+  const [notifMsg, setNotifMsg] = useState("");
+
+  useEffect(() => {
+    if (!aberta) return;
+    setNotifSuportado(suportaPush());
+    setNotifMsg("");
+    subscriptionLocalExiste().then(setNotifAtiva);
+  }, [aberta]);
+
+  async function alternarNotificacoes() {
+    if (!usuarioLogado) return;
+    setNotifCarregando(true);
+    setNotifMsg("");
+    try {
+      if (notifAtiva) {
+        await desativarNotificacoes();
+        setNotifAtiva(false);
+      } else {
+        await ativarNotificacoes(usuarioLogado.id);
+        setNotifAtiva(true);
+      }
+    } catch (err) {
+      setNotifMsg(err instanceof Error ? err.message : "Não foi possível concluir a ação.");
+    } finally {
+      setNotifCarregando(false);
+    }
+  }
+
   if (!aberta || !usuarioLogado) return null;
   return (
     <div className="stx-modal-backdrop" onClick={onFechar}>
@@ -45,6 +83,28 @@ export default function AccountModal({
         {minhaContaMsg && (
           <p style={{ fontSize: 12.5, color: minhaContaMsg.includes("sucesso") ? "var(--accent)" : "var(--danger)", marginBottom: 10 }}>{minhaContaMsg}</p>
         )}
+
+        <p className="stx-analise-secao-titulo" style={{ marginTop: 20 }}>Notificações</p>
+        {notifSuportado ? (
+          <>
+            <p className="stx-panel-sub" style={{ marginBottom: 10 }}>
+              Receber um aviso neste dispositivo quando uma máquina entrar em ocorrência de parada.
+            </p>
+            <div className="stx-form-actions" style={{ justifyContent: "flex-start", marginBottom: 4 }}>
+              <button type="button" className="stx-btn-secondary" onClick={alternarNotificacoes} disabled={notifCarregando}>
+                {notifCarregando ? "Aguarde..." : notifAtiva ? "Desativar notificações" : "Ativar notificações"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="stx-panel-sub" style={{ marginBottom: 10 }}>
+            Notificações não são suportadas neste navegador/dispositivo. No iPhone, use o Sittech instalado na Tela de Início (Safari sozinho não suporta).
+          </p>
+        )}
+        {notifMsg && (
+          <p style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10 }}>{notifMsg}</p>
+        )}
+
         <div className="stx-form-actions" style={{ justifyContent: "flex-end" }}>
           <button type="button" className="stx-btn-secondary" onClick={onFechar}>Fechar</button>
           <button type="button" className="stx-btn-primary" onClick={onSalvar}>Salvar nova senha</button>
