@@ -77,6 +77,13 @@ export async function ativarNotificacoes(usuarioId: string): Promise<void> {
     throw new Error("Não foi possível obter as chaves da subscription.");
   }
 
+  // DIAGNÓSTICO TEMPORÁRIO (remover depois de confirmar a causa do
+  // VapidPkHashMismatch) — grava no próprio user_agent um fingerprint da
+  // vapidPublicKey que ESTE navegador realmente usou no subscribe(),
+  // pra comparar com o valor atual do servidor sem precisar de acesso
+  // remoto ao Safari do iPhone.
+  const fingerprintChave = `${vapidPublicKey.slice(0, 10)}...${vapidPublicKey.slice(-10)}`;
+
   // upsert por endpoint (unique global) — se este MESMO navegador já tinha
   // uma linha, só renova; se o endpoint hoje pertence a outro usuário, a
   // policy de update (usuario_id = self) bloqueia sob RLS e o erro sobe
@@ -88,7 +95,7 @@ export async function ativarNotificacoes(usuarioId: string): Promise<void> {
       endpoint: subscription.endpoint,
       p256dh: chaves.p256dh,
       auth: chaves.auth,
-      user_agent: navigator.userAgent,
+      user_agent: `${navigator.userAgent} | vapid:${fingerprintChave}`,
     },
     { onConflict: "endpoint" }
   );
