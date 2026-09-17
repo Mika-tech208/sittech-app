@@ -367,6 +367,7 @@ export default function ApontamentosRealizadosPage() {
           key={apontamentoSelecionado.id}
           apontamento={apontamentoSelecionado}
           funcionariosAtivos={funcionariosAtivosSimples}
+          podeConverterStatus={temPermissao(auth.usuarioLogado, "producao_real_historico")}
           onFechar={() => setApontamentoSelecionado(null)}
           onEditado={(id, patch) => {
             apontamentosHook.atualizarApontamentoLocal(id, patch);

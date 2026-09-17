@@ -61,10 +61,23 @@ export function mensagemErroRegistrarLancamento(mensagem: string | undefined): s
   if (m.includes("Motivo de parada") && m.includes("inativo")) return "Este motivo de parada está inativo.";
   if (m.includes("motivo de parada") && m.includes("obrigatória")) return "Descreva o motivo da parada.";
   if (m.includes("Soma das paradas") && m.includes("ultrapassa")) return "A soma das paradas não pode ultrapassar a duração do período.";
+  if (m.includes("Motivo da alteração")) return "Informe o motivo da alteração.";
   if (m.includes("Motivo") && m.includes("obrigatório")) return "Selecione um motivo.";
   if (m.includes("Descrição") && m.includes("obrigatória")) return "Descreva o motivo.";
   if (m.includes("Usuário autenticado")) return "Sua sessão expirou — faça login de novo.";
   return "Não foi possível salvar o lançamento. Tente novamente.";
+}
+
+// Mesma ideia, pra converter_apontamento_sem_producao_para_producao —
+// mensagens próprias (permissão, status já mudou), não reaproveita
+// mensagemErroRegistrarLancamento inteira pra não perder a checagem de
+// permissão (única RPC desta tela que tem uma).
+export function mensagemErroConverterApontamento(mensagem: string | undefined): string {
+  const m = mensagem || "";
+  if (m.includes("não tem permissão")) return "Você não tem permissão para converter este apontamento em produção realizada.";
+  if (m.includes("já é uma produção")) return "Este apontamento já é uma produção — a tela pode estar desatualizada.";
+  if (m.includes("Motivo da alteração")) return "Informe o motivo da alteração.";
+  return mensagemErroRegistrarLancamento(mensagem);
 }
 
 // Mesma ideia, pro par abrir_ocorrencia_maquina/encerrar_ocorrencia_maquina

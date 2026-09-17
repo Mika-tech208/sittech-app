@@ -1,17 +1,25 @@
 "use client";
 
 // Resumo completo de um apontamento realizado + edição — máquina, data e
-// período NUNCA são editáveis nesta V1 (mostrados só como texto). Troca
-// de status (produzindo <-> sem_producao) não é possível. Histórico é
-// gravado automaticamente pelo backend (editar_apontamento_producao/
-// editar_apontamento_sem_producao) — não é exposto aqui pra supervisora.
-
+// período NUNCA são editáveis nesta V1 (mostrados só como texto).
+//
+// Conversão sem_producao -> produzindo: só quando `podeConverterStatus`
+// (permissão producao_real_historico ou admin — ver
+// ApontamentosRealizadosPage.tsx) e só nesse sentido (produzindo ->
+// sem_producao continua impossível, não foi pedido). Ao converter, o
+// formulário de "produzindo" é reaproveitado por inteiro (mesmos campos,
+// mesma validação) — só troca qual RPC é chamada no salvar.
+//
+// "Motivo da alteração" é obrigatório em toda edição de um apontamento já
+// finalizado (produzindo, sem_producao ou conversão) — auditoria
+// (apontamento_producao_historico.motivo) obrigatória no backend, não só
+// aqui; ver migration 20260917100000.
 import { useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import { useProdutosElegiveisPorMaquina } from "@/hooks/useProdutosElegiveisPorMaquina";
 import { useMotivosParada } from "@/hooks/useMotivosParada";
 import { MOTIVOS, LABEL_MOTIVO_SEM_PRODUCAO } from "./SemProducaoModal";
-import { mensagemErroRegistrarLancamento, mensagemErroExcluirApontamento, calcularPerformance } from "./calculations";
+import { mensagemErroRegistrarLancamento, mensagemErroExcluirApontamento, mensagemErroConverterApontamento, calcularPerformance } from "./calculations";
 import ParadasManuaisEditor, { type ParadaManual, type ParadaAutomatica } from "./ParadasManuaisEditor";
 import PerformanceIndicador from "./components/PerformanceIndicador";
 import type { ApontamentoRealizado } from "@/hooks/useApontamentosRealizados";
@@ -32,6 +40,7 @@ interface FuncionarioSimples {
 export interface ResumoApontamentoModalProps {
   apontamento: ApontamentoRealizado;
   funcionariosAtivos: FuncionarioSimples[];
+  podeConverterStatus: boolean;
   onFechar: () => void;
   onEditado: (id: string, patch: Partial<ApontamentoRealizado>) => void;
   onExcluido: (id: string) => void;
@@ -41,14 +50,20 @@ type Modo = "resumo" | "editando" | "salvo" | "confirmando_exclusao" | "excluido
 
 const LABEL_STATUS: Record<string, string> = { produzindo: "Apontado", sem_producao: "Sem produção" };
 
-export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos, onFechar, onEditado, onExcluido }: ResumoApontamentoModalProps) {
+export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos, podeConverterStatus, onFechar, onEditado, onExcluido }: ResumoApontamentoModalProps) {
   const [modo, setModo] = useState<Modo>("resumo");
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [excluindo, setExcluindo] = useState(false);
   const [erroExclusao, setErroExclusao] = useState<string | null>(null);
 
-  // campos de edição — produzindo
+  // Conversão sem_producao -> produzindo (só quando podeConverterStatus).
+  // Reseta pra false sempre que o modal reabre em modo edição, pra nunca
+  // "vazar" um estado de conversão de uma abertura anterior do modal.
+  const [convertendo, setConvertendo] = useState(false);
+  const mostrandoFormularioProducao = apontamento.status === "produzindo" || convertendo;
+
+  // campos de edição — produzindo (e conversão, que reaproveita os mesmos)
   const [produtoId, setProdutoId] = useState(apontamento.produtoId || "");
   const [funcionarioId, setFuncionarioId] = useState(apontamento.funcionarioId || "");
   const [quantidadeProduzida, setQuantidadeProduzida] = useState(String(apontamento.quantidadeProduzida));
@@ -59,10 +74,14 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
   const [motivo, setMotivo] = useState(apontamento.motivoSemProducao || "");
   const [descricao, setDescricao] = useState(apontamento.descricaoSemProducao || "");
 
+  // "Motivo da alteração" — obrigatório em qualquer salvamento desta tela
+  // (auditoria, ver comentário no topo do arquivo).
+  const [motivoAlteracao, setMotivoAlteracao] = useState("");
+
   const { produtos, loading: produtosCarregando } = useProdutosElegiveisPorMaquina(
-    modo === "editando" && apontamento.status === "produzindo" ? apontamento.maquinaId : null
+    modo === "editando" && mostrandoFormularioProducao ? apontamento.maquinaId : null
   );
-  const { motivos: motivosParada } = useMotivosParada(apontamento.status === "produzindo");
+  const { motivos: motivosParada } = useMotivosParada(mostrandoFormularioProducao);
 
   // Paradas do período (manuais + automáticas de ocorrência) — só faz
   // sentido pra "produzindo"; "sem_producao" não é tocado nesta etapa (ver
@@ -104,48 +123,67 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
 
   const precisaDescricao = motivo === "outro";
 
+  const motivoAlteracaoPreenchido = motivoAlteracao.trim().length > 0;
+
   const podeSalvarProducao =
     !salvando && !!produtoId && !!funcionarioId && quantidadeProduzida !== "" &&
     !Number.isNaN(Number(quantidadeProduzida)) && Number(quantidadeProduzida) >= 0 &&
     !Number.isNaN(Number(quantidadeRefugo || 0)) && Number(quantidadeRefugo || 0) >= 0 &&
-    Number(quantidadeRefugo || 0) <= Number(quantidadeProduzida);
+    Number(quantidadeRefugo || 0) <= Number(quantidadeProduzida) && motivoAlteracaoPreenchido;
 
-  const podeSalvarSemProducao = !salvando && !!motivo && (!precisaDescricao || descricao.trim().length > 0);
+  const podeSalvarSemProducao = !salvando && !!motivo && (!precisaDescricao || descricao.trim().length > 0) && motivoAlteracaoPreenchido;
 
   async function salvarProducao() {
     if (!podeSalvarProducao) return;
     setSalvando(true);
     setErro(null);
-    const { data, error } = await supabase.rpc("editar_apontamento_producao", {
-      p_apontamento_id: apontamento.id,
-      p_produto_id: produtoId,
-      p_funcionario_id: funcionarioId,
-      p_quantidade_produzida: Number(quantidadeProduzida),
-      p_quantidade_refugo: Number(quantidadeRefugo || 0),
-      p_observacao: observacao.trim() || null,
-      p_paradas: paradasManuais.map((p) => ({ motivo_id: p.motivoId, minutos: p.minutos, descricao: p.descricao })),
-    });
+    const paradas = paradasManuais.map((p) => ({ motivo_id: p.motivoId, minutos: p.minutos, descricao: p.descricao }));
+    const { data, error } = convertendo
+      ? await supabase.rpc("converter_apontamento_sem_producao_para_producao", {
+          p_apontamento_id: apontamento.id,
+          p_produto_id: produtoId,
+          p_funcionario_id: funcionarioId,
+          p_quantidade_produzida: Number(quantidadeProduzida),
+          p_quantidade_refugo: Number(quantidadeRefugo || 0),
+          p_motivo: motivoAlteracao.trim(),
+          p_observacao: observacao.trim() || null,
+          p_paradas: paradas,
+        })
+      : await supabase.rpc("editar_apontamento_producao", {
+          p_apontamento_id: apontamento.id,
+          p_produto_id: produtoId,
+          p_funcionario_id: funcionarioId,
+          p_quantidade_produzida: Number(quantidadeProduzida),
+          p_quantidade_refugo: Number(quantidadeRefugo || 0),
+          p_motivo: motivoAlteracao.trim(),
+          p_observacao: observacao.trim() || null,
+          p_paradas: paradas,
+        });
     if (error || !data) {
-      setErro(mensagemErroRegistrarLancamento(error?.message));
+      setErro(convertendo ? mensagemErroConverterApontamento(error?.message) : mensagemErroRegistrarLancamento(error?.message));
       setSalvando(false);
       return;
     }
     const produtoSelecionado = produtos.find((p) => p.id === produtoId);
     const funcionarioSelecionado = funcionariosParaSelecionar.find((f) => f.id === funcionarioId);
-    // Performance recalculada no cliente com a MESMA função (nada
-    // persistido) — meta/duração são snapshots imutáveis do apontamento
-    // (nunca mudam na edição); quantidade e soma de paradas são as que
-    // acabaram de ser salvas.
+    // Meta vigente: na conversão, vem de graça (não existia antes — era
+    // null em sem_producao); numa edição normal, só muda se o produto
+    // mudar, então cai no mesmo lugar — usar sempre o valor DEVOLVIDO pela
+    // RPC (nunca o antigo apontamento.metaPeriodoVigente) evita essa
+    // distinção e cobre os dois casos com a mesma conta. Duração do
+    // período é sempre a mesma (snapshot de início/fim, nunca muda).
+    const metaPeriodoVigente = data.meta_periodo_vigente === null ? null : Number(data.meta_periodo_vigente);
     const performancePct =
-      apontamento.metaPeriodoVigente !== null && apontamento.duracaoPeriodoHorasVigente !== null
+      metaPeriodoVigente !== null && apontamento.duracaoPeriodoHorasVigente !== null
         ? calcularPerformance({
             quantidadeProduzida: Number(quantidadeProduzida),
-            metaPeriodoVigente: apontamento.metaPeriodoVigente,
+            metaPeriodoVigente,
             duracaoPeriodoHorasVigente: apontamento.duracaoPeriodoHorasVigente,
             somaParadasMinutos: tempoParadoTotal,
           })
         : null;
     onEditado(apontamento.id, {
+      status: "produzindo",
       produtoId,
       produtoNome: produtoSelecionado?.nome || apontamento.produtoNome,
       funcionarioId,
@@ -153,6 +191,9 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
       quantidadeProduzida: Number(quantidadeProduzida),
       quantidadeRefugo: Number(quantidadeRefugo || 0),
       observacao: observacao.trim() || null,
+      motivoSemProducao: null,
+      descricaoSemProducao: null,
+      metaPeriodoVigente,
       performancePct,
     });
     setSalvando(false);
@@ -166,6 +207,7 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
     const { data, error } = await supabase.rpc("editar_apontamento_sem_producao", {
       p_apontamento_id: apontamento.id,
       p_motivo_sem_producao: motivo,
+      p_motivo: motivoAlteracao.trim(),
       p_descricao_sem_producao: precisaDescricao ? descricao.trim() : null,
     });
     if (error || !data) {
@@ -246,6 +288,11 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
             </div>
             <div className="stx-ap-actions">
               <button type="button" className="stx-ap-btn-primary" onClick={() => setModo("editando")}>Editar apontamento</button>
+              {apontamento.status === "sem_producao" && podeConverterStatus && (
+                <button type="button" className="stx-ap-btn-primary" onClick={() => { setConvertendo(true); setModo("editando"); }}>
+                  Transformar em produção realizada
+                </button>
+              )}
               <button type="button" className="stx-ap-btn-danger" onClick={() => setModo("confirmando_exclusao")}>Excluir apontamento</button>
               <button type="button" className="stx-ap-btn-secondary" onClick={onFechar}>Fechar</button>
             </div>
@@ -275,15 +322,21 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
               <button type="button" className="stx-ap-btn-primary" onClick={onFechar}>Fechar</button>
             </div>
           </div>
-        ) : apontamento.status === "produzindo" ? (
+        ) : mostrandoFormularioProducao ? (
           <>
             <div className="stx-ap-modal-head">
               <p className="stx-ap-modal-title" style={{ margin: 0 }}>{apontamento.maquinaNome}</p>
-              <button type="button" className="stx-ap-modal-close" onClick={() => setModo("resumo")} aria-label="Cancelar edição">✕</button>
+              <button type="button" className="stx-ap-modal-close" onClick={() => { setConvertendo(false); setModo("resumo"); }} aria-label="Cancelar edição">✕</button>
             </div>
             <p className="stx-ap-modal-eyebrow" style={{ marginTop: 8, marginBottom: 16 }}>
               {dataFormatada} · {apontamento.periodoNome} — máquina/data/período não são editáveis
             </p>
+            {convertendo && (
+              <p className="stx-ap-modal-eyebrow" style={{ marginBottom: 16 }}>
+                Convertendo de &quot;Sem produção&quot; para produção realizada.{" "}
+                <button type="button" className="stx-ap-link" onClick={() => setConvertendo(false)}>Cancelar conversão</button>
+              </p>
+            )}
 
             <div className="stx-ap-field">
               <label className="stx-ap-field-label">Produto</label>
@@ -328,13 +381,24 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
               <input type="text" className="stx-ap-input" value={observacao} onChange={(e) => setObservacao(e.target.value)} />
             </div>
 
+            <div className="stx-ap-field">
+              <label className="stx-ap-field-label">Motivo da alteração</label>
+              <input
+                type="text"
+                className="stx-ap-input"
+                value={motivoAlteracao}
+                onChange={(e) => setMotivoAlteracao(e.target.value)}
+                placeholder="Ex: balança estava com defeito, quantidade conferida posteriormente"
+              />
+            </div>
+
             {erro && <p className="stx-ap-error">{erro}</p>}
 
             <div className="stx-ap-actions">
               <button type="button" className="stx-ap-btn-primary" disabled={!podeSalvarProducao} onClick={salvarProducao}>
                 {salvando ? "Salvando…" : "Salvar alterações"}
               </button>
-              <button type="button" className="stx-ap-btn-secondary" onClick={() => setModo("resumo")} disabled={salvando}>Cancelar</button>
+              <button type="button" className="stx-ap-btn-secondary" onClick={() => { setConvertendo(false); setModo("resumo"); }} disabled={salvando}>Cancelar</button>
             </div>
           </>
         ) : (
@@ -346,6 +410,12 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
             <p className="stx-ap-modal-eyebrow" style={{ marginTop: 8, marginBottom: 16 }}>
               {dataFormatada} · {apontamento.periodoNome} — máquina/data/período não são editáveis
             </p>
+
+            {podeConverterStatus && (
+              <p className="stx-ap-modal-eyebrow" style={{ marginBottom: 16 }}>
+                <button type="button" className="stx-ap-link" onClick={() => setConvertendo(true)}>Na verdade houve produção neste período →</button>
+              </p>
+            )}
 
             <label className="stx-ap-field-label">Motivo</label>
             <div className="stx-ap-motivo-grid" style={{ marginTop: 8 }}>
@@ -367,6 +437,17 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
                 <input type="text" className="stx-ap-input" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Descreva o motivo" />
               </div>
             )}
+
+            <div className="stx-ap-field" style={{ marginTop: 14 }}>
+              <label className="stx-ap-field-label">Motivo da alteração</label>
+              <input
+                type="text"
+                className="stx-ap-input"
+                value={motivoAlteracao}
+                onChange={(e) => setMotivoAlteracao(e.target.value)}
+                placeholder="Ex: motivo lançado errado na hora, corrigido após verificação"
+              />
+            </div>
 
             {erro && <p className="stx-ap-error">{erro}</p>}
 

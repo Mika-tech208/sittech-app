@@ -674,6 +674,8 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
         .stx-ap-select:focus, .stx-ap-input:focus { outline: 2px solid rgba(62,207,165,.35); outline-offset: 1px; border-color: var(--accent); }
         .stx-ap-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         .stx-ap-error { font-size: 13px; color: var(--danger); margin: 8px 0 0; }
+        .stx-ap-link { font-family: inherit; font-size: inherit; color: var(--accent); background: none; border: none; padding: 0; text-decoration: underline; cursor: pointer; }
+        .stx-ap-link:hover { color: var(--accent-hover); }
 
         .stx-ap-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
         .stx-ap-btn-primary { font-family: var(--font-body); font-size: 15px; font-weight: 600; color: var(--on-accent); background: var(--accent); border: none; border-radius: 12px; min-height: 56px; cursor: pointer; transition: background-color .15s ease; }
