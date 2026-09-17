@@ -126,7 +126,10 @@ export default function ProducaoRealPainelPage() {
       setErroResumo("Não foi possível carregar este apontamento. Atualize a página e tente de novo.");
       return;
     }
-    setApontamentoResumo(linha);
+    setApontamentoResumo({
+      ...linha,
+      funcionarioNome: linha.funcionarioId ? funcionarioNomePorId.get(linha.funcionarioId) || linha.funcionarioNome : linha.funcionarioNome,
+    });
   }
 
   // ---- card "Meta semanal" da sidebar — mesma fórmula usada em todas as rotas ----
@@ -171,6 +174,15 @@ export default function ProducaoRealPainelPage() {
   // view em vez da tabela cheia).
   const funcionariosAtivosSimples = useMemo(
     () => funcionariosElegibilidadeHook.funcionarios.filter((f) => f.ativo),
+    [funcionariosElegibilidadeHook.funcionarios]
+  );
+  // Mesmo motivo/mesma solução de ApontamentosRealizadosPage.tsx:
+  // useApontamentosRealizados não embeda funcionarios(nome) (RLS bloquearia
+  // quem não tem permissão de funcionários/custo_hora) — resolvido aqui via
+  // a mesma view sem essa restrição, incluindo inativos (apontamento antigo
+  // pode ser de alguém que já saiu).
+  const funcionarioNomePorId = useMemo(
+    () => new Map(funcionariosElegibilidadeHook.funcionarios.map((f) => [f.id, f.nome])),
     [funcionariosElegibilidadeHook.funcionarios]
   );
   const [maquinaEmEdicaoId, setMaquinaEmEdicaoId] = useState<string | null>(null);
