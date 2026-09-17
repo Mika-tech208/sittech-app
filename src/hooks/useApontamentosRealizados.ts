@@ -130,7 +130,13 @@ export function useApontamentosRealizados(pronto: boolean) {
   const [erro, setErro] = useState<string | null>(null);
   const [buscou, setBuscou] = useState(false);
 
-  const buscar = useCallback(async (filtros: FiltrosApontamentos) => {
+  // Retorna as linhas encontradas (além de atualizar o estado do hook como
+  // sempre) — permite reaproveitar esta mesma busca/mapeamento em um
+  // fetch pontual (ex.: abrir o resumo de um card já fechado na tela de
+  // chão de fábrica) sem duplicar a query em outro lugar. Quem já usava
+  // `buscar` só pelo efeito colateral (atualizar `apontamentos`) continua
+  // funcionando igual, só ignora o retorno.
+  const buscar = useCallback(async (filtros: FiltrosApontamentos): Promise<ApontamentoRealizado[] | undefined> => {
     setLoading(true);
     setErro(null);
     let query = supabase
@@ -153,10 +159,12 @@ export function useApontamentosRealizados(pronto: boolean) {
     if (error) {
       setErro("Não foi possível buscar os apontamentos.");
       setLoading(false);
-      return;
+      return undefined;
     }
-    setApontamentos((data || []).map(linhaParaApontamento));
+    const mapeados = (data || []).map(linhaParaApontamento);
+    setApontamentos(mapeados);
     setLoading(false);
+    return mapeados;
   }, []);
 
   useEffect(() => {

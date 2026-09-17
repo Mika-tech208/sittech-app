@@ -249,6 +249,21 @@ export function useProducaoRealPainel(
     );
   }
 
+  // Mesma ideia, pro card voltar a "pendente" depois de uma exclusão de
+  // apontamento (excluir_apontamento_producao, chamada de dentro do
+  // resumo reaproveitado de Apontamentos realizados) — sem o apontamento,
+  // o período volta a não ter nada lançado, exatamente a mesma forma que
+  // um card "pendente" já tem antes de qualquer registro.
+  function marcarMaquinaPendente(maquinaId: string) {
+    setMaquinasView((prev) =>
+      prev.map((m) =>
+        m.id === maquinaId
+          ? { ...m, estadoPeriodo: "pendente", produtoNome: null, quantidadeProduzida: null, motivoSemProducao: null }
+          : m
+      )
+    );
+  }
+
   // Atualiza um card localmente pra "parada" assim que abrir_ocorrencia_maquina
   // retorna com sucesso — independente do estadoPeriodo (pendente/apontado/
   // sem_producao continua exatamente como estava).
@@ -268,7 +283,7 @@ export function useProducaoRealPainel(
 
   return {
     periodoAtual, maquinasView, loading, erro, modoRetroativo,
-    marcarMaquinaApontada, marcarMaquinaSemProducao,
+    marcarMaquinaApontada, marcarMaquinaSemProducao, marcarMaquinaPendente,
     marcarOcorrenciaAberta, marcarOcorrenciaEncerrada,
   };
 }

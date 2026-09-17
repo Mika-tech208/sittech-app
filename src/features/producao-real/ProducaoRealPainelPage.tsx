@@ -22,10 +22,12 @@ import { useFuncionarios } from "@/hooks/useFuncionarios";
 import { useFuncionariosElegibilidade } from "@/hooks/useFuncionariosElegibilidade";
 import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProducaoRealPainel, type EstadoPeriodoMaquina, type PeriodoSelecionado } from "@/hooks/useProducaoRealPainel";
+import { useApontamentosRealizados, type ApontamentoRealizado } from "@/hooks/useApontamentosRealizados";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import ApontamentoModal from "@/features/producao-real/ApontamentoModal";
 import EscolhaFluxoModal from "@/features/producao-real/EscolhaFluxoModal";
 import SemProducaoModal, { LABEL_MOTIVO_SEM_PRODUCAO } from "@/features/producao-real/SemProducaoModal";
+import ResumoApontamentoModal from "@/features/producao-real/ResumoApontamentoModal";
 import PeriodoSeletorModal from "@/features/producao-real/PeriodoSeletorModal";
 import AbrirOcorrenciaModal from "@/features/producao-real/AbrirOcorrenciaModal";
 import EncerrarOcorrenciaModal from "@/features/producao-real/EncerrarOcorrenciaModal";
@@ -97,6 +99,36 @@ export default function ProducaoRealPainelPage() {
     periodoSelecionado
   );
 
+  // Resumo de um card JÁ FECHADO (apontado ou sem produção) — reaproveita
+  // o mesmo hook/query/modal de Apontamentos realizados (useApontamentosRealizados
+  // + ResumoApontamentoModal), sem duplicar nenhuma regra de negócio nem
+  // criar RPC nova. `pronto=false`: nunca dispara o fetch automático de
+  // "100 mais recentes" desse hook — só usamos `buscar(...)` sob demanda,
+  // filtrado pra exatamente 1 linha (máquina+período+dia do card clicado).
+  const apontamentosRealizadosHook = useApontamentosRealizados(false);
+  const [apontamentoResumo, setApontamentoResumo] = useState<ApontamentoRealizado | null>(null);
+  const [carregandoResumo, setCarregandoResumo] = useState(false);
+  const [erroResumo, setErroResumo] = useState<string | null>(null);
+
+  async function abrirResumoFechado(m: (typeof painel.maquinasView)[number]) {
+    if (!painel.periodoAtual || carregandoResumo) return;
+    setErroResumo(null);
+    setCarregandoResumo(true);
+    const linhas = await apontamentosRealizadosHook.buscar({
+      maquinaId: m.id,
+      periodoId: painel.periodoAtual.id,
+      dataInicial: painel.periodoAtual.data,
+      dataFinal: painel.periodoAtual.data,
+    });
+    setCarregandoResumo(false);
+    const linha = (linhas || [])[0];
+    if (!linha) {
+      setErroResumo("Não foi possível carregar este apontamento. Atualize a página e tente de novo.");
+      return;
+    }
+    setApontamentoResumo(linha);
+  }
+
   // ---- card "Meta semanal" da sidebar — mesma fórmula usada em todas as rotas ----
   const funcionariosAtivos = useMemo(() => funcionarios.filter((f) => f.ativo), [funcionarios]);
   const totalFixo = useMemo(() => calcularTotalFixoAtivo(fixedCosts), [fixedCosts]);
@@ -156,10 +188,18 @@ export default function ProducaoRealPainelPage() {
     [painel.maquinasView]
   );
 
+  // Pendente: comportamento de sempre (passo 1 "Registrar produção"/"Sem
+  // produção"). Apontado ou sem produção: abre o resumo já existente de
+  // Apontamentos realizados (abrirResumoFechado), de onde dá pra editar,
+  // transformar em produção realizada ou excluir — mesmo fluxo, chamado
+  // agora também a partir do card, não só da lista.
   function abrirEscolha(m: (typeof painel.maquinasView)[number]) {
-    if (m.estadoPeriodo !== "pendente") return;
-    setMaquinaEmEdicaoId(m.id);
-    setFluxoAtual("escolha");
+    if (m.estadoPeriodo === "pendente") {
+      setMaquinaEmEdicaoId(m.id);
+      setFluxoAtual("escolha");
+      return;
+    }
+    abrirResumoFechado(m);
   }
 
   function fecharFluxo() {
@@ -371,19 +411,20 @@ export default function ProducaoRealPainelPage() {
                 </div>
               </div>
 
+              {erroResumo && <div className="stx-empty" style={{ marginBottom: 12 }}>{erroResumo}</div>}
+
               <div className="stx-ap-grid">
                 {painel.maquinasView.map((m) => {
                   const parada = m.estadoMaquina === "parada";
                   const fechada = !parada && m.estadoPeriodo !== "pendente";
-                  const clicavel = m.estadoPeriodo === "pendente";
                   return (
                     <div
                       key={m.id}
-                      role={clicavel ? "button" : undefined}
-                      tabIndex={clicavel ? 0 : undefined}
-                      className={`stx-ap-tile ${parada ? "parada" : ""} ${fechada ? "fechada" : ""} ${!clicavel ? "stx-ap-tile-static" : ""}`}
+                      role="button"
+                      tabIndex={0}
+                      className={`stx-ap-tile ${parada ? "parada" : ""} ${fechada ? "fechada" : ""}`}
                       onClick={() => abrirEscolha(m)}
-                      onKeyDown={(e) => { if (clicavel && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); abrirEscolha(m); } }}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abrirEscolha(m); } }}
                     >
                       <div className="stx-ap-tile-top">
                         <span className="stx-ap-tile-nome">{m.nome}</span>
@@ -482,6 +523,35 @@ export default function ProducaoRealPainelPage() {
           }}
           onProximaMaquina={() => irParaProximaPendente(maquinaEmEdicao.id)}
           temProximaPendente={!!proximaPendente(maquinaEmEdicao.id)}
+        />
+      )}
+
+      {apontamentoResumo && (
+        <ResumoApontamentoModal
+          key={apontamentoResumo.id}
+          apontamento={apontamentoResumo}
+          funcionariosAtivos={funcionariosAtivosSimples}
+          podeConverterStatus={temPermissao(auth.usuarioLogado, "producao_real_historico")}
+          onFechar={() => setApontamentoResumo(null)}
+          onEditado={(id, patch) => {
+            const anterior = apontamentoResumo;
+            setApontamentoResumo((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+            if (!anterior) return;
+            const statusFinal = patch.status ?? anterior.status;
+            if (statusFinal === "produzindo") {
+              painel.marcarMaquinaApontada(
+                anterior.maquinaId,
+                patch.produtoNome ?? anterior.produtoNome ?? "",
+                patch.quantidadeProduzida ?? anterior.quantidadeProduzida
+              );
+            } else if (statusFinal === "sem_producao") {
+              painel.marcarMaquinaSemProducao(anterior.maquinaId, patch.motivoSemProducao ?? anterior.motivoSemProducao ?? "");
+            }
+          }}
+          onExcluido={() => {
+            if (apontamentoResumo) painel.marcarMaquinaPendente(apontamentoResumo.maquinaId);
+            setApontamentoResumo(null);
+          }}
         />
       )}
 
