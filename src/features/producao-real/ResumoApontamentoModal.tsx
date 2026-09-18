@@ -4,8 +4,10 @@
 // período NUNCA são editáveis nesta V1 (mostrados só como texto).
 //
 // Conversão sem_producao -> produzindo: só quando `podeConverterStatus`
-// (permissão producao_real_historico ou admin — ver
-// ApontamentosRealizadosPage.tsx) e só nesse sentido (produzindo ->
+// (permissão producao_real_apontamentos_realizados ou admin — a MESMA
+// permissão que já gateia esta tela inteira, ver ApontamentosRealizadosPage.tsx
+// e ProducaoRealPainelPage.tsx; ver migration 20260917120000 pra por quê
+// não é mais producao_real_historico) e só nesse sentido (produzindo ->
 // sem_producao continua impossível, não foi pedido). Ao converter, o
 // formulário de "produzindo" é reaproveitado por inteiro (mesmos campos,
 // mesma validação) — só troca qual RPC é chamada no salvar.

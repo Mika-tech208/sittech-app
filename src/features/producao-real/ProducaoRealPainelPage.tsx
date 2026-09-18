@@ -543,7 +543,7 @@ export default function ProducaoRealPainelPage() {
           key={apontamentoResumo.id}
           apontamento={apontamentoResumo}
           funcionariosAtivos={funcionariosAtivosSimples}
-          podeConverterStatus={temPermissao(auth.usuarioLogado, "producao_real_historico")}
+          podeConverterStatus={temPermissao(auth.usuarioLogado, "producao_real_apontamentos_realizados")}
           onFechar={() => setApontamentoResumo(null)}
           onEditado={(id, patch) => {
             const anterior = apontamentoResumo;
