@@ -576,6 +576,12 @@ export default function SittechApp() {
     setReceitaForm({ data: `${currentMonth}-01`, descricao: "", valor: "" });
     setEditingReceitaId(null);
     setShowReceitaForm(false);
+    // Fecha o formulário (sucesso OU cancelar) sempre encerra a tentativa
+    // atual — a próxima receita nova precisa de uma chave própria, senão
+    // reaproveitaria a chave de uma tentativa cancelada/abandonada e um
+    // upsert(onConflict: idempotency_key) futuro poderia sobrescrever a
+    // linha errada em vez de inserir uma nova.
+    setReceitaIdempotencyKey(crypto.randomUUID());
   }
   async function submitReceita() {
     if (salvandoReceita) return;
@@ -592,7 +598,6 @@ export default function SittechApp() {
       // banner de faturamentosHook.erro) em vez de descartar silenciosamente.
       if (ok) {
         resetReceitaForm();
-        setReceitaIdempotencyKey(crypto.randomUUID());
       }
     } finally {
       setSalvandoReceita(false);
