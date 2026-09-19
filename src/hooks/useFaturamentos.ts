@@ -111,7 +111,14 @@ export function useFaturamentos(pronto: boolean) {
   // (a receita "muda de faturamento" trocando faturamento_id), preservando
   // o id da receita, igual ao comportamento atual (submitReceita sempre
   // reaproveita editingReceitaId).
-  const salvarReceita = useCallback(async (payload: { id?: string; data: string; descricao: string; valor: number }): Promise<boolean> => {
+  // `idempotencyKey`: obrigatório pra criar (id ausente) — gerado no
+  // chamador uma vez por TENTATIVA de lançamento (não a cada clique/
+  // chamada), reenviado igual em qualquer reclique/retry dessa mesma
+  // tentativa. Usa upsert(onConflict: idempotency_key) em vez de insert
+  // puro — mesma tentativa reenviada vira update sem efeito (mesmos
+  // valores), nunca uma segunda linha. Editar (id presente) continua
+  // update por id, sempre idempotente por natureza, sem precisar da chave.
+  const salvarReceita = useCallback(async (payload: { id?: string; data: string; descricao: string; valor: number; idempotencyKey?: string }): Promise<boolean> => {
     const mes = payload.data.slice(0, 7);
     const faturamentoId = await garantirFaturamentoId(mes);
     if (!faturamentoId) { setErro("Não foi possível salvar o lançamento."); return false; }
@@ -124,7 +131,10 @@ export function useFaturamentos(pronto: boolean) {
     } else {
       const { error } = await supabase
         .from("receitas")
-        .insert({ faturamento_id: faturamentoId, data: payload.data, descricao: payload.descricao, valor: payload.valor });
+        .upsert(
+          { faturamento_id: faturamentoId, data: payload.data, descricao: payload.descricao, valor: payload.valor, idempotency_key: payload.idempotencyKey },
+          { onConflict: "idempotency_key" }
+        );
       if (error) { setErro("Não foi possível criar o lançamento."); return false; }
     }
     const ok = await carregarTudo();

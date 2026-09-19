@@ -111,8 +111,8 @@ export default function PrevisaoSemanalPage() {
     return mapa;
   }, [semanaAtualRec.itensRealizados]);
 
-  async function upsertSemana(campos: Partial<typeof semanaAtualRec>) {
-    await previsoesHook.upsertSemana(semanaAtual, campos);
+  function upsertSemana(campos: Partial<typeof semanaAtualRec>) {
+    return previsoesHook.upsertSemana(semanaAtual, campos);
   }
 
   // ---- modo simulação ----
@@ -166,6 +166,7 @@ export default function PrevisaoSemanalPage() {
   const [showPrevItemForm, setShowPrevItemForm] = useState(false);
   const [editingPrevItemId, setEditingPrevItemId] = useState<string | null>(null);
   const [prevItemForm, setPrevItemForm] = useState<PrevItemFormState>(emptyPrevItemForm);
+  const [salvandoPrevItem, setSalvandoPrevItem] = useState(false);
 
   function resetPrevItemForm() {
     setPrevItemForm(emptyPrevItemForm);
@@ -184,19 +185,25 @@ export default function PrevisaoSemanalPage() {
     setPrevItemForm({ ...prevItemForm, maquinasPorEtapa: { ...prevItemForm.maquinasPorEtapa, [etapaId]: novas } });
   }
   async function submitPrevItem() {
+    if (salvandoPrevItem) return;
     if (!prevItemForm.produtoId || !prevItemForm.quantidade) return;
     const produto = produtos.find((p) => p.id === prevItemForm.produtoId);
     if (!produto) return;
-    const quantidadeNum = toNumber(prevItemForm.quantidade);
-    const item: PrevisaoItem = {
-      id: editingPrevItemId || uid(), produtoId: produto.id, produtoNome: produto.nome, valorUnitario: produto.valorUnitario,
-      quantidade: quantidadeNum, maquinasPorEtapa: prevItemForm.maquinasPorEtapa,
-    };
-    const novosItens = editingPrevItemId
-      ? semanaAtualRec.itens.map((it) => (it.id === editingPrevItemId ? item : it))
-      : [...semanaAtualRec.itens, item];
-    await upsertSemana({ itens: novosItens });
-    resetPrevItemForm();
+    setSalvandoPrevItem(true);
+    try {
+      const quantidadeNum = toNumber(prevItemForm.quantidade);
+      const item: PrevisaoItem = {
+        id: editingPrevItemId || uid(), produtoId: produto.id, produtoNome: produto.nome, valorUnitario: produto.valorUnitario,
+        quantidade: quantidadeNum, maquinasPorEtapa: prevItemForm.maquinasPorEtapa,
+      };
+      const novosItens = editingPrevItemId
+        ? semanaAtualRec.itens.map((it) => (it.id === editingPrevItemId ? item : it))
+        : [...semanaAtualRec.itens, item];
+      const ok = await upsertSemana({ itens: novosItens });
+      if (ok) resetPrevItemForm();
+    } finally {
+      setSalvandoPrevItem(false);
+    }
   }
   function editPrevItem(it: PrevisaoItem) {
     setPrevItemForm({ produtoId: it.produtoId, quantidade: String(it.quantidade), maquinasPorEtapa: it.maquinasPorEtapa || {} });
@@ -466,6 +473,7 @@ export default function PrevisaoSemanalPage() {
                   onQuantidadeChange={(v) => setPrevItemForm({ ...prevItemForm, quantidade: v })}
                   onToggleMaquina={toggleMaquinaPrevItem}
                   onSubmit={submitPrevItem}
+                  salvando={salvandoPrevItem}
                   onCancelar={resetPrevItemForm}
                   onEditar={editPrevItem}
                   onExcluir={deletePrevItem}
@@ -582,7 +590,7 @@ function ItensRealizados({
   loading: boolean;
   produtos: Produto[];
   semana: ReturnType<typeof selecionarSemana>;
-  upsertSemana: (campos: Partial<ReturnType<typeof selecionarSemana>>) => Promise<void>;
+  upsertSemana: (campos: Partial<ReturnType<typeof selecionarSemana>>) => Promise<boolean>;
   valorRealizadoSemana: number;
   formatBRL: (v: number) => string;
 }) {
@@ -590,6 +598,7 @@ function ItensRealizados({
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [salvando, setSalvando] = useState(false);
 
   function reset() {
     setForm(emptyForm);
@@ -597,14 +606,20 @@ function ItensRealizados({
     setShowForm(false);
   }
   async function submit() {
+    if (salvando) return;
     if (!form.produtoId || !form.quantidade) return;
     const produto = produtos.find((p) => p.id === form.produtoId);
     if (!produto) return;
-    const item = { id: editingId || uid(), produtoId: produto.id, produtoNome: produto.nome, valorUnitario: produto.valorUnitario, quantidade: toNumber(form.quantidade) };
-    const itensAtuais = semana.itensRealizados || [];
-    const novosItens = editingId ? itensAtuais.map((it) => (it.id === editingId ? item : it)) : [...itensAtuais, item];
-    await upsertSemana({ itensRealizados: novosItens });
-    reset();
+    setSalvando(true);
+    try {
+      const item = { id: editingId || uid(), produtoId: produto.id, produtoNome: produto.nome, valorUnitario: produto.valorUnitario, quantidade: toNumber(form.quantidade) };
+      const itensAtuais = semana.itensRealizados || [];
+      const novosItens = editingId ? itensAtuais.map((it) => (it.id === editingId ? item : it)) : [...itensAtuais, item];
+      const ok = await upsertSemana({ itensRealizados: novosItens });
+      if (ok) reset();
+    } finally {
+      setSalvando(false);
+    }
   }
 
   return (
@@ -643,8 +658,10 @@ function ItensRealizados({
                 />
               </div>
               <div className="stx-form-actions">
-                <button type="button" className="stx-btn-primary" onClick={submit}>{editingId ? "Salvar alterações" : "Adicionar item"}</button>
-                <button type="button" className="stx-btn-secondary" onClick={reset}>Cancelar</button>
+                <button type="button" className="stx-btn-primary" onClick={submit} disabled={salvando}>
+                  {salvando ? "Salvando…" : editingId ? "Salvar alterações" : "Adicionar item"}
+                </button>
+                <button type="button" className="stx-btn-secondary" onClick={reset} disabled={salvando}>Cancelar</button>
               </div>
             </div>
           )}
