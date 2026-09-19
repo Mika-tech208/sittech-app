@@ -28,6 +28,7 @@ export interface ItensPrevistosProps {
   onQuantidadeChange: (v: string) => void;
   onToggleMaquina: (etapaId: string, maquinaId: string) => void;
   onSubmit: () => void;
+  salvando: boolean;
   onCancelar: () => void;
   onEditar: (it: PrevisaoItem) => void;
   onExcluir: (id: string) => void;
@@ -42,7 +43,7 @@ export interface ItensPrevistosProps {
 export default function ItensPrevistos({
   loading, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, semana,
   showForm, setShowForm, editingId, form, onSelecionarProduto, onQuantidadeChange, onToggleMaquina,
-  onSubmit, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, funcionariosAtivosCount, formatBRL,
+  onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, funcionariosAtivosCount, formatBRL,
 }: ItensPrevistosProps) {
   const produtoSel = produtos.find((p) => p.id === form.produtoId) || null;
   const roteiroSel = produtoSel?.roteiro || [];
@@ -160,10 +161,10 @@ export default function ItensPrevistos({
               )}
 
               <div className="stx-form-actions">
-                <button type="button" className="stx-btn-primary" onClick={onSubmit}>
-                  {editingId ? "Salvar alterações" : "Adicionar item"}
+                <button type="button" className="stx-btn-primary" onClick={onSubmit} disabled={salvando}>
+                  {salvando ? "Salvando…" : editingId ? "Salvar alterações" : "Adicionar item"}
                 </button>
-                <button type="button" className="stx-btn-secondary" onClick={onCancelar}>Cancelar</button>
+                <button type="button" className="stx-btn-secondary" onClick={onCancelar} disabled={salvando}>Cancelar</button>
               </div>
             </div>
           )}

@@ -340,6 +340,18 @@ export default function SittechApp() {
   const [showReceitaForm, setShowReceitaForm] = useState(false);
   const [editingReceitaId, setEditingReceitaId] = useState(null);
   const [receitaForm, setReceitaForm] = useState(emptyReceitaForm);
+  // Trava de duplo-submit — clique duplo, Enter repetido em qualquer um dos
+  // campos, ou os dois juntos, todos chamam submitReceita(); sem isso, cada
+  // chamada concorrente virava um INSERT extra (nenhum unique constraint
+  // barra duas receitas "iguais" de propósito — podem ser duas notas
+  // legítimas do mesmo valor no mesmo dia).
+  const [salvandoReceita, setSalvandoReceita] = useState(false);
+  // Uma chave por TENTATIVA de lançamento novo — gerada ao abrir "+ Novo
+  // lançamento", reenviada igual em qualquer reclique/retry da mesma
+  // tentativa (salvandoReceita já impede reclique na prática; isto é a
+  // segunda camada, contra retry de rede). Editar não usa (UPDATE por id
+  // já é idempotente por natureza).
+  const [receitaIdempotencyKey, setReceitaIdempotencyKey] = useState(() => crypto.randomUUID());
 
   // Previsão Semanal/Capacidade migraram para /previsao e /capacidade
   // (features/previsao, features/capacidade) — só a margem desejada
@@ -371,21 +383,26 @@ export default function SittechApp() {
   const maxCategoria = porCategoria.length ? porCategoria[0][1] : 1;
 
   // ---- custos fixos ----
+  const [salvandoFixed, setSalvandoFixed] = useState(false);
   function resetFixedForm() {
     setFixedForm(emptyForm);
     setEditingFixedId(null);
     setShowFixedForm(false);
   }
   async function submitFixed() {
+    if (salvandoFixed) return;
     if (!fixedForm.descricao.trim() || !fixedForm.valor) return;
-    const valorNum = toNumber(fixedForm.valor);
-    const payload = { descricao: fixedForm.descricao, categoria: fixedForm.categoria, valor: valorNum };
-    if (editingFixedId) {
-      await custosHook.atualizarFixedCost(editingFixedId, payload);
-    } else {
-      await custosHook.criarFixedCost(payload);
+    setSalvandoFixed(true);
+    try {
+      const valorNum = toNumber(fixedForm.valor);
+      const payload = { descricao: fixedForm.descricao, categoria: fixedForm.categoria, valor: valorNum };
+      const ok = editingFixedId
+        ? await custosHook.atualizarFixedCost(editingFixedId, payload)
+        : await custosHook.criarFixedCost(payload);
+      if (ok) resetFixedForm();
+    } finally {
+      setSalvandoFixed(false);
     }
-    resetFixedForm();
   }
   function editFixed(f) {
     setFixedForm({ descricao: f.descricao, categoria: f.categoria, valor: String(f.valor) });
@@ -406,20 +423,25 @@ export default function SittechApp() {
   }
 
   // ---- custos pontuais ----
+  const [salvandoVar, setSalvandoVar] = useState(false);
   function resetVarForm() {
     setVarForm(emptyForm);
     setEditingVarId(null);
     setShowVarForm(false);
   }
   async function submitVar() {
+    if (salvandoVar) return;
     if (!varForm.descricao.trim() || !varForm.valor) return;
-    const valorNum = toNumber(varForm.valor);
-    if (editingVarId) {
-      await custosHook.atualizarVariableEntry(editingVarId, { mes: currentMonth, descricao: varForm.descricao, categoria: varForm.categoria, valor: valorNum });
-    } else {
-      await custosHook.criarVariableEntry({ mes: currentMonth, descricao: varForm.descricao, categoria: varForm.categoria, valor: valorNum });
+    setSalvandoVar(true);
+    try {
+      const valorNum = toNumber(varForm.valor);
+      const ok = editingVarId
+        ? await custosHook.atualizarVariableEntry(editingVarId, { mes: currentMonth, descricao: varForm.descricao, categoria: varForm.categoria, valor: valorNum })
+        : await custosHook.criarVariableEntry({ mes: currentMonth, descricao: varForm.descricao, categoria: varForm.categoria, valor: valorNum });
+      if (ok) resetVarForm();
+    } finally {
+      setSalvandoVar(false);
     }
-    resetVarForm();
   }
   async function confirmNovaCategoriaVar() {
     const nome = await cadastrosBase.criarCategoria(textoNovaCategoriaVar);
@@ -556,12 +578,25 @@ export default function SittechApp() {
     setShowReceitaForm(false);
   }
   async function submitReceita() {
+    if (salvandoReceita) return;
     if (!receitaForm.data || !receitaForm.valor) return;
-    const valorNum = toNumber(receitaForm.valor);
-    await faturamentosHook.salvarReceita({
-      id: editingReceitaId || undefined, data: receitaForm.data, descricao: receitaForm.descricao.trim(), valor: valorNum,
-    });
-    resetReceitaForm();
+    setSalvandoReceita(true);
+    try {
+      const valorNum = toNumber(receitaForm.valor);
+      const ok = await faturamentosHook.salvarReceita({
+        id: editingReceitaId || undefined, data: receitaForm.data, descricao: receitaForm.descricao.trim(), valor: valorNum,
+        idempotencyKey: editingReceitaId ? undefined : receitaIdempotencyKey,
+      });
+      // Só fecha/limpa o formulário se realmente salvou — em erro, mantém
+      // o formulário aberto com os dados digitados (o erro já aparece no
+      // banner de faturamentosHook.erro) em vez de descartar silenciosamente.
+      if (ok) {
+        resetReceitaForm();
+        setReceitaIdempotencyKey(crypto.randomUUID());
+      }
+    } finally {
+      setSalvandoReceita(false);
+    }
   }
   function editReceita(r) {
     setReceitaForm({ data: r.data, descricao: r.descricao || "", valor: String(r.valor) });
@@ -1250,10 +1285,10 @@ export default function SittechApp() {
                     />
                   </div>
                   <div className="stx-form-actions">
-                    <button type="button" className="stx-btn-primary" onClick={submitFixed}>
-                      {editingFixedId ? "Salvar alterações" : "Adicionar fixo"}
+                    <button type="button" className="stx-btn-primary" onClick={submitFixed} disabled={salvandoFixed}>
+                      {salvandoFixed ? "Salvando…" : editingFixedId ? "Salvar alterações" : "Adicionar fixo"}
                     </button>
-                    <button type="button" className="stx-btn-secondary" onClick={resetFixedForm}>Cancelar</button>
+                    <button type="button" className="stx-btn-secondary" onClick={resetFixedForm} disabled={salvandoFixed}>Cancelar</button>
                   </div>
                 </div>
               )}
@@ -1350,10 +1385,10 @@ export default function SittechApp() {
                     />
                   </div>
                   <div className="stx-form-actions">
-                    <button type="button" className="stx-btn-primary" onClick={submitVar}>
-                      {editingVarId ? "Salvar alterações" : "Adicionar"}
+                    <button type="button" className="stx-btn-primary" onClick={submitVar} disabled={salvandoVar}>
+                      {salvandoVar ? "Salvando…" : editingVarId ? "Salvar alterações" : "Adicionar"}
                     </button>
-                    <button type="button" className="stx-btn-secondary" onClick={resetVarForm}>Cancelar</button>
+                    <button type="button" className="stx-btn-secondary" onClick={resetVarForm} disabled={salvandoVar}>Cancelar</button>
                   </div>
                 </div>
               )}
@@ -1588,10 +1623,10 @@ export default function SittechApp() {
                     />
                   </div>
                   <div className="stx-form-actions">
-                    <button type="button" className="stx-btn-primary" onClick={submitReceita}>
-                      {editingReceitaId ? "Salvar alterações" : "Adicionar"}
+                    <button type="button" className="stx-btn-primary" onClick={submitReceita} disabled={salvandoReceita}>
+                      {salvandoReceita ? "Salvando…" : editingReceitaId ? "Salvar alterações" : "Adicionar"}
                     </button>
-                    <button type="button" className="stx-btn-secondary" onClick={resetReceitaForm}>Cancelar</button>
+                    <button type="button" className="stx-btn-secondary" onClick={resetReceitaForm} disabled={salvandoReceita}>Cancelar</button>
                   </div>
                 </div>
               )}
