@@ -384,7 +384,7 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
             </div>
 
             <div className="stx-ap-field">
-              <label className="stx-ap-field-label">Motivo da alteração</label>
+              <label className="stx-ap-field-label">Motivo da alteração (obrigatório)</label>
               <input
                 type="text"
                 className="stx-ap-input"
@@ -395,6 +395,9 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
             </div>
 
             {erro && <p className="stx-ap-error">{erro}</p>}
+            {!podeSalvarProducao && !salvando && !motivoAlteracaoPreenchido && (
+              <p className="stx-ap-modal-eyebrow">Preencha &quot;Motivo da alteração&quot; para poder salvar.</p>
+            )}
 
             <div className="stx-ap-actions">
               <button type="button" className="stx-ap-btn-primary" disabled={!podeSalvarProducao} onClick={salvarProducao}>
@@ -441,7 +444,7 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
             )}
 
             <div className="stx-ap-field" style={{ marginTop: 14 }}>
-              <label className="stx-ap-field-label">Motivo da alteração</label>
+              <label className="stx-ap-field-label">Motivo da alteração (obrigatório)</label>
               <input
                 type="text"
                 className="stx-ap-input"
@@ -452,6 +455,9 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
             </div>
 
             {erro && <p className="stx-ap-error">{erro}</p>}
+            {!podeSalvarSemProducao && !salvando && !motivoAlteracaoPreenchido && (
+              <p className="stx-ap-modal-eyebrow">Preencha &quot;Motivo da alteração&quot; para poder salvar.</p>
+            )}
 
             <div className="stx-ap-actions">
               <button type="button" className="stx-ap-btn-primary" disabled={!podeSalvarSemProducao} onClick={salvarSemProducao}>
