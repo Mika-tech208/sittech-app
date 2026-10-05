@@ -13,6 +13,46 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
         /* Fonte carregada via next/font em src/app/layout.tsx (Schibsted
            Grotesk, self-hosted) — nenhum @import de Google Fonts aqui. */
 
+        /* Mesmas variáveis de ".stx-root" abaixo, redeclaradas em :root —
+           elementos renderizados via createPortal(..., document.body) (ex.:
+           DatePicker/MonthPicker, src/components/shared) ficam FORA da div
+           .stx-root na árvore do DOM, então não herdam nada declarado só
+           nela. Sem isso, qualquer var(--xxx) nesses portais cai no valor
+           inicial do browser (ex.: background vira transparente) — achado
+           ao vivo testando o calendário em Faltas e Ausências. */
+        :root {
+          --bg: ${cores.bg};
+          --surface: ${cores.surface};
+          --surface-hover: ${cores.surfaceHover};
+          --surface-raised: ${cores.surfaceRaised};
+          --plane: ${cores.plane};
+          --line: ${cores.line};
+          --text: ${cores.text};
+          --text-2: ${cores.text2};
+          --text-3: ${cores.text3};
+          --label: ${cores.label};
+          --faint: ${cores.faint};
+          --accent: ${cores.accent};
+          --accent-hover: ${cores.accentHover};
+          --accent-deep: ${cores.accentDeep};
+          --accent-soft: ${cores.accentSoft};
+          --warning: ${cores.warning};
+          --danger: ${cores.danger};
+          --on-accent: ${cores.onAccent};
+          --pill-bg: ${cores.pillBg};
+          --pill-bg-hover: ${cores.pillBgHover};
+          --shadow-sm: ${cores.shadowSm};
+          --shadow-lg: ${cores.shadowLg};
+          --border: var(--line);
+          --text-muted: var(--text-3);
+          --btn-text: var(--on-accent);
+          --blueprint: var(--accent-deep);
+          --laranja: var(--warning);
+          --font-display: var(--font-schibsted-grotesk), 'Schibsted Grotesk', sans-serif;
+          --font-body: var(--font-schibsted-grotesk), 'Schibsted Grotesk', sans-serif;
+          --font-mono: var(--font-schibsted-grotesk), 'Schibsted Grotesk', sans-serif;
+        }
+
         .stx-root {
           --bg: ${cores.bg};
           --surface: ${cores.surface};
