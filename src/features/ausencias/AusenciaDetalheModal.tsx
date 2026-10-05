@@ -7,14 +7,14 @@
 // regra já usada em apontamentos_producao pra máquina/data/período).
 
 import { useState } from "react";
-import { calcularAusencia, formatarDuracao, LABEL_TIPO_AUSENCIA, TIPOS_AUSENCIA, TIPOS_COM_HORARIO, type TipoAusencia } from "./calculations";
+import { calcularAusencia, formatarDuracao, LABEL_TIPO_AUSENCIA, TIPOS_AUSENCIA, TIPOS_COM_HORARIO, TIPOS_COM_JANELA_EXPLICITA, type TipoAusencia } from "./calculations";
 import type { PeriodoSimples } from "./calculations";
 import type { AusenciaFuncionario, EditarAusenciaPayload } from "@/hooks/useAusenciasFuncionarios";
 
 export interface AusenciaDetalheModalProps {
   ausencia: AusenciaFuncionario;
   onFechar: () => void;
-  onEditar: (payload: EditarAusenciaPayload) => Promise<boolean>;
+  onEditar: (payload: EditarAusenciaPayload) => Promise<string | null>;
 }
 
 type Modo = "resumo" | "editando" | "salvo";
@@ -28,8 +28,8 @@ export default function AusenciaDetalheModal({ ausencia, onFechar, onEditar }: A
 
   const [tipo, setTipo] = useState<TipoAusencia>(ausencia.tipo);
   const [horarioReal, setHorarioReal] = useState(tipo === "atraso" ? ausencia.horarioFim || "" : tipo === "saida_antecipada" ? ausencia.horarioInicio || "" : "");
-  const [horarioSaida, setHorarioSaida] = useState(tipo === "saida_durante_expediente" ? ausencia.horarioInicio || "" : "");
-  const [horarioRetorno, setHorarioRetorno] = useState(tipo === "saida_durante_expediente" ? ausencia.horarioFim || "" : "");
+  const [horarioJanelaInicio, setHorarioJanelaInicio] = useState(TIPOS_COM_JANELA_EXPLICITA.includes(tipo) ? ausencia.horarioInicio || "" : "");
+  const [horarioJanelaFim, setHorarioJanelaFim] = useState(TIPOS_COM_JANELA_EXPLICITA.includes(tipo) ? ausencia.horarioFim || "" : "");
   const [observacao, setObservacao] = useState(ausencia.observacao || "");
   const [motivoAlteracao, setMotivoAlteracao] = useState("");
 
@@ -37,8 +37,8 @@ export default function AusenciaDetalheModal({ ausencia, onFechar, onEditar }: A
   const resultado = calcularAusencia({
     tipo, periodos: periodosSnapshot,
     horarioReal: horarioReal || undefined,
-    horarioSaida: horarioSaida || undefined,
-    horarioRetorno: horarioRetorno || undefined,
+    horarioJanelaInicio: horarioJanelaInicio || undefined,
+    horarioJanelaFim: horarioJanelaFim || undefined,
   });
 
   const motivoPreenchido = motivoAlteracao.trim().length > 0;
@@ -48,7 +48,7 @@ export default function AusenciaDetalheModal({ ausencia, onFechar, onEditar }: A
     if (!podeSalvar || !resultado) return;
     setSalvando(true);
     setErro(null);
-    const ok = await onEditar({
+    const erroRpc = await onEditar({
       id: ausencia.id,
       tipo,
       horarioInicio: resultado.horarioInicio,
@@ -57,8 +57,8 @@ export default function AusenciaDetalheModal({ ausencia, onFechar, onEditar }: A
       observacao,
       motivo: motivoAlteracao,
     });
-    if (!ok) {
-      setErro("Não foi possível salvar a alteração. Tente novamente.");
+    if (erroRpc) {
+      setErro(erroRpc);
       setSalvando(false);
       return;
     }
@@ -112,7 +112,7 @@ export default function AusenciaDetalheModal({ ausencia, onFechar, onEditar }: A
 
             <div className="stx-ap-field">
               <label className="stx-ap-field-label">Tipo</label>
-              <select className="stx-ap-select" value={tipo} onChange={(e) => { setTipo(e.target.value as TipoAusencia); setHorarioReal(""); setHorarioSaida(""); setHorarioRetorno(""); }}>
+              <select className="stx-ap-select" value={tipo} onChange={(e) => { setTipo(e.target.value as TipoAusencia); setHorarioReal(""); setHorarioJanelaInicio(""); setHorarioJanelaFim(""); }}>
                 {TIPOS_AUSENCIA.map((t) => (
                   <option key={t.valor} value={t.valor}>{t.label}</option>
                 ))}
@@ -135,11 +135,23 @@ export default function AusenciaDetalheModal({ ausencia, onFechar, onEditar }: A
               <div className="stx-ap-grid-2 stx-ap-field">
                 <div>
                   <label className="stx-ap-field-label">Saída</label>
-                  <input type="time" className="stx-ap-input" value={horarioSaida} onChange={(e) => setHorarioSaida(e.target.value)} />
+                  <input type="time" className="stx-ap-input" value={horarioJanelaInicio} onChange={(e) => setHorarioJanelaInicio(e.target.value)} />
                 </div>
                 <div>
                   <label className="stx-ap-field-label">Retorno</label>
-                  <input type="time" className="stx-ap-input" value={horarioRetorno} onChange={(e) => setHorarioRetorno(e.target.value)} />
+                  <input type="time" className="stx-ap-input" value={horarioJanelaFim} onChange={(e) => setHorarioJanelaFim(e.target.value)} />
+                </div>
+              </div>
+            )}
+            {tipo === "outro" && (
+              <div className="stx-ap-grid-2 stx-ap-field">
+                <div>
+                  <label className="stx-ap-field-label">Horário inicial</label>
+                  <input type="time" className="stx-ap-input" value={horarioJanelaInicio} onChange={(e) => setHorarioJanelaInicio(e.target.value)} />
+                </div>
+                <div>
+                  <label className="stx-ap-field-label">Horário final</label>
+                  <input type="time" className="stx-ap-input" value={horarioJanelaFim} onChange={(e) => setHorarioJanelaFim(e.target.value)} />
                 </div>
               </div>
             )}

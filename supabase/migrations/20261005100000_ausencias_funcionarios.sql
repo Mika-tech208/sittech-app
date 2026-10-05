@@ -42,6 +42,29 @@
 -- permissão de verdade é checada DENTRO das RPCs, único caminho de
 -- escrita usado pelo app); SELECT já é restrito à permissão na própria
 -- RLS, sem precisar de RPC pra leitura.
+--
+-- Sobreposição (revisão de integridade pós-aprovação da V1): os mesmos
+-- minutos de um funcionário não podem ser contados duas vezes no resumo
+-- mensal. `existe_conflito_ausencia` é o único lugar com essa regra,
+-- chamada pelas duas RPCs (criar e editar) — nunca só no frontend. Regra,
+-- em duas partes:
+--   1) um tipo "dia inteiro" (falta_dia_inteiro/atestado/falta_justificada/
+--      falta_nao_justificada) conflita com QUALQUER outra ausência do
+--      mesmo funcionário naquele dia — já cobre a jornada inteira, não dá
+--      pra ter mais nada no mesmo dia, seja outro dia inteiro ou um
+--      atraso/saída parcial. Vale nos dois sentidos: lançar um dia inteiro
+--      quando já existe algo parcial naquele dia TAMBÉM é bloqueado.
+--   2) dois tipos de janela de horário (atraso/saída antecipada/saída
+--      durante expediente/outro) só conflitam entre si se as janelas
+--      [horario_inicio, horario_fim) realmente se sobrepõem — mesma conta
+--      de intervalo já usada em minutosProdutivosEntre (frontend), aqui
+--      em SQL porque precisa valer mesmo se o frontend for ignorado/tiver
+--      bug. Fim de uma encostando no início da outra (09:00 = 09:00) NÃO
+--      conta como sobreposição (intervalo meio-aberto).
+-- "Outro" (revisão): deixou de contar como "dia inteiro" — agora sempre
+-- exige horario_inicio/horario_fim reais, mesma mecânica de "saída
+-- durante expediente". Se precisar de "outro dia inteiro" no futuro, é um
+-- tipo novo, não uma reinterpretação deste.
 
 -- =========================================================================
 -- 1) Permissão nova no catálogo existente (CHECK de usuario_permissoes)
@@ -116,6 +139,41 @@ create table public.ausencia_funcionario_historico (
   motivo text not null check (length(trim(motivo)) > 0)
 );
 create index idx_ausencia_funcionario_historico_ausencia on public.ausencia_funcionario_historico(ausencia_id);
+
+-- =========================================================================
+-- 3.1) existe_conflito_ausencia — ver explicação no cabeçalho do arquivo.
+--      p_ignorar_id: usado na edição, pra não conflitar com o próprio
+--      registro que está sendo editado.
+-- =========================================================================
+create or replace function public.existe_conflito_ausencia(
+  p_funcionario_id uuid,
+  p_data date,
+  p_tipo text,
+  p_horario_inicio time,
+  p_horario_fim time,
+  p_ignorar_id uuid default null
+)
+returns boolean
+language sql
+stable
+security invoker
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1 from public.ausencias_funcionarios a
+    where a.funcionario_id = p_funcionario_id
+      and a.data = p_data
+      and (p_ignorar_id is null or a.id <> p_ignorar_id)
+      and (
+        p_tipo in ('falta_dia_inteiro', 'atestado', 'falta_justificada', 'falta_nao_justificada')
+        or a.tipo in ('falta_dia_inteiro', 'atestado', 'falta_justificada', 'falta_nao_justificada')
+        or (a.horario_inicio < p_horario_fim and a.horario_fim > p_horario_inicio)
+      )
+  );
+$$;
+
+revoke all on function public.existe_conflito_ausencia(uuid, date, text, time, time, uuid) from public, anon;
+grant execute on function public.existe_conflito_ausencia(uuid, date, text, time, time, uuid) to authenticated;
 
 -- =========================================================================
 -- 4) RLS
@@ -193,9 +251,15 @@ begin
   end if;
 
   -- idempotência: mesma tentativa reenviada (retry) devolve a linha já criada
+  -- (ANTES da checagem de conflito — um retry da mesma tentativa nunca é
+  -- "sobreposição com ela mesma").
   select * into v_ausencia from public.ausencias_funcionarios where idempotency_key = p_idempotency_key;
   if found then
     return v_ausencia;
+  end if;
+
+  if public.existe_conflito_ausencia(p_funcionario_id, p_data, p_tipo, p_horario_inicio, p_horario_fim) then
+    raise exception 'Já existe uma ausência registrada para este funcionário nesse dia/horário. Verifique os lançamentos existentes antes de salvar.';
   end if;
 
   select coalesce(jsonb_agg(jsonb_build_object('id', id, 'nome', nome, 'inicio', inicio, 'fim', fim) order by inicio), '[]'::jsonb)
@@ -269,6 +333,12 @@ begin
   select * into v_antes from public.ausencias_funcionarios where id = p_ausencia_id;
   if not found then
     raise exception 'Ausência % não encontrada', p_ausencia_id;
+  end if;
+
+  -- funcionário/data não mudam na edição (ver cabeçalho) — usa os da
+  -- própria linha, ignorando ela mesma na checagem de conflito.
+  if public.existe_conflito_ausencia(v_antes.funcionario_id, v_antes.data, p_tipo, p_horario_inicio, p_horario_fim, p_ausencia_id) then
+    raise exception 'Essa alteração conflita com outra ausência já registrada para este funcionário nesse dia/horário.';
   end if;
 
   update public.ausencias_funcionarios set
