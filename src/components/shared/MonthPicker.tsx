@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { brParaMonthKey, monthKeyParaBR } from "@/lib/date";
+import { brParaMonthKey, monthKey, monthKeyParaBR } from "@/lib/date";
 
 const MESES_CURTO = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
@@ -102,7 +102,7 @@ export default function MonthPicker({ value, onChange, className, placeholder, i
   }
 
   const mesSelecionadoNum = value && value.slice(0, 4) === String(anoVisivel) ? Number(value.slice(5, 7)) : null;
-  const hojeKey = new Date().toISOString().slice(0, 7);
+  const hojeKey = monthKey(new Date());
 
   return (
     <div className="stx-datepicker">
