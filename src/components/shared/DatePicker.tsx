@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { brParaISO, isoParaBR } from "@/lib/date";
+import { brParaISO, isoParaBR, toISODate } from "@/lib/date";
 
 const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
 const MESES_CURTO = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
@@ -50,7 +50,7 @@ function diasDoGrid(mesRef: string): { data: string; noMes: boolean }[] {
 export default function DatePicker({ value, onChange, className, placeholder, max, min, autoFocus, id }: DatePickerProps) {
   const [aberto, setAberto] = useState(false);
   const [texto, setTexto] = useState(() => isoParaBR(value));
-  const [mesVisivel, setMesVisivel] = useState(() => (value || "").slice(0, 7) || new Date().toISOString().slice(0, 7));
+  const [mesVisivel, setMesVisivel] = useState(() => (value || "").slice(0, 7) || toISODate(new Date()).slice(0, 7));
   const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
   const campoRef = useRef<HTMLInputElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -74,7 +74,7 @@ export default function DatePicker({ value, onChange, className, placeholder, ma
   }
 
   function textoParaISOOuHoje(t: string): string {
-    return brParaISO(t) || new Date().toISOString().slice(0, 10);
+    return brParaISO(t) || toISODate(new Date());
   }
 
   function abrirCalendario() {
@@ -145,7 +145,7 @@ export default function DatePicker({ value, onChange, className, placeholder, ma
 
   const dias = useMemo(() => diasDoGrid(mesVisivel), [mesVisivel]);
   const [anoVisivel, mesNumVisivel] = mesVisivel.split("-").map(Number);
-  const hojeISO = new Date().toISOString().slice(0, 10);
+  const hojeISO = toISODate(new Date());
 
   function mudarMes(delta: number) {
     const d = new Date(anoVisivel, mesNumVisivel - 1 + delta, 1);

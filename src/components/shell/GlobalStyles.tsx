@@ -2525,7 +2525,7 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
            ao redor (grids de filtro, larguras) não muda. */
         .stx-datepicker { position: relative; width: 100%; }
         .stx-datepicker-campo { position: relative; display: flex; align-items: center; }
-        .stx-datepicker-campo input { padding-right: 56px !important; cursor: pointer; }
+        .stx-datepicker-campo input { padding-right: 56px !important; }
         .stx-datepicker-limpar, .stx-datepicker-icone {
           position: absolute; top: 50%; transform: translateY(-50%);
           display: flex; align-items: center; justify-content: center;
