@@ -15,6 +15,7 @@ import { useFuncionarios } from "@/hooks/useFuncionarios";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useAusenciasFuncionarios, type AusenciaFuncionario, type FiltrosAusencias } from "@/hooks/useAusenciasFuncionarios";
+import { useJornadaOficialAusencias } from "@/hooks/useJornadaOficialAusencias";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import RegistrarAusenciaModal from "./RegistrarAusenciaModal";
 import AusenciaDetalheModal from "./AusenciaDetalheModal";
@@ -69,6 +70,7 @@ export default function AusenciasPage() {
   const ausenciasHook = useAusenciasFuncionarios(
     auth.autenticado && !cadastrosBase.loading && !funcionariosElegibilidadeHook.loading
   );
+  const jornadaOficialHook = useJornadaOficialAusencias(auth.autenticado && !cadastrosBase.loading);
 
   // ---- card "Meta semanal" da sidebar — mesma fórmula usada em todas as rotas ----
   const funcionariosAtivos = useMemo(() => funcionarios.filter((f) => f.ativo), [funcionarios]);
@@ -119,7 +121,7 @@ export default function AusenciasPage() {
 
   // ---- resumo mensal — reflete o MESMO filtro ativo acima (V1 simples:
   // não existe um segundo seletor de mês independente) ----
-  const horasPorDia = useMemo(() => minutosJornadaCompleta(cadastrosBase.periodos) / 60, [cadastrosBase.periodos]);
+  const horasPorDia = useMemo(() => minutosJornadaCompleta(jornadaOficialHook.jornada) / 60, [jornadaOficialHook.jornada]);
   const resumoPorFuncionario = useMemo(
     () => calcularResumoPorFuncionario(ausenciasHook.ausencias, funcionariosAtivosSimples),
     [ausenciasHook.ausencias, funcionariosAtivosSimples]
@@ -151,7 +153,7 @@ export default function AusenciasPage() {
     );
   }
 
-  const carregando = cadastrosBase.loading || funcionariosElegibilidadeHook.loading || funcionariosHook.loading || previsoesHook.loading || custosHook.loading;
+  const carregando = cadastrosBase.loading || funcionariosElegibilidadeHook.loading || funcionariosHook.loading || previsoesHook.loading || custosHook.loading || jornadaOficialHook.loading;
 
   if (carregando || auth.restaurandoSessao || !auth.autenticado) {
     return (
@@ -378,7 +380,7 @@ export default function AusenciasPage() {
       {mostrarRegistrar && (
         <RegistrarAusenciaModal
           funcionariosAtivos={funcionariosAtivosSimples}
-          periodos={cadastrosBase.periodos}
+          periodos={jornadaOficialHook.jornada}
           dataInicial={toISODate(new Date())}
           onFechar={() => setMostrarRegistrar(false)}
           onRegistrar={ausenciasHook.registrar}
