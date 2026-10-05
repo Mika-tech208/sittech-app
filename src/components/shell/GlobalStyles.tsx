@@ -2517,6 +2517,68 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
 
         /* Debug DEV (§25) */
         .stx-intel-debugbar { font-size: 10.5px; color: var(--text-3); opacity: 0.75; margin: 10px 0 0; word-break: break-word; }
+
+        /* DatePicker/MonthPicker compartilhados (src/components/shared) —
+           substituem <input type="date">/"month"> nativo em todo filtro de
+           data do sistema. O campo de texto reaproveita a classe que o
+           input nativo já usava (stx-input/stx-ap-input), então o layout
+           ao redor (grids de filtro, larguras) não muda. */
+        .stx-datepicker { position: relative; width: 100%; }
+        .stx-datepicker-campo { position: relative; display: flex; align-items: center; }
+        .stx-datepicker-campo input { padding-right: 56px !important; cursor: pointer; }
+        .stx-datepicker-limpar, .stx-datepicker-icone {
+          position: absolute; top: 50%; transform: translateY(-50%);
+          display: flex; align-items: center; justify-content: center;
+          background: none; border: none; color: var(--text-muted, var(--label)); cursor: pointer;
+          padding: 4px; border-radius: 6px;
+        }
+        .stx-datepicker-limpar:hover, .stx-datepicker-icone:hover { color: var(--text); background: var(--surface-hover); }
+        .stx-datepicker-icone { right: 8px; }
+        .stx-datepicker-limpar { right: 32px; }
+
+        .stx-datepicker-popover {
+          position: fixed;
+          z-index: 1000;
+          width: 272px;
+          max-width: calc(100vw - 16px);
+          background: var(--surface-raised, var(--surface));
+          border: 1px solid var(--line);
+          border-radius: 12px;
+          box-shadow: var(--shadow-lg, 0 20px 50px -20px rgba(0,0,0,.9));
+          padding: 12px;
+          font-family: var(--font-body);
+        }
+        .stx-monthpicker-popover { width: 232px; }
+        .stx-datepicker-cabecalho {
+          display: flex; align-items: center; justify-content: space-between;
+          margin-bottom: 10px; font-size: 13.5px; font-weight: 600; color: var(--text);
+        }
+        .stx-datepicker-cabecalho button {
+          background: none; border: none; color: var(--text); cursor: pointer;
+          display: flex; align-items: center; justify-content: center;
+          padding: 4px; border-radius: 6px;
+        }
+        .stx-datepicker-cabecalho button:hover { background: var(--surface-hover); }
+        .stx-datepicker-semana { display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 4px; }
+        .stx-datepicker-semana span { text-align: center; font-size: 11px; color: var(--text-muted, var(--label)); }
+        .stx-datepicker-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+        .stx-monthpicker-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        .stx-datepicker-dia {
+          background: none; border: none; color: var(--text); cursor: pointer;
+          font-family: var(--font-body); font-size: 13px;
+          border-radius: 8px; padding: 7px 0; min-height: 34px;
+        }
+        .stx-monthpicker-grid .stx-datepicker-dia { padding: 10px 0; }
+        .stx-datepicker-dia:hover:not(:disabled) { background: var(--surface-hover); }
+        .stx-datepicker-dia:disabled { opacity: 0.3; cursor: not-allowed; }
+        .stx-datepicker-dia.fora-do-mes { color: var(--text-muted, var(--label)); opacity: 0.5; }
+        .stx-datepicker-dia.hoje { box-shadow: inset 0 0 0 1px var(--accent); }
+        .stx-datepicker-dia.selecionado { background: var(--accent); color: var(--on-accent); }
+        .stx-datepicker-dia.selecionado:hover { background: var(--accent-hover, var(--accent)); }
+
+        @media (max-width: 640px) {
+          .stx-datepicker-popover { width: calc(100vw - 16px); }
+        }
     `}</style>
   );
 }

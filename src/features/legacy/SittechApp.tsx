@@ -34,6 +34,8 @@ import {
   CATEGORIAS, OPERACOES, PIE_COLORS, TITULOS_ABA, THEMES,
 } from "@/lib/constants";
 import { monthKey, monthLabel, shiftMonth, toISODate, mondayOf, weekLabel } from "@/lib/date";
+import DatePicker from "@/components/shared/DatePicker";
+import MonthPicker from "@/components/shared/MonthPicker";
 import { formatBRL, toNumber, monthLabelShort, setModoPrivadoAtivo, corPorMargemPct } from "@/lib/format";
 import { uid } from "@/lib/id";
 import { serializeBackup } from "@/services/backup-service";
@@ -1598,11 +1600,10 @@ export default function SittechApp() {
                 <div className="stx-form">
                   <div>
                     <label className="stx-label">Data</label>
-                    <input
-                      type="date"
+                    <DatePicker
                       className="stx-input"
                       value={receitaForm.data}
-                      onChange={(e) => setReceitaForm({ ...receitaForm, data: e.target.value })}
+                      onChange={(v) => setReceitaForm({ ...receitaForm, data: v })}
                       autoFocus
                     />
                   </div>
@@ -1758,7 +1759,7 @@ export default function SittechApp() {
               <div className="stx-bi-filtro-campos">
                 <div>
                   <label className="stx-label">Mês</label>
-                  <input type="month" className="stx-input" value={biMes} onChange={(e) => setBiMes(e.target.value)} />
+                  <MonthPicker className="stx-input" value={biMes} onChange={setBiMes} />
                 </div>
               </div>
             )}
@@ -1766,11 +1767,11 @@ export default function SittechApp() {
               <div className="stx-bi-filtro-campos">
                 <div>
                   <label className="stx-label">De</label>
-                  <input type="month" className="stx-input" value={biMesInicio} onChange={(e) => setBiMesInicio(e.target.value)} />
+                  <MonthPicker className="stx-input" value={biMesInicio} onChange={setBiMesInicio} />
                 </div>
                 <div>
                   <label className="stx-label">Até</label>
-                  <input type="month" className="stx-input" value={biMesFim} onChange={(e) => setBiMesFim(e.target.value)} />
+                  <MonthPicker className="stx-input" value={biMesFim} onChange={setBiMesFim} />
                 </div>
               </div>
             )}

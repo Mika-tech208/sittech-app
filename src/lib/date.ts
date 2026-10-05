@@ -40,3 +40,42 @@ export function shiftWeek(mondayISO: string, delta: number): string {
   d.setDate(d.getDate() + delta * 7);
   return toISODate(d);
 }
+
+// dd/mm/aaaa <-> YYYY-MM-DD — usado pelo DatePicker compartilhado; o valor
+// que entra/sai dos formulários e filtros continua sempre ISO.
+export function isoParaBR(iso: string): string {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  if (!y || !m || !d) return "";
+  return `${d}/${m}/${y}`;
+}
+
+export function brParaISO(br: string): string | null {
+  const m = br.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return null;
+  const [, d, mo, y] = m;
+  const dia = Number(d);
+  const mes = Number(mo);
+  const ano = Number(y);
+  if (mes < 1 || mes > 12 || dia < 1 || dia > 31) return null;
+  const data = new Date(ano, mes - 1, dia);
+  if (data.getFullYear() !== ano || data.getMonth() !== mes - 1 || data.getDate() !== dia) return null;
+  return `${y}-${mo}-${d}`;
+}
+
+// mm/aaaa <-> YYYY-MM — mesma ideia, pro MonthPicker.
+export function monthKeyParaBR(key: string): string {
+  if (!key) return "";
+  const [y, m] = key.split("-");
+  if (!y || !m) return "";
+  return `${m}/${y}`;
+}
+
+export function brParaMonthKey(br: string): string | null {
+  const m = br.match(/^(\d{2})\/(\d{4})$/);
+  if (!m) return null;
+  const [, mo, y] = m;
+  const mes = Number(mo);
+  if (mes < 1 || mes > 12) return null;
+  return `${y}-${mo}`;
+}

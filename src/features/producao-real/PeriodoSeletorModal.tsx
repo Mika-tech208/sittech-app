@@ -8,6 +8,7 @@
 
 import { useMemo, useState } from "react";
 import { dataLocalSP, horaLocalSP } from "@/hooks/useProducaoRealPainel";
+import DatePicker from "@/components/shared/DatePicker";
 import type { Periodo } from "@/types/domain";
 
 export interface PeriodoSeletorModalProps {
@@ -43,12 +44,11 @@ export default function PeriodoSeletorModal({ periodos, onSelecionar, onFechar }
 
         <div className="stx-ap-field" style={{ marginTop: 16 }}>
           <label className="stx-ap-field-label">Data</label>
-          <input
-            type="date"
+          <DatePicker
             className="stx-ap-input"
             value={data}
             max={hoje}
-            onChange={(e) => { setData(e.target.value); setPeriodoId(""); }}
+            onChange={(v) => { setData(v); setPeriodoId(""); }}
           />
         </div>
 
