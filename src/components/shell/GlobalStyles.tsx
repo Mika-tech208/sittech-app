@@ -2579,6 +2579,50 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
         @media (max-width: 640px) {
           .stx-datepicker-popover { width: calc(100vw - 16px); }
         }
+
+        /* Faltas e Ausências (src/features/ausencias) */
+        .stx-ausencia-row {
+          display: grid;
+          gap: 6px;
+          font-size: 11.5px;
+          padding: 8px 4px;
+          border-bottom: 1px solid var(--border);
+        }
+        .stx-ausencia-row:last-child { border-bottom: none; }
+        .stx-ausencia-row span:not(:first-child) { font-family: var(--font-mono); text-align: right; }
+        .stx-ausencia-row-head {
+          font-family: var(--font-body);
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+          font-weight: 600;
+          font-size: 11.5px;
+          color: var(--text-muted, var(--label));
+        }
+        .stx-ausencia-row-total {
+          font-weight: 600;
+          font-size: 12.5px;
+          border-top: 1px solid var(--line);
+          border-bottom: none;
+          margin-top: 2px;
+          padding-top: 10px;
+        }
+        .stx-ausencia-preview {
+          display: flex; align-items: center; justify-content: space-between;
+          background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+          padding: 10px 14px; margin: 4px 0 16px; font-size: 13px; color: var(--text-muted, var(--label));
+        }
+        .stx-ausencia-preview b { color: var(--text); font-size: 15px; font-family: var(--font-mono); }
+        .stx-ausencia-topo-stats {
+          display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 12px;
+        }
+        .stx-ausencia-topo-stats > div {
+          background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+        }
+        .stx-ausencia-topo-stats span { display: block; font-size: 12px; color: var(--text-muted, var(--label)); margin-bottom: 6px; }
+        .stx-ausencia-topo-stats b { font-size: 20px; font-family: var(--font-mono); color: var(--text); }
+        @media (max-width: 640px) {
+          .stx-ausencia-topo-stats { grid-template-columns: 1fr 1fr; }
+        }
     `}</style>
   );
 }

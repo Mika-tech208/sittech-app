@@ -15,6 +15,7 @@ export type Permissao =
   | "producao_real_historico"
   | "producao_real_ocorrencias"
   | "producao_real_apontamentos_realizados"
+  | "ausencias_funcionarios"
   | "usuarios"
   | "auditoria";
 
@@ -40,6 +41,7 @@ export const GRUPOS_PERMISSOES: GrupoPermissoes[] = [
       { chave: "producao_real_apontamentos_realizados", label: "Produção Real — Apontamentos realizados" },
       { chave: "producao_real_historico", label: "Produção Real — Histórico" },
       { chave: "producao_real_ocorrencias", label: "Produção Real — Ocorrências" },
+      { chave: "ausencias_funcionarios", label: "Faltas e Ausências" },
     ],
   },
   {
@@ -80,6 +82,7 @@ export const PERMISSOES_VALIDAS: Permissao[] = GRUPOS_PERMISSOES.flatMap((g) => 
 export const PRESET_SUPERVISAO_PRODUCAO: Permissao[] = [
   "producao_real_apontamento",
   "producao_real_apontamentos_realizados",
+  "ausencias_funcionarios",
 ];
 
 // papel === "admin" sempre passa, sem precisar de nenhuma linha em
@@ -103,6 +106,7 @@ export function temAlgumaPermissaoProducaoReal(
     temPermissao(usuarioLogado, "producao_real_apontamento") ||
     temPermissao(usuarioLogado, "producao_real_apontamentos_realizados") ||
     temPermissao(usuarioLogado, "producao_real_historico") ||
-    temPermissao(usuarioLogado, "producao_real_ocorrencias")
+    temPermissao(usuarioLogado, "producao_real_ocorrencias") ||
+    temPermissao(usuarioLogado, "ausencias_funcionarios")
   );
 }

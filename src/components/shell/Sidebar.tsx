@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Home, CalendarClock, Gauge, Package, Cog, Receipt, LineChart as LineChartIcon, Wallet, Clock, Users, Upload,
   ChevronDown, ChevronRight, ChevronLeft, LayoutGrid, BarChart3, PauseCircle, ClipboardCheck, ClipboardList,
-  Database, UserCog, AlertTriangle, X,
+  Database, UserCog, AlertTriangle, UserX, X,
 } from "lucide-react";
 import { temPermissao, temAlgumaPermissaoProducaoReal } from "@/lib/permissoes";
 import { LOGO_DARK, LOGO_LIGHT } from "@/lib/logos";
@@ -254,6 +254,9 @@ export default function Sidebar({
                 )}
                 {(temPermissao(usuarioLogado, "previsao") && temPermissao(usuarioLogado, "producao_real_historico")) && (
                   <Link href="/producao-real/validacao-previsao" className={`stx-tab-v ${abaAtiva === "prValidacao" ? "active" : ""}`} title="Validação da previsão"><ClipboardCheck size={16} />{!recolhida && "Validação da previsão"}</Link>
+                )}
+                {temPermissao(usuarioLogado, "ausencias_funcionarios") && (
+                  <Link href="/producao-real/ausencias" className={`stx-tab-v ${abaAtiva === "prAusencias" ? "active" : ""}`} title="Faltas e Ausências"><UserX size={16} />{!recolhida && "Faltas e Ausências"}</Link>
                 )}
                 <button className={`stx-tab-v ${abaAtiva === "prDadosImportados" ? "active" : ""}`} onClick={() => onNavigateTab("prDadosImportados")} title="Dados importados"><Database size={16} />{!recolhida && "Dados importados"}</button>
               </>
