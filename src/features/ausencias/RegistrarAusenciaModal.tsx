@@ -26,7 +26,7 @@ export interface RegistrarAusenciaModalProps {
   periodos: PeriodoSimples[];
   dataInicial: string;
   onFechar: () => void;
-  onRegistrar: (payload: RegistrarAusenciaPayload) => Promise<boolean>;
+  onRegistrar: (payload: RegistrarAusenciaPayload) => Promise<string | null>;
 }
 
 export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, dataInicial, onFechar, onRegistrar }: RegistrarAusenciaModalProps) {
@@ -39,24 +39,24 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
   const [data, setData] = useState(dataInicial);
   const [tipo, setTipo] = useState<TipoAusencia>("falta_dia_inteiro");
   const [horarioReal, setHorarioReal] = useState("");
-  const [horarioSaida, setHorarioSaida] = useState("");
-  const [horarioRetorno, setHorarioRetorno] = useState("");
+  const [horarioJanelaInicio, setHorarioJanelaInicio] = useState("");
+  const [horarioJanelaFim, setHorarioJanelaFim] = useState("");
   const [observacao, setObservacao] = useState("");
 
   const precisaHorario = TIPOS_COM_HORARIO.includes(tipo);
   const resultado = calcularAusencia({
     tipo, periodos,
     horarioReal: horarioReal || undefined,
-    horarioSaida: horarioSaida || undefined,
-    horarioRetorno: horarioRetorno || undefined,
+    horarioJanelaInicio: horarioJanelaInicio || undefined,
+    horarioJanelaFim: horarioJanelaFim || undefined,
   });
 
   function resetFormulario() {
     setFuncionarioId("");
     setTipo("falta_dia_inteiro");
     setHorarioReal("");
-    setHorarioSaida("");
-    setHorarioRetorno("");
+    setHorarioJanelaInicio("");
+    setHorarioJanelaFim("");
     setObservacao("");
     setErro(null);
     // encerra a tentativa atual (sucesso OU cancelar) — chave nova pra
@@ -71,7 +71,7 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
     if (!podeSalvar || !resultado) return;
     setSalvando(true);
     setErro(null);
-    const ok = await onRegistrar({
+    const erroRpc = await onRegistrar({
       funcionarioId, data, tipo,
       horarioInicio: resultado.horarioInicio,
       horarioFim: resultado.horarioFim,
@@ -79,8 +79,8 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
       observacao,
       idempotencyKey,
     });
-    if (!ok) {
-      setErro("Não foi possível registrar a ausência. Tente novamente.");
+    if (erroRpc) {
+      setErro(erroRpc);
       setSalvando(false);
       return;
     }
@@ -134,7 +134,7 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
 
         <div className="stx-ap-field">
           <label className="stx-ap-field-label">Tipo</label>
-          <select className="stx-ap-select" value={tipo} onChange={(e) => { setTipo(e.target.value as TipoAusencia); setHorarioReal(""); setHorarioSaida(""); setHorarioRetorno(""); }}>
+          <select className="stx-ap-select" value={tipo} onChange={(e) => { setTipo(e.target.value as TipoAusencia); setHorarioReal(""); setHorarioJanelaInicio(""); setHorarioJanelaFim(""); }}>
             {TIPOS_AUSENCIA.map((t) => (
               <option key={t.valor} value={t.valor}>{t.label}</option>
             ))}
@@ -157,11 +157,23 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
           <div className="stx-ap-grid-2 stx-ap-field">
             <div>
               <label className="stx-ap-field-label">Saída</label>
-              <input type="time" className="stx-ap-input" value={horarioSaida} onChange={(e) => setHorarioSaida(e.target.value)} />
+              <input type="time" className="stx-ap-input" value={horarioJanelaInicio} onChange={(e) => setHorarioJanelaInicio(e.target.value)} />
             </div>
             <div>
               <label className="stx-ap-field-label">Retorno</label>
-              <input type="time" className="stx-ap-input" value={horarioRetorno} onChange={(e) => setHorarioRetorno(e.target.value)} />
+              <input type="time" className="stx-ap-input" value={horarioJanelaFim} onChange={(e) => setHorarioJanelaFim(e.target.value)} />
+            </div>
+          </div>
+        )}
+        {tipo === "outro" && (
+          <div className="stx-ap-grid-2 stx-ap-field">
+            <div>
+              <label className="stx-ap-field-label">Horário inicial</label>
+              <input type="time" className="stx-ap-input" value={horarioJanelaInicio} onChange={(e) => setHorarioJanelaInicio(e.target.value)} />
+            </div>
+            <div>
+              <label className="stx-ap-field-label">Horário final</label>
+              <input type="time" className="stx-ap-input" value={horarioJanelaFim} onChange={(e) => setHorarioJanelaFim(e.target.value)} />
             </div>
           </div>
         )}

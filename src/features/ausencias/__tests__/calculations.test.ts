@@ -34,11 +34,15 @@ describe("falta dia inteiro", () => {
     expect(formatarDuracao(r!.duracaoMinutos)).toBe("8h48");
   });
 
-  it("atestado/falta justificada/não justificada/outro também usam o dia inteiro", () => {
-    for (const tipo of ["atestado", "falta_justificada", "falta_nao_justificada", "outro"] as const) {
+  it("atestado/falta justificada/não justificada também usam o dia inteiro", () => {
+    for (const tipo of ["atestado", "falta_justificada", "falta_nao_justificada"] as const) {
       const r = calcularAusencia({ tipo, periodos: PERIODOS });
       expect(r?.duracaoMinutos).toBe(528);
     }
+  });
+
+  it('"outro" NÃO é dia inteiro — sem horário informado, retorna null', () => {
+    expect(calcularAusencia({ tipo: "outro", periodos: PERIODOS })).toBeNull();
   });
 });
 
@@ -75,7 +79,7 @@ describe("saída antecipada", () => {
 describe("saída durante expediente", () => {
   it("exemplo do pedido: saiu 09:30, retornou 10:45 -> 1h15", () => {
     const r = calcularAusencia({
-      tipo: "saida_durante_expediente", periodos: PERIODOS, horarioSaida: "09:30", horarioRetorno: "10:45",
+      tipo: "saida_durante_expediente", periodos: PERIODOS, horarioJanelaInicio: "09:30", horarioJanelaFim: "10:45",
     });
     expect(r?.duracaoMinutos).toBe(75);
     expect(formatarDuracao(r!.duracaoMinutos)).toBe("1h15");
@@ -84,7 +88,7 @@ describe("saída durante expediente", () => {
   it("atravessando o almoço: só conta os minutos produtivos dos dois lados", () => {
     // saiu 11:30, retornou 13:30
     const r = calcularAusencia({
-      tipo: "saida_durante_expediente", periodos: PERIODOS, horarioSaida: "11:30", horarioRetorno: "13:30",
+      tipo: "saida_durante_expediente", periodos: PERIODOS, horarioJanelaInicio: "11:30", horarioJanelaFim: "13:30",
     });
     // 11:30-12:00 (30min) + 13:00-13:30 (30min) = 60min, excluindo os 60min de almoço
     expect(r?.duracaoMinutos).toBe(60);
@@ -92,9 +96,21 @@ describe("saída durante expediente", () => {
 
   it("saída e retorno inteiramente dentro do almoço: 0min", () => {
     const r = calcularAusencia({
-      tipo: "saida_durante_expediente", periodos: PERIODOS, horarioSaida: "12:10", horarioRetorno: "12:50",
+      tipo: "saida_durante_expediente", periodos: PERIODOS, horarioJanelaInicio: "12:10", horarioJanelaFim: "12:50",
     });
     expect(r?.duracaoMinutos).toBe(0);
+  });
+});
+
+describe('"outro" — exige início/fim, mesma lógica de janela explícita', () => {
+  it("não é mais 8h48 automático — usa só o intervalo informado", () => {
+    const r = calcularAusencia({ tipo: "outro", periodos: PERIODOS, horarioJanelaInicio: "09:00", horarioJanelaFim: "10:00" });
+    expect(r?.duracaoMinutos).toBe(60);
+  });
+
+  it("atravessando o almoço, mesma regra de não contar 12:00-13:00", () => {
+    const r = calcularAusencia({ tipo: "outro", periodos: PERIODOS, horarioJanelaInicio: "11:30", horarioJanelaFim: "13:30" });
+    expect(r?.duracaoMinutos).toBe(60);
   });
 });
 
@@ -113,7 +129,10 @@ describe("tipos com horário incompleto não calculam (evita a supervisora manda
     expect(calcularAusencia({ tipo: "atraso", periodos: PERIODOS })).toBeNull();
   });
   it("saída durante expediente só com saída (sem retorno) retorna null", () => {
-    expect(calcularAusencia({ tipo: "saida_durante_expediente", periodos: PERIODOS, horarioSaida: "09:00" })).toBeNull();
+    expect(calcularAusencia({ tipo: "saida_durante_expediente", periodos: PERIODOS, horarioJanelaInicio: "09:00" })).toBeNull();
+  });
+  it('"outro" só com início (sem fim) retorna null', () => {
+    expect(calcularAusencia({ tipo: "outro", periodos: PERIODOS, horarioJanelaInicio: "09:00" })).toBeNull();
   });
 });
 

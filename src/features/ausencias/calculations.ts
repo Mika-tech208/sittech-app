@@ -9,11 +9,13 @@
 // é só não contar o que não está dentro de nenhum período.
 //
 // Os tipos "dia inteiro" (falta_dia_inteiro, atestado, falta_justificada,
-// falta_nao_justificada, outro) usam a jornada inteira do dia. Os tipos
-// "janela de horário" (atraso, saida_antecipada, saida_durante_expediente)
+// falta_nao_justificada) usam a jornada inteira do dia. Os tipos "janela de
+// horário" (atraso, saida_antecipada, saida_durante_expediente, outro)
 // contam só os minutos dentro de algum período que caem dentro da janela
 // informada — minutos fora de qualquer período (almoço ou qualquer buraco)
-// nunca contam, mesmo que a janela os atravesse.
+// nunca contam, mesmo que a janela os atravesse. "Outro" NÃO é dia inteiro
+// (decisão explícita) — sempre pede início/fim, igual saída durante
+// expediente; se no futuro precisar de "outro dia inteiro", é um tipo novo.
 
 export type TipoAusencia =
   | "falta_dia_inteiro"
@@ -42,7 +44,12 @@ export const LABEL_TIPO_AUSENCIA: Record<TipoAusencia, string> = Object.fromEntr
 
 // Tipos que pedem um horário real da supervisora (os outros usam a
 // jornada inteira do dia, sem nenhum campo de horário).
-export const TIPOS_COM_HORARIO: TipoAusencia[] = ["atraso", "saida_antecipada", "saida_durante_expediente"];
+export const TIPOS_COM_HORARIO: TipoAusencia[] = ["atraso", "saida_antecipada", "saida_durante_expediente", "outro"];
+
+// Dentro de TIPOS_COM_HORARIO: estes dois pedem uma JANELA explícita
+// (início + fim, os dois horários reais) — os outros dois (atraso/saída
+// antecipada) pedem só UM horário real, o outro lado vem da jornada.
+export const TIPOS_COM_JANELA_EXPLICITA: TipoAusencia[] = ["saida_durante_expediente", "outro"];
 
 export interface PeriodoSimples {
   id: string;
@@ -95,9 +102,10 @@ export interface ParametrosCalculoAusencia {
   periodos: PeriodoSimples[];
   // "atraso": horarioReal = chegada. "saida_antecipada": horarioReal = saída.
   horarioReal?: string;
-  // "saida_durante_expediente": os dois horários.
-  horarioSaida?: string;
-  horarioRetorno?: string;
+  // TIPOS_COM_JANELA_EXPLICITA ("saida_durante_expediente", "outro"): os
+  // dois horários reais da janela (saída/retorno, ou início/fim livre).
+  horarioJanelaInicio?: string;
+  horarioJanelaFim?: string;
 }
 
 export interface ResultadoCalculoAusencia {
@@ -136,21 +144,22 @@ export function calcularAusencia(params: ParametrosCalculoAusencia): ResultadoCa
     };
   }
 
-  // saida_durante_expediente
-  if (!params.horarioSaida || !params.horarioRetorno) return null;
+  // saida_durante_expediente / outro — janela explícita (início + fim reais)
+  if (!params.horarioJanelaInicio || !params.horarioJanelaFim) return null;
   return {
-    duracaoMinutos: minutosProdutivosEntre(periodos, params.horarioSaida, params.horarioRetorno),
-    horarioInicio: params.horarioSaida,
-    horarioFim: params.horarioRetorno,
+    duracaoMinutos: minutosProdutivosEntre(periodos, params.horarioJanelaInicio, params.horarioJanelaFim),
+    horarioInicio: params.horarioJanelaInicio,
+    horarioFim: params.horarioJanelaFim,
   };
 }
 
 // ---- resumo mensal ----
 
 // Tipos que contam como "falta" na coluna do resumo — todos os que usam a
-// jornada inteira do dia (ver TIPOS_COM_HORARIO, o complemento).
+// jornada inteira do dia (ver TIPOS_COM_HORARIO, o complemento). "Outro"
+// não entra mais aqui — passou a exigir início/fim, não é mais dia inteiro.
 const TIPOS_FALTA_DIA_INTEIRO: TipoAusencia[] = [
-  "falta_dia_inteiro", "atestado", "falta_justificada", "falta_nao_justificada", "outro",
+  "falta_dia_inteiro", "atestado", "falta_justificada", "falta_nao_justificada",
 ];
 
 export interface AusenciaParaResumo {

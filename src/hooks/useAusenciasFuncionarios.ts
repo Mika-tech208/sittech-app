@@ -140,7 +140,10 @@ export function useAusenciasFuncionarios(pronto: boolean) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pronto]);
 
-  const registrar = useCallback(async (payload: RegistrarAusenciaPayload): Promise<boolean> => {
+  // Retorna null em sucesso, ou a mensagem de erro (já pronta pra mostrar
+  // à supervisora — inclui o motivo de conflito/sobreposição vindo direto
+  // da RPC) em falha.
+  const registrar = useCallback(async (payload: RegistrarAusenciaPayload): Promise<string | null> => {
     const { data, error } = await supabase.rpc("registrar_ausencia_funcionario", {
       p_funcionario_id: payload.funcionarioId,
       p_data: payload.data,
@@ -152,14 +155,15 @@ export function useAusenciasFuncionarios(pronto: boolean) {
       p_idempotency_key: payload.idempotencyKey,
     });
     if (error || !data) {
-      setErro(error?.message || "Não foi possível registrar a ausência.");
-      return false;
+      const msg = error?.message || "Não foi possível registrar a ausência.";
+      setErro(msg);
+      return msg;
     }
     setAusencias((prev) => [linhaParaAusencia(data as AusenciaRow), ...prev]);
-    return true;
+    return null;
   }, []);
 
-  const editar = useCallback(async (payload: EditarAusenciaPayload): Promise<boolean> => {
+  const editar = useCallback(async (payload: EditarAusenciaPayload): Promise<string | null> => {
     const { data, error } = await supabase.rpc("editar_ausencia_funcionario", {
       p_ausencia_id: payload.id,
       p_tipo: payload.tipo,
@@ -170,12 +174,13 @@ export function useAusenciasFuncionarios(pronto: boolean) {
       p_motivo: payload.motivo.trim(),
     });
     if (error || !data) {
-      setErro(error?.message || "Não foi possível salvar a alteração.");
-      return false;
+      const msg = error?.message || "Não foi possível salvar a alteração.";
+      setErro(msg);
+      return msg;
     }
     const atualizada = linhaParaAusencia(data as AusenciaRow);
     setAusencias((prev) => prev.map((a) => (a.id === atualizada.id ? { ...atualizada, funcionarioNome: a.funcionarioNome } : a)));
-    return true;
+    return null;
   }, []);
 
   return { ausencias, loading, erro, limite: LIMITE_RESULTADOS, buscar, registrar, editar };
