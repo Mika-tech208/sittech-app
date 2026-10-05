@@ -8,6 +8,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import DatePicker from "@/components/shared/DatePicker";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useCadastrosBase } from "@/hooks/useCadastrosBase";
 import { useFuncionarios } from "@/hooks/useFuncionarios";
@@ -252,11 +253,11 @@ export default function ApontamentosRealizadosPage() {
               <div className="stx-apr-filtros-grid">
                 <div>
                   <label className="stx-ap-field-label">Data inicial</label>
-                  <input type="date" className="stx-ap-input" value={filtrosForm.dataInicial || ""} onChange={(e) => setFiltrosForm((f) => ({ ...f, dataInicial: e.target.value || undefined }))} />
+                  <DatePicker className="stx-ap-input" value={filtrosForm.dataInicial || ""} onChange={(v) => setFiltrosForm((f) => ({ ...f, dataInicial: v || undefined }))} />
                 </div>
                 <div>
                   <label className="stx-ap-field-label">Data final</label>
-                  <input type="date" className="stx-ap-input" value={filtrosForm.dataFinal || ""} onChange={(e) => setFiltrosForm((f) => ({ ...f, dataFinal: e.target.value || undefined }))} />
+                  <DatePicker className="stx-ap-input" value={filtrosForm.dataFinal || ""} onChange={(v) => setFiltrosForm((f) => ({ ...f, dataFinal: v || undefined }))} />
                 </div>
                 <div>
                   <label className="stx-ap-field-label">Período</label>
