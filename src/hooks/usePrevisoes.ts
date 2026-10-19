@@ -47,7 +47,7 @@ interface PrevisaoRow {
   previsao_itens: PrevisaoItemRow[] | null;
   previsao_maquinas_indisponiveis: { maquina_id: string }[] | null;
   previsao_dias_produtivos: { dia: string; ativo: boolean }[] | null;
-  previsao_equipe_semana: { funcionario_id: string; produtivo: boolean }[] | null;
+  previsao_equipe_semana: { funcionario_id: string; produtivo: boolean; operacao_id: string | null }[] | null;
 }
 
 const PREVISAO_SELECT = `
@@ -58,7 +58,7 @@ const PREVISAO_SELECT = `
   ),
   previsao_maquinas_indisponiveis(maquina_id),
   previsao_dias_produtivos(dia, ativo),
-  previsao_equipe_semana(funcionario_id, produtivo)
+  previsao_equipe_semana(funcionario_id, produtivo, operacao_id)
 `;
 
 function agruparMaquinasPorEtapa(linhas: { etapa_id: string; maquina_id: string }[] | null): Record<string, string[]> {
@@ -93,7 +93,7 @@ function linhaParaPrevisao(p: PrevisaoRow): Previsao {
       ? (p.previsao_dias_produtivos || []).filter((d) => d.ativo).map((d) => d.dia).sort()
       : undefined,
     equipeSemana: (p.previsao_equipe_semana || []).length > 0
-      ? (p.previsao_equipe_semana || []).map((m) => ({ funcionarioId: m.funcionario_id, produtivo: m.produtivo }))
+      ? (p.previsao_equipe_semana || []).map((m) => ({ funcionarioId: m.funcionario_id, produtivo: m.produtivo, operacaoId: m.operacao_id }))
       : undefined,
   };
 }
@@ -150,7 +150,7 @@ export function usePrevisoes(pronto: boolean) {
       p_maquinas_indisponiveis: campos.maquinasIndisponiveis !== undefined ? campos.maquinasIndisponiveis : null,
       p_dias_produtivos: campos.diasProdutivos !== undefined ? campos.diasProdutivos : null,
       p_equipe_semana: campos.equipeSemana !== undefined
-        ? campos.equipeSemana.map((m) => ({ funcionario_id: m.funcionarioId, produtivo: m.produtivo }))
+        ? campos.equipeSemana.map((m) => ({ funcionario_id: m.funcionarioId, produtivo: m.produtivo, operacao_id: m.operacaoId }))
         : null,
     });
     if (rpcErro || !previsaoId) {

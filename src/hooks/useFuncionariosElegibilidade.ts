@@ -18,12 +18,14 @@ export interface FuncionarioElegivel {
   id: string;
   nome: string;
   ativo: boolean;
+  operacaoId: string | null;
 }
 
 interface FuncionarioElegibilidadeRow {
   id: string;
   nome: string;
   ativo: boolean;
+  operacao_id: string | null;
 }
 
 export function useFuncionariosElegibilidade(pronto: boolean) {
@@ -37,7 +39,7 @@ export function useFuncionariosElegibilidade(pronto: boolean) {
     (async () => {
       const { data, error } = await supabase
         .from("funcionarios_elegibilidade")
-        .select("id, nome, ativo")
+        .select("id, nome, ativo, operacao_id")
         .order("nome")
         .returns<FuncionarioElegibilidadeRow[]>();
       if (!montado) return;
@@ -46,7 +48,7 @@ export function useFuncionariosElegibilidade(pronto: boolean) {
         setLoading(false);
         return;
       }
-      setFuncionarios((data || []).map((f) => ({ id: f.id, nome: f.nome, ativo: f.ativo })));
+      setFuncionarios((data || []).map((f) => ({ id: f.id, nome: f.nome, ativo: f.ativo, operacaoId: f.operacao_id })));
       setLoading(false);
     })();
     return () => { montado = false; };

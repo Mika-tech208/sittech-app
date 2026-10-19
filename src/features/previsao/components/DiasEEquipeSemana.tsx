@@ -16,6 +16,9 @@ export interface DiasEEquipeSemanaProps {
   onToggleMembro: (funcionarioId: string) => void;
   onMarcarTodos: () => void;
   onLimpar: () => void;
+  operacoes: { id: string; nome: string }[];
+  operacaoCadastroPorId: Map<string, string | null>; // operação atual do cadastro, só para sinalizar ajuste da semana
+  onDefinirOperacao: (funcionarioId: string, operacaoId: string) => void;
   salvando: boolean;
   horasPorDia: number;
   horasPorMaquinaSemana: number;
@@ -26,7 +29,7 @@ export interface DiasEEquipeSemanaProps {
 // igual aos demais blocos da tela.
 export default function DiasEEquipeSemana({
   diasDaSemana, diasProdutivos, onToggleDia, equipe, nomePorId, inativos, onToggleMembro, onMarcarTodos, onLimpar,
-  salvando, horasPorDia, horasPorMaquinaSemana,
+  operacoes, operacaoCadastroPorId, onDefinirOperacao, salvando, horasPorDia, horasPorMaquinaSemana,
 }: DiasEEquipeSemanaProps) {
   const resumo = resumirEquipe(equipe);
   const membros = [...equipe].sort((a, b) => (nomePorId.get(a.funcionarioId) || "").localeCompare(nomePorId.get(b.funcionarioId) || "", "pt-BR"));
@@ -66,13 +69,30 @@ export default function DiasEEquipeSemana({
         <p className="stx-panel-sub">Nenhum funcionário ativo cadastrado.</p>
       ) : (
         <>
-          <div className="stx-etapa-maquinas">
-            {membros.map((m) => (
-              <label className="stx-maquina-chip" key={m.funcionarioId}>
-                <input type="checkbox" checked={m.produtivo} disabled={salvando} onChange={() => onToggleMembro(m.funcionarioId)} />
-                {nomePorId.get(m.funcionarioId) || "Funcionário removido"}{inativos.has(m.funcionarioId) ? " (inativo)" : ""}
-              </label>
-            ))}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {membros.map((m) => {
+              const ajustada = m.operacaoId !== null && operacaoCadastroPorId.get(m.funcionarioId) !== undefined && operacaoCadastroPorId.get(m.funcionarioId) !== m.operacaoId;
+              return (
+                <div key={m.funcionarioId} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <label className="stx-maquina-chip" style={{ minWidth: 190 }}>
+                    <input type="checkbox" checked={m.produtivo} disabled={salvando} onChange={() => onToggleMembro(m.funcionarioId)} />
+                    {nomePorId.get(m.funcionarioId) || "Funcionário removido"}{inativos.has(m.funcionarioId) ? " (inativo)" : ""}
+                  </label>
+                  <select
+                    className="stx-select"
+                    style={{ width: "auto", minWidth: 150 }}
+                    aria-label={`Operação de ${nomePorId.get(m.funcionarioId) || "funcionário"} nesta semana`}
+                    value={m.operacaoId || ""}
+                    disabled={salvando}
+                    onChange={(e) => onDefinirOperacao(m.funcionarioId, e.target.value)}
+                  >
+                    {!m.operacaoId && <option value="">Sem operação</option>}
+                    {operacoes.map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                  </select>
+                  {ajustada && <span className="stx-panel-sub" style={{ margin: 0 }}>ajustada nesta semana (cadastro não muda)</span>}
+                </div>
+              );
+            })}
           </div>
           <p className="stx-custos-total" style={{ marginTop: 10 }}>
             <b>{resumo.texto}</b>

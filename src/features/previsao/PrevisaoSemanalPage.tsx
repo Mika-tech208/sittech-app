@@ -6,6 +6,7 @@ import { useAuthSession } from "@/hooks/useAuthSession";
 import { useCadastrosBase } from "@/hooks/useCadastrosBase";
 import { useFuncionarios } from "@/hooks/useFuncionarios";
 import { useFuncionariosElegibilidade } from "@/hooks/useFuncionariosElegibilidade";
+import { useOperacoesComId } from "@/hooks/useOperacoesComId";
 import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
@@ -39,7 +40,7 @@ import ProdutosProgramados from "@/features/previsao/components/ProdutosPrograma
 import AjustarCapacidadeModal from "@/features/previsao/components/AjustarCapacidadeModal";
 import DiasEEquipeSemana from "@/features/previsao/components/DiasEEquipeSemana";
 import {
-  diasDaSemana, resolverDiasProdutivos, alternarDia, resolverEquipeProdutiva, alternarMembro, marcarTodos,
+  diasDaSemana, resolverDiasProdutivos, alternarDia, resolverEquipeProdutiva, alternarMembro, marcarTodos, definirOperacao,
 } from "@/features/capacidade/diasEEquipe";
 import { baixarProgramacaoSemanaPDF } from "@/features/previsao/pdf";
 import { calcularProdutosProgramados, calcularProdutosNaoPrevistos, calcularResumoProgramacaoPecas } from "@/features/previsao/realizado";
@@ -71,6 +72,7 @@ export default function PrevisaoSemanalPage() {
   // salário) — funciona para qualquer usuário ativo com acesso à Previsão,
   // diferente de `funcionarios` (atrás da permissão de Funcionários/Custo).
   const elegiveisHook = useFuncionariosElegibilidade(auth.autenticado && !cadastrosBase.loading);
+  const operacoesIdHook = useOperacoesComId(auth.autenticado && !cadastrosBase.loading);
   const maquinasHook = useMaquinas(auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading);
   const { maquinas } = maquinasHook;
   const produtosHook = useProdutos(auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading);
@@ -119,6 +121,7 @@ export default function PrevisaoSemanalPage() {
   const equipeProdutivaCount = equipeProdutiva.filter((m) => m.produtivo).length;
   const nomePorFuncionarioId = useMemo(() => new Map(elegiveisHook.funcionarios.map((f) => [f.id, f.nome])), [elegiveisHook.funcionarios]);
   const funcionariosInativos = useMemo(() => new Set(elegiveisHook.funcionarios.filter((f) => !f.ativo).map((f) => f.id)), [elegiveisHook.funcionarios]);
+  const operacaoCadastroPorId = useMemo(() => new Map<string, string | null>(elegiveisHook.funcionarios.map((f) => [f.id, f.operacaoId])), [elegiveisHook.funcionarios]);
   const [salvandoConfigSemana, setSalvandoConfigSemana] = useState(false);
 
   const historicoSemanas = useMemo(() => calcularHistoricoSemanas(previsoes), [previsoes]);
@@ -291,12 +294,12 @@ export default function PrevisaoSemanalPage() {
     );
   }
 
-  if (cadastrosBase.loading || funcionariosHook.loading || elegiveisHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading || auth.restaurandoSessao || !auth.autenticado) {
+  if (cadastrosBase.loading || funcionariosHook.loading || elegiveisHook.loading || operacoesIdHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading || auth.restaurandoSessao || !auth.autenticado) {
     return (
       <div className="stx-root">
         <GlobalStyles cores={cores} />
         <LoginScreen
-          loading={auth.restaurandoSessao || (auth.autenticado && (cadastrosBase.loading || funcionariosHook.loading || elegiveisHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading))}
+          loading={auth.restaurandoSessao || (auth.autenticado && (cadastrosBase.loading || funcionariosHook.loading || elegiveisHook.loading || operacoesIdHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading))}
           tema={tema}
           loginUsuario={auth.loginUsuario}
           setLoginUsuario={auth.setLoginUsuario}
@@ -378,6 +381,7 @@ export default function PrevisaoSemanalPage() {
           {cadastrosBase.erro && <p className="stx-save-error">{cadastrosBase.erro}</p>}
           {funcionariosHook.erro && <p className="stx-save-error">{funcionariosHook.erro}</p>}
           {elegiveisHook.erro && <p className="stx-save-error">{elegiveisHook.erro}</p>}
+          {operacoesIdHook.erro && <p className="stx-save-error">{operacoesIdHook.erro}</p>}
           {maquinasHook.erro && <p className="stx-save-error">{maquinasHook.erro}</p>}
           {produtosHook.erro && <p className="stx-save-error">{produtosHook.erro}</p>}
           {previsoesHook.erro && <p className="stx-save-error">{previsoesHook.erro}</p>}
@@ -512,6 +516,9 @@ export default function PrevisaoSemanalPage() {
                   onToggleMembro={(id) => salvarConfigSemana({ equipeSemana: alternarMembro(equipeProdutiva, id) })}
                   onMarcarTodos={() => salvarConfigSemana({ equipeSemana: marcarTodos(equipeProdutiva, true) })}
                   onLimpar={() => salvarConfigSemana({ equipeSemana: marcarTodos(equipeProdutiva, false) })}
+                  operacoes={operacoesIdHook.operacoes}
+                  operacaoCadastroPorId={operacaoCadastroPorId}
+                  onDefinirOperacao={(id, operacaoId) => salvarConfigSemana({ equipeSemana: definirOperacao(equipeProdutiva, id, operacaoId) })}
                   salvando={salvandoConfigSemana}
                   horasPorDia={horasPorDiaCalc}
                   horasPorMaquinaSemana={horasPorMaquinaSemana}
