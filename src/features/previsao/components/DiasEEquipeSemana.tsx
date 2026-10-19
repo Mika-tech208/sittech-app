@@ -73,14 +73,14 @@ export default function DiasEEquipeSemana({
             {membros.map((m) => {
               const ajustada = m.operacaoId !== null && operacaoCadastroPorId.get(m.funcionarioId) !== undefined && operacaoCadastroPorId.get(m.funcionarioId) !== m.operacaoId;
               return (
-                <div key={m.funcionarioId} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <label className="stx-maquina-chip" style={{ minWidth: 190 }}>
+                <div key={m.funcionarioId} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <label className="stx-maquina-chip" style={{ flex: "1 1 130px", minWidth: 0 }}>
                     <input type="checkbox" checked={m.produtivo} disabled={salvando} onChange={() => onToggleMembro(m.funcionarioId)} />
                     {nomePorId.get(m.funcionarioId) || "Funcionário removido"}{inativos.has(m.funcionarioId) ? " (inativo)" : ""}
                   </label>
                   <select
                     className="stx-select"
-                    style={{ width: "auto", minWidth: 150 }}
+                    style={{ width: 112, flexShrink: 0, padding: "6px 8px", fontSize: 13 }}
                     aria-label={`Operação de ${nomePorId.get(m.funcionarioId) || "funcionário"} nesta semana`}
                     value={m.operacaoId || ""}
                     disabled={salvando}
