@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   diasDaSemana, diasProdutivosPadrao, resolverDiasProdutivos, alternarDia,
-  resolverEquipeProdutiva, alternarMembro, marcarTodos, resumirEquipe,
+  resolverEquipeProdutiva, alternarMembro, marcarTodos, resumirEquipe, definirOperacao,
 } from "../diasEEquipe";
 import { calcularHorasPorMaquinaSemana } from "@/lib/calculations/periodos";
 
@@ -36,7 +36,8 @@ describe("dias produtivos da semana", () => {
 
 describe("equipe produtiva da semana", () => {
   const funcionarios = [
-    { id: "joao", ativo: true }, { id: "clarice", ativo: true }, { id: "ex", ativo: false }, { id: "novo", ativo: true },
+    { id: "joao", ativo: true, operacaoId: "emb" }, { id: "clarice", ativo: true, operacaoId: "sup" },
+    { id: "ex", ativo: false, operacaoId: "emb" }, { id: "novo", ativo: true, operacaoId: "ros" },
   ];
   it("sem snapshot: todos os ativos elegíveis, produtivos", () => {
     const eq = resolverEquipeProdutiva({}, funcionarios);
@@ -51,12 +52,24 @@ describe("equipe produtiva da semana", () => {
   });
   it("semana antiga preserva a seleção; contratado depois entra desmarcado; inativo do snapshot permanece", () => {
     const antiga = { equipeSemana: [
-      { funcionarioId: "joao", produtivo: true }, { funcionarioId: "clarice", produtivo: false }, { funcionarioId: "ex", produtivo: true },
+      { funcionarioId: "joao", produtivo: true, operacaoId: "emb" }, { funcionarioId: "clarice", produtivo: false, operacaoId: "sup" },
+      { funcionarioId: "ex", produtivo: true, operacaoId: "emb" },
     ] };
     const eq = resolverEquipeProdutiva(antiga, funcionarios);
     expect(eq.find((m) => m.funcionarioId === "clarice")!.produtivo).toBe(false);
     expect(eq.find((m) => m.funcionarioId === "ex")!.produtivo).toBe(true);
     expect(eq.find((m) => m.funcionarioId === "novo")!.produtivo).toBe(false);
+  });
+  it("semana nova copia a operação do cadastro; semana gravada mantém a operação do snapshot mesmo se o cadastro mudou", () => {
+    expect(resolverEquipeProdutiva({}, funcionarios).find((m) => m.funcionarioId === "novo")!.operacaoId).toBe("ros");
+    const cadastroMudou = funcionarios.map((f) => (f.id === "joao" ? { ...f, operacaoId: "ros" } : f));
+    const antiga = { equipeSemana: [{ funcionarioId: "joao", produtivo: true, operacaoId: "emb" }] };
+    expect(resolverEquipeProdutiva(antiga, cadastroMudou).find((m) => m.funcionarioId === "joao")!.operacaoId).toBe("emb");
+  });
+  it("ajuste manual muda só a operação da semana", () => {
+    const eq = definirOperacao(resolverEquipeProdutiva({}, funcionarios), "clarice", "ros");
+    expect(eq.find((m) => m.funcionarioId === "clarice")!.operacaoId).toBe("ros");
+    expect(eq.find((m) => m.funcionarioId === "joao")!.operacaoId).toBe("emb");
   });
   it("semana seguinte (sem snapshot) volta a incluir Clarice", () => {
     expect(resolverEquipeProdutiva({}, funcionarios).find((m) => m.funcionarioId === "clarice")!.produtivo).toBe(true);

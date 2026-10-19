@@ -15,6 +15,10 @@
 --    Não toca funcionarios.ativo, salário nem Custo/hora. Mesmo padrão de
 --    snapshot: previsões existentes recebem todos os funcionários ativos
 --    como produtivos (equivale ao que o sistema já assumia).
+--    `operacao_id` é SNAPSHOT da operação do funcionário naquela semana:
+--    copiada de funcionarios.operacao_id quando a linha nasce e NUNCA mais
+--    sincronizada — mudar o cadastro depois não altera semanas antigas. Pode
+--    ser ajustada manualmente dentro da semana (sem tocar no cadastro).
 --
 -- 3) previsao_itens.registrado_em / registrado_por / registrado_por_nome:
 --    created_at NÃO serve — upsert_previsao_semana apaga e recria todas as
@@ -39,9 +43,11 @@ create table public.previsao_equipe_semana (
   previsao_id uuid not null references public.previsoes(id) on delete cascade,
   funcionario_id uuid not null references public.funcionarios(id) on delete restrict,
   produtivo boolean not null,
+  operacao_id uuid references public.operacoes(id) on delete restrict,
   primary key (previsao_id, funcionario_id)
 );
 create index idx_previsao_equipe_semana_funcionario on public.previsao_equipe_semana(funcionario_id);
+create index idx_previsao_equipe_semana_operacao on public.previsao_equipe_semana(operacao_id);
 
 alter table public.previsao_itens
   add column registrado_em timestamptz,
@@ -67,8 +73,8 @@ select p.id,
 from public.previsoes p
 cross join generate_series(0, 6) as g(i);
 
-insert into public.previsao_equipe_semana (previsao_id, funcionario_id, produtivo)
-select p.id, f.id, true
+insert into public.previsao_equipe_semana (previsao_id, funcionario_id, produtivo, operacao_id)
+select p.id, f.id, true, f.operacao_id
 from public.previsoes p
 cross join public.funcionarios f
 where f.ativo;
@@ -87,7 +93,7 @@ create or replace function public.upsert_previsao_semana(
   p_itens_realizado jsonb,
   p_maquinas_indisponiveis jsonb,
   p_dias_produtivos jsonb default null, -- array de datas ISO ATIVAS (as demais dias da semana ficam inativos); null = não mexe
-  p_equipe_semana jsonb default null    -- array de {funcionario_id, produtivo}; null = não mexe
+  p_equipe_semana jsonb default null    -- array de {funcionario_id, produtivo, operacao_id?}; null = não mexe. operacao_id ausente = mantém o snapshot da semana (ou, se não havia, a operação do cadastro agora)
 )
 returns uuid
 language plpgsql
@@ -106,6 +112,7 @@ declare
   v_usuario_nome text;
   v_dia text;
   v_dias_padrao integer;
+  v_ops_antigas jsonb;
 begin
   select id, nome into v_usuario_id, v_usuario_nome
   from usuarios where auth_user_id = auth.uid() and ativo = true;
@@ -204,14 +211,27 @@ begin
 
   -- ---- equipe produtiva da semana ----
   if p_equipe_semana is not null then
+    -- snapshot de operação anterior, lido ANTES do delete: sem operacao_id no
+    -- payload, a operação da semana é preservada (nunca relida do cadastro);
+    -- só funcionário que ainda não estava na semana pega a do cadastro.
+    select coalesce(jsonb_object_agg(funcionario_id::text, operacao_id::text), '{}'::jsonb)
+    into v_ops_antigas from previsao_equipe_semana where previsao_id = v_previsao_id;
+
     delete from previsao_equipe_semana where previsao_id = v_previsao_id;
-    insert into previsao_equipe_semana (previsao_id, funcionario_id, produtivo)
-    select v_previsao_id, (e->>'funcionario_id')::uuid, coalesce((e->>'produtivo')::boolean, false)
+    insert into previsao_equipe_semana (previsao_id, funcionario_id, produtivo, operacao_id)
+    select v_previsao_id,
+           (e->>'funcionario_id')::uuid,
+           coalesce((e->>'produtivo')::boolean, false),
+           coalesce(
+             nullif(e->>'operacao_id', '')::uuid,
+             nullif(v_ops_antigas->>(e->>'funcionario_id'), '')::uuid,
+             (select f.operacao_id from funcionarios_elegibilidade f where f.id = (e->>'funcionario_id')::uuid)
+           )
     from jsonb_array_elements(p_equipe_semana) e;
   elsif not exists (select 1 from previsao_equipe_semana where previsao_id = v_previsao_id) then
     -- padrão: todos os funcionários ativos elegíveis; a view não expõe salário
-    insert into previsao_equipe_semana (previsao_id, funcionario_id, produtivo)
-    select v_previsao_id, id, true from funcionarios_elegibilidade where ativo = true;
+    insert into previsao_equipe_semana (previsao_id, funcionario_id, produtivo, operacao_id)
+    select v_previsao_id, id, true, operacao_id from funcionarios_elegibilidade where ativo = true;
   end if;
 
   return v_previsao_id;

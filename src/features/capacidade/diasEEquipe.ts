@@ -42,6 +42,7 @@ export function alternarDia(dias: string[], dia: string): string[] {
 export interface FuncionarioBasico {
   id: string;
   ativo: boolean;
+  operacaoId: string | null;
 }
 
 // Elenco efetivo. Com snapshot: o que foi gravado (inclusive quem está
@@ -54,17 +55,22 @@ export function resolverEquipeProdutiva(
 ): MembroEquipeSemana[] {
   const gravada = semana.equipeSemana;
   if (!gravada || gravada.length === 0) {
-    return funcionarios.filter((f) => f.ativo).map((f) => ({ funcionarioId: f.id, produtivo: true }));
+    return funcionarios.filter((f) => f.ativo).map((f) => ({ funcionarioId: f.id, produtivo: true, operacaoId: f.operacaoId }));
   }
   const ids = new Set(gravada.map((m) => m.funcionarioId));
   const novosAtivos = funcionarios
     .filter((f) => f.ativo && !ids.has(f.id))
-    .map((f) => ({ funcionarioId: f.id, produtivo: false }));
+    .map((f) => ({ funcionarioId: f.id, produtivo: false, operacaoId: f.operacaoId }));
   return [...gravada, ...novosAtivos];
 }
 
 export function alternarMembro(equipe: MembroEquipeSemana[], funcionarioId: string): MembroEquipeSemana[] {
   return equipe.map((m) => (m.funcionarioId === funcionarioId ? { ...m, produtivo: !m.produtivo } : m));
+}
+
+// Ajuste manual DENTRO da semana — nunca toca funcionarios.operacao_id.
+export function definirOperacao(equipe: MembroEquipeSemana[], funcionarioId: string, operacaoId: string): MembroEquipeSemana[] {
+  return equipe.map((m) => (m.funcionarioId === funcionarioId ? { ...m, operacaoId } : m));
 }
 
 export function marcarTodos(equipe: MembroEquipeSemana[], produtivo: boolean): MembroEquipeSemana[] {

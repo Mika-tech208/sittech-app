@@ -115,6 +115,10 @@ export interface PrevisaoItem {
 export interface MembroEquipeSemana {
   funcionarioId: string;
   produtivo: boolean;
+  // Snapshot da operação do funcionário NESTA semana (copiada do cadastro
+  // quando entrou na semana; mudar o cadastro depois não altera semanas
+  // antigas). null = semana gravada sem snapshot de operação.
+  operacaoId: string | null;
 }
 
 export interface Previsao {
