@@ -194,6 +194,48 @@ export async function processarEventosPendentes(admin: SupabaseClient, agoraMs: 
   return resumo;
 }
 
+export interface ResumoDrenagem {
+  lotes: number;
+  semanas: number;
+  processadas: number;
+  ignoradas: number;
+  erros: number;
+  // Situação da fila DEPOIS da drenagem — o que a rotina agendada precisa enxergar.
+  pendentesRestantes: number;
+  esgotados: number; // eventos em erro que já gastaram as 3 tentativas (ficam parados até intervenção)
+}
+
+// Drenagem completa da outbox para o worker agendado: reivindica em lotes
+// até esvaziar (ou até MAX_LOTES). Para no primeiro lote com erro — senão os
+// eventos com erro seriam reivindicados de novo no mesmo ciclo e queimariam
+// as 3 tentativas de uma vez. Idempotente: a reivindicação é `skip locked`
+// e a aplicação é protegida por lock/versão, então execuções concorrentes
+// (cron + chamada imediata do navegador) não duplicam trabalho.
+const MAX_LOTES = 10;
+const TAMANHO_LOTE = 50;
+
+export async function drenarOutbox(admin: SupabaseClient, agoraMs: number): Promise<ResumoDrenagem> {
+  const resumo: ResumoDrenagem = { lotes: 0, semanas: 0, processadas: 0, ignoradas: 0, erros: 0, pendentesRestantes: 0, esgotados: 0 };
+  for (let i = 0; i < MAX_LOTES; i++) {
+    const r = await processarEventosPendentes(admin, agoraMs, TAMANHO_LOTE);
+    const tratados = r.processadas + r.ignoradas + r.erros;
+    if (tratados === 0) break;
+    resumo.lotes++;
+    resumo.semanas += r.semanas;
+    resumo.processadas += r.processadas;
+    resumo.ignoradas += r.ignoradas;
+    resumo.erros += r.erros;
+    if (r.erros > 0 || tratados < TAMANHO_LOTE) break;
+  }
+  const pend = await admin.from("escala_producao_eventos").select("id", { count: "exact", head: true }).in("status", ["pendente", "processando"]);
+  if (pend.error) throw new Error(`escala_producao_eventos (pendentes): ${pend.error.message}`);
+  const esg = await admin.from("escala_producao_eventos").select("id", { count: "exact", head: true }).eq("status", "erro").gte("tentativas", 3);
+  if (esg.error) throw new Error(`escala_producao_eventos (esgotados): ${esg.error.message}`);
+  resumo.pendentesRestantes = pend.count ?? 0;
+  resumo.esgotados = esg.count ?? 0;
+  return resumo;
+}
+
 // Geração manual / regeração: registra o evento (histórico) e processa na hora.
 export async function gerarEscalaDaSemana(
   admin: SupabaseClient,
