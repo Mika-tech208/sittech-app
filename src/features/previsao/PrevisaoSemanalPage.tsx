@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useCadastrosBase } from "@/hooks/useCadastrosBase";
 import { useFuncionarios } from "@/hooks/useFuncionarios";
+import { useFuncionariosElegibilidade } from "@/hooks/useFuncionariosElegibilidade";
 import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
@@ -20,7 +21,7 @@ import GlobalStyles from "@/components/shell/GlobalStyles";
 import { temPermissao } from "@/lib/permissoes";
 import { THEMES } from "@/lib/constants";
 import { formatBRL, formatQtd, toNumber, setModoPrivadoAtivo } from "@/lib/format";
-import { weekLabel, shiftWeek, toISODate, mondayOf } from "@/lib/date";
+import { weekLabel, shiftWeek, toISODate, mondayOf, formatarDataHoraBR } from "@/lib/date";
 import {
   calcularPeriodosComDuracao, filtrarPeriodosValidos, calcularHorasPorDia, calcularDuracaoMediaPeriodo, calcularHorasPorMaquinaSemana,
 } from "@/lib/calculations/periodos";
@@ -36,9 +37,13 @@ import ItensPrevistos, { type PrevItemFormState } from "@/features/previsao/comp
 import StatusProgramacao from "@/features/previsao/components/StatusProgramacao";
 import ProdutosProgramados from "@/features/previsao/components/ProdutosProgramados";
 import AjustarCapacidadeModal from "@/features/previsao/components/AjustarCapacidadeModal";
+import DiasEEquipeSemana from "@/features/previsao/components/DiasEEquipeSemana";
+import {
+  diasDaSemana, resolverDiasProdutivos, alternarDia, resolverEquipeProdutiva, alternarMembro, marcarTodos,
+} from "@/features/capacidade/diasEEquipe";
 import { baixarProgramacaoSemanaPDF } from "@/features/previsao/pdf";
 import { calcularProdutosProgramados, calcularProdutosNaoPrevistos, calcularResumoProgramacaoPecas } from "@/features/previsao/realizado";
-import type { Produto, PrevisaoItem } from "@/types/domain";
+import type { Produto, PrevisaoItem, Previsao } from "@/types/domain";
 
 const emptyPrevItemForm: PrevItemFormState = { produtoId: "", quantidade: "", maquinasPorEtapa: {} };
 
@@ -62,6 +67,10 @@ export default function PrevisaoSemanalPage() {
   // Ordem exigida: auth -> cadastros-base -> funcionários -> máquinas -> produtos -> previsões -> custos.
   const funcionariosHook = useFuncionarios(auth.autenticado && !cadastrosBase.loading);
   const { funcionarios } = funcionariosHook;
+  // Elenco da equipe produtiva: view de elegibilidade (id/nome/ativo, sem
+  // salário) — funciona para qualquer usuário ativo com acesso à Previsão,
+  // diferente de `funcionarios` (atrás da permissão de Funcionários/Custo).
+  const elegiveisHook = useFuncionariosElegibilidade(auth.autenticado && !cadastrosBase.loading);
   const maquinasHook = useMaquinas(auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading);
   const { maquinas } = maquinasHook;
   const produtosHook = useProdutos(auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading);
@@ -80,7 +89,6 @@ export default function PrevisaoSemanalPage() {
   const periodosValidos = useMemo(() => filtrarPeriodosValidos(periodosComDuracao), [periodosComDuracao]);
   const horasPorDiaCalc = useMemo(() => calcularHorasPorDia(periodosValidos), [periodosValidos]);
   const duracaoMediaPeriodo = calcularDuracaoMediaPeriodo(periodosValidos, horasPorDiaCalc);
-  const horasPorMaquinaSemana = calcularHorasPorMaquinaSemana(horasPorDiaCalc, toNumber(diasUteisSemana));
 
   const funcionariosAtivos = useMemo(() => funcionarios.filter((f) => f.ativo), [funcionarios]);
   const totalFixo = useMemo(() => calcularTotalFixoAtivo(fixedCosts), [fixedCosts]);
@@ -94,6 +102,25 @@ export default function PrevisaoSemanalPage() {
   const [semanaAtual, setSemanaAtual] = useState(() => toISODate(mondayOf(new Date())));
   const semanaAtualRec = useMemo(() => selecionarSemana(previsoes, semanaAtual), [previsoes, semanaAtual]);
   const resumoSemana = useMemo(() => calcularResumoSemana(semanaAtualRec), [semanaAtualRec]);
+
+  // ---- dias produtivos e equipe produtiva DESTA semana ----
+  // A capacidade usa a MESMA função central de sempre (horasPorDia × dias),
+  // só que com os dias marcados nesta semana em vez do padrão global.
+  const diasSemana = useMemo(() => diasDaSemana(semanaAtual), [semanaAtual]);
+  const diasProdutivos = useMemo(
+    () => resolverDiasProdutivos(semanaAtualRec, toNumber(diasUteisSemana)),
+    [semanaAtualRec, diasUteisSemana]
+  );
+  const horasPorMaquinaSemana = calcularHorasPorMaquinaSemana(horasPorDiaCalc, diasProdutivos.length);
+  const equipeProdutiva = useMemo(
+    () => resolverEquipeProdutiva(semanaAtualRec, elegiveisHook.funcionarios),
+    [semanaAtualRec, elegiveisHook.funcionarios]
+  );
+  const equipeProdutivaCount = equipeProdutiva.filter((m) => m.produtivo).length;
+  const nomePorFuncionarioId = useMemo(() => new Map(elegiveisHook.funcionarios.map((f) => [f.id, f.nome])), [elegiveisHook.funcionarios]);
+  const funcionariosInativos = useMemo(() => new Set(elegiveisHook.funcionarios.filter((f) => !f.ativo).map((f) => f.id)), [elegiveisHook.funcionarios]);
+  const [salvandoConfigSemana, setSalvandoConfigSemana] = useState(false);
+
   const historicoSemanas = useMemo(() => calcularHistoricoSemanas(previsoes), [previsoes]);
 
   // ---- realizado de Produtos programados: Itens realizados da própria
@@ -111,8 +138,24 @@ export default function PrevisaoSemanalPage() {
     return mapa;
   }, [semanaAtualRec.itensRealizados]);
 
-  function upsertSemana(campos: Partial<typeof semanaAtualRec>) {
-    return previsoesHook.upsertSemana(semanaAtual, campos);
+  // Semana sem snapshot: ao gravar pela primeira vez, persiste junto o que a
+  // tela está mostrando (dias + equipe padrão), pra o histórico ficar
+  // exatamente como o usuário viu.
+  function upsertSemana(campos: Partial<Previsao>) {
+    const extras: Partial<Previsao> = {};
+    if (semanaAtualRec.diasProdutivos === undefined && campos.diasProdutivos === undefined) extras.diasProdutivos = diasProdutivos;
+    if (!(semanaAtualRec.equipeSemana || []).length && campos.equipeSemana === undefined && equipeProdutiva.length > 0) extras.equipeSemana = equipeProdutiva;
+    return previsoesHook.upsertSemana(semanaAtual, { ...campos, ...extras });
+  }
+
+  async function salvarConfigSemana(campos: Pick<Partial<Previsao>, "diasProdutivos" | "equipeSemana">) {
+    if (salvandoConfigSemana) return;
+    setSalvandoConfigSemana(true);
+    try {
+      await upsertSemana(campos);
+    } finally {
+      setSalvandoConfigSemana(false);
+    }
   }
 
   // ---- modo simulação ----
@@ -248,12 +291,12 @@ export default function PrevisaoSemanalPage() {
     );
   }
 
-  if (cadastrosBase.loading || funcionariosHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading || auth.restaurandoSessao || !auth.autenticado) {
+  if (cadastrosBase.loading || funcionariosHook.loading || elegiveisHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading || auth.restaurandoSessao || !auth.autenticado) {
     return (
       <div className="stx-root">
         <GlobalStyles cores={cores} />
         <LoginScreen
-          loading={auth.restaurandoSessao || (auth.autenticado && (cadastrosBase.loading || funcionariosHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading))}
+          loading={auth.restaurandoSessao || (auth.autenticado && (cadastrosBase.loading || funcionariosHook.loading || elegiveisHook.loading || maquinasHook.loading || produtosHook.loading || previsoesHook.loading || custosHook.loading))}
           tema={tema}
           loginUsuario={auth.loginUsuario}
           setLoginUsuario={auth.setLoginUsuario}
@@ -334,6 +377,7 @@ export default function PrevisaoSemanalPage() {
           />
           {cadastrosBase.erro && <p className="stx-save-error">{cadastrosBase.erro}</p>}
           {funcionariosHook.erro && <p className="stx-save-error">{funcionariosHook.erro}</p>}
+          {elegiveisHook.erro && <p className="stx-save-error">{elegiveisHook.erro}</p>}
           {maquinasHook.erro && <p className="stx-save-error">{maquinasHook.erro}</p>}
           {produtosHook.erro && <p className="stx-save-error">{produtosHook.erro}</p>}
           {previsoesHook.erro && <p className="stx-save-error">{previsoesHook.erro}</p>}
@@ -361,7 +405,7 @@ export default function PrevisaoSemanalPage() {
                 <div>
                   <button className="stx-prev-pill-btn" onClick={() => baixarProgramacaoSemanaPDF({
                     semanaAtual, semanaAtualRec, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana,
-                    duracaoMediaPeriodo, diasUteisSemana, funcionariosAtivos, getLucroHora,
+                    duracaoMediaPeriodo, diasProdutivosSemana: diasProdutivos.length, equipeProdutivaCount, getLucroHora,
                   })}>Exportar PDF</button>
                   <p className="stx-prev-pdf-hint">Cmd/Ctrl+P → Salvar como PDF</p>
                 </div>
@@ -458,6 +502,21 @@ export default function PrevisaoSemanalPage() {
                   )}
                 </div>
 
+                <DiasEEquipeSemana
+                  diasDaSemana={diasSemana}
+                  diasProdutivos={diasProdutivos}
+                  onToggleDia={(dia) => salvarConfigSemana({ diasProdutivos: alternarDia(diasProdutivos, dia) })}
+                  equipe={equipeProdutiva}
+                  nomePorId={nomePorFuncionarioId}
+                  inativos={funcionariosInativos}
+                  onToggleMembro={(id) => salvarConfigSemana({ equipeSemana: alternarMembro(equipeProdutiva, id) })}
+                  onMarcarTodos={() => salvarConfigSemana({ equipeSemana: marcarTodos(equipeProdutiva, true) })}
+                  onLimpar={() => salvarConfigSemana({ equipeSemana: marcarTodos(equipeProdutiva, false) })}
+                  salvando={salvandoConfigSemana}
+                  horasPorDia={horasPorDiaCalc}
+                  horasPorMaquinaSemana={horasPorMaquinaSemana}
+                />
+
                 <ItensPrevistos
                   loading={previsoesHook.loading}
                   produtos={produtos}
@@ -479,7 +538,7 @@ export default function PrevisaoSemanalPage() {
                   onExcluir={deletePrevItem}
                   analise={analiseCapacidadeSemana}
                   valorPrevistoSemana={resumoSemana.valorPrevisto}
-                  funcionariosAtivosCount={funcionariosAtivos.length}
+                  equipeProdutivaCount={equipeProdutivaCount}
                   formatBRL={formatBRL}
                 />
 
@@ -678,6 +737,11 @@ function ItensRealizados({
             <div>
               <p className="stx-entry-desc">{it.produtoNome}</p>
               <p className="stx-entry-meta">{it.quantidade} × {formatBRL(it.valorUnitario)}</p>
+              <p className="stx-entry-meta">
+                {it.registradoEm
+                  ? `Registrado${it.registradoPorNome ? ` por ${it.registradoPorNome}` : ""} em ${formatarDataHoraBR(it.registradoEm)}`
+                  : "Registro anterior ao controle de data/hora"}
+              </p>
             </div>
             <div className="stx-entry-right">
               <span className="stx-entry-value">{formatBRL(it.quantidade * it.valorUnitario)}</span>

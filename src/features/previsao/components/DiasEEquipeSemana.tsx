@@ -1,0 +1,93 @@
+"use client";
+
+import { isoParaBR } from "@/lib/date";
+import { resumirEquipe } from "@/features/capacidade/diasEEquipe";
+import type { MembroEquipeSemana } from "@/types/domain";
+
+const NOMES_DIA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
+
+export interface DiasEEquipeSemanaProps {
+  diasDaSemana: string[]; // 7 datas ISO, segunda..domingo
+  diasProdutivos: string[];
+  onToggleDia: (dia: string) => void;
+  equipe: MembroEquipeSemana[];
+  nomePorId: Map<string, string>;
+  inativos: Set<string>;
+  onToggleMembro: (funcionarioId: string) => void;
+  onMarcarTodos: () => void;
+  onLimpar: () => void;
+  salvando: boolean;
+  horasPorDia: number;
+  horasPorMaquinaSemana: number;
+}
+
+// Dias trabalhados + Equipe produtiva — ambos pertencem à previsão da
+// semana em foco (nunca ao cadastro global). Cada clique grava na hora,
+// igual aos demais blocos da tela.
+export default function DiasEEquipeSemana({
+  diasDaSemana, diasProdutivos, onToggleDia, equipe, nomePorId, inativos, onToggleMembro, onMarcarTodos, onLimpar,
+  salvando, horasPorDia, horasPorMaquinaSemana,
+}: DiasEEquipeSemanaProps) {
+  const resumo = resumirEquipe(equipe);
+  const membros = [...equipe].sort((a, b) => (nomePorId.get(a.funcionarioId) || "").localeCompare(nomePorId.get(b.funcionarioId) || "", "pt-BR"));
+
+  return (
+    <div className="stx-panel">
+      <div className="stx-panel-title-row">
+        <p className="stx-panel-title">Dias trabalhados</p>
+      </div>
+      <p className="stx-panel-sub">
+        Marque os dias produtivos desta semana (desmarque feriado ou ponte, marque sábado trabalhado). Vale só para esta semana — o padrão da empresa não muda.
+      </p>
+      <div className="stx-etapa-maquinas">
+        {diasDaSemana.map((dia, i) => (
+          <label className="stx-maquina-chip" key={dia}>
+            <input type="checkbox" checked={diasProdutivos.includes(dia)} disabled={salvando} onChange={() => onToggleDia(dia)} />
+            {NOMES_DIA[i]} {isoParaBR(dia).slice(0, 5)}
+          </label>
+        ))}
+      </div>
+      <p className="stx-custos-total" style={{ marginTop: 10 }}>
+        {diasProdutivos.length} dia{diasProdutivos.length === 1 ? "" : "s"} produtivo{diasProdutivos.length === 1 ? "" : "s"} × {horasPorDia.toFixed(2)}h = <b>{horasPorMaquinaSemana.toFixed(2)}h</b> de capacidade por máquina na semana
+      </p>
+      {diasProdutivos.length === 0 && (
+        <p className="stx-panel-sub" style={{ color: "var(--warning)", margin: "6px 0 0" }}>
+          Nenhum dia produtivo marcado — a capacidade da semana fica zerada.
+        </p>
+      )}
+
+      <div className="stx-panel-title-row" style={{ marginTop: 22 }}>
+        <p className="stx-panel-title">Equipe produtiva da semana</p>
+      </div>
+      <p className="stx-panel-sub">
+        Quem realmente atua na produção nesta semana. Não altera o cadastro, o salário nem o Custo/hora de ninguém.
+      </p>
+      {membros.length === 0 ? (
+        <p className="stx-panel-sub">Nenhum funcionário ativo cadastrado.</p>
+      ) : (
+        <>
+          <div className="stx-etapa-maquinas">
+            {membros.map((m) => (
+              <label className="stx-maquina-chip" key={m.funcionarioId}>
+                <input type="checkbox" checked={m.produtivo} disabled={salvando} onChange={() => onToggleMembro(m.funcionarioId)} />
+                {nomePorId.get(m.funcionarioId) || "Funcionário removido"}{inativos.has(m.funcionarioId) ? " (inativo)" : ""}
+              </label>
+            ))}
+          </div>
+          <p className="stx-custos-total" style={{ marginTop: 10 }}>
+            <b>{resumo.texto}</b>
+          </p>
+          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+            <button type="button" className="stx-btn-secondary" onClick={onMarcarTodos} disabled={salvando}>Marcar todos</button>
+            <button type="button" className="stx-btn-secondary" onClick={onLimpar} disabled={salvando}>Limpar seleção</button>
+          </div>
+          {resumo.nenhum && (
+            <p className="stx-panel-sub" style={{ color: "var(--warning)", margin: "6px 0 0" }}>
+              Sem equipe produtiva marcada, o uso da equipe em horas não é calculado (sem divisão por zero).
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

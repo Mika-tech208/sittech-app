@@ -7,9 +7,10 @@
 // useFuncionariosElegibilidade, igual já é feito em
 // ApontamentosRealizadosPage.tsx.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import type { TipoAusencia } from "@/features/ausencias/calculations";
+import type { ResultadoDiaLote } from "@/features/ausencias/lote";
 
 export interface FiltrosAusencias {
   dataInicial?: string;
@@ -92,6 +93,17 @@ export interface RegistrarAusenciaPayload {
   idempotencyKey: string;
 }
 
+export interface RegistrarLotePayload {
+  funcionarioId: string;
+  datas: string[];
+  tipo: TipoAusencia;
+  horarioInicio: string | null;
+  horarioFim: string | null;
+  duracaoMinutos: number;
+  observacao: string;
+  loteKey: string;
+}
+
 export interface EditarAusenciaPayload {
   id: string;
   tipo: TipoAusencia;
@@ -107,7 +119,10 @@ export function useAusenciasFuncionarios(pronto: boolean) {
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
+  const ultimosFiltros = useRef<FiltrosAusencias>({});
+
   const buscar = useCallback(async (filtros: FiltrosAusencias): Promise<AusenciaFuncionario[] | undefined> => {
+    ultimosFiltros.current = filtros;
     setLoading(true);
     setErro(null);
     let query = supabase
@@ -163,6 +178,28 @@ export function useAusenciasFuncionarios(pronto: boolean) {
     return null;
   }, []);
 
+  // Lote: um registro por dia, gravado pela RPC (chave por dia derivada da
+  // chave do lote — retry/clique duplo não duplica). `erro` só vem preenchido
+  // em falha total (ex.: sem permissão); conflitos por dia vêm em `resultados`.
+  const registrarLote = useCallback(async (payload: RegistrarLotePayload): Promise<{ erro: string | null; resultados: ResultadoDiaLote[] }> => {
+    const { data, error } = await supabase.rpc("registrar_ausencias_funcionario_lote", {
+      p_funcionario_id: payload.funcionarioId,
+      p_datas: payload.datas,
+      p_tipo: payload.tipo,
+      p_horario_inicio: payload.horarioInicio,
+      p_horario_fim: payload.horarioFim,
+      p_duracao_minutos: payload.duracaoMinutos,
+      p_observacao: payload.observacao.trim() || null,
+      p_lote_key: payload.loteKey,
+    });
+    if (error || !Array.isArray(data)) {
+      return { erro: error?.message || "Não foi possível registrar as ausências.", resultados: [] };
+    }
+    // recarrega pelo filtro vigente: os dias criados entram na lista/resumo
+    await buscar(ultimosFiltros.current);
+    return { erro: null, resultados: data as ResultadoDiaLote[] };
+  }, [buscar]);
+
   const editar = useCallback(async (payload: EditarAusenciaPayload): Promise<string | null> => {
     const { data, error } = await supabase.rpc("editar_ausencia_funcionario", {
       p_ausencia_id: payload.id,
@@ -183,7 +220,7 @@ export function useAusenciasFuncionarios(pronto: boolean) {
     return null;
   }, []);
 
-  return { ausencias, loading, erro, limite: LIMITE_RESULTADOS, buscar, registrar, editar };
+  return { ausencias, loading, erro, limite: LIMITE_RESULTADOS, buscar, registrar, registrarLote, editar };
 }
 
 export type AusenciasFuncionariosHook = ReturnType<typeof useAusenciasFuncionarios>;

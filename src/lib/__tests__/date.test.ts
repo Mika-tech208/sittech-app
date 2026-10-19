@@ -54,3 +54,15 @@ describe("shiftWeek", () => {
     expect(shiftWeek("2026-09-07", -1)).toBe("2026-08-31");
   });
 });
+
+describe("formatarDataHoraBR", () => {
+  it("formata no fuso de São Paulo", async () => {
+    const { formatarDataHoraBR } = await import("@/lib/date");
+    expect(formatarDataHoraBR("2026-10-16T17:37:00Z")).toBe("16/10/2026 às 14:37");
+    expect(formatarDataHoraBR("2026-10-17T02:05:00Z")).toBe("16/10/2026 às 23:05");
+  });
+  it("data inválida devolve vazio", async () => {
+    const { formatarDataHoraBR } = await import("@/lib/date");
+    expect(formatarDataHoraBR("lixo")).toBe("");
+  });
+});

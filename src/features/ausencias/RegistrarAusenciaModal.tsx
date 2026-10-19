@@ -14,7 +14,9 @@ import { useState } from "react";
 import DatePicker from "@/components/shared/DatePicker";
 import { calcularAusencia, formatarDuracao, TIPOS_AUSENCIA, TIPOS_COM_HORARIO, type TipoAusencia } from "./calculations";
 import type { PeriodoSimples } from "./calculations";
-import type { RegistrarAusenciaPayload } from "@/hooks/useAusenciasFuncionarios";
+import type { RegistrarAusenciaPayload, RegistrarLotePayload } from "@/hooks/useAusenciasFuncionarios";
+import { diaSemanaCurto, gerarDiasDoIntervalo, resumirResultadoLote, type ResultadoDiaLote, type ResumoLote } from "./lote";
+import { isoParaBR } from "@/lib/date";
 
 interface FuncionarioSimples {
   id: string;
@@ -27,9 +29,10 @@ export interface RegistrarAusenciaModalProps {
   dataInicial: string;
   onFechar: () => void;
   onRegistrar: (payload: RegistrarAusenciaPayload) => Promise<string | null>;
+  onRegistrarLote: (payload: RegistrarLotePayload) => Promise<{ erro: string | null; resultados: ResultadoDiaLote[] }>;
 }
 
-export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, dataInicial, onFechar, onRegistrar }: RegistrarAusenciaModalProps) {
+export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, dataInicial, onFechar, onRegistrar, onRegistrarLote }: RegistrarAusenciaModalProps) {
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -42,6 +45,14 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
   const [horarioJanelaInicio, setHorarioJanelaInicio] = useState("");
   const [horarioJanelaFim, setHorarioJanelaFim] = useState("");
   const [observacao, setObservacao] = useState("");
+
+  // ---- vários dias: um registro por dia, a supervisora confirma cada dia ----
+  const [variosDias, setVariosDias] = useState(false);
+  const [dataFim, setDataFim] = useState(dataInicial);
+  const [desmarcados, setDesmarcados] = useState<string[]>([]);
+  const [resumoLote, setResumoLote] = useState<ResumoLote | null>(null);
+  const intervalo = variosDias ? gerarDiasDoIntervalo(data, dataFim) : { dias: [] as string[], erro: null };
+  const diasSelecionados = intervalo.dias.filter((d) => !desmarcados.includes(d));
 
   const precisaHorario = TIPOS_COM_HORARIO.includes(tipo);
   const resultado = calcularAusencia({
@@ -58,6 +69,9 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
     setHorarioJanelaInicio("");
     setHorarioJanelaFim("");
     setObservacao("");
+    setVariosDias(false);
+    setDataFim(data);
+    setDesmarcados([]);
     setErro(null);
     // encerra a tentativa atual (sucesso OU cancelar) — chave nova pra
     // próxima, senão uma tentativa cancelada/incerta poderia ser
@@ -65,12 +79,32 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
     setIdempotencyKey(crypto.randomUUID());
   }
 
-  const podeSalvar = !salvando && !!funcionarioId && !!data && !!tipo && (!precisaHorario || resultado !== null);
+  const podeSalvar = !salvando && !!funcionarioId && !!data && !!tipo && (!precisaHorario || resultado !== null)
+    && (!variosDias || (!!dataFim && !intervalo.erro && diasSelecionados.length > 0));
 
   async function salvar() {
     if (!podeSalvar || !resultado) return;
     setSalvando(true);
     setErro(null);
+    if (variosDias) {
+      const { erro: erroLote, resultados } = await onRegistrarLote({
+        funcionarioId, datas: diasSelecionados, tipo,
+        horarioInicio: resultado.horarioInicio,
+        horarioFim: resultado.horarioFim,
+        duracaoMinutos: resultado.duracaoMinutos,
+        observacao,
+        loteKey: idempotencyKey,
+      });
+      if (erroLote) {
+        setErro(erroLote);
+        setSalvando(false);
+        return;
+      }
+      setResumoLote(resumirResultadoLote(resultados, intervalo.dias, diasSelecionados));
+      setSalvando(false);
+      setSucesso(true);
+      return;
+    }
     const erroRpc = await onRegistrar({
       funcionarioId, data, tipo,
       horarioInicio: resultado.horarioInicio,
@@ -92,6 +126,35 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
   function cancelar() {
     resetFormulario();
     onFechar();
+  }
+
+  if (sucesso && resumoLote) {
+    const fmt = (ds: string[]) => ds.map((d) => `${isoParaBR(d).slice(0, 5)} (${diaSemanaCurto(d)})`).join(", ");
+    return (
+      <div className="stx-modal-backdrop" onClick={onFechar}>
+        <div className="stx-ap-modal-card" onClick={(e) => e.stopPropagation()}>
+          <div className="stx-ap-confirm">
+            <p className="stx-ap-confirm-check">
+              {resumoLote.criados.length > 0 ? `✓ ${resumoLote.criados.length} ausência${resumoLote.criados.length === 1 ? "" : "s"} registrada${resumoLote.criados.length === 1 ? "" : "s"}` : "Nenhuma ausência nova registrada"}
+            </p>
+            <div className="stx-ap-resumo-linhas" style={{ textAlign: "left", marginTop: 12 }}>
+              {resumoLote.criados.length > 0 && <div className="stx-ap-resumo-linha"><span>Dias criados</span><b>{fmt(resumoLote.criados)}</b></div>}
+              {resumoLote.jaRegistrados.length > 0 && <div className="stx-ap-resumo-linha"><span>Já registrados nesta ação</span><b>{fmt(resumoLote.jaRegistrados)}</b></div>}
+              {resumoLote.conflitos.length > 0 && <div className="stx-ap-resumo-linha"><span>Bloqueados por conflito</span><b style={{ color: "var(--danger)" }}>{fmt(resumoLote.conflitos)}</b></div>}
+              {resumoLote.ignorados.length > 0 && <div className="stx-ap-resumo-linha"><span>Ignorados (desmarcados)</span><b>{fmt(resumoLote.ignorados)}</b></div>}
+            </div>
+            {resumoLote.conflitos.length > 0 && (
+              <p className="stx-ap-error" style={{ marginTop: 10 }}>
+                Os dias bloqueados já têm ausência registrada nesse dia/horário para este funcionário — nada foi duplicado nem alterado neles.
+              </p>
+            )}
+            <div className="stx-ap-confirm-actions">
+              <button type="button" className="stx-ap-btn-primary" onClick={onFechar}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (sucesso) {
@@ -127,10 +190,61 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
           </select>
         </div>
 
-        <div className="stx-ap-field">
-          <label className="stx-ap-field-label">Data</label>
-          <DatePicker className="stx-ap-input" value={data} onChange={setData} />
-        </div>
+        {!variosDias ? (
+          <div className="stx-ap-field">
+            <label className="stx-ap-field-label">Data</label>
+            <DatePicker className="stx-ap-input" value={data} onChange={setData} />
+          </div>
+        ) : (
+          <div className="stx-ap-grid-2 stx-ap-field">
+            <div>
+              <label className="stx-ap-field-label">De</label>
+              <DatePicker className="stx-ap-input" value={data} onChange={(v) => { setData(v); if (!dataFim || dataFim < v) setDataFim(v); }} />
+            </div>
+            <div>
+              <label className="stx-ap-field-label">Até</label>
+              <DatePicker className="stx-ap-input" value={dataFim} min={data} onChange={setDataFim} />
+            </div>
+          </div>
+        )}
+
+        <label className="stx-maquina-chip" style={{ marginBottom: 8 }}>
+          <input
+            type="checkbox"
+            checked={variosDias}
+            disabled={salvando}
+            onChange={(e) => { setVariosDias(e.target.checked); setDataFim(data); setDesmarcados([]); }}
+          />
+          Lançar vários dias de uma vez
+        </label>
+
+        {variosDias && (
+          <div className="stx-ap-field">
+            {intervalo.erro ? (
+              <p className="stx-ap-error">{intervalo.erro}</p>
+            ) : (
+              <>
+                <label className="stx-ap-field-label">Dias que serão criados (um registro por dia)</label>
+                <div className="stx-etapa-maquinas">
+                  {intervalo.dias.map((d) => (
+                    <label className="stx-maquina-chip" key={d}>
+                      <input
+                        type="checkbox"
+                        checked={!desmarcados.includes(d)}
+                        disabled={salvando}
+                        onChange={() => setDesmarcados((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]))}
+                      />
+                      {isoParaBR(d).slice(0, 5)} · {diaSemanaCurto(d)}
+                    </label>
+                  ))}
+                </div>
+                <p className="stx-apr-ref" style={{ margin: "6px 0 0" }}>
+                  Feriados e fins de semana não são removidos sozinhos — desmarque o que não deve gerar ausência.
+                </p>
+              </>
+            )}
+          </div>
+        )}
 
         <div className="stx-ap-field">
           <label className="stx-ap-field-label">Tipo</label>
@@ -179,9 +293,15 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
         )}
 
         <div className="stx-ausencia-preview">
-          <span>Duração calculada</span>
+          <span>{variosDias ? "Duração por dia" : "Duração calculada"}</span>
           <b>{resultado ? formatarDuracao(resultado.duracaoMinutos) : "—"}</b>
         </div>
+        {variosDias && resultado && diasSelecionados.length > 0 && (
+          <div className="stx-ausencia-preview">
+            <span>{diasSelecionados.length} dia{diasSelecionados.length === 1 ? "" : "s"} no total</span>
+            <b>{formatarDuracao(resultado.duracaoMinutos * diasSelecionados.length)}</b>
+          </div>
+        )}
 
         <div className="stx-ap-field">
           <label className="stx-ap-field-label">Observação (opcional)</label>
@@ -192,7 +312,7 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
 
         <div className="stx-ap-actions">
           <button type="button" className="stx-ap-btn-primary" disabled={!podeSalvar} onClick={salvar}>
-            {salvando ? "Salvando…" : "Registrar ausência"}
+            {salvando ? "Salvando…" : variosDias ? `Registrar ${diasSelecionados.length} dia${diasSelecionados.length === 1 ? "" : "s"}` : "Registrar ausência"}
           </button>
           <button type="button" className="stx-ap-btn-secondary" onClick={cancelar} disabled={salvando}>Cancelar</button>
         </div>

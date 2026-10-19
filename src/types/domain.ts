@@ -105,6 +105,16 @@ export interface PrevisaoItem {
   // código de submitRealItem nunca preencheu esse campo. Documentado aqui
   // como opcional para refletir o dado real, não o que estava especificado.
   maquinasPorEtapa?: { [etapaId: string]: string[] };
+  // Só em itens realizados: carimbo decidido pelo servidor no momento da
+  // gravação (ver upsert_previsao_semana). null/ausente = lançado antes do
+  // controle — nunca inferir a data de created_at, que é reescrito a cada save.
+  registradoEm?: string | null;
+  registradoPorNome?: string | null;
+}
+
+export interface MembroEquipeSemana {
+  funcionarioId: string;
+  produtivo: boolean;
 }
 
 export interface Previsao {
@@ -112,5 +122,11 @@ export interface Previsao {
   itens: PrevisaoItem[];
   itensRealizados: PrevisaoItem[];
   maquinasIndisponiveis?: string[];
+  // Datas ISO dos dias produtivos DESTA semana. undefined = semana sem
+  // snapshot (ainda não gravada) — aí vale o padrão da empresa.
+  diasProdutivos?: string[];
+  // Elenco da semana com quem foi considerado produtivo. undefined/vazio =
+  // sem snapshot — aí vale "todos os ativos elegíveis".
+  equipeSemana?: MembroEquipeSemana[];
 }
 

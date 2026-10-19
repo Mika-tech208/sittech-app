@@ -27,6 +27,7 @@ import {
 import {
   calcularTotalFixoAtivo, calcularTotalCustoFuncionariosAtivos, calcularCustoHoraEOperacoes, calcularMargemProduto, calcularMetaFaturamento,
 } from "@/features/custo-hora/calculations";
+import { resolverDiasProdutivos } from "@/features/capacidade/diasEEquipe";
 import { selecionarSemana, calcularResumoSemana } from "@/features/capacidade/selectors";
 import {
   calcularItensSemanaAgregados, calcularCapacidadeInicialPorMaquina, calcularAlocacaoSemanal,
@@ -70,7 +71,6 @@ export default function CapacidadeSemanalPage() {
   const periodosValidos = useMemo(() => filtrarPeriodosValidos(periodosComDuracao), [periodosComDuracao]);
   const horasPorDiaCalc = useMemo(() => calcularHorasPorDia(periodosValidos), [periodosValidos]);
   const duracaoMediaPeriodo = calcularDuracaoMediaPeriodo(periodosValidos, horasPorDiaCalc);
-  const horasPorMaquinaSemana = calcularHorasPorMaquinaSemana(horasPorDiaCalc, toNumber(diasUteisSemana));
 
   const funcionariosAtivos = useMemo(() => funcionarios.filter((f) => f.ativo), [funcionarios]);
   const totalFixo = useMemo(() => calcularTotalFixoAtivo(fixedCosts), [fixedCosts]);
@@ -86,6 +86,13 @@ export default function CapacidadeSemanalPage() {
 
   const [semanaAtual, setSemanaAtual] = useState(() => toISODate(mondayOf(new Date())));
   const semanaAtualRec = useMemo(() => selecionarSemana(previsoes, semanaAtual), [previsoes, semanaAtual]);
+  // Dias produtivos DESTA semana (definidos na Previsão Semanal); o padrão
+  // global só vale para semana sem snapshot.
+  const diasProdutivosSemana = useMemo(
+    () => resolverDiasProdutivos(semanaAtualRec, toNumber(diasUteisSemana)),
+    [semanaAtualRec, diasUteisSemana]
+  );
+  const horasPorMaquinaSemana = calcularHorasPorMaquinaSemana(horasPorDiaCalc, diasProdutivosSemana.length);
   const resumoSemana = useMemo(() => calcularResumoSemana(semanaAtualRec), [semanaAtualRec]);
 
   const custoTotalMensalAtual = totalFixo + totalCustoFuncionariosAtivos;
@@ -413,8 +420,11 @@ export default function CapacidadeSemanalPage() {
                     <p className="stx-cap-ref" style={{ margin: "8px 0 14px" }}>
                       Cruza o previsto com as máquinas marcadas em cada etapa dos produtos, priorizando maior lucro/hora.
                     </p>
-                    <div style={{ maxWidth: 160 }}>
-                      <label className="stx-label">Dias úteis nessa semana</label>
+                    <p className="stx-cap-ref" style={{ margin: "0 0 10px" }}>
+                      Esta semana: <b>{diasProdutivosSemana.length} dia{diasProdutivosSemana.length === 1 ? "" : "s"} produtivo{diasProdutivosSemana.length === 1 ? "" : "s"}</b> — definidos na Previsão Semanal.
+                    </p>
+                    <div style={{ maxWidth: 220 }}>
+                      <label className="stx-label">Padrão de dias úteis por semana (semanas novas)</label>
                       <input
                         className="stx-input"
                         value={diasUteisSemana}
