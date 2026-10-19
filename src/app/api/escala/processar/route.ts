@@ -9,8 +9,9 @@
 // ausência, por exemplo, não tem permissão da Escala) — é idempotente e
 // não aceita parâmetros, então acionar a mais não muda resultado nenhum.
 // Se esta chamada falhar, o evento continua pendente e é retomado na
-// próxima chamada (retry simples, até 3 tentativas no banco). Pensado para
-// no futuro receber também um worker/cron sem mudar o motor.
+// próxima chamada ou na próxima execução do worker /api/escala/drenar
+// (retry simples, até 3 tentativas no banco). Esta chamada serve só para
+// baixa latência — a garantia de processamento vem do worker.
 
 import { NextResponse } from "next/server";
 import { criarClienteAdmin } from "@/lib/supabase-admin";

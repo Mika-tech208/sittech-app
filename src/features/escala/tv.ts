@@ -17,6 +17,7 @@ export interface SituacaoTv {
   minutosParaTroca: number | null; // até o fim do período atual (ou até o início do próximo se não há atual)
   destacarProximo: boolean;
   encerrado: boolean; // não há mais períodos hoje
+  antesDoInicio: boolean; // ainda não começou nenhum período do dia (não é intervalo)
 }
 
 export const MINUTOS_DESTAQUE_PROXIMO = 5; // constante de UI: quanto antes o próximo período ganha destaque
@@ -40,6 +41,7 @@ export function situacaoTv(data: string, periodos: PeriodoEscala[], agoraMs: num
     minutosParaTroca,
     destacarProximo: !!proximo && !!atual && (atual.fimMs - agoraMs) <= minutosDestaque * 60000,
     encerrado: !atual && !proximo,
+    antesDoInicio: !atual && !!proximo && proximo.id === lista[0]?.id,
   };
 }
 

@@ -30,7 +30,10 @@ describe("modo TV — AGORA e PRÓXIMO", () => {
     expect(s.destacarProximo).toBe(false);
   });
   it("antes do expediente e depois do último período", () => {
-    expect(situacaoTv(D, PERIODOS_REAIS, epochMsNoFuso(D, "06:00")).proximo?.id).toBe("m1");
+    const antes = situacaoTv(D, PERIODOS_REAIS, epochMsNoFuso(D, "06:00"));
+    expect(antes.proximo?.id).toBe("m1");
+    expect(antes.antesDoInicio).toBe(true); // não é "intervalo"
+    expect(situacaoTv(D, PERIODOS_REAIS, epochMsNoFuso(D, "12:30")).antesDoInicio).toBe(false);
     const fim = situacaoTv(D, PERIODOS_REAIS, epochMsNoFuso(D, "17:30"));
     expect(fim.encerrado).toBe(true);
     expect(fim.atual).toBeNull();

@@ -71,7 +71,10 @@ export function useEscalaTv(pronto: boolean, simulacao?: SimulacaoTv | null) {
       .channel("escala-tv")
       .on("postgres_changes", { event: "*", schema: "public", table: "escala_producao_dias" }, () => buscar())
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") setTempoReal("ativo");
+        if (status === "SUBSCRIBED") {
+          setTempoReal("ativo");
+          buscar(); // (re)conectou: recupera o que mudou enquanto estava fora
+        }
         else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") setTempoReal("polling");
       });
     return () => {
