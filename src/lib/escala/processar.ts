@@ -73,6 +73,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
         semPosto: resultado.alocacoes.filter((a) => !a.maquinaId).length,
         excecoesRevezamento: resultado.alocacoes.filter((a) => a.excecaoRevezamento).length,
         alertas: resultado.alertas.length,
+        alertasDetalhe: resultado.alertas.slice(0, 300), // histórico do módulo: a tela mostra os alertas do último recálculo
         primeiraGeracaoComSemanaEmAndamento: resultado.primeiraGeracaoComSemanaEmAndamento,
       },
     };
