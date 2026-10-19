@@ -36,6 +36,8 @@ interface PrevisaoItemRow {
   produto_nome: string;
   valor_unitario: number;
   quantidade: number;
+  registrado_em: string | null;
+  registrado_por_nome: string | null;
   previsao_item_maquinas: { etapa_id: string; maquina_id: string }[] | null;
 }
 
@@ -44,15 +46,19 @@ interface PrevisaoRow {
   semana_inicio: string;
   previsao_itens: PrevisaoItemRow[] | null;
   previsao_maquinas_indisponiveis: { maquina_id: string }[] | null;
+  previsao_dias_produtivos: { dia: string; ativo: boolean }[] | null;
+  previsao_equipe_semana: { funcionario_id: string; produtivo: boolean }[] | null;
 }
 
 const PREVISAO_SELECT = `
   id, semana_inicio,
   previsao_itens(
-    id, tipo, produto_id, produto_nome, valor_unitario, quantidade,
+    id, tipo, produto_id, produto_nome, valor_unitario, quantidade, registrado_em, registrado_por_nome,
     previsao_item_maquinas(etapa_id, maquina_id)
   ),
-  previsao_maquinas_indisponiveis(maquina_id)
+  previsao_maquinas_indisponiveis(maquina_id),
+  previsao_dias_produtivos(dia, ativo),
+  previsao_equipe_semana(funcionario_id, produtivo)
 `;
 
 function agruparMaquinasPorEtapa(linhas: { etapa_id: string; maquina_id: string }[] | null): Record<string, string[]> {
@@ -69,6 +75,8 @@ function linhaParaItem(i: PrevisaoItemRow): PrevisaoItem {
     id: i.id, produtoId: i.produto_id, produtoNome: i.produto_nome,
     valorUnitario: Number(i.valor_unitario), quantidade: Number(i.quantidade),
     maquinasPorEtapa: agruparMaquinasPorEtapa(i.previsao_item_maquinas),
+    registradoEm: i.registrado_em,
+    registradoPorNome: i.registrado_por_nome,
   };
 }
 
@@ -79,6 +87,14 @@ function linhaParaPrevisao(p: PrevisaoRow): Previsao {
     itens: linhas.filter((i) => i.tipo === "previsto").map(linhaParaItem),
     itensRealizados: linhas.filter((i) => i.tipo === "realizado").map(linhaParaItem),
     maquinasIndisponiveis: (p.previsao_maquinas_indisponiveis || []).map((m) => m.maquina_id),
+    // sem nenhuma linha = semana sem snapshot (undefined), diferente de
+    // "snapshot com zero dias ativos" (linhas existem, todas ativo=false).
+    diasProdutivos: (p.previsao_dias_produtivos || []).length > 0
+      ? (p.previsao_dias_produtivos || []).filter((d) => d.ativo).map((d) => d.dia).sort()
+      : undefined,
+    equipeSemana: (p.previsao_equipe_semana || []).length > 0
+      ? (p.previsao_equipe_semana || []).map((m) => ({ funcionarioId: m.funcionario_id, produtivo: m.produtivo }))
+      : undefined,
   };
 }
 
@@ -89,6 +105,7 @@ function linhaParaPrevisao(p: PrevisaoRow): Previsao {
 // `produtos`), só reempacotados pro formato que a function espera.
 function itemParaPayloadRPC(it: PrevisaoItem) {
   return {
+    id: it.id, // só o servidor usa, pra preservar o carimbo de realizados já lançados
     produto_id: it.produtoId,
     produto_nome: it.produtoNome,
     valor_unitario: it.valorUnitario,
@@ -131,6 +148,10 @@ export function usePrevisoes(pronto: boolean) {
       p_itens_previsto: campos.itens !== undefined ? campos.itens.map(itemParaPayloadRPC) : null,
       p_itens_realizado: campos.itensRealizados !== undefined ? campos.itensRealizados.map(itemParaPayloadRPC) : null,
       p_maquinas_indisponiveis: campos.maquinasIndisponiveis !== undefined ? campos.maquinasIndisponiveis : null,
+      p_dias_produtivos: campos.diasProdutivos !== undefined ? campos.diasProdutivos : null,
+      p_equipe_semana: campos.equipeSemana !== undefined
+        ? campos.equipeSemana.map((m) => ({ funcionario_id: m.funcionarioId, produtivo: m.produtivo }))
+        : null,
     });
     if (rpcErro || !previsaoId) {
       setErro("Não foi possível salvar a previsão dessa semana.");

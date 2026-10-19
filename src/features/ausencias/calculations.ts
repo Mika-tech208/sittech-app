@@ -222,12 +222,12 @@ export function calcularDisponibilidadePct(minutosPrevistosEquipe: number, minut
   return Math.max(0, Math.min(100, pct));
 }
 
-// "1h48" — mesmo formato dos exemplos que motivaram a feature.
+// Formato humano único do módulo: sempre "Xh YYmin" (8h 48min, 1h 00min,
+// 0h 00min, 176h 00min). Só apresentação — o valor em minutos não muda, e
+// nunca vira minutos gigantes ("10560 min") nem hora decimal ("176.8").
 export function formatarDuracao(minutos: number): string {
-  if (minutos <= 0) return "0min";
-  const h = Math.floor(minutos / 60);
-  const m = minutos % 60;
-  if (h === 0) return `${m}min`;
-  if (m === 0) return `${h}h`;
-  return `${h}h${String(m).padStart(2, "0")}`;
+  const total = Math.max(0, Math.round(Number.isFinite(minutos) ? minutos : 0));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${h}h ${String(m).padStart(2, "0")}min`;
 }

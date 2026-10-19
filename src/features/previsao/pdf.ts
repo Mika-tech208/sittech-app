@@ -9,9 +9,8 @@ import {
   calcularFuncionariosTotalSemana, calcularPeriodosEtapa, textoDiasPeriodos,
 } from "@/features/capacidade/calculations";
 import { weekLabel } from "@/lib/date";
-import { toNumber } from "@/lib/format";
 import { LOGO_LIGHT } from "@/lib/logos";
-import type { Produto, Maquina, PeriodoComDuracao, Previsao, Funcionario } from "@/types/domain";
+import type { Produto, Maquina, PeriodoComDuracao, Previsao } from "@/types/domain";
 
 const CORES_PRODUTO_PDF = ["#1D9E75", "#7F77DD", "#D85A30", "#D4537E", "#378ADD", "#BA7517"];
 
@@ -23,22 +22,23 @@ export interface GerarProgramacaoParams {
   periodosComDuracao: PeriodoComDuracao[];
   horasPorMaquinaSemana: number;
   duracaoMediaPeriodo: number;
-  diasUteisSemana: string | number;
-  funcionariosAtivos: Funcionario[];
+  // dias produtivos e equipe produtiva DESTA semana (não o padrão global)
+  diasProdutivosSemana: number;
+  equipeProdutivaCount: number;
   getLucroHora: (produto: Produto) => number;
 }
 
 export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): string {
   const {
     semanaAtual, semanaAtualRec, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana,
-    duracaoMediaPeriodo, diasUteisSemana, funcionariosAtivos, getLucroHora,
+    duracaoMediaPeriodo, diasProdutivosSemana, equipeProdutivaCount, getLucroHora,
   } = params;
 
   const analiseCapacidade = calcularAnaliseCapacidadeSemanal(semanaAtualRec.itens, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana);
   const usoMaquinas = calcularUsoPorMaquina(analiseCapacidade, duracaoMediaPeriodo);
   const maquinasExcedidas = usoMaquinas.filter((u) => u.excedeu);
   const observacoesSetupPDF = calcularObservacoesSetup(analiseCapacidade, produtos, getLucroHora);
-  const horasPessoaDisponiveisPDF = funcionariosAtivos.length * horasPorMaquinaSemana;
+  const horasPessoaDisponiveisPDF = equipeProdutivaCount * horasPorMaquinaSemana;
   const horasPessoaDemandadasPDF = analiseCapacidade.maquinas.reduce((s, m) => s + m.horasNecessarias, 0);
   const pctEquipePDF = horasPessoaDisponiveisPDF > 0 ? (horasPessoaDemandadasPDF / horasPessoaDisponiveisPDF) * 100 : 0;
 
@@ -101,7 +101,7 @@ export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): stri
       </div>`;
   }).join("");
 
-  const capacidadePeriodoSemana = (toNumber(diasUteisSemana) || 5) * 3;
+  const capacidadePeriodoSemana = diasProdutivosSemana * 3;
   const cabe = analiseCapacidade.atingivel;
 
   return `<!DOCTYPE html>
@@ -166,7 +166,7 @@ export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): stri
     </div>
   </div>
   ${semanaAtualRec.itens.length === 0 ? "<p>Nenhum item lançado pra essa semana.</p>" : linhasItens}
-  ${semanaAtualRec.itens.length > 0 ? `<p class="total">Total geral de funcionários necessários na semana: <b>${totalFuncionarios}</b> de ${funcionariosAtivos.length} ativos</p>
+  ${semanaAtualRec.itens.length > 0 ? `<p class="total">Total geral de funcionários necessários na semana: <b>${totalFuncionarios}</b> de ${equipeProdutivaCount} produtivos na semana</p>
   <p style="margin-top:4px; font-size:14px;">Uso da equipe em horas: <b>${pctEquipePDF.toFixed(1)}%</b> <span style="font-weight:400; color:#8a8f94; font-size:12px;">(${horasPessoaDemandadasPDF.toFixed(1)}h demandadas de ${horasPessoaDisponiveisPDF.toFixed(1)}h disponíveis)</span></p>` : ""}
   ${usoMaquinas.length > 0 ? `
   <h2 class="secao">Uso de cada máquina essa semana</h2>
@@ -205,7 +205,7 @@ export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): stri
   <div class="resumo-final ${cabe ? "ok" : "alerta"}">
     <p class="veredito">${cabe ? "✓ Dá para cumprir toda a programação dentro dos períodos disponíveis." : `⚠ ${maquinasExcedidas.length} máquina${maquinasExcedidas.length > 1 ? "s estão" : " está"} pedida${maquinasExcedidas.length > 1 ? "s" : ""} além da capacidade da semana.`}</p>
     <p>${cabe
-        ? `Cada máquina usada tem no máximo ${capacidadePeriodoSemana} períodos de manhã e ${capacidadePeriodoSemana} de tarde disponíveis nos ${toNumber(diasUteisSemana) || 5} dias úteis — nenhuma passou disso.`
+        ? `Cada máquina usada tem no máximo ${capacidadePeriodoSemana} períodos de manhã e ${capacidadePeriodoSemana} de tarde disponíveis nos ${diasProdutivosSemana} dias produtivos — nenhuma passou disso.`
         : `Máquina${maquinasExcedidas.length > 1 ? "s" : ""} no limite: ${maquinasExcedidas.map((u) => u.nome).join(", ")}. Considera redistribuir entre produtos ou rever a previsão dessa semana.`}</p>
   </div>` : ""}
 </body></html>`;

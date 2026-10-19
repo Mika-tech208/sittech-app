@@ -79,3 +79,16 @@ export function brParaMonthKey(br: string): string | null {
   if (mes < 1 || mes > 12) return null;
   return `${y}-${mo}`;
 }
+
+// "16/10/2026 às 14:37" no fuso de São Paulo, independente do fuso do
+// aparelho — usado em carimbos de registro vindos do servidor (timestamptz).
+export function formatarDataHoraBR(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const partes = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(d);
+  const p = (tipo: string) => partes.find((x) => x.type === tipo)?.value ?? "";
+  return `${p("day")}/${p("month")}/${p("year")} às ${p("hour")}:${p("minute")}`;
+}

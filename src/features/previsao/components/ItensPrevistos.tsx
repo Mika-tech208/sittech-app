@@ -34,7 +34,8 @@ export interface ItensPrevistosProps {
   onExcluir: (id: string) => void;
   analise: AnaliseCapacidadeSemanal;
   valorPrevistoSemana: number;
-  funcionariosAtivosCount: number;
+  // funcionários marcados como produtivos NESTA semana (não o total de ativos)
+  equipeProdutivaCount: number;
   formatBRL: (v: number) => string;
 }
 
@@ -43,7 +44,7 @@ export interface ItensPrevistosProps {
 export default function ItensPrevistos({
   loading, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, semana,
   showForm, setShowForm, editingId, form, onSelecionarProduto, onQuantidadeChange, onToggleMaquina,
-  onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, funcionariosAtivosCount, formatBRL,
+  onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, equipeProdutivaCount, formatBRL,
 }: ItensPrevistosProps) {
   const produtoSel = produtos.find((p) => p.id === form.produtoId) || null;
   const roteiroSel = produtoSel?.roteiro || [];
@@ -55,7 +56,7 @@ export default function ItensPrevistos({
       )
     : null;
 
-  const horasPessoaDisponiveis = funcionariosAtivosCount * horasPorMaquinaSemana;
+  const horasPessoaDisponiveis = equipeProdutivaCount * horasPorMaquinaSemana;
   const horasPessoaDemandadas = analise.maquinas.reduce((s, m) => s + m.horasNecessarias, 0);
   const pctEquipe = horasPessoaDisponiveis > 0 ? (horasPessoaDemandadas / horasPessoaDisponiveis) * 100 : 0;
 
@@ -224,14 +225,20 @@ export default function ItensPrevistos({
       {semana.itens.length > 0 && (
         <>
           <p className="stx-custos-total" style={{ marginTop: 4 }}>
-            Funcionários necessários pra essa programação: <b>{calcularFuncionariosTotalSemana(semana.itens)}</b> de {funcionariosAtivosCount} ativos
+            Funcionários necessários pra essa programação: <b>{calcularFuncionariosTotalSemana(semana.itens)}</b> de {equipeProdutivaCount} produtivos na semana
           </p>
-          <p className="stx-custos-total" style={{ marginTop: 4 }}>
-            Uso da equipe em horas: <b style={{ color: "var(--accent)" }}>{pctEquipe.toFixed(1)}%</b>
-            {" "}<span style={{ fontWeight: 400, color: "var(--text-muted)", fontSize: 12 }}>
-              ({horasPessoaDemandadas.toFixed(1)}h demandadas de {horasPessoaDisponiveis.toFixed(1)}h disponíveis nos {funcionariosAtivosCount} funcionários)
-            </span>
-          </p>
+          {equipeProdutivaCount === 0 ? (
+            <p className="stx-custos-total" style={{ marginTop: 4, color: "var(--warning)" }}>
+              Nenhum funcionário produtivo marcado nesta semana — o uso da equipe em horas não pode ser calculado.
+            </p>
+          ) : (
+            <p className="stx-custos-total" style={{ marginTop: 4 }}>
+              Uso da equipe em horas: <b style={{ color: "var(--accent)" }}>{pctEquipe.toFixed(1)}%</b>
+              {" "}<span style={{ fontWeight: 400, color: "var(--text-muted)", fontSize: 12 }}>
+                ({horasPessoaDemandadas.toFixed(1)}h demandadas de {horasPessoaDisponiveis.toFixed(1)}h disponíveis nos {equipeProdutivaCount} funcionários produtivos)
+              </span>
+            </p>
+          )}
         </>
       )}
     </div>

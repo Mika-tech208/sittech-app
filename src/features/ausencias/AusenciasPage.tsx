@@ -384,6 +384,7 @@ export default function AusenciasPage() {
           dataInicial={toISODate(new Date())}
           onFechar={() => setMostrarRegistrar(false)}
           onRegistrar={ausenciasHook.registrar}
+          onRegistrarLote={ausenciasHook.registrarLote}
         />
       )}
 

@@ -31,7 +31,7 @@ describe("falta dia inteiro", () => {
   it("usa a jornada inteira do dia: 8h48 de ausência", () => {
     const r = calcularAusencia({ tipo: "falta_dia_inteiro", periodos: PERIODOS });
     expect(r?.duracaoMinutos).toBe(528);
-    expect(formatarDuracao(r!.duracaoMinutos)).toBe("8h48");
+    expect(formatarDuracao(r!.duracaoMinutos)).toBe("8h 48min");
   });
 
   it("atestado/falta justificada/não justificada também usam o dia inteiro", () => {
@@ -50,7 +50,7 @@ describe("atraso", () => {
   it("exemplo do pedido: previsto 07:12, chegada 09:00 -> 1h48", () => {
     const r = calcularAusencia({ tipo: "atraso", periodos: PERIODOS, horarioReal: "09:00" });
     expect(r?.duracaoMinutos).toBe(108);
-    expect(formatarDuracao(r!.duracaoMinutos)).toBe("1h48");
+    expect(formatarDuracao(r!.duracaoMinutos)).toBe("1h 48min");
   });
 
   it("atraso que atravessa o almoço não conta o almoço", () => {
@@ -65,7 +65,7 @@ describe("saída antecipada", () => {
   it("exemplo do pedido: saída real 15:20, previsto 17:00 -> 1h40", () => {
     const r = calcularAusencia({ tipo: "saida_antecipada", periodos: PERIODOS, horarioReal: "15:20" });
     expect(r?.duracaoMinutos).toBe(100);
-    expect(formatarDuracao(r!.duracaoMinutos)).toBe("1h40");
+    expect(formatarDuracao(r!.duracaoMinutos)).toBe("1h 40min");
   });
 
   it("saída antecipada que atravessa o almoço não conta o almoço", () => {
@@ -82,7 +82,7 @@ describe("saída durante expediente", () => {
       tipo: "saida_durante_expediente", periodos: PERIODOS, horarioJanelaInicio: "09:30", horarioJanelaFim: "10:45",
     });
     expect(r?.duracaoMinutos).toBe(75);
-    expect(formatarDuracao(r!.duracaoMinutos)).toBe("1h15");
+    expect(formatarDuracao(r!.duracaoMinutos)).toBe("1h 15min");
   });
 
   it("atravessando o almoço: só conta os minutos produtivos dos dois lados", () => {
@@ -137,17 +137,27 @@ describe("tipos com horário incompleto não calculam (evita a supervisora manda
 });
 
 describe("formatarDuracao", () => {
-  it("minutos puros, sem hora cheia", () => {
-    expect(formatarDuracao(45)).toBe("45min");
+  it("528 min -> 8h 48min (falta dia inteiro)", () => {
+    expect(formatarDuracao(528)).toBe("8h 48min");
   });
-  it("hora cheia, sem minutos", () => {
-    expect(formatarDuracao(120)).toBe("2h");
+  it("hora cheia mantém os minutos: 60 -> 1h 00min", () => {
+    expect(formatarDuracao(60)).toBe("1h 00min");
+    expect(formatarDuracao(120)).toBe("2h 00min");
   });
-  it("hora e minutos", () => {
-    expect(formatarDuracao(108)).toBe("1h48");
+  it("menos de uma hora: 45 -> 0h 45min", () => {
+    expect(formatarDuracao(45)).toBe("0h 45min");
   });
-  it("zero ou negativo", () => {
-    expect(formatarDuracao(0)).toBe("0min");
-    expect(formatarDuracao(-5)).toBe("0min");
+  it("zero, negativo e inválido -> 0h 00min", () => {
+    expect(formatarDuracao(0)).toBe("0h 00min");
+    expect(formatarDuracao(-5)).toBe("0h 00min");
+    expect(formatarDuracao(Number.NaN)).toBe("0h 00min");
+  });
+  it("totais grandes continuam legíveis (nunca minutos gigantes nem decimal)", () => {
+    expect(formatarDuracao(10560)).toBe("176h 00min");
+    expect(formatarDuracao(10128)).toBe("168h 48min");
+    expect(formatarDuracao(1935)).toBe("32h 15min");
+  });
+  it("não altera o valor: arredonda só a apresentação de fração de minuto", () => {
+    expect(formatarDuracao(10608.0000001)).toBe("176h 48min");
   });
 });
