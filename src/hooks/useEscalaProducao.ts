@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/services/supabase-client";
-import { dispararProcessamentoEscala, gerarEscalaNoServidor } from "@/lib/escala/disparar";
+import { dispararProcessamentoEscala, gerarEscalaNoServidor, reprocessarEventosEsgotados } from "@/lib/escala/disparar";
 import type { AlertaEscala, PeriodoEscala } from "@/features/escala/types";
 
 export interface DiaEscala {
@@ -55,14 +55,15 @@ export interface EstadoEscalaTela {
   alertas: AlertaEscala[];
   primeiraGeracaoEmAndamento: boolean;
   eventosPendentes: number;
-  eventosComErro: number;
+  eventosComErro: number; // com erro, ainda dentro das 3 tentativas automáticas
+  eventosEsgotados: number; // esgotaram as tentativas — em QUALQUER semana (precisa de ação)
   postosDaPrevisao: string[]; // máquinas selecionadas na Previsão da semana
   indisponibilidades: RecursoIndisponivel[]; // abertas
   nomes: Nomes;
 }
 
 const VAZIO: EstadoEscalaTela = {
-  previsaoId: null, dias: [], alocacoes: [], alertas: [], primeiraGeracaoEmAndamento: false, eventosPendentes: 0, eventosComErro: 0,
+  previsaoId: null, dias: [], alocacoes: [], alertas: [], primeiraGeracaoEmAndamento: false, eventosPendentes: 0, eventosComErro: 0, eventosEsgotados: 0,
   postosDaPrevisao: [], indisponibilidades: [],
   nomes: { maquinas: new Map(), produtos: new Map(), operacoes: new Map(), funcionarios: new Map() },
 };
@@ -100,8 +101,11 @@ export function useEscalaProducao(pronto: boolean, semanaInicio: string) {
       id: r.id, maquinaId: r.maquina_id, motivo: r.motivo, observacao: r.observacao, desde: r.desde, liberadaEm: r.liberada_em,
     }));
 
+    const esg = await supabase.from("escala_producao_eventos").select("id", { count: "exact", head: true }).eq("status", "erro").gte("tentativas", 3);
+    const eventosEsgotados = esg.error ? 0 : (esg.count ?? 0);
+
     if (!prev) {
-      if (montado.current) setEstado({ ...VAZIO, nomes, indisponibilidades });
+      if (montado.current) setEstado({ ...VAZIO, nomes, indisponibilidades, eventosEsgotados });
       setLoading(false);
       return;
     }
@@ -110,7 +114,7 @@ export function useEscalaProducao(pronto: boolean, semanaInicio: string) {
     const [diasR, itensR, eventosR] = await Promise.all([
       supabase.from("escala_producao_dias").select("data, versao, atualizado_em, periodos_snapshot").eq("previsao_id", previsaoId).order("data"),
       supabase.from("previsao_itens").select("previsao_item_maquinas(maquina_id)").eq("previsao_id", previsaoId).eq("tipo", "previsto"),
-      supabase.from("escala_producao_eventos").select("tipo, status, criado_em, payload").eq("previsao_id", previsaoId).order("criado_em"),
+      supabase.from("escala_producao_eventos").select("tipo, status, tentativas, criado_em, payload").eq("previsao_id", previsaoId).order("criado_em"),
     ]);
     if (diasR.error) return falha("Não foi possível carregar a Escala.");
 
@@ -129,7 +133,7 @@ export function useEscalaProducao(pronto: boolean, semanaInicio: string) {
       }));
     }
 
-    const eventos = (eventosR.data || []) as { tipo: string; status: string; criado_em: string; payload: { resumo?: { alertasDetalhe?: AlertaEscala[]; primeiraGeracaoComSemanaEmAndamento?: boolean } } }[];
+    const eventos = (eventosR.data || []) as { tipo: string; status: string; tentativas: number; criado_em: string; payload: { resumo?: { alertasDetalhe?: AlertaEscala[]; primeiraGeracaoComSemanaEmAndamento?: boolean } } }[];
     const recalculos = eventos.filter((e) => e.tipo === "recalculo");
     const ultimo = recalculos[recalculos.length - 1];
     const primeiro = recalculos[0];
@@ -142,7 +146,8 @@ export function useEscalaProducao(pronto: boolean, semanaInicio: string) {
       alertas: ultimo?.payload?.resumo?.alertasDetalhe ?? [],
       primeiraGeracaoEmAndamento: Boolean(primeiro?.payload?.resumo?.primeiraGeracaoComSemanaEmAndamento),
       eventosPendentes: eventos.filter((e) => ["pendente", "processando"].includes(e.status)).length,
-      eventosComErro: eventos.filter((e) => e.status === "erro").length,
+      eventosComErro: eventos.filter((e) => e.status === "erro" && e.tentativas < 3).length,
+      eventosEsgotados,
       postosDaPrevisao: [...postos],
       indisponibilidades, nomes,
     });
@@ -199,5 +204,10 @@ export function useEscalaProducao(pronto: boolean, semanaInicio: string) {
     return null;
   });
 
-  return { estado, loading, erro, acaoEmAndamento, recarregar: carregar, gerar, trocar, bloquear, liberar, processarPendentes };
+  const tentarNovamente = () => executar(async () => {
+    const r = await reprocessarEventosEsgotados();
+    return r.ok ? null : r.erro || "Falha ao reprocessar a Escala.";
+  });
+
+  return { estado, loading, erro, acaoEmAndamento, recarregar: carregar, gerar, trocar, bloquear, liberar, processarPendentes, tentarNovamente };
 }

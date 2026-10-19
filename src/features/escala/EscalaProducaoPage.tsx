@@ -214,6 +214,15 @@ export default function EscalaProducaoPage() {
           {mensagem && <div className={`stx-esc-banner ${mensagem.tipo === "erro" ? "erro" : "info"}`}>{mensagem.texto}</div>}
           {escala.erro && <div className="stx-esc-banner erro">{escala.erro}</div>}
           {estado.primeiraGeracaoEmAndamento && <div className="stx-esc-banner">{AVISO_PRIMEIRA_GERACAO}</div>}
+          {estado.eventosEsgotados > 0 && (
+            <div className="stx-esc-banner">
+              Uma atualização automática da escala não pôde ser processada.{" "}
+              <button type="button" className="stx-esc-btn" onClick={async () => {
+                const msg = await escala.tentarNovamente();
+                setMensagem(msg ? { tipo: "erro", texto: msg } : { tipo: "ok", texto: "Atualização reenviada para processamento." });
+              }} disabled={escala.acaoEmAndamento}>Tentar novamente</button>
+            </div>
+          )}
           {(estado.eventosPendentes > 0 || estado.eventosComErro > 0) && (
             <div className="stx-esc-banner">
               {estado.eventosPendentes > 0 && `${estado.eventosPendentes} alteração(ões) aguardando recálculo. `}
