@@ -1,0 +1,1260 @@
+{
+ "descricao": "Semanas reais (PROD, backup 2026-10-19) anonimizadas: produtos/máquinas viram rótulos; só quantidades, metas por período, valor unitário e ordem de etapas.",
+ "semanas": [
+  {
+   "semanaInicio": "2026-09-21",
+   "pools": [
+    {
+     "produtoId": "P01",
+     "etapaId": "P01E0",
+     "operacaoId": "Montar Presilha",
+     "ordemEtapa": 0,
+     "quantidade": 70500.0,
+     "maquinasIds": [
+      "M01",
+      "M02",
+      "M03",
+      "M04"
+     ],
+     "metas": {
+      "m1": 700.0,
+      "m2": 700.0,
+      "m3": 700.0,
+      "t1": 600.0,
+      "t2": 600.0,
+      "t3": 600.0
+     },
+     "valorUnitario": 0.217
+    },
+    {
+     "produtoId": "P01",
+     "etapaId": "P01E1",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 1,
+     "quantidade": 70500.0,
+     "maquinasIds": [
+      "M05"
+     ],
+     "metas": {
+      "m1": 2500.0,
+      "m2": 2500.0,
+      "m3": 2500.0,
+      "t1": 2200.0,
+      "t2": 2200.0,
+      "t3": 2200.0
+     },
+     "valorUnitario": 0.217
+    },
+    {
+     "produtoId": "P02",
+     "etapaId": "P02E0",
+     "operacaoId": "Parafusar (Pino)",
+     "ordemEtapa": 0,
+     "quantidade": 67500.0,
+     "maquinasIds": [
+      "M06"
+     ],
+     "metas": {
+      "m1": 2000.0,
+      "m2": 2000.0,
+      "m3": 2000.0,
+      "t1": 1600.0,
+      "t2": 1600.0,
+      "t3": 1600.0
+     },
+     "valorUnitario": 0.07
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E0",
+     "operacaoId": "Rosquear",
+     "ordemEtapa": 0,
+     "quantidade": 87000.0,
+     "maquinasIds": [
+      "M07",
+      "M08"
+     ],
+     "metas": {
+      "m1": 1600.0,
+      "m2": 1600.0,
+      "m3": 1600.0,
+      "t1": 1300.0,
+      "t2": 1300.0,
+      "t3": 1300.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E1",
+     "operacaoId": "Parafusar",
+     "ordemEtapa": 1,
+     "quantidade": 87000.0,
+     "maquinasIds": [
+      "M10",
+      "M11",
+      "M12",
+      "M13"
+     ],
+     "metas": {
+      "m1": 900.0,
+      "m2": 900.0,
+      "m3": 900.0,
+      "t1": 800.0,
+      "t2": 800.0,
+      "t3": 800.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E2",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 2,
+     "quantidade": 87000.0,
+     "maquinasIds": [
+      "M09"
+     ],
+     "metas": {
+      "m1": 3500.0,
+      "m2": 3500.0,
+      "m3": 3500.0,
+      "t1": 3000.0,
+      "t2": 3000.0,
+      "t3": 3000.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E3",
+     "operacaoId": "Embalar",
+     "ordemEtapa": 3,
+     "quantidade": 87000.0,
+     "maquinasIds": [
+      "M14"
+     ],
+     "metas": {
+      "m1": 4800.0,
+      "m2": 4800.0,
+      "m3": 4800.0,
+      "t1": 4300.0,
+      "t2": 4300.0,
+      "t3": 4300.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P04",
+     "etapaId": "P04E0",
+     "operacaoId": "Rosquear + Parafusar",
+     "ordemEtapa": 0,
+     "quantidade": 35625.0,
+     "maquinasIds": [
+      "M15"
+     ],
+     "metas": {
+      "m1": 1275.0,
+      "m2": 1275.0,
+      "m3": 1275.0,
+      "t1": 1100.0,
+      "t2": 1100.0,
+      "t3": 1100.0
+     },
+     "valorUnitario": 0.182
+    },
+    {
+     "produtoId": "P04",
+     "etapaId": "P04E1",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 1,
+     "quantidade": 35625.0,
+     "maquinasIds": [
+      "M09"
+     ],
+     "metas": {
+      "m1": 3500.0,
+      "m2": 3500.0,
+      "m3": 3500.0,
+      "t1": 3000.0,
+      "t2": 3000.0,
+      "t3": 3000.0
+     },
+     "valorUnitario": 0.182
+    },
+    {
+     "produtoId": "P04",
+     "etapaId": "P04E2",
+     "operacaoId": "Embalar",
+     "ordemEtapa": 2,
+     "quantidade": 35625.0,
+     "maquinasIds": [
+      "M14"
+     ],
+     "metas": {
+      "m1": 4600.0,
+      "m2": 4600.0,
+      "m3": 4600.0,
+      "t1": 3800.0,
+      "t2": 3800.0,
+      "t3": 3800.0
+     },
+     "valorUnitario": 0.182
+    },
+    {
+     "produtoId": "P05",
+     "etapaId": "P05E0",
+     "operacaoId": "Rosquear",
+     "ordemEtapa": 0,
+     "quantidade": 10500.0,
+     "maquinasIds": [
+      "M17"
+     ],
+     "metas": {
+      "m1": 420.0,
+      "m2": 420.0,
+      "m3": 420.0,
+      "t1": 280.0,
+      "t2": 280.0,
+      "t3": 280.0
+     },
+     "valorUnitario": 0.4
+    },
+    {
+     "produtoId": "P05",
+     "etapaId": "P05E1",
+     "operacaoId": "Parafusar",
+     "ordemEtapa": 1,
+     "quantidade": 10500.0,
+     "maquinasIds": [
+      "M16"
+     ],
+     "metas": {
+      "m1": 560.0,
+      "m2": 560.0,
+      "m3": 560.0,
+      "t1": 420.0,
+      "t2": 420.0,
+      "t3": 420.0
+     },
+     "valorUnitario": 0.4
+    },
+    {
+     "produtoId": "P05",
+     "etapaId": "P05E2",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 2,
+     "quantidade": 10500.0,
+     "maquinasIds": [
+      "M09"
+     ],
+     "metas": {
+      "m1": 3500.0,
+      "m2": 3500.0,
+      "m3": 3500.0,
+      "t1": 3000.0,
+      "t2": 3000.0,
+      "t3": 3000.0
+     },
+     "valorUnitario": 0.4
+    },
+    {
+     "produtoId": "P05",
+     "etapaId": "P05E3",
+     "operacaoId": "Embalar",
+     "ordemEtapa": 3,
+     "quantidade": 10500.0,
+     "maquinasIds": [
+      "M14"
+     ],
+     "metas": {
+      "m1": 2000.0,
+      "m2": 2000.0,
+      "m3": 2000.0,
+      "t1": 2000.0,
+      "t2": 2000.0,
+      "t3": 2000.0
+     },
+     "valorUnitario": 0.4
+    }
+   ]
+  },
+  {
+   "semanaInicio": "2026-09-28",
+   "pools": [
+    {
+     "produtoId": "P01",
+     "etapaId": "P01E0",
+     "operacaoId": "Montar Presilha",
+     "ordemEtapa": 0,
+     "quantidade": 70500.0,
+     "maquinasIds": [
+      "M01",
+      "M02",
+      "M03",
+      "M04"
+     ],
+     "metas": {
+      "m1": 700.0,
+      "m2": 700.0,
+      "m3": 700.0,
+      "t1": 600.0,
+      "t2": 600.0,
+      "t3": 600.0
+     },
+     "valorUnitario": 0.217
+    },
+    {
+     "produtoId": "P01",
+     "etapaId": "P01E1",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 1,
+     "quantidade": 70500.0,
+     "maquinasIds": [
+      "M05"
+     ],
+     "metas": {
+      "m1": 2500.0,
+      "m2": 2500.0,
+      "m3": 2500.0,
+      "t1": 2200.0,
+      "t2": 2200.0,
+      "t3": 2200.0
+     },
+     "valorUnitario": 0.217
+    },
+    {
+     "produtoId": "P02",
+     "etapaId": "P02E0",
+     "operacaoId": "Parafusar (Pino)",
+     "ordemEtapa": 0,
+     "quantidade": 67500.0,
+     "maquinasIds": [
+      "M06"
+     ],
+     "metas": {
+      "m1": 2000.0,
+      "m2": 2000.0,
+      "m3": 2000.0,
+      "t1": 1600.0,
+      "t2": 1600.0,
+      "t3": 1600.0
+     },
+     "valorUnitario": 0.07
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E0",
+     "operacaoId": "Rosquear",
+     "ordemEtapa": 0,
+     "quantidade": 76500.0,
+     "maquinasIds": [
+      "M07",
+      "M08"
+     ],
+     "metas": {
+      "m1": 1600.0,
+      "m2": 1600.0,
+      "m3": 1600.0,
+      "t1": 1300.0,
+      "t2": 1300.0,
+      "t3": 1300.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E1",
+     "operacaoId": "Parafusar",
+     "ordemEtapa": 1,
+     "quantidade": 76500.0,
+     "maquinasIds": [
+      "M11",
+      "M12",
+      "M13"
+     ],
+     "metas": {
+      "m1": 900.0,
+      "m2": 900.0,
+      "m3": 900.0,
+      "t1": 800.0,
+      "t2": 800.0,
+      "t3": 800.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E2",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 2,
+     "quantidade": 76500.0,
+     "maquinasIds": [
+      "M09"
+     ],
+     "metas": {
+      "m1": 3500.0,
+      "m2": 3500.0,
+      "m3": 3500.0,
+      "t1": 3000.0,
+      "t2": 3000.0,
+      "t3": 3000.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E3",
+     "operacaoId": "Embalar",
+     "ordemEtapa": 3,
+     "quantidade": 76500.0,
+     "maquinasIds": [
+      "M14"
+     ],
+     "metas": {
+      "m1": 4800.0,
+      "m2": 4800.0,
+      "m3": 4800.0,
+      "t1": 4300.0,
+      "t2": 4300.0,
+      "t3": 4300.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P05",
+     "etapaId": "P05E0",
+     "operacaoId": "Rosquear",
+     "ordemEtapa": 0,
+     "quantidade": 10500.0,
+     "maquinasIds": [
+      "M17"
+     ],
+     "metas": {
+      "m1": 420.0,
+      "m2": 420.0,
+      "m3": 420.0,
+      "t1": 280.0,
+      "t2": 280.0,
+      "t3": 280.0
+     },
+     "valorUnitario": 0.4
+    },
+    {
+     "produtoId": "P05",
+     "etapaId": "P05E1",
+     "operacaoId": "Parafusar",
+     "ordemEtapa": 1,
+     "quantidade": 10500.0,
+     "maquinasIds": [
+      "M10"
+     ],
+     "metas": {
+      "m1": 560.0,
+      "m2": 560.0,
+      "m3": 560.0,
+      "t1": 420.0,
+      "t2": 420.0,
+      "t3": 420.0
+     },
+     "valorUnitario": 0.4
+    },
+    {
+     "produtoId": "P05",
+     "etapaId": "P05E2",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 2,
+     "quantidade": 10500.0,
+     "maquinasIds": [
+      "M09"
+     ],
+     "metas": {
+      "m1": 3500.0,
+      "m2": 3500.0,
+      "m3": 3500.0,
+      "t1": 3000.0,
+      "t2": 3000.0,
+      "t3": 3000.0
+     },
+     "valorUnitario": 0.4
+    },
+    {
+     "produtoId": "P05",
+     "etapaId": "P05E3",
+     "operacaoId": "Embalar",
+     "ordemEtapa": 3,
+     "quantidade": 10500.0,
+     "maquinasIds": [
+      "M14"
+     ],
+     "metas": {
+      "m1": 2000.0,
+      "m2": 2000.0,
+      "m3": 2000.0,
+      "t1": 2000.0,
+      "t2": 2000.0,
+      "t3": 2000.0
+     },
+     "valorUnitario": 0.4
+    },
+    {
+     "produtoId": "P06",
+     "etapaId": "P06E0",
+     "operacaoId": "Parafusar",
+     "ordemEtapa": 0,
+     "quantidade": 33000.0,
+     "maquinasIds": [
+      "M18"
+     ],
+     "metas": {
+      "m1": 1200.0,
+      "m2": 1200.0,
+      "m3": 1200.0,
+      "t1": 1000.0,
+      "t2": 1000.0,
+      "t3": 1000.0
+     },
+     "valorUnitario": 0.099
+    }
+   ]
+  },
+  {
+   "semanaInicio": "2026-10-05",
+   "pools": [
+    {
+     "produtoId": "P01",
+     "etapaId": "P01E0",
+     "operacaoId": "Montar Presilha",
+     "ordemEtapa": 0,
+     "quantidade": 70500.0,
+     "maquinasIds": [
+      "M01",
+      "M02",
+      "M03",
+      "M04"
+     ],
+     "metas": {
+      "m1": 700.0,
+      "m2": 700.0,
+      "m3": 700.0,
+      "t1": 600.0,
+      "t2": 600.0,
+      "t3": 600.0
+     },
+     "valorUnitario": 0.217
+    },
+    {
+     "produtoId": "P01",
+     "etapaId": "P01E1",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 1,
+     "quantidade": 70500.0,
+     "maquinasIds": [
+      "M05"
+     ],
+     "metas": {
+      "m1": 2500.0,
+      "m2": 2500.0,
+      "m3": 2500.0,
+      "t1": 2200.0,
+      "t2": 2200.0,
+      "t3": 2200.0
+     },
+     "valorUnitario": 0.217
+    },
+    {
+     "produtoId": "P02",
+     "etapaId": "P02E0",
+     "operacaoId": "Parafusar (Pino)",
+     "ordemEtapa": 0,
+     "quantidade": 85000.0,
+     "maquinasIds": [
+      "M06",
+      "M18"
+     ],
+     "metas": {
+      "m1": 2000.0,
+      "m2": 2000.0,
+      "m3": 2000.0,
+      "t1": 1600.0,
+      "t2": 1600.0,
+      "t3": 1600.0
+     },
+     "valorUnitario": 0.07
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E0",
+     "operacaoId": "Rosquear",
+     "ordemEtapa": 0,
+     "quantidade": 84000.0,
+     "maquinasIds": [
+      "M07",
+      "M08"
+     ],
+     "metas": {
+      "m1": 1600.0,
+      "m2": 1600.0,
+      "m3": 1600.0,
+      "t1": 1300.0,
+      "t2": 1300.0,
+      "t3": 1300.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E1",
+     "operacaoId": "Parafusar",
+     "ordemEtapa": 1,
+     "quantidade": 84000.0,
+     "maquinasIds": [
+      "M10",
+      "M11",
+      "M12",
+      "M13"
+     ],
+     "metas": {
+      "m1": 900.0,
+      "m2": 900.0,
+      "m3": 900.0,
+      "t1": 800.0,
+      "t2": 800.0,
+      "t3": 800.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E2",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 2,
+     "quantidade": 84000.0,
+     "maquinasIds": [
+      "M09"
+     ],
+     "metas": {
+      "m1": 3500.0,
+      "m2": 3500.0,
+      "m3": 3500.0,
+      "t1": 3000.0,
+      "t2": 3000.0,
+      "t3": 3000.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E3",
+     "operacaoId": "Embalar",
+     "ordemEtapa": 3,
+     "quantidade": 84000.0,
+     "maquinasIds": [
+      "M14"
+     ],
+     "metas": {
+      "m1": 4800.0,
+      "m2": 4800.0,
+      "m3": 4800.0,
+      "t1": 4300.0,
+      "t2": 4300.0,
+      "t3": 4300.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P05",
+     "etapaId": "P05E0",
+     "operacaoId": "Rosquear",
+     "ordemEtapa": 0,
+     "quantidade": 7020.0,
+     "maquinasIds": [
+      "M17"
+     ],
+     "metas": {
+      "m1": 420.0,
+      "m2": 420.0,
+      "m3": 420.0,
+      "t1": 280.0,
+      "t2": 280.0,
+      "t3": 280.0
+     },
+     "valorUnitario": 0.4
+    },
+    {
+     "produtoId": "P05",
+     "etapaId": "P05E1",
+     "operacaoId": "Parafusar",
+     "ordemEtapa": 1,
+     "quantidade": 7020.0,
+     "maquinasIds": [
+      "M16"
+     ],
+     "metas": {
+      "m1": 560.0,
+      "m2": 560.0,
+      "m3": 560.0,
+      "t1": 420.0,
+      "t2": 420.0,
+      "t3": 420.0
+     },
+     "valorUnitario": 0.4
+    },
+    {
+     "produtoId": "P05",
+     "etapaId": "P05E2",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 2,
+     "quantidade": 7020.0,
+     "maquinasIds": [
+      "M09"
+     ],
+     "metas": {
+      "m1": 3500.0,
+      "m2": 3500.0,
+      "m3": 3500.0,
+      "t1": 3000.0,
+      "t2": 3000.0,
+      "t3": 3000.0
+     },
+     "valorUnitario": 0.4
+    },
+    {
+     "produtoId": "P05",
+     "etapaId": "P05E3",
+     "operacaoId": "Embalar",
+     "ordemEtapa": 3,
+     "quantidade": 7020.0,
+     "maquinasIds": [
+      "M14"
+     ],
+     "metas": {
+      "m1": 2000.0,
+      "m2": 2000.0,
+      "m3": 2000.0,
+      "t1": 2000.0,
+      "t2": 2000.0,
+      "t3": 2000.0
+     },
+     "valorUnitario": 0.4
+    },
+    {
+     "produtoId": "P06",
+     "etapaId": "P06E0",
+     "operacaoId": "Parafusar",
+     "ordemEtapa": 0,
+     "quantidade": 18900.0,
+     "maquinasIds": [
+      "M19"
+     ],
+     "metas": {
+      "m1": 1200.0,
+      "m2": 1200.0,
+      "m3": 1200.0,
+      "t1": 1000.0,
+      "t2": 1000.0,
+      "t3": 1000.0
+     },
+     "valorUnitario": 0.099
+    }
+   ]
+  },
+  {
+   "semanaInicio": "2026-10-12",
+   "pools": [
+    {
+     "produtoId": "P01",
+     "etapaId": "P01E0",
+     "operacaoId": "Montar Presilha",
+     "ordemEtapa": 0,
+     "quantidade": 70500.0,
+     "maquinasIds": [
+      "M01",
+      "M02",
+      "M03",
+      "M04"
+     ],
+     "metas": {
+      "m1": 700.0,
+      "m2": 700.0,
+      "m3": 700.0,
+      "t1": 600.0,
+      "t2": 600.0,
+      "t3": 600.0
+     },
+     "valorUnitario": 0.217
+    },
+    {
+     "produtoId": "P01",
+     "etapaId": "P01E1",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 1,
+     "quantidade": 70500.0,
+     "maquinasIds": [
+      "M05"
+     ],
+     "metas": {
+      "m1": 2500.0,
+      "m2": 2500.0,
+      "m3": 2500.0,
+      "t1": 2200.0,
+      "t2": 2200.0,
+      "t3": 2200.0
+     },
+     "valorUnitario": 0.217
+    },
+    {
+     "produtoId": "P02",
+     "etapaId": "P02E0",
+     "operacaoId": "Parafusar (Pino)",
+     "ordemEtapa": 0,
+     "quantidade": 120000.0,
+     "maquinasIds": [
+      "M06",
+      "M18"
+     ],
+     "metas": {
+      "m1": 2000.0,
+      "m2": 2000.0,
+      "m3": 2000.0,
+      "t1": 1600.0,
+      "t2": 1600.0,
+      "t3": 1600.0
+     },
+     "valorUnitario": 0.07
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E0",
+     "operacaoId": "Rosquear",
+     "ordemEtapa": 0,
+     "quantidade": 51000.0,
+     "maquinasIds": [
+      "M08",
+      "M21"
+     ],
+     "metas": {
+      "m1": 1600.0,
+      "m2": 1600.0,
+      "m3": 1600.0,
+      "t1": 1300.0,
+      "t2": 1300.0,
+      "t3": 1300.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E1",
+     "operacaoId": "Parafusar",
+     "ordemEtapa": 1,
+     "quantidade": 51000.0,
+     "maquinasIds": [
+      "M12",
+      "M13"
+     ],
+     "metas": {
+      "m1": 900.0,
+      "m2": 900.0,
+      "m3": 900.0,
+      "t1": 800.0,
+      "t2": 800.0,
+      "t3": 800.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E2",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 2,
+     "quantidade": 51000.0,
+     "maquinasIds": [
+      "M09"
+     ],
+     "metas": {
+      "m1": 3500.0,
+      "m2": 3500.0,
+      "m3": 3500.0,
+      "t1": 3000.0,
+      "t2": 3000.0,
+      "t3": 3000.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P03",
+     "etapaId": "P03E3",
+     "operacaoId": "Embalar",
+     "ordemEtapa": 3,
+     "quantidade": 51000.0,
+     "maquinasIds": [
+      "M14"
+     ],
+     "metas": {
+      "m1": 4800.0,
+      "m2": 4800.0,
+      "m3": 4800.0,
+      "t1": 4300.0,
+      "t2": 4300.0,
+      "t3": 4300.0
+     },
+     "valorUnitario": 0.2318
+    },
+    {
+     "produtoId": "P04",
+     "etapaId": "P04E0",
+     "operacaoId": "Rosquear + Parafusar",
+     "ordemEtapa": 0,
+     "quantidade": 35625.0,
+     "maquinasIds": [
+      "M15"
+     ],
+     "metas": {
+      "m1": 1275.0,
+      "m2": 1275.0,
+      "m3": 1275.0,
+      "t1": 1100.0,
+      "t2": 1100.0,
+      "t3": 1100.0
+     },
+     "valorUnitario": 0.182
+    },
+    {
+     "produtoId": "P04",
+     "etapaId": "P04E1",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 1,
+     "quantidade": 35625.0,
+     "maquinasIds": [
+      "M09"
+     ],
+     "metas": {
+      "m1": 3500.0,
+      "m2": 3500.0,
+      "m3": 3500.0,
+      "t1": 3000.0,
+      "t2": 3000.0,
+      "t3": 3000.0
+     },
+     "valorUnitario": 0.182
+    },
+    {
+     "produtoId": "P04",
+     "etapaId": "P04E2",
+     "operacaoId": "Embalar",
+     "ordemEtapa": 2,
+     "quantidade": 35625.0,
+     "maquinasIds": [
+      "M14"
+     ],
+     "metas": {
+      "m1": 4600.0,
+      "m2": 4600.0,
+      "m3": 4600.0,
+      "t1": 3800.0,
+      "t2": 3800.0,
+      "t3": 3800.0
+     },
+     "valorUnitario": 0.182
+    },
+    {
+     "produtoId": "P07",
+     "etapaId": "P07E0",
+     "operacaoId": "Rosquear",
+     "ordemEtapa": 0,
+     "quantidade": 54000.0,
+     "maquinasIds": [
+      "M20"
+     ],
+     "metas": {
+      "m1": 2000.0,
+      "m2": 2000.0,
+      "m3": 2000.0,
+      "t1": 1600.0,
+      "t2": 1600.0,
+      "t3": 1600.0
+     },
+     "valorUnitario": 0.1825
+    },
+    {
+     "produtoId": "P07",
+     "etapaId": "P07E1",
+     "operacaoId": "Parafusar",
+     "ordemEtapa": 1,
+     "quantidade": 54000.0,
+     "maquinasIds": [
+      "M10",
+      "M16"
+     ],
+     "metas": {
+      "m1": 1500.0,
+      "m2": 1500.0,
+      "m3": 1500.0,
+      "t1": 1200.0,
+      "t2": 1200.0,
+      "t3": 1200.0
+     },
+     "valorUnitario": 0.1825
+    },
+    {
+     "produtoId": "P07",
+     "etapaId": "P07E2",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 2,
+     "quantidade": 54000.0,
+     "maquinasIds": [
+      "M09"
+     ],
+     "metas": {
+      "m1": 3500.0,
+      "m2": 3500.0,
+      "m3": 3500.0,
+      "t1": 3000.0,
+      "t2": 3000.0,
+      "t3": 3000.0
+     },
+     "valorUnitario": 0.1825
+    },
+    {
+     "produtoId": "P07",
+     "etapaId": "P07E3",
+     "operacaoId": "Embalar",
+     "ordemEtapa": 3,
+     "quantidade": 54000.0,
+     "maquinasIds": [
+      "M14"
+     ],
+     "metas": {
+      "m1": 4600.0,
+      "m2": 4600.0,
+      "m3": 4600.0,
+      "t1": 3800.0,
+      "t2": 3800.0,
+      "t3": 3800.0
+     },
+     "valorUnitario": 0.1825
+    }
+   ]
+  },
+  {
+   "semanaInicio": "2026-10-19",
+   "pools": [
+    {
+     "produtoId": "P01",
+     "etapaId": "P01E0",
+     "operacaoId": "Montar Presilha",
+     "ordemEtapa": 0,
+     "quantidade": 70500.0,
+     "maquinasIds": [
+      "M01",
+      "M02",
+      "M03",
+      "M04"
+     ],
+     "metas": {
+      "m1": 700.0,
+      "m2": 700.0,
+      "m3": 700.0,
+      "t1": 600.0,
+      "t2": 600.0,
+      "t3": 600.0
+     },
+     "valorUnitario": 0.217
+    },
+    {
+     "produtoId": "P01",
+     "etapaId": "P01E1",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 1,
+     "quantidade": 70500.0,
+     "maquinasIds": [
+      "M05"
+     ],
+     "metas": {
+      "m1": 2500.0,
+      "m2": 2500.0,
+      "m3": 2500.0,
+      "t1": 2200.0,
+      "t2": 2200.0,
+      "t3": 2200.0
+     },
+     "valorUnitario": 0.217
+    },
+    {
+     "produtoId": "P02",
+     "etapaId": "P02E0",
+     "operacaoId": "Parafusar (Pino)",
+     "ordemEtapa": 0,
+     "quantidade": 108000.0,
+     "maquinasIds": [
+      "M06",
+      "M18"
+     ],
+     "metas": {
+      "m1": 2000.0,
+      "m2": 2000.0,
+      "m3": 2000.0,
+      "t1": 1600.0,
+      "t2": 1600.0,
+      "t3": 1600.0
+     },
+     "valorUnitario": 0.07
+    },
+    {
+     "produtoId": "P04",
+     "etapaId": "P04E0",
+     "operacaoId": "Rosquear + Parafusar",
+     "ordemEtapa": 0,
+     "quantidade": 35625.0,
+     "maquinasIds": [
+      "M15"
+     ],
+     "metas": {
+      "m1": 1275.0,
+      "m2": 1275.0,
+      "m3": 1275.0,
+      "t1": 1100.0,
+      "t2": 1100.0,
+      "t3": 1100.0
+     },
+     "valorUnitario": 0.182
+    },
+    {
+     "produtoId": "P04",
+     "etapaId": "P04E1",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 1,
+     "quantidade": 35625.0,
+     "maquinasIds": [
+      "M09"
+     ],
+     "metas": {
+      "m1": 3500.0,
+      "m2": 3500.0,
+      "m3": 3500.0,
+      "t1": 3000.0,
+      "t2": 3000.0,
+      "t3": 3000.0
+     },
+     "valorUnitario": 0.182
+    },
+    {
+     "produtoId": "P04",
+     "etapaId": "P04E2",
+     "operacaoId": "Embalar",
+     "ordemEtapa": 2,
+     "quantidade": 35625.0,
+     "maquinasIds": [
+      "M14"
+     ],
+     "metas": {
+      "m1": 4600.0,
+      "m2": 4600.0,
+      "m3": 4600.0,
+      "t1": 3800.0,
+      "t2": 3800.0,
+      "t3": 3800.0
+     },
+     "valorUnitario": 0.182
+    },
+    {
+     "produtoId": "P06",
+     "etapaId": "P06E0",
+     "operacaoId": "Parafusar",
+     "ordemEtapa": 0,
+     "quantidade": 33000.0,
+     "maquinasIds": [
+      "M19"
+     ],
+     "metas": {
+      "m1": 1200.0,
+      "m2": 1200.0,
+      "m3": 1200.0,
+      "t1": 1000.0,
+      "t2": 1000.0,
+      "t3": 1000.0
+     },
+     "valorUnitario": 0.099
+    },
+    {
+     "produtoId": "P07",
+     "etapaId": "P07E0",
+     "operacaoId": "Rosquear",
+     "ordemEtapa": 0,
+     "quantidade": 54000.0,
+     "maquinasIds": [
+      "M20"
+     ],
+     "metas": {
+      "m1": 2000.0,
+      "m2": 2000.0,
+      "m3": 2000.0,
+      "t1": 1600.0,
+      "t2": 1600.0,
+      "t3": 1600.0
+     },
+     "valorUnitario": 0.1825
+    },
+    {
+     "produtoId": "P07",
+     "etapaId": "P07E1",
+     "operacaoId": "Parafusar",
+     "ordemEtapa": 1,
+     "quantidade": 54000.0,
+     "maquinasIds": [
+      "M13",
+      "M16"
+     ],
+     "metas": {
+      "m1": 1500.0,
+      "m2": 1500.0,
+      "m3": 1500.0,
+      "t1": 1200.0,
+      "t2": 1200.0,
+      "t3": 1200.0
+     },
+     "valorUnitario": 0.1825
+    },
+    {
+     "produtoId": "P07",
+     "etapaId": "P07E2",
+     "operacaoId": "Etiquetar",
+     "ordemEtapa": 2,
+     "quantidade": 54000.0,
+     "maquinasIds": [
+      "M09"
+     ],
+     "metas": {
+      "m1": 3500.0,
+      "m2": 3500.0,
+      "m3": 3500.0,
+      "t1": 3000.0,
+      "t2": 3000.0,
+      "t3": 3000.0
+     },
+     "valorUnitario": 0.1825
+    },
+    {
+     "produtoId": "P07",
+     "etapaId": "P07E3",
+     "operacaoId": "Embalar",
+     "ordemEtapa": 3,
+     "quantidade": 54000.0,
+     "maquinasIds": [
+      "M14"
+     ],
+     "metas": {
+      "m1": 4600.0,
+      "m2": 4600.0,
+      "m3": 4600.0,
+      "t1": 3800.0,
+      "t2": 3800.0,
+      "t3": 3800.0
+     },
+     "valorUnitario": 0.1825
+    }
+   ]
+  }
+ ]
+}
