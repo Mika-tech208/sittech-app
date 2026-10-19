@@ -4,12 +4,12 @@
 // período, sem sidebar, alto contraste, letras grandes, atualização
 // automática. Nunca escreve, nunca recalcula, nunca dispara regra.
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useEscalaTv } from "@/hooks/useEscalaTv";
 import LoginScreen from "@/components/shell/LoginScreen";
 import { temPermissao } from "@/lib/permissoes";
-import { dataHoraNoFuso } from "@/features/escala/tempo";
+import { dataHoraNoFuso, epochMsNoFuso } from "@/features/escala/tempo";
 import { linhasDoPeriodo, situacaoTv, type LinhaTv } from "@/features/escala/tv";
 
 const ESTILOS_TV = `
@@ -66,13 +66,23 @@ function Coluna({ classe, titulo, sub, linhas }: { classe: string; titulo: strin
 export default function EscalaTvPage() {
   const auth = useAuthSession();
   const permitido = temPermissao(auth.usuarioLogado, "escala_producao_tv") || temPermissao(auth.usuarioLogado, "escala_producao");
-  const tv = useEscalaTv(auth.autenticado && permitido);
+  // Simulação de relógio (?simular=AAAA-MM-DDTHH:MM) — só para quem opera a
+  // Escala (escala_producao); o usuário de quiosque nunca simula. Auxilia
+  // conferir a TV fora do horário de produção. Continua somente leitura.
+  const podeSimular = temPermissao(auth.usuarioLogado, "escala_producao");
+  const [simulacao, setSimulacao] = useState<{ data: string; agoraMs: number } | null | undefined>(undefined);
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("simular");
+    const m = v?.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/);
+    setSimulacao(m && podeSimular ? { data: m[1], agoraMs: epochMsNoFuso(m[1], m[2]) } : null);
+  }, [podeSimular]);
+  const tv = useEscalaTv(auth.autenticado && permitido && simulacao !== undefined, simulacao);
   const { snapshot, agoraMs } = tv;
 
   // refaz a leitura quando o dia vira (a TV fica ligada o dia todo)
   const diaLocal = dataHoraNoFuso(agoraMs).data;
   useEffect(() => {
-    if (snapshot && snapshot.data !== diaLocal) tv.buscar();
+    if (snapshot && !tv.simulando && snapshot.data !== diaLocal) tv.buscar();
   }, [diaLocal, snapshot, tv]);
 
   if (auth.restaurandoSessao || !auth.autenticado) {
@@ -103,7 +113,7 @@ export default function EscalaTvPage() {
     <div className="stx-tv">
       <style>{ESTILOS_TV}</style>
       <div className="stx-tv-topo">
-        <span>Escala de Produção · {d}/{m}</span>
+        <span>Escala de Produção · {d}/{m}{tv.simulando ? " · SIMULAÇÃO" : ""}</span>
         <span className="stx-tv-relogio">{hora}</span>
         <span>{tv.tempoReal === "ativo" ? "● ao vivo" : tv.tempoReal === "polling" ? "● atualização periódica" : "● conectando…"}</span>
       </div>

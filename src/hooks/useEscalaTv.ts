@@ -24,7 +24,12 @@ export interface SnapshotTv {
 const POLLING_MS = 30000;
 const DESATUALIZADO_MS = 120000;
 
-export function useEscalaTv(pronto: boolean) {
+export interface SimulacaoTv {
+  data: string; // dia da escala a exibir
+  agoraMs: number; // instante simulado no início (o relógio segue andando)
+}
+
+export function useEscalaTv(pronto: boolean, simulacao?: SimulacaoTv | null) {
   const [snapshot, setSnapshot] = useState<SnapshotTv | null>(null);
   const [offsetMs, setOffsetMs] = useState(0);
   const [ultimoSucessoMs, setUltimoSucessoMs] = useState<number | null>(null);
@@ -32,20 +37,22 @@ export function useEscalaTv(pronto: boolean) {
   const [tempoReal, setTempoReal] = useState<"conectando" | "ativo" | "polling">("conectando");
   const [tick, setTick] = useState(() => Date.now());
   const emVoo = useRef(false);
+  const simRef = useRef<{ data: string; offset: number } | null>(null);
+  if (simulacao && !simRef.current) simRef.current = { data: simulacao.data, offset: simulacao.agoraMs - Date.now() };
 
   const buscar = useCallback(async () => {
     if (emVoo.current) return;
     emVoo.current = true;
     try {
       const antes = Date.now();
-      const { data, error } = await supabase.rpc("escala_tv_snapshot", { p_data: null });
+      const { data, error } = await supabase.rpc("escala_tv_snapshot", { p_data: simRef.current?.data ?? null });
       if (error) {
         setErro(error.message);
         return;
       }
       const s = data as SnapshotTv;
       setSnapshot(s);
-      setOffsetMs(calcularOffset(s.agora, (antes + Date.now()) / 2));
+      setOffsetMs(simRef.current ? simRef.current.offset : calcularOffset(s.agora, (antes + Date.now()) / 2));
       setUltimoSucessoMs(Date.now());
       setErro(null);
     } finally {
@@ -77,5 +84,5 @@ export function useEscalaTv(pronto: boolean) {
 
   const agoraMs = tick + offsetMs;
   const desatualizado = ultimoSucessoMs === null ? false : tick - ultimoSucessoMs > DESATUALIZADO_MS;
-  return { snapshot, agoraMs, erro, tempoReal, desatualizado, buscar };
+  return { snapshot, agoraMs, erro, tempoReal, desatualizado, buscar, simulando: !!simRef.current };
 }
