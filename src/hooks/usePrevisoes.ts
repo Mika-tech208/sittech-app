@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import type { Previsao, PrevisaoItem } from "@/types/domain";
+import { dispararProcessamentoEscala } from "@/lib/escala/disparar";
 
 type TipoItem = "previsto" | "realizado";
 
@@ -157,6 +158,10 @@ export function usePrevisoes(pronto: boolean) {
       setErro("Não foi possível salvar a previsão dessa semana.");
       return false;
     }
+    // Escala de Produção: a mudança já foi salva (os triggers registraram o
+    // evento no outbox); pede ao servidor que recalcule os períodos futuros.
+    // Best-effort — nunca afeta o resultado do save.
+    void dispararProcessamentoEscala();
 
     const { data, error } = await supabase.from("previsoes").select(PREVISAO_SELECT).eq("id", previsaoId).single();
     if (error || !data) {

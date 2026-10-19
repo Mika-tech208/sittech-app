@@ -51,6 +51,17 @@ export default function EscalaProducaoPage() {
   const escala = useEscalaProducao(auth.autenticado && podeOperar, semana);
   const { estado } = escala;
 
+  // Ao abrir a tela, retoma eventos pendentes/falhados (retry simples). O
+  // recálculo NÃO depende desta tela: ela só ajuda a drenar a fila.
+  const pendentes = estado.eventosPendentes + estado.eventosComErro;
+  const [drenou, setDrenou] = useState(false);
+  useEffect(() => {
+    if (!drenou && !escala.loading && pendentes > 0) {
+      setDrenou(true);
+      escala.processarPendentes();
+    }
+  }, [drenou, escala, pendentes]);
+
   const [diaSel, setDiaSel] = useState<string | null>(null);
   const [agoraMs, setAgoraMs] = useState(() => Date.now());
   useEffect(() => {

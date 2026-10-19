@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import type { TipoAusencia } from "@/features/ausencias/calculations";
 import type { ResultadoDiaLote } from "@/features/ausencias/lote";
+import { dispararProcessamentoEscala } from "@/lib/escala/disparar";
 
 export interface FiltrosAusencias {
   dataInicial?: string;
@@ -175,6 +176,7 @@ export function useAusenciasFuncionarios(pronto: boolean) {
       return msg;
     }
     setAusencias((prev) => [linhaParaAusencia(data as AusenciaRow), ...prev]);
+    void dispararProcessamentoEscala(); // Escala: recalcula os períodos futuros (best-effort)
     return null;
   }, []);
 
@@ -197,6 +199,7 @@ export function useAusenciasFuncionarios(pronto: boolean) {
     }
     // recarrega pelo filtro vigente: os dias criados entram na lista/resumo
     await buscar(ultimosFiltros.current);
+    void dispararProcessamentoEscala(); // Escala: recalcula os períodos futuros (best-effort)
     return { erro: null, resultados: data as ResultadoDiaLote[] };
   }, [buscar]);
 
@@ -217,6 +220,7 @@ export function useAusenciasFuncionarios(pronto: boolean) {
     }
     const atualizada = linhaParaAusencia(data as AusenciaRow);
     setAusencias((prev) => prev.map((a) => (a.id === atualizada.id ? { ...atualizada, funcionarioNome: a.funcionarioNome } : a)));
+    void dispararProcessamentoEscala(); // Escala: recalcula os períodos futuros (best-effort)
     return null;
   }, []);
 
