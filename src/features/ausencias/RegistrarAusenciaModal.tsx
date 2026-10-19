@@ -196,7 +196,7 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
             <DatePicker className="stx-ap-input" value={data} onChange={setData} />
           </div>
         ) : (
-          <div className="stx-ap-grid-2 stx-ap-field">
+          <div className="stx-ap-field" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
             <div>
               <label className="stx-ap-field-label">De</label>
               <DatePicker className="stx-ap-input" value={data} onChange={(v) => { setData(v); if (!dataFim || dataFim < v) setDataFim(v); }} />
