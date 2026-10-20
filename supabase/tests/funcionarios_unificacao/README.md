@@ -6,8 +6,9 @@ com `RAISE EXCEPTION 'TESTE_OK …'` (ou `FALHOU …`): a exceção final desfaz
 O id de administrador (`v_auth`) e de usuário (`v_usr`) no topo precisam existir no ambiente.
 
 - t1 unificação completa, permissões, pendências, decisões, assinatura, totais, histórico, log, DELETE direto
-- t2 exclusão simples e bloqueio com apontamentos
+- t2 exclusão sem unificar (com e sem apontamentos) e log
 - t3 bloqueios (apontamento sobreposto, ausência conflitante, mesmo registro, destino inexistente)
 - t4 atomicidade (falha forçada e referência residual desfazem tudo)
 - t5 resumo
 - t6 ensaio com a forma dos dados reais das duas Luanas
+- t7 EXCLUIR SEM UNIFICAR com histórico: sem histórico, apontamentos, escala, ausência, tudo combinado, trava de ocorrência com paradas de terceiros, assinatura (inclusive conteúdo alterado), rollback forçado, referência residual, não-admin, zero referências residuais, log, terceiros intactos

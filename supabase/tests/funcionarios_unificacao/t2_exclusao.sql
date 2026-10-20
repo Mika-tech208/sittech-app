@@ -34,18 +34,15 @@ begin
   if not (v_sim->>'pode_executar')::boolean then raise exception 'FALHOU (T2) exclusão simples de X deveria ser permitida: %', v_sim; end if;
   if (v_sim#>>'{descartar,ausencias}')::int <> 1 or (v_sim#>>'{descartar,semanas_equipe}')::int <> 1 or jsonb_array_length(v_sim#>'{descartar,custos}') <> 1 then raise exception 'FALHOU (T2) resumo do que será removido: %', v_sim->'descartar'; end if;
   v_res := public.funcionario_exclusao_executar(X, null, '{}', v_sim->>'assinatura');
-  -- K (com apontamento): bloqueado, com mensagem explicando
+  -- K (com apontamento): agora PERMITIDO (decisão do administrador); o impacto aparece na simulação
   v_sim := public.funcionario_exclusao_simular(K, null, '{}');
-  if (v_sim->>'pode_executar')::boolean or v_sim#>>'{bloqueios,0,codigo}' <> 'EXCLUSAO_COM_APONTAMENTOS' then raise exception 'FALHOU (T2) K deveria estar bloqueado: %', v_sim; end if;
-  begin
-    perform public.funcionario_exclusao_executar(K, null, '{}', v_sim->>'assinatura'); v_ok := false;
-  exception when others then v_err := sqlerrm; v_ok := position('FUNC_BLOQUEADO' in v_err) > 0;
-  end;
+  if not (v_sim->>'pode_executar')::boolean or (v_sim#>>'{remover,apontamentos}')::int <> 1 then raise exception 'FALHOU (T2) K deveria poder ser excluído: %', v_sim; end if;
+  v_res := public.funcionario_exclusao_executar(K, null, '{}', v_sim->>'assinatura'); v_ok := true;
   reset role;
   if not v_ok then raise exception 'FALHOU (T2) executar bloqueado: %', v_err; end if;
   if exists (select 1 from funcionarios where id = X) then raise exception 'FALHOU (T2) X deveria ter sido excluído'; end if;
-  if not exists (select 1 from funcionarios where id = K) then raise exception 'FALHOU (T2) K deveria continuar'; end if;
+  if exists (select 1 from funcionarios where id = K) then raise exception 'FALHOU (T2) K deveria ter sido excluído'; end if;
   if exists (select 1 from escala_producao_alocacoes where funcionario_id = X) or exists (select 1 from previsao_equipe_semana where funcionario_id = X) or exists (select 1 from ausencias_funcionarios where funcionario_id = X) or exists (select 1 from funcionario_custos where funcionario_id = X) then raise exception 'FALHOU (T2) referências órfãs de X'; end if;
-  if not exists (select 1 from funcionarios_exclusoes_log where funcionario_excluido_id = X and modo = 'exclusao' and jsonb_array_length(descartados->'alocacoes_removidas') = 2) then raise exception 'FALHOU (T2) log da exclusão'; end if;
-  raise exception 'TESTE_OK T2: exclusão simples sem apontamentos; bloqueio com apontamentos; log';
+  if not exists (select 1 from funcionarios_exclusoes_log where funcionario_excluido_id = X and modo = 'exclusao_sem_unificacao' and jsonb_array_length(descartados->'alocacoes_removidas') = 2) then raise exception 'FALHOU (T2) log da exclusão'; end if;
+  raise exception 'TESTE_OK T2: exclusão sem unificar com e sem apontamentos; log';
 end $$;

@@ -51,6 +51,31 @@ export interface PlanoFuncionario {
   vinculos: Partial<VinculosFuncionario>;
 }
 
+export interface RemoverPlano {
+  apontamentos: number;
+  apontamento_paradas: number;
+  apontamento_historico: number;
+  ocorrencias: number;
+  notificacoes_ocorrencia: number;
+  ausencias: number;
+  ausencias_historico: number;
+  semanas_equipe: number;
+  alocacoes_passadas: number;
+  alocacoes_futuras: number;
+  custos: CustoPlano[];
+}
+
+export interface ImpactoIndicadores {
+  apontamentos: {
+    n: number; de: string | null; ate: string | null; dias: number;
+    quantidade_produzida: number; quantidade_refugo: number; custo_operacional: number; valor_produzido: number; horas: number;
+  };
+  paradas_minutos: number;
+  semanas_equipe: { n: number; produtivas: number; de: string | null; ate: string | null };
+  ausencias: { n: number; de: string | null; ate: string | null };
+  custos_mensais_extras: number;
+}
+
 export interface PlanoExclusao {
   modo: "exclusao" | "unificacao";
   excluido: PlanoFuncionario;
@@ -77,6 +102,10 @@ export interface PlanoExclusao {
     custos: CustoPlano[];
   };
   impacto_escala: { semanas_recalculadas: { semana_inicio: string }[]; alocacoes_futuras_removidas: number; observacao: string };
+  // só no modo "exclusao" (sem unificação): o que será apagado, o impacto nos indicadores e o hash do conteúdo
+  remover?: RemoverPlano;
+  impacto_indicadores?: ImpactoIndicadores;
+  conteudo_hash?: string;
   decisoes_custos: Record<string, "copiar" | "descartar">;
   bloqueios: { codigo: string; mensagem: string; detalhe?: unknown }[];
   pendencias: { codigo: string; custo_id?: string; descricao?: string; valor?: number; mensagem: string }[];
@@ -103,11 +132,6 @@ export function descreverFuncionario(f: { nome: string; cadastro: string; ultima
   partes.push(f.ultima_atividade ? `última atividade ${formatarData(f.ultima_atividade)}` : "sem atividade registrada");
   if (f.ativo === false) partes.push("inativo");
   return partes.join(" · ");
-}
-
-// Sem unificação NÃO se exclui quem tem apontamentos de produção ou ocorrências de máquina.
-export function exigeUnificacao(v: Pick<VinculosFuncionario, "apontamentos" | "ocorrencias">): boolean {
-  return v.apontamentos > 0 || v.ocorrencias > 0;
 }
 
 export function temHistorico(v: VinculosFuncionario): boolean {
@@ -172,6 +196,7 @@ const MENSAGENS: [RegExp, string][] = [
   [/FUNC_SOMENTE_ADMIN/, "Somente administradores podem excluir ou unificar funcionários."],
   [/FUNC_ASSINATURA_DESATUALIZADA/, "Os dados mudaram desde a simulação. Simule novamente."],
   [/FUNC_BLOQUEADO/, "Existem bloqueios na simulação. Resolva-os e simule novamente."],
+  [/OCORRENCIA_COM_PARADAS_DE_OUTROS/, "Uma ocorrência de máquina deste funcionário tem paradas de outros funcionários. Use \"Unificar com outro funcionário\"."],
   [/FUNC_PENDENCIAS/, "Há custos que ainda precisam de decisão (copiar ou descartar)."],
   [/FUNC_MESMO_REGISTRO/, "Escolha OUTRO funcionário para receber o histórico."],
   [/FUNC_DESTINO_NAO_ENCONTRADO|FUNC_NAO_ENCONTRADO/, "O funcionário não foi encontrado (pode já ter sido excluído). Atualize a página."],
@@ -182,4 +207,63 @@ export function mensagemDeErro(erro: string | null | undefined): string {
   const texto = erro ?? "";
   const achou = MENSAGENS.find(([re]) => re.test(texto));
   return achou ? achou[1] : "Não foi possível concluir. Nada foi alterado.";
+}
+
+const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const num = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+
+// EXCLUSÃO SEM UNIFICAÇÃO — "o que será apagado permanentemente", tabela por tabela
+export function linhasRemocao(p: PlanoExclusao): string[] {
+  const r = p.remover;
+  if (!r) return [];
+  const l: string[] = [];
+  if (r.apontamentos) l.push(plural(r.apontamentos, "apontamento de produção", "apontamentos de produção"));
+  if (r.apontamento_paradas) l.push(plural(r.apontamento_paradas, "parada lançada nesses apontamentos", "paradas lançadas nesses apontamentos"));
+  if (r.apontamento_historico) l.push(plural(r.apontamento_historico, "registro de histórico de edição de apontamento", "registros de histórico de edição de apontamentos"));
+  if (r.ocorrencias) l.push(plural(r.ocorrencias, "ocorrência de máquina aberta por este cadastro", "ocorrências de máquina abertas por este cadastro"));
+  if (r.notificacoes_ocorrencia) l.push(plural(r.notificacoes_ocorrencia, "notificação dessas ocorrências", "notificações dessas ocorrências"));
+  if (r.semanas_equipe) l.push(plural(r.semanas_equipe, "semana na equipe", "semanas na equipe"));
+  if (r.ausencias) l.push(plural(r.ausencias, "ausência", "ausências") + (r.ausencias_historico ? ` (e ${plural(r.ausencias_historico, "registro de histórico", "registros de histórico")})` : ""));
+  const aloc = r.alocacoes_passadas + r.alocacoes_futuras;
+  if (aloc) l.push(plural(aloc, "alocação de escala", "alocações de escala") + ` (${r.alocacoes_passadas} já realizadas e ${r.alocacoes_futuras} futuras)`);
+  if (r.custos.length) l.push(plural(r.custos.length, "custo extra", "custos extras"));
+  return l;
+}
+
+// Quando a exclusão pode alterar indicadores históricos (texto para o administrador decidir)
+export function linhasImpactoIndicadores(p: PlanoExclusao): string[] {
+  const i = p.impacto_indicadores;
+  if (!i) return [];
+  const l: string[] = [];
+  const a = i.apontamentos;
+  if (a.n > 0) {
+    l.push(
+      `Produção Real (${formatarData(a.de)} a ${formatarData(a.ate)}): os indicadores desse período deixam de incluir ${plural(a.n, "apontamento", "apontamentos")} — ` +
+      `${num(a.quantidade_produzida)} peças produzidas, ${num(a.quantidade_refugo)} de refugo, ${num(a.horas)} h de trabalho, ${brl(a.custo_operacional)} de custo operacional, ` +
+      `${brl(a.valor_produzido)} de valor produzido` + (i.paradas_minutos > 0 ? ` e ${num(i.paradas_minutos)} min de paradas` : "") +
+      ". Produção, refugo, atingimento, custo, performance e OEE dessas semanas/dias podem mudar."
+    );
+  }
+  if (i.semanas_equipe.n > 0) {
+    l.push(`Equipe e capacidade: ${plural(i.semanas_equipe.n, "semana", "semanas")} (${formatarData(i.semanas_equipe.de)} a ${formatarData(i.semanas_equipe.ate)}, ${i.semanas_equipe.produtivas} como produtivo) deixam de contar este funcionário.`);
+  }
+  if (i.ausencias.n > 0) {
+    l.push(`Faltas e ausências: ${plural(i.ausencias.n, "registro sai", "registros saem")} dos indicadores (${formatarData(i.ausencias.de)} a ${formatarData(i.ausencias.ate)}).`);
+  }
+  if (i.custos_mensais_extras > 0) {
+    l.push(`Custo/hora: o custo da operação passa a ser calculado sem este funcionário (extras de ${brl(i.custos_mensais_extras)}/mês e salário).`);
+  }
+  return l;
+}
+
+export function haHistoricoNoPlano(p: PlanoExclusao): boolean {
+  const r = p.remover;
+  if (!r) return false;
+  return r.apontamentos + r.ocorrencias + r.ausencias + r.semanas_equipe + r.alocacoes_passadas > 0;
+}
+
+// Confirmação forte: o nome digitado precisa conferir (sem diferenciar caixa nem espaços nas pontas).
+export function nomeConfere(digitado: string, nome: string): boolean {
+  const n = nome.trim().replace(/\s+/g, " ").toLocaleLowerCase("pt-BR");
+  return n.length > 0 && digitado.trim().replace(/\s+/g, " ").toLocaleLowerCase("pt-BR") === n;
 }
