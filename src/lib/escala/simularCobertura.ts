@@ -4,7 +4,7 @@
 // não existe fórmula paralela. O diagnóstico (cobertura.ts) só conta o que o motor produziu
 // e a sugestão (sugestaoAdicional.ts) roda o motor de novo. Nada é gravado.
 
-import { analisarCobertura, recursosCompativeisVerificados, type CoberturaSemana, type RecursoSugerido, type RecursosVerificados } from "@/features/escala/cobertura";
+import { analisarCobertura, calcularCobertura, comMaquinasAdicionadas, recursosCompativeisVerificados, type CoberturaSemana, type RecursoSugerido, type RecursosVerificados } from "@/features/escala/cobertura";
 import { gerarEscala } from "@/features/escala/gerarEscala";
 import { sugerirAdicional, type SugestaoProduto } from "@/features/escala/sugestaoAdicional";
 import { chavePool, type EntradaEscala } from "@/features/escala/types";
@@ -141,6 +141,25 @@ export function simularCobertura(estado: EstadoBruto, agoraMs: number, opcoes: {
     const rS = gerarEscala(s.entradaComSugestao);
     const { cobertura: coberturaApos, candidatos: candidatosApos } = analisarCobertura(s.entradaComSugestao, rS);
     const restantes = recursosCompativeisVerificados(s.entradaComSugestao, coberturaApos, candidatosApos);
+    // efeito real de cada recurso compatível: refaz a sugestão de carga COM a máquina (mesmo motor)
+    const produtosSemMaquina = (e: typeof entrada) => new Set((e.poolsSemMaquina ?? []).map((p) => p.produtoId));
+    const comCarga = (adicoes: Map<string, Set<string>>) => {
+      const nova = comMaquinasAdicionadas(baseEntrada, adicoes);
+      const sN = sugerirAdicional(nova, { produtosIncompletos: produtosSemMaquina(nova) });
+      const cob = calcularCobertura(sN.entradaComSugestao, gerarEscala(sN.entradaComSugestao));
+      return { pecas: sN.totalPecas, coberturaApos: cob.percentual, ganhoMinutosVsSugestao: coberturaApos.minutosSemPosto - cob.minutosSemPosto };
+    };
+    verificados.itens.slice(0, 6).forEach((r) => {
+      r.comCargaAdicional = comCarga(new Map(r.poolsAfetados.map((p) => [chavePool(p.produtoId, p.etapaId), new Set([r.maquinaId])])));
+    });
+    if (verificados.combinado) {
+      const adicoes = new Map<string, Set<string>>();
+      verificados.itens.forEach((r) => r.poolsAfetados.forEach((p) => {
+        const k = chavePool(p.produtoId, p.etapaId);
+        adicoes.set(k, new Set([...(adicoes.get(k) ?? []), r.maquinaId]));
+      }));
+      verificados.combinado.comCargaAdicional = comCarga(adicoes);
+    }
     const detalhadas: SugestaoProdutoDetalhada[] = s.porProduto.map((p) => {
       const pool = baseEntrada.pools.find((x) => x.produtoId === p.produtoId && x.etapaId === p.etapaLimitanteId);
       return { ...p, recursosEtapaLimitante: pool ? (pool.maquinasCompativeisIds ?? []).filter((m) => !pool.maquinasIds.includes(m)) : [] };

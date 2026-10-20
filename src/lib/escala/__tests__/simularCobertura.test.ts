@@ -123,6 +123,20 @@ describe("simularCobertura — resultado para a tela", () => {
     });
   });
 
+  it("recurso compatível + carga adicional: efeito combinado verificado pelo motor (a carga só pode ajudar)", () => {
+    // p1/e1 só com m1; e2 (m3) tem folga. Com m2 selecionada o produto passa a fechar mais adicional.
+    const e = estado({ itens: [{ produtoId: "p1", quantidade: 500, valorUnitario: 2, maquinasPorEtapa: { e1: ["m1"], e2: ["m3"] } }] });
+    const r = simularCobertura(e, AGORA, { sugerir: true });
+    expect(r.recursosCompativeis.length).toBeGreaterThan(0);
+    r.recursosCompativeis.forEach((x) => {
+      expect(x.comCargaAdicional).toBeDefined();
+      expect(x.comCargaAdicional!.coberturaApos).toBeGreaterThanOrEqual(x.coberturaApos - 1e-9);
+      expect(x.comCargaAdicional!.pecas).toBeGreaterThanOrEqual(0);
+    });
+    // sem pedir sugestão o campo não é calculado (a análise simples continua rápida)
+    expect(simularCobertura(e, AGORA).recursosCompativeis.every((x) => x.comCargaAdicional === undefined)).toBe(true);
+  });
+
   it("semana já passada: nada a analisar (100%, 0 períodos)", () => {
     const r = simularCobertura(estado(), epochMsNoFuso("2026-11-10", "10:00"));
     expect(r.periodosAnalisados).toBe(0);

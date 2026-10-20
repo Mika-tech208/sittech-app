@@ -258,11 +258,22 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
                         <b>{nomeMaq(r.maquinaId)}</b>
                         <small>para {r.poolsAfetados.map((p) => `${nomeProd(p.produtoId)} › ${nomeEtapa(p.etapaId)}`).join(", ")}</small>
                       </span>
-                      <span>−{horas(r.ganhoMinutos)} sem posto · cobertura → {pct(r.coberturaApos)}</span>
+                      <span>
+                        sozinha: −{horas(r.ganhoMinutos)} sem posto · cobertura → {pct(r.coberturaApos)}
+                        {r.comCargaAdicional && r.comCargaAdicional.pecas > 0 && (
+                          <small><b>com carga adicional (+{formatQtd(r.comCargaAdicional.pecas)} peças): cobertura → {pct(r.comCargaAdicional.coberturaApos)}</b></small>
+                        )}
+                      </span>
                     </div>
                   ))}
                   {analise.recursosCombinado && (
-                    <p className="stx-cob-sub">Todos juntos: cobertura → {pct(analise.recursosCombinado.coberturaApos)} (−{horas(analise.recursosCombinado.ganhoMinutos)} sem posto).</p>
+                    <p className="stx-cob-sub">
+                      Todos juntos: cobertura → {pct(analise.recursosCombinado.coberturaApos)} (−{horas(analise.recursosCombinado.ganhoMinutos)} sem posto)
+                      {analise.recursosCombinado.comCargaAdicional && analise.recursosCombinado.comCargaAdicional.pecas > 0 && <> — e com a carga adicional correspondente (+{formatQtd(analise.recursosCombinado.comCargaAdicional.pecas)} peças): <b>{pct(analise.recursosCombinado.comCargaAdicional.coberturaApos)}</b></>}.
+                    </p>
+                  )}
+                  {!sugestao && analise.recursosCompativeis.length > 0 && (
+                    <p className="stx-cob-dica">Um recurso novo sozinho só antecipa o trabalho já programado; o ganho maior aparece junto com carga adicional — clique em “Sugerir carga adicional” para ver o efeito combinado.</p>
                   )}
                   <p className="stx-cob-dica">Nada é selecionado automaticamente: se concordar, adicione a máquina ao item da Previsão.</p>
                 </div>
@@ -382,12 +393,14 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
                 <b>{nomeProd(p.produtoId)}</b>
                 <small>
                   {p.adicionalSugerido > 0
-                    ? `limitado pela etapa ${nomeEtapa(p.etapaLimitanteId)} — todas as etapas absorvem o mesmo adicional`
+                    ? "todas as etapas do produto absorvem o mesmo adicional (fecha produto acabado, sem estoque intermediário)"
                     : p.motivoSemSugestao === "etapa_sem_maquina"
                       ? "há etapa sem máquina selecionada: o produto não fecha"
                       : `a etapa ${nomeEtapa(p.etapaLimitanteId)} não tem capacidade ociosa para absorver adicional${p.recursosEtapaLimitante.length > 0 ? ` — para fechar produto acabado, selecione: ${p.recursosEtapaLimitante.map(nomeMaq).join(" ou ")}` : ""}`}
                 </small>
-                <small>capacidade por etapa: {p.porEtapa.map((e) => `${nomeEtapa(e.etapaId)} ${formatQtd(e.absorveria)}`).join(" · ")}</small>
+                {p.adicionalSugerido === 0 && p.motivoSemSugestao !== "etapa_sem_maquina" && (
+                  <small>capacidade ociosa por etapa: {p.porEtapa.map((e) => `${nomeEtapa(e.etapaId)} ${formatQtd(e.absorveria)}`).join(" · ")}</small>
+                )}
               </span>
               <span>{p.adicionalSugerido > 0 ? `+${formatQtd(p.adicionalSugerido)}` : "0"}</span>
             </div>

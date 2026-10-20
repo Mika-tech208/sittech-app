@@ -103,3 +103,43 @@ describe("sugestão de adicional — semanas reais (previsto preservado, ponto f
     });
   });
 });
+
+describe("sugestão de adicional — reaproveitamento (segunda chance)", () => {
+  it("produto que perdeu a máquina compartilhada para outro (que depois ficou limitado por outra etapa) ganha adicional", () => {
+    // A (valor alto): e1 em mA (ocupada o tempo todo pelo previsto) -> não fecha produto acabado, mas disputava mS no e2.
+    // B (valor baixo): e1 em mB (folga) e e2 na MESMA máquina compartilhada mS.
+    const base = entrada({
+      funcionarios: equipe(5),
+      pools: [
+        pool({ produto: "A", etapa: "A-e1", op: "opA1", ordem: 1, q: 1_000_000, maquinas: ["mA"], valor: 10 }),
+        pool({ produto: "A", etapa: "A-e2", op: "opA2", ordem: 2, q: 100, maquinas: ["mS"], valor: 10 }),
+        pool({ produto: "B", etapa: "B-e1", op: "opB1", ordem: 1, q: 100, maquinas: ["mB"], valor: 1 }),
+        pool({ produto: "B", etapa: "B-e2", op: "opB2", ordem: 2, q: 100, maquinas: ["mS"], valor: 1 }),
+      ],
+    });
+    const s = sugerirAdicional(base);
+    const a = s.porProduto.find((p) => p.produtoId === "A")!;
+    const b = s.porProduto.find((p) => p.produtoId === "B")!;
+    expect(a.adicionalSugerido).toBe(0); // A nunca fecha produto acabado (mA sempre ocupada)
+    expect(b.adicionalSugerido).toBeGreaterThan(0); // B aproveita a máquina que A deixou livre
+    // e a conta fecha no motor: as duas etapas de B absorvem exatamente o sugerido
+    const r = gerarEscala(s.entradaComSugestao);
+    expect(r.adicionalProduzido["B|B-e1"]).toBeCloseTo(b.adicionalSugerido, 9);
+    expect(r.adicionalProduzido["B|B-e2"]).toBeCloseTo(b.adicionalSugerido, 9);
+    expect(conferirInvariantes(base, s.entradaComSugestao)).toEqual([]);
+  });
+
+  it("nenhum produto perde o que já tinha ao reaproveitar (sempre confere no motor)", () => {
+    cenariosGolden()
+      .filter((c) => /^real \d{4}-\d\d-\d\d N=1[68]$/.test(c.nome))
+      .forEach((c) => {
+        const s = sugerirAdicional(c.entrada);
+        const r = gerarEscala(s.entradaComSugestao);
+        s.porProduto.filter((p) => p.adicionalSugerido > 0).forEach((p) =>
+          c.entrada.pools.filter((x) => x.produtoId === p.produtoId).forEach((x) =>
+            expect(Math.abs((r.adicionalProduzido[chavePool(x.produtoId, x.etapaId)] ?? 0) - p.adicionalSugerido)).toBeLessThan(1e-6)
+          )
+        );
+      });
+  });
+});

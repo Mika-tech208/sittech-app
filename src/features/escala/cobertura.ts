@@ -235,15 +235,18 @@ export interface RecursoSugerido {
   ganhoHoras: number;
   ganhoPessoasPeriodo: number;
   coberturaApos: number; // % de cobertura se SOMENTE esta máquina for adicionada
+  // Efeito REAL de uma máquina nova: a carga do previsto é finita (a máquina só antecipa o trabalho), então o
+  // ganho aparece quando ela destrava carga adicional de produto acabado. Preenchido quando se pede sugestão.
+  comCargaAdicional?: { pecas: number; coberturaApos: number; ganhoMinutosVsSugestao: number };
 }
 
 export interface RecursosVerificados {
   itens: RecursoSugerido[];
   // todos os recursos sugeridos juntos (o ganho de cada um isolado subestima o conjunto)
-  combinado: { maquinas: string[]; ganhoMinutos: number; ganhoHoras: number; coberturaApos: number } | null;
+  combinado: { maquinas: string[]; ganhoMinutos: number; ganhoHoras: number; coberturaApos: number; comCargaAdicional?: { pecas: number; coberturaApos: number; ganhoMinutosVsSugestao: number } } | null;
 }
 
-function comMaquinasAdicionadas(entrada: EntradaEscala, adicoes: Map<string, Set<string>>): EntradaEscala {
+export function comMaquinasAdicionadas(entrada: EntradaEscala, adicoes: Map<string, Set<string>>): EntradaEscala {
   // adicoes: "produto|etapa" -> máquinas a selecionar. Etapa sem máquina vira pool real com essas máquinas.
   const existentes = new Set(entrada.pools.map((p) => chavePool(p.produtoId, p.etapaId)));
   const promovidos = (entrada.poolsSemMaquina ?? []).filter((p) => adicoes.has(chavePool(p.produtoId, p.etapaId)) && !existentes.has(chavePool(p.produtoId, p.etapaId)));

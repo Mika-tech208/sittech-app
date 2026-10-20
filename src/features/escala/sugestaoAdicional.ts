@@ -11,6 +11,9 @@
 //   3) roda de novo com esses tetos (as pessoas liberadas podem ir para outros produtos,
 //      que continuam limitados pelo próprio teto) e repete até estabilizar.
 // No ponto fixo todas as etapas do produto absorvem exatamente o mesmo adicional.
+// 4) REAPROVEITAMENTO: um produto que ficou com teto 0 só porque competia por uma máquina
+//    compartilhada com outro produto (que depois foi limitado por outra etapa e liberou a máquina)
+//    ganha uma segunda chance — sem tirar nada dos que já têm teto (o motor confirma).
 // O previsto nunca é tocado (garantia do próprio motor, coberta por teste).
 
 import { gerarEscala } from "./gerarEscala";
@@ -82,6 +85,44 @@ export function sugerirAdicional(entrada: EntradaEscala, opcoes: { produtosIncom
     const igual = produtos.every((p) => novos.get(p) === tetos.get(p));
     tetos = novos;
     if (igual) break;
+  }
+
+  // ---- 4) reaproveitamento (segunda chance para produtos com teto 0 que só perderam a disputa) ----
+  const absorvidoMin = (r: ReturnType<typeof gerarEscala>, produto: string) =>
+    Math.min(...(porProduto.get(produto) as PoolEscala[]).map((p) => r.adicionalProduzido[chavePool(p.produtoId, p.etapaId)] ?? 0));
+  const valorDe = (produto: string) => (porProduto.get(produto) as PoolEscala[])[0].valorUnitario;
+  const candidatos = produtos.filter((p) => !incompletos.has(p)).sort((a, b) => valorDe(b) - valorDe(a) || (a < b ? -1 : 1));
+  for (let rodada = 0; rodada < 3; rodada++) {
+    let melhorou = false;
+    for (const produto of candidatos) {
+      if ((tetos.get(produto) ?? 0) > 0) continue;
+      let c = TETO_ILIMITADO;
+      let aceito = 0;
+      for (let k = 0; k < 20; k++) {
+        iteracoes++;
+        const t = new Map(tetos);
+        t.set(produto, c);
+        const r = gerarEscala(comTetos(entrada, t));
+        const ap = Math.floor(absorvidoMin(r, produto) + 1e-9);
+        if (ap <= 0) break;
+        const outrosIntactos = produtos.every((q) => q === produto || (tetos.get(q) ?? 0) <= 0 || absorvidoMin(r, q) >= (tetos.get(q) as number) - 1e-6);
+        if (outrosIntactos) {
+          if (c !== TETO_ILIMITADO && Math.abs(ap - c) < 1e-6) {
+            aceito = c; // as etapas do produto absorvem exatamente o teto e ninguém perdeu nada
+            break;
+          }
+          c = ap;
+        } else {
+          c = Math.floor((c === TETO_ILIMITADO ? ap : Math.min(c, ap)) / 2); // está tirando de outros produtos: reduz
+          if (c < 1) break;
+        }
+      }
+      if (aceito > 0) {
+        tetos.set(produto, aceito);
+        melhorou = true;
+      }
+    }
+    if (!melhorou) break;
   }
 
   const sugestoes: SugestaoProduto[] = produtos.map((produto) => {
