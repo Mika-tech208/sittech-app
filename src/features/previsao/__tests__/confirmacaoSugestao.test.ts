@@ -5,7 +5,7 @@ import { resumirConfirmacaoSugestao } from "../confirmacaoSugestao";
 function cobertura(parcial: Partial<CoberturaSemana>): CoberturaSemana {
   return {
     percentual: 100, minutosDisponiveis: 0, minutosSemPosto: 0, horasSemPosto: 0, pessoasPeriodoSemPosto: 0, pessoasPeriodoTotal: 0,
-    porCausa: { carga: { pessoasPeriodo: 0, minutos: 0 }, maquina_nao_selecionada: { pessoasPeriodo: 0, minutos: 0 }, recurso_indisponivel: { pessoasPeriodo: 0, minutos: 0 }, sem_recurso_compativel: { pessoasPeriodo: 0, minutos: 0 } },
+    porCausa: { carga: { pessoasPeriodo: 0, minutos: 0 }, maquina_nao_selecionada: { pessoasPeriodo: 0, minutos: 0 }, recurso_indisponivel: { pessoasPeriodo: 0, minutos: 0 }, sem_recurso_compativel: { pessoasPeriodo: 0, minutos: 0 }, limite_estoque: { pessoasPeriodo: 0, minutos: 0 }, aguardando_etapa_anterior: { pessoasPeriodo: 0, minutos: 0 } },
     dias: [],
     ...parcial,
   };

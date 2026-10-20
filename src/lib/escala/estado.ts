@@ -70,7 +70,7 @@ export interface EstadoBruto {
   // Equidade: histórico agregado da janela (escala realmente gravada, semanas ANTERIORES a esta).
   historicoEquidade?: HistoricoEquidadeFuncionario[];
   // Parâmetros da Escala (escala_parametros) — entradas canônicas do motor. Ausente = padrões (WIP desligado).
-  parametros?: ParametrosEscala;
+  parametros?: Pick<ParametrosEscala, "wipModo" | "wipDiasLimite"> & Partial<ParametrosEscala>;
   // Necessidade da PRÓXIMA semana por produto, só se a Previsão dela estiver salva (limite de estoque, regra A). null = não existe.
   proximaSemana?: ProximaSemana | null;
 }

@@ -178,3 +178,37 @@ describe("itens em edição (modo simulação / adicional digitado e ainda não 
     expect(aplicarRascunhoItens(estado(), [{ quantidade: 10 }]).itens).toHaveLength(0);
   });
 });
+
+describe("simularCobertura — atingibilidade, pessoas com posto e recomendação por cenário completo", () => {
+  it("devolve atingibilidade e pessoas com posto SEPARADAS da cobertura, sem recomendação quando não se pede sugestão", () => {
+    const r = simularCobertura(estado(), AGORA);
+    expect(["atingivel", "em_risco", "impossivel"]).toContain(r.atingibilidade.status);
+    expect(r.atingibilidade.produtos.length).toBeGreaterThan(0);
+    expect(r.pessoasComPosto.periodos).toBe(r.periodosAnalisados);
+    expect(r.pessoasComPostoPrevisto.maximo).toBeGreaterThanOrEqual(r.pessoasComPostoPrevisto.minimo);
+    expect(r.recomendacaoGlobal).toBeNull();
+  });
+
+  it("atingibilidade é do PREVISTO: o adicional programado não muda o resultado", () => {
+    const a = simularCobertura(estado({}, 0), AGORA).atingibilidade;
+    const b = simularCobertura(estado({}, 300), AGORA).atingibilidade;
+    expect(b).toEqual(a);
+  });
+
+  it("com sugestão, a recomendação de máquina (se houver) só cita produtos já previstos e é melhora global", () => {
+    const r = simularCobertura(estado(), AGORA, { sugerir: true });
+    const previstos = new Set(["p1", "p2"]);
+    (r.recomendacaoGlobal?.passos ?? []).forEach((p) => p.poolsAfetados.forEach((x) => expect(previstos.has(x.produtoId)).toBe(true)));
+    if (r.recomendacaoGlobal) {
+      expect(r.recomendacaoGlobal.cenariosSimulados).toBeGreaterThan(1);
+      Object.keys(r.recomendacaoGlobal.antes.faltaPorProduto).forEach((id) => expect(r.recomendacaoGlobal!.depois.faltaPorProduto[id] ?? 0).toBeLessThanOrEqual(r.recomendacaoGlobal!.antes.faltaPorProduto[id] + 1e-6));
+    }
+  });
+
+  it("modo WIP: os mesmos campos existem e a margem vem dos parâmetros", () => {
+    const e = estado({ parametros: { wipModo: "ativo", wipDiasLimite: 1, atingibilidadeMargem: 0 } });
+    const r = simularCobertura(e, AGORA, { sugerir: true });
+    expect(r.modoWip).toBe(true);
+    expect(r.atingibilidade.margem).toBe(0);
+  });
+});

@@ -14,13 +14,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { analisarCoberturaNoServidor } from "@/lib/escala/disparar";
-import type { RecomendacaoMaquina, SimulacaoCobertura } from "@/lib/escala/simularCobertura";
+import type { SimulacaoCobertura } from "@/lib/escala/simularCobertura";
 import { resumirConfirmacaoSugestao } from "@/features/previsao/confirmacaoSugestao";
 import type { CoberturaSemana, CausaOciosidade } from "@/features/escala/cobertura";
 import { formatBRL, formatQtd, toNumber } from "@/lib/format";
 import type { Produto, PrevisaoItem } from "@/types/domain";
 import Recolhivel from "@/features/previsao/components/Recolhivel";
 import CargaAdicionalEtapas from "@/features/previsao/components/CargaAdicionalEtapas";
+import { CartoesCoberturaAtingibilidade, DetalheAtingibilidade, ESTILOS_ATINGIBILIDADE, RecomendacaoMaquinaGlobal } from "@/features/previsao/components/AtingibilidadePrevisto";
+import { ROTULO_STATUS } from "@/features/previsao/atingibilidadeTexto";
 import { useWipModo } from "@/hooks/useWipModo";
 import {
   acabadoDe,
@@ -60,6 +62,7 @@ const ESTILOS = `
 .stx-cob-rec { margin:8px 0; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,.04); font-size:13px; }
 .stx-cob-rec ul { margin:4px 0 0 18px; padding:0; }
 .stx-cob-nota { color:var(--text-muted); font-size:12px; margin:6px 0 0; }
+${ESTILOS_ATINGIBILIDADE}
 `;
 
 const ROTULO_CAUSA: Record<CausaOciosidade, { titulo: string; explica: string }> = {
@@ -67,8 +70,10 @@ const ROTULO_CAUSA: Record<CausaOciosidade, { titulo: string; explica: string }>
   maquina_nao_selecionada: { titulo: "Falta de máquina/posto selecionado", explica: "Há recurso compatível do roteiro que não foi selecionado na Previsão." },
   recurso_indisponivel: { titulo: "Recurso indisponível", explica: "A máquina que a etapa usaria está indisponível." },
   sem_recurso_compativel: { titulo: "Sem recurso possível", explica: "Não há máquina livre nem compatível para ocupar essas pessoas." },
+  limite_estoque: { titulo: "Limite de estoque intermediário", explica: "A máquina está livre e há adicional programado, mas o estoque entre as etapas já está no limite." },
+  aguardando_etapa_anterior: { titulo: "Aguardando a etapa anterior", explica: "A máquina está livre e há adicional programado, mas a etapa anterior ainda não produziu o material (pipeline)." },
 };
-const ORDEM_CAUSAS: CausaOciosidade[] = ["carga", "maquina_nao_selecionada", "recurso_indisponivel", "sem_recurso_compativel"];
+const ORDEM_CAUSAS: CausaOciosidade[] = ["carga", "maquina_nao_selecionada", "recurso_indisponivel", "sem_recurso_compativel", "limite_estoque", "aguardando_etapa_anterior"];
 const NOMES_PERIODO: Record<string, string> = { m1: "M1", m2: "M2", m3: "M3", t1: "T1", t2: "T2", t3: "T3" };
 
 function pct(v: number): string {
@@ -118,7 +123,8 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
   const [sugestaoWip, setSugestaoWip] = useState<SimulacaoCobertura["sugestaoWip"]>(null);
   const [analise, setAnalise] = useState<SimulacaoCobertura | null>(null);
   const [sugestao, setSugestao] = useState<SimulacaoCobertura["sugestao"]>(null);
-  const [recomendacoes, setRecomendacoes] = useState<RecomendacaoMaquina[]>([]);
+  const [recGlobal, setRecGlobal] = useState<SimulacaoCobertura["recomendacaoGlobal"]>(null);
+  const [analisouComSugestao, setAnalisouComSugestao] = useState(false);
   const [confirmando, setConfirmando] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -133,9 +139,10 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
     setRascunho(salvos);
     setRascunhoEtapas(salvosEtapas);
     setSugestaoWip(null);
+    setRecGlobal(null);
+    setAnalisouComSugestao(false);
     setAnalise(null);
     setSugestao(null);
-    setRecomendacoes([]);
     setConfirmando(false);
     setErro(null);
     setAviso(null);
@@ -176,7 +183,8 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
         // a sugestão e as recomendações (máquina + carga) partem SÓ do previsto — independem do adicional digitado
         setSugestao(resp.dados.sugestao);
         setSugestaoWip(resp.dados.sugestaoWip ?? null);
-        setRecomendacoes(resp.dados.recomendacoes ?? []);
+        setRecGlobal(resp.dados.recomendacaoGlobal ?? null);
+        setAnalisouComSugestao(true);
       }
     },
     [semanaInicio, itensPayload]
@@ -266,6 +274,7 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
   else if (cob.minutosDisponiveis === 0) resumoCab = "nenhum funcionário disponível nos períodos restantes";
   else if (cob.minutosSemPosto === 0) resumoCab = "100% ✓";
   else resumoCab = `${pct(cob.percentual)} · ${duracao(cob.minutosSemPosto)} sem posto`;
+  if (cob && analise && cob.minutosDisponiveis > 0) resumoCab += ` · Previsto: ${ROTULO_STATUS[analise.atingibilidade.status]}`;
 
   return (
     <div className="stx-panel">
@@ -300,16 +309,7 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
             <p className="stx-cob-alerta">Nenhum funcionário disponível nos períodos ainda não iniciados desta semana (verifique equipe produtiva, dias produtivos e se a semana já passou).</p>
           ) : (
             <>
-              <div className="stx-cob-hero">
-                <p className="stx-cob-pct" style={{ color: cob.percentual >= 99.95 ? "var(--accent)" : "var(--warning)" }}>
-                  Cobertura da equipe: {pct(cob.percentual)}
-                </p>
-                <p className="stx-cob-sub">
-                  {cob.minutosSemPosto === 0
-                    ? "Toda a equipe tem posto em todos os períodos analisados."
-                    : `${cob.pessoasPeriodoSemPosto} períodos-pessoa / ${horas(cob.minutosSemPosto)} de trabalho sem carga`}
-                </p>
-              </div>
+              <CartoesCoberturaAtingibilidade cob={cob} pessoas={analise.pessoasComPosto} ating={analise.atingibilidade} />
               {cob.minutosSemPosto > 0 ? <p className="stx-cob-alerta">Programação insuficiente para ocupar toda a equipe.</p> : <p className="stx-cob-ok">A programação ocupa toda a equipe.</p>}
               {analise.somentePrevisto.minutosSemPosto !== cob.minutosSemPosto && (
                 <p className="stx-cob-sub">
@@ -333,33 +333,20 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
                 </div>
               )}
 
-              {(recomendacoes.length > 0 || analise.etapasSemMaquina.length > 0) && (
+              <DetalheAtingibilidade ating={analise.atingibilidade} nomeProd={nomeProd} nomeEtapa={nomeEtapa} nomeMaq={nomeMaq} />
+
+              {analise.etapasSemMaquina.length > 0 && (
                 <div className="stx-cob-bloco">
-                  <h3>Como aumentar a cobertura (máquina + carga, sempre juntas)</h3>
+                  <h3>Etapas sem máquina selecionada</h3>
                   {analise.etapasSemMaquina.map((e) => (
                     <div className="stx-cob-linha" key={`${e.produtoId}|${e.etapaId}`}>
                       <span><b>{nomeProd(e.produtoId)} › {nomeEtapa(e.etapaId)}</b><small>Etapa de produto previsto sem nenhuma máquina selecionada — o produto não fecha. Compatíveis do roteiro: {e.compativeis.map(nomeMaq).join(", ") || "nenhuma cadastrada"}</small></span>
                     </div>
                   ))}
-                  {recomendacoes.map((r, i) => (
-                    <div className="stx-cob-rec" key={i}>
-                      <b>Para aumentar a cobertura{r.todas ? " (todas as máquinas recomendadas juntas)" : ""}:</b>
-                      <ul>
-                        <li>selecionar {r.maquinas.map(nomeMaq).join(r.todas ? ", " : " ou ")}{" "}
-                          <span style={{ color: "var(--text-muted)" }}>({r.poolsAfetados.map((p) => `${nomeProd(p.produtoId)} › ${nomeEtapa(p.etapaId)}`).join(", ")})</span>;</li>
-                        {r.pecasAdicionais > 0 && (
-                          <li>adicionar aproximadamente {r.adicionalPorProduto.map((a) => `+${formatQtd(a.pecas)} peças de ${nomeProd(a.produtoId)}`).join(", ")};</li>
-                        )}
-                        <li>cobertura estimada: <b>{pct(r.coberturaDe)} → {pct(r.coberturaPara)}</b> (−{horas(r.ganhoHoras * 60)} sem posto).</li>
-                      </ul>
-                    </div>
-                  ))}
-                  {recomendacoes.length === 0 && analise.etapasSemMaquina.length === 0 && (
-                    <p className="stx-cob-dica">Nenhuma máquina compatível melhora a cobertura além do que a carga adicional sugerida já consegue.</p>
-                  )}
-                  <p className="stx-cob-dica">Nada é aplicado automaticamente. Só aparecem produtos já previstos nesta semana; selecione a máquina no item da Previsão e programe a carga adicional se concordar. A máquina sozinha só antecipa o trabalho já programado — o ganho vem junto com a carga.</p>
                 </div>
               )}
+
+              <RecomendacaoMaquinaGlobal g={recGlobal} nomeProd={nomeProd} nomeEtapa={nomeEtapa} nomeMaq={nomeMaq} jaAnalisouComSugestao={analisouComSugestao} />
 
               <div className="stx-cob-bloco">
                 <button className="stx-prev-pill-btn" onClick={() => setExpandido((v) => !v)}>{expandido ? "Ocultar" : "Ver"} por dia/período</button>

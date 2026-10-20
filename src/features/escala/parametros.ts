@@ -15,20 +15,25 @@ export interface ParametrosEscala {
   wipModo: ModoWip;
   /** Limite padrão de estoque intermediário entre etapas: dias produtivos de consumo da etapa seguinte. */
   wipDiasLimite: number;
+  /** Margem de folga (fração) abaixo da qual um previsto que fecha passa a "Em risco" (atingibilidade). Só análise: não muda a escala. */
+  atingibilidadeMargem: number;
 }
 
-export const PARAMETROS_PADRAO: ParametrosEscala = { wipModo: "desligado", wipDiasLimite: 1 };
+export const PARAMETROS_PADRAO: ParametrosEscala = { wipModo: "desligado", wipDiasLimite: 1, atingibilidadeMargem: 0.1 };
 
 // Chaves da tabela escala_parametros.
 export const CHAVE_WIP_MODO = "wip_modo";
 export const CHAVE_WIP_DIAS_LIMITE = "wip_dias_limite";
+export const CHAVE_ATINGIBILIDADE_MARGEM = "atingibilidade_margem";
 
 export function lerParametros(linhas: { chave: string; valor: unknown }[] | null | undefined): ParametrosEscala {
   const mapa = new Map((linhas ?? []).map((l) => [l.chave, l.valor]));
   const modo = mapa.get(CHAVE_WIP_MODO);
   const dias = Number(mapa.get(CHAVE_WIP_DIAS_LIMITE));
+  const margem = Number(mapa.get(CHAVE_ATINGIBILIDADE_MARGEM));
   return {
     wipModo: modo === "ativo" ? "ativo" : "desligado", // qualquer outro valor = desligado (seguro)
     wipDiasLimite: Number.isFinite(dias) && dias >= 0 ? dias : PARAMETROS_PADRAO.wipDiasLimite,
+    atingibilidadeMargem: mapa.has(CHAVE_ATINGIBILIDADE_MARGEM) && Number.isFinite(margem) && margem >= 0 && margem <= 1 ? margem : PARAMETROS_PADRAO.atingibilidadeMargem,
   };
 }

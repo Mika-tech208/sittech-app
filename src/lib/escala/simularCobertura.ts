@@ -4,7 +4,9 @@
 // não existe fórmula paralela. O diagnóstico (cobertura.ts) só conta o que o motor produziu
 // e a sugestão (sugestaoAdicional.ts) roda o motor de novo. Nada é gravado.
 
-import { analisarCobertura, calcularCobertura, comMaquinasAdicionadas, recursosCompativeisVerificados, type CoberturaSemana, type RecursoSugerido, type RecursosVerificados } from "@/features/escala/cobertura";
+import { analisarAtingibilidade, type AtingibilidadeSemana } from "@/features/escala/atingibilidade";
+import { analisarCobertura, calcularCobertura, comMaquinasAdicionadas, recursosCompativeisVerificados, resumirPessoasComPosto, type CoberturaSemana, type PessoasComPosto, type RecursoSugerido, type RecursosVerificados } from "@/features/escala/cobertura";
+import { recomendarMaquinas, type RecomendacaoGlobal } from "@/features/escala/recomendacaoMaquina";
 import { gerarEscala } from "@/features/escala/gerarEscala";
 import { sugerirAdicional, type SugestaoProduto } from "@/features/escala/sugestaoAdicional";
 import { sugerirAdicionalWip, type SugestaoWip } from "@/features/escala/sugestaoWip";
@@ -56,6 +58,13 @@ export interface SimulacaoCobertura {
   recomendacoes: RecomendacaoMaquina[];
   etapasSemMaquina: EtapaSemMaquina[];
   adicional: AdicionalProduto[];
+  /** ATINGIBILIDADE do previsto (separada da cobertura): conseguimos concluir a programação com a capacidade atual? */
+  atingibilidade: AtingibilidadeSemana;
+  /** pessoas COM posto por período (mínimo, máximo, média) na escala simulada e só com o previsto */
+  pessoasComPosto: PessoasComPosto;
+  pessoasComPostoPrevisto: PessoasComPosto;
+  /** recomendação de máquina validada por CENÁRIO COMPLETO (só quando se pede sugestão); null = nenhuma melhora global */
+  recomendacaoGlobal: RecomendacaoGlobal | null;
   /** adicional por ETAPA + estoque intermediário (WIP) ativo: a tela mostra a tabela por etapa e a sugestão de `sugestaoWip` */
   modoWip: boolean;
   /** sugestão do modo WIP (acabado + estoque intermediário), com cobertura e horas ociosas antes/depois */
@@ -138,7 +147,10 @@ export function simularCobertura(estado: EstadoBruto, agoraMs: number, opcoes: {
 
   const haAdicional = entrada.pools.some((p) => (p.adicionalMax ?? 0) > 0);
   const baseEntrada = semAdicional(entrada);
-  const somentePrevisto = haAdicional ? analisarCobertura(baseEntrada, gerarEscala(baseEntrada), previstos).cobertura : atual;
+  const resultadoBase = haAdicional ? gerarEscala(baseEntrada) : resultado;
+  const somentePrevisto = haAdicional ? analisarCobertura(baseEntrada, resultadoBase, previstos).cobertura : atual;
+  const margemAtingibilidade = estado.parametros?.atingibilidadeMargem ?? 0.1;
+  const atingibilidade = analisarAtingibilidade(baseEntrada, resultadoBase, { margem: margemAtingibilidade });
 
   const verificados = recursosCompativeisVerificados(entrada, atual, candidatos);
 
@@ -250,7 +262,25 @@ export function simularCobertura(estado: EstadoBruto, agoraMs: number, opcoes: {
     };
   }
 
-  const resultadoFinal = { sugestao, recomendacoes: recomendacoesFinal };
+  // Recomendação de máquina por CENÁRIO COMPLETO: cada máquina é avaliada rodando a semana inteira de novo (recursos compartilhados).
+  let recomendacaoGlobal: RecomendacaoGlobal | null = null;
+  if (opcoes.sugerir) {
+    const semMaquinaDe = (e: EntradaEscala) => new Set((e.poolsSemMaquina ?? []).map((p) => p.produtoId));
+    recomendacaoGlobal = recomendarMaquinas(entrada, {
+      produtosPermitidos: previstos,
+      margem: margemAtingibilidade,
+      avaliarAdicional: (e) => {
+        if (e.wip) {
+          const d = sugerirAdicionalWip(e, { produtosIncompletos: semMaquinaDe(e), produtosPermitidos: previstos }).sugestao.depois;
+          return { cobertura: d.percentual, minutosSemPosto: d.horasSemPosto * 60 };
+        }
+        const s = sugerirAdicional(e, { produtosIncompletos: semMaquinaDe(e), produtosPermitidos: previstos });
+        const c = calcularCobertura(s.entradaComSugestao, gerarEscala(s.entradaComSugestao));
+        return { cobertura: c.percentual, minutosSemPosto: c.minutosSemPosto };
+      },
+    });
+  }
+  const resultadoFinal = { sugestao, recomendacoes: recomendacoesFinal, recomendacaoGlobal, atingibilidade };
   const foraWip = (sugestaoWip?.itens ?? []).map((i) => i.produtoId).filter((p) => !previstos.has(p));
   if (foraWip.length > 0) throw new Error(`INVARIANTE VIOLADA: produto(s) fora da Previsão da semana na sugestão de adicional: ${[...new Set(foraWip)].join(", ")}`);
   const fora = produtosForaDaSemana({ adicional, etapasSemMaquina, recursosCompativeis: verificados.itens, ...resultadoFinal }, previstos);
@@ -274,6 +304,10 @@ export function simularCobertura(estado: EstadoBruto, agoraMs: number, opcoes: {
     recomendacoes: recomendacoesFinal,
     etapasSemMaquina,
     adicional,
+    atingibilidade,
+    pessoasComPosto: resumirPessoasComPosto(entrada, resultado),
+    pessoasComPostoPrevisto: resumirPessoasComPosto(baseEntrada, resultadoBase),
+    recomendacaoGlobal,
     modoWip: Boolean(entrada.wip),
     sugestaoWip,
     sugestao,
@@ -290,6 +324,8 @@ export function produtosForaDaSemana(
     recursosCompativeis: { poolsAfetados: { produtoId: string }[] }[];
     sugestao: null | { porProduto: { produtoId: string }[] };
     recomendacoes: { poolsAfetados: { produtoId: string }[]; adicionalPorProduto: { produtoId: string }[] }[];
+    recomendacaoGlobal?: { passos: { poolsAfetados: { produtoId: string }[] }[] } | null;
+    atingibilidade?: { produtos: { produtoId: string }[] };
   },
   previstos: Set<string>
 ): string[] {
@@ -298,6 +334,8 @@ export function produtosForaDaSemana(
   sim.etapasSemMaquina.forEach((a) => citados.add(a.produtoId));
   sim.recursosCompativeis.forEach((r) => r.poolsAfetados.forEach((p) => citados.add(p.produtoId)));
   sim.sugestao?.porProduto.forEach((p) => citados.add(p.produtoId));
+  sim.recomendacaoGlobal?.passos.forEach((p) => p.poolsAfetados.forEach((x) => citados.add(x.produtoId)));
+  sim.atingibilidade?.produtos.forEach((p) => citados.add(p.produtoId));
   sim.recomendacoes.forEach((r) => {
     r.poolsAfetados.forEach((p) => citados.add(p.produtoId));
     r.adicionalPorProduto.forEach((p) => citados.add(p.produtoId));

@@ -15,14 +15,19 @@
 //   C) recurso_indisponivel . a máquina que a etapa com trabalho usaria está indisponível
 //                             (inativa, indisponível na Previsão ou bloqueada);
 //   D) sem_recurso_compativel  nada acima se aplica (não há máquina possível).
+// Com o adicional por etapa (WIP) ativo, a causa A se desdobra (a máquina selecionada está livre e ainda há adicional
+// programado, mas ele está bloqueado):
+//   E) limite_estoque ....... o estoque intermediário da etapa já está no limite;
+//   F) aguardando_etapa_anterior  a etapa anterior ainda não produziu o material (pipeline).
 
 import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { gerarEscala } from "./gerarEscala";
 import { EPS, metaNoSlot } from "./folga";
+import { etapasPorProduto } from "./wip";
 import { chavePool, type AlocacaoEscala, type EntradaEscala, type PoolEscala, type ResultadoEscala } from "./types";
 
-export type CausaOciosidade = "carga" | "maquina_nao_selecionada" | "recurso_indisponivel" | "sem_recurso_compativel";
-export const CAUSAS: CausaOciosidade[] = ["carga", "maquina_nao_selecionada", "recurso_indisponivel", "sem_recurso_compativel"];
+export type CausaOciosidade = "carga" | "maquina_nao_selecionada" | "recurso_indisponivel" | "sem_recurso_compativel" | "limite_estoque" | "aguardando_etapa_anterior";
+export const CAUSAS: CausaOciosidade[] = ["carga", "maquina_nao_selecionada", "recurso_indisponivel", "sem_recurso_compativel", "limite_estoque", "aguardando_etapa_anterior"];
 
 export type ContagemCausas = Record<CausaOciosidade, number>;
 
@@ -63,7 +68,7 @@ export interface CandidatoRecurso {
 }
 
 function zeros(): ContagemCausas {
-  return { carga: 0, maquina_nao_selecionada: 0, recurso_indisponivel: 0, sem_recurso_compativel: 0 };
+  return { carga: 0, maquina_nao_selecionada: 0, recurso_indisponivel: 0, sem_recurso_compativel: 0, limite_estoque: 0, aguardando_etapa_anterior: 0 };
 }
 
 // `produtosPermitidos`: recursos compatíveis só são sugeridos para etapas de produtos JÁ PREVISTOS na semana.
@@ -109,7 +114,12 @@ export function analisarCobertura(
     maquina_nao_selecionada: { pessoasPeriodo: 0, minutos: 0 },
     recurso_indisponivel: { pessoasPeriodo: 0, minutos: 0 },
     sem_recurso_compativel: { pessoasPeriodo: 0, minutos: 0 },
+    limite_estoque: { pessoasPeriodo: 0, minutos: 0 },
+    aguardando_etapa_anterior: { pessoasPeriodo: 0, minutos: 0 },
   };
+  // etapas por produto, em ordem (só usado no modo WIP: pipeline e limite de estoque)
+  const etapasDoProduto = entrada.wip ? etapasPorProduto(pools) : null;
+  const adicMax = new Map<string, number>(pools.map((p) => [chavePool(p.produtoId, p.etapaId), Math.max(0, p.adicionalMax ?? 0)]));
   let minDisp = 0;
   let minSem = 0;
   let ppSem = 0;
@@ -126,9 +136,42 @@ export function analisarCobertura(
 
     if (ociosos > 0) {
       const disp = (m: string) => maquinaDisponivelNoSlot(entrada, m, slot);
-      const livresSelecionadas = selecionadas.filter((m) => disp(m) && !usadas.has(m)).length;
-      const a = Math.min(ociosos, livresSelecionadas);
+      const livresLista = selecionadas.filter((m) => disp(m) && !usadas.has(m));
+      const a = Math.min(ociosos, livresLista.length);
       causas.carga = a;
+      if (etapasDoProduto) {
+        // WIP: o que sobrou de adicional programado depois das decisões DESTE período e por que não foi usado
+        const adicApos = new Map(adic);
+        linhas.forEach((l) => {
+          if (l.maquinaId && l.produtoId && l.etapaId && (l.pecasAdicional ?? 0) > 0) {
+            const k = chavePool(l.produtoId, l.etapaId);
+            adicApos.set(k, Math.max(0, (adicApos.get(k) ?? 0) - (l.pecasAdicional as number)));
+          }
+        });
+        const feito = (k: string) => (adicMax.get(k) ?? 0) - (adicApos.get(k) ?? 0);
+        const motivoPool = (p: PoolEscala): "carga" | "limite_estoque" | "aguardando_etapa_anterior" => {
+          const k = chavePool(p.produtoId, p.etapaId);
+          if ((adicApos.get(k) ?? 0) <= EPS || metaNoSlot(p, slot) <= 0) return "carga";
+          const l = etapasDoProduto.get(p.produtoId) ?? [];
+          const i = l.findIndex((x) => x.etapaId === p.etapaId);
+          if (i > 0 && feito(chavePool(p.produtoId, l[i - 1].etapaId)) - feito(k) <= EPS) return "aguardando_etapa_anterior";
+          const L = entrada.wip?.limites[k];
+          if (i >= 0 && i < l.length - 1 && L !== undefined && L - (feito(k) - feito(chavePool(p.produtoId, l[i + 1].etapaId))) <= EPS) return "limite_estoque";
+          return "carga";
+        };
+        let nCarga = 0;
+        let nLimite = 0;
+        let nAguardando = 0;
+        livresLista.slice(0, a).forEach((m) => {
+          const motivos = pools.filter((p) => p.maquinasIds.includes(m)).map(motivoPool);
+          if (motivos.length === 0 || motivos.includes("carga")) nCarga++;
+          else if (motivos.includes("limite_estoque")) nLimite++;
+          else nAguardando++;
+        });
+        causas.carga = nCarga;
+        causas.limite_estoque = nLimite;
+        causas.aguardando_etapa_anterior = nAguardando;
+      }
       let resto = ociosos - a;
 
       // etapas que ainda queriam mais máquinas neste período (e não conseguiram)
@@ -307,4 +350,45 @@ export function recursosCompativeisVerificados(
     if (ganho > 0) combinado = { maquinas: itens.map((i) => i.maquinaId), ganhoMinutos: ganho, ganhoHoras: ganho / 60, coberturaApos: cob.percentual };
   }
   return { itens, combinado };
+}
+
+// ---- pessoas COM posto por período (mínimo, máximo, média) — complementa o percentual de cobertura ----
+export interface PessoasComPosto {
+  periodos: number; // períodos analisados (ainda não iniciados)
+  minimo: number;
+  maximo: number;
+  media: number;
+  disponiveisMedia: number; // pessoas disponíveis em média por período
+  periodoMinimo: { data: string; periodoId: string } | null;
+  periodoMaximo: { data: string; periodoId: string } | null;
+}
+
+export function resumirPessoasComPosto(entrada: EntradaEscala, resultado: ResultadoEscala): PessoasComPosto {
+  const slots = entrada.slots.slice(entrada.aPartirDe);
+  const porSlot = new Map<string, { com: number; total: number }>();
+  resultado.alocacoes.forEach((a) => {
+    const k = `${a.data}|${a.periodoId}`;
+    const x = porSlot.get(k) ?? { com: 0, total: 0 };
+    x.total++;
+    if (a.maquinaId) x.com++;
+    porSlot.set(k, x);
+  });
+  let minimo = Infinity;
+  let maximo = -Infinity;
+  let soma = 0;
+  let somaTotal = 0;
+  let n = 0;
+  let pMin: PessoasComPosto["periodoMinimo"] = null;
+  let pMax: PessoasComPosto["periodoMaximo"] = null;
+  slots.forEach((s) => {
+    const x = porSlot.get(`${s.data}|${s.periodoId}`);
+    if (!x || x.total === 0) return; // período sem ninguém disponível não entra
+    n++;
+    soma += x.com;
+    somaTotal += x.total;
+    if (x.com < minimo) { minimo = x.com; pMin = { data: s.data, periodoId: s.periodoId }; }
+    if (x.com > maximo) { maximo = x.com; pMax = { data: s.data, periodoId: s.periodoId }; }
+  });
+  if (n === 0) return { periodos: 0, minimo: 0, maximo: 0, media: 0, disponiveisMedia: 0, periodoMinimo: null, periodoMaximo: null };
+  return { periodos: n, minimo, maximo, media: soma / n, disponiveisMedia: somaTotal / n, periodoMinimo: pMin, periodoMaximo: pMax };
 }
