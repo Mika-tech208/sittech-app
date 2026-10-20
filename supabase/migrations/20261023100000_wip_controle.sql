@@ -175,6 +175,21 @@ create trigger trg_wip_confirmacoes_evento after insert on public.wip_confirmaco
 create or replace function public.wip_hoje()
 returns date language sql stable as $$ select (now() at time zone 'America/Sao_Paulo')::date $$;
 
+-- Produção Real BOA por etapa e dia (produzida − refugo), agregada. O servidor (service_role) NÃO tem acesso direto a
+-- apontamentos_producao (select restrito): esta função devolve só o agregado de que o controle de WIP precisa.
+create or replace function public.wip_producao_boas(p_etapa_ids uuid[], p_desde date)
+returns table (etapa_id uuid, data date, boas numeric)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select a.etapa_id, a.data, coalesce(sum(a.quantidade_produzida - a.quantidade_refugo), 0)::numeric
+  from public.apontamentos_producao a
+  where a.etapa_id = any(p_etapa_ids) and a.data >= p_desde
+  group by a.etapa_id, a.data
+$$;
+
 create or replace function public.wip_controle_criar(
   p_usuario_id uuid, p_produto_id uuid, p_etapa_origem_id uuid, p_etapa_seguinte_id uuid, p_data_inicio date, p_saldo_inicial numeric
 )
@@ -300,7 +315,8 @@ begin
     'wip_controle_ativar(uuid, uuid, boolean)',
     'wip_ajustar(uuid, uuid, date, numeric, text, uuid)',
     'wip_confirmar(uuid, uuid, date, numeric, numeric, text, uuid)',
-    'wip_gravar_snapshots(date, jsonb)'
+    'wip_gravar_snapshots(date, jsonb)',
+    'wip_producao_boas(uuid[], date)'
   ] loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);
     execute format('grant execute on function public.%s to service_role', f);

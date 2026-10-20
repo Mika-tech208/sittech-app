@@ -16,20 +16,10 @@ function somarDias(iso: string, dias: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-const PAGINA = 1000;
-
-// "boas" = produzida − refugo, por etapa e dia (a Produção Real é a fonte; nada é gravado aqui)
+// "boas" = produzida − refugo, por etapa e dia — agregado no banco (função com acesso restrito à Produção Real)
 async function producaoBoas(admin: SupabaseClient, etapaIds: string[], desde: string): Promise<EntradaWip["producao"]> {
-  const saida: EntradaWip["producao"] = [];
-  for (let de = 0; ; de += PAGINA) {
-    const linhas = ok(
-      await admin.from("apontamentos_producao").select("etapa_id, data, quantidade_produzida, quantidade_refugo").in("etapa_id", etapaIds).gte("data", desde).order("data").order("id").range(de, de + PAGINA - 1),
-      "apontamentos_producao"
-    ) as { etapa_id: string; data: string; quantidade_produzida: number; quantidade_refugo: number }[];
-    linhas.forEach((l) => saida.push({ etapaId: l.etapa_id, data: String(l.data), boas: Number(l.quantidade_produzida ?? 0) - Number(l.quantidade_refugo ?? 0) }));
-    if (linhas.length < PAGINA) break;
-  }
-  return saida;
+  const linhas = ok(await admin.rpc("wip_producao_boas", { p_etapa_ids: etapaIds, p_desde: desde }), "wip_producao_boas") as { etapa_id: string; data: string; boas: number }[];
+  return linhas.map((l) => ({ etapaId: l.etapa_id, data: String(l.data), boas: Number(l.boas ?? 0) }));
 }
 
 export async function carregarWipControle(admin: SupabaseClient, semanaInicio: string): Promise<Omit<EntradaWip, "hoje"> | undefined> {
