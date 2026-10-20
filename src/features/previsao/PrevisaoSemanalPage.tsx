@@ -263,8 +263,13 @@ export default function PrevisaoSemanalPage() {
 
   // ---- carga adicional (camada separada do previsto) ----
   // Só grava `quantidadeAdicional`; o previsto (`quantidade`) segue exatamente como estava.
-  async function salvarAdicional(porItemId: Record<string, number>): Promise<boolean> {
-    const itens = semanaAtualRec.itens.map((it) => ({ ...it, quantidadeAdicional: porItemId[it.id] ?? it.quantidadeAdicional ?? 0 }));
+  // Modo WIP: `porEtapaPorItemId` traz o adicional de CADA etapa (acabado = última; o resto é estoque intermediário).
+  async function salvarAdicional(porItemId: Record<string, number>, porEtapaPorItemId?: Record<string, Record<string, number>>): Promise<boolean> {
+    const itens = semanaAtualRec.itens.map((it) => ({
+      ...it,
+      quantidadeAdicional: porItemId[it.id] ?? it.quantidadeAdicional ?? 0,
+      ...(porEtapaPorItemId && porEtapaPorItemId[it.id] ? { adicionalPorEtapa: porEtapaPorItemId[it.id] } : {}),
+    }));
     return upsertSemana({ itens });
   }
 
@@ -539,6 +544,7 @@ export default function PrevisaoSemanalPage() {
                     modoSimulacao={modoSimulacao}
                     salvando={salvandoConfigSemana}
                     onSalvarAdicional={salvarAdicional}
+                    produtos={produtos}
                   />
                 )}
 

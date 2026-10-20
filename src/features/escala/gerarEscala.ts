@@ -22,6 +22,8 @@ import { calcularFolgas, EPS, metaNoSlot, type FolgaPool } from "./folga";
 import { ContadoresEquidade } from "./equidade";
 import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { sobrepoe } from "./tempo";
+import { selecionarAdicionalWip } from "./adicionalWip";
+import { etapasPorProduto } from "./wip";
 import {
   chavePool, MOTIVO_DEMANDA_ESGOTADA, MOTIVO_JA_COBERTA, MOTIVO_POSTOS_OCUPADOS, MOTIVO_RECURSOS_INDISPONIVEIS,
   type AlertaEscala, type AlocacaoEscala, type EntradaEscala, type PoolEscala, type ResultadoEscala, type ResumoSlot, type SlotEscala,
@@ -125,7 +127,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
   const adicAlocado = new Map<string, number>();
   const chavesDoProduto = new Map<string, string[]>();
   pools.forEach((p) => {
-    if ((p.adicionalMax ?? 0) <= 0) return;
+    if ((p.adicionalMax ?? 0) <= 0 && !entrada.wip) return; // com o adicional por etapa TODA etapa participa da cadeia
     const k = chavePool(p.produtoId, p.etapaId);
     adicAlocado.set(k, 0);
     chavesDoProduto.set(p.produtoId, [...(chavesDoProduto.get(p.produtoId) ?? []), k]);
@@ -136,6 +138,11 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
       if (adicAlocado.has(k)) adicAlocado.set(k, (adicAlocado.get(k) as number) + (a.pecasAdicional as number));
     }
   });
+
+  // adicional por etapa (WIP): etapas de cada produto e qual é a ÚLTIMA (produto acabado)
+  const etapasWip = entrada.wip ? etapasPorProduto(pools) : null;
+  const ehUltimaEtapa = new Map<string, boolean>();
+  etapasWip?.forEach((l) => l.forEach((p, i) => ehUltimaEtapa.set(chavePool(p.produtoId, p.etapaId), i === l.length - 1)));
 
   // ---- disponibilidade de máquina por slot (regra única em disponibilidade.ts) ----
   const todasMaquinas = [...new Set(pools.flatMap((p) => p.maquinasIds))].sort();
@@ -328,7 +335,50 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     const aceitos2: { par: Par; pecas: number }[] = [];
     const destinoAdicional = new Map<number, number>(); // índice em `disponiveis` -> índice em aceitos2
     const ociosos = disponiveis.map((_, i) => i).filter((i) => atribuicao[i] >= K);
-    if (ociosos.length > 0) {
+    if (ociosos.length > 0 && etapasWip) {
+      // ---- adicional por ETAPA: acabado (cadeias) antes de estoque intermediário, pipeline no mesmo período ----
+      const usadasWip = new Set(maquinasUsadas);
+      const posts = selecionarAdicionalWip({
+        etapas: etapasWip,
+        adicRem,
+        adicAlocado,
+        saldo0: new Map(),
+        limites: entrada.wip!.limites,
+        livres: (p) =>
+          [...new Set(p.maquinasIds)]
+            .filter((m) => maquinaDisponivel(m, t))
+            .sort((a, b) => {
+              // continuidade SÓ do previsto: o que o estoque/adicional já fez nunca muda a escolha das máquinas do acabado
+              const ca = ultimoProdutoMaquina.get(a) === p.produtoId ? 1 : 0;
+              const cb = ultimoProdutoMaquina.get(b) === p.produtoId ? 1 : 0;
+              return ca !== cb ? cb - ca : a < b ? -1 : 1;
+            }),
+        meta: (p) => metaNoSlot(p, slot),
+        usadas: usadasWip,
+        orcamento: ociosos.length,
+      });
+      posts.forEach((po) => {
+        const chave = chavePool(po.pool.produtoId, po.pool.etapaId);
+        aceitos2.push({
+          par: { m: po.m, pool: po.pool, chave, folga: SEM_FOLGA, valorPosto: po.pecas * po.pool.valorUnitario, continuidade: ultimoProdutoGeral.get(po.m) === po.pool.produtoId ? 1 : 0 },
+          pecas: po.pecas,
+        });
+      });
+      if (aceitos2.length > 0) {
+        const n1 = ociosos.length;
+        const K2n = aceitos2.length;
+        const custo2 = ociosos.map((i) => {
+          const linha: number[] = [];
+          aceitos2.forEach(({ par }) => linha.push(custoPosto(disponiveis[i].id, par)));
+          for (let j = K2n; j < n1; j++) linha.push(custoOcio(disponiveis[i].id));
+          return linha;
+        });
+        const a2 = atribuicaoMinima(custo2);
+        ociosos.forEach((i, r) => {
+          if (a2[r] < K2n) destinoAdicional.set(i, a2[r]);
+        });
+      }
+    } else if (ociosos.length > 0) {
       const pares2: Par[] = [];
       const minAlocadoDoProduto = new Map<string, number>();
       chavesDoProduto.forEach((chaves, produto) => minAlocadoDoProduto.set(produto, Math.min(...chaves.map((k) => adicAlocado.get(k) as number))));
@@ -439,6 +489,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
           operacaoId: op,
           pecas: 0,
           pecasAdicional: pecas,
+          ...(etapasWip ? { tipoAdicional: ehUltimaEtapa.get(par.chave) ? ("acabado" as const) : ("intermediario" as const) } : {}),
           motivoSemPosto: null,
           excecaoRevezamento: repetiu,
           motivoExcecao: repetiu

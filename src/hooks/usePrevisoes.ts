@@ -42,6 +42,7 @@ interface PrevisaoItemRow {
   registrado_em: string | null;
   registrado_por_nome: string | null;
   previsao_item_maquinas: { etapa_id: string; maquina_id: string }[] | null;
+  previsao_item_adicional_etapa: { etapa_id: string; quantidade: number }[] | null;
 }
 
 interface PrevisaoRow {
@@ -57,7 +58,8 @@ const PREVISAO_SELECT = `
   id, semana_inicio,
   previsao_itens(
     id, tipo, produto_id, produto_nome, valor_unitario, quantidade, quantidade_adicional, adicional_atualizado_em, registrado_em, registrado_por_nome,
-    previsao_item_maquinas(etapa_id, maquina_id)
+    previsao_item_maquinas(etapa_id, maquina_id),
+    previsao_item_adicional_etapa(etapa_id, quantidade)
   ),
   previsao_maquinas_indisponiveis(maquina_id),
   previsao_dias_produtivos(dia, ativo),
@@ -82,6 +84,9 @@ function linhaParaItem(i: PrevisaoItemRow): PrevisaoItem {
     registradoPorNome: i.registrado_por_nome,
     quantidadeAdicional: Number(i.quantidade_adicional ?? 0),
     adicionalAtualizadoEm: i.adicional_atualizado_em,
+    ...((i.previsao_item_adicional_etapa || []).length > 0
+      ? { adicionalPorEtapa: Object.fromEntries((i.previsao_item_adicional_etapa || []).map((a) => [a.etapa_id, Number(a.quantidade)])) }
+      : {}),
   };
 }
 
@@ -117,6 +122,8 @@ function itemParaPayloadRPC(it: PrevisaoItem) {
     quantidade: it.quantidade,
     // só manda o adicional quando o chamador o define; sem o campo o servidor PRESERVA o que já existe
     ...(it.quantidadeAdicional !== undefined ? { quantidade_adicional: it.quantidadeAdicional } : {}),
+    // por etapa (WIP): idem — só quando definido; ausente = o servidor preserva
+    ...(it.adicionalPorEtapa !== undefined ? { adicional_etapas: it.adicionalPorEtapa } : {}),
     maquinas_por_etapa: it.maquinasPorEtapa || {},
   };
 }

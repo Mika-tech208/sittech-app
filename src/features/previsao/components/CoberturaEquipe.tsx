@@ -18,8 +18,22 @@ import type { RecomendacaoMaquina, SimulacaoCobertura } from "@/lib/escala/simul
 import { resumirConfirmacaoSugestao } from "@/features/previsao/confirmacaoSugestao";
 import type { CoberturaSemana, CausaOciosidade } from "@/features/escala/cobertura";
 import { formatBRL, formatQtd, toNumber } from "@/lib/format";
-import type { PrevisaoItem } from "@/types/domain";
+import type { Produto, PrevisaoItem } from "@/types/domain";
 import Recolhivel from "@/features/previsao/components/Recolhivel";
+import CargaAdicionalEtapas from "@/features/previsao/components/CargaAdicionalEtapas";
+import { useWipModo } from "@/hooks/useWipModo";
+import {
+  acabadoDe,
+  alterado as rascunhoEtapasAlterado,
+  numerosDeEtapas,
+  payloadEtapas,
+  preencherComSugestao,
+  rascunhoSalvo,
+  resumirConfirmacaoWip,
+  temErro as rascunhoEtapasComErro,
+  type EtapaRef,
+  type RascunhoEtapas,
+} from "@/features/previsao/adicionalEtapas";
 
 const ESTILOS = `
 .stx-cob-topo { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
@@ -81,14 +95,27 @@ export interface CoberturaEquipeProps {
   itens: PrevisaoItem[]; // previstos (salvos ou, em modo simulação, os simulados)
   modoSimulacao: boolean;
   salvando: boolean;
-  onSalvarAdicional: (adicionalPorItemId: Record<string, number>) => Promise<boolean>;
+  onSalvarAdicional: (adicionalPorItemId: Record<string, number>, adicionalPorEtapaPorItemId?: Record<string, Record<string, number>>) => Promise<boolean>;
+  produtos?: Produto[]; // roteiro de cada produto (etapas do adicional por etapa)
 }
 
-export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, salvando, onSalvarAdicional }: CoberturaEquipeProps) {
+export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, salvando, onSalvarAdicional, produtos = [] }: CoberturaEquipeProps) {
+  // Adicional por etapa (acabado + estoque intermediário): só quando o parâmetro wip_modo está "ativo". Desligado = tela anterior.
+  const modoWip = useWipModo(true);
+  const etapasDe = useCallback(
+    (produtoId: string): EtapaRef[] => (produtos.find((p) => p.id === produtoId)?.roteiro ?? []).map((e) => ({ id: e.id, nome: e.operacao })),
+    [produtos]
+  );
   const salvos = useMemo(() => Object.fromEntries(itens.map((i) => [i.id, String(i.quantidadeAdicional ?? 0)])), [itens]);
-  const assinatura = useMemo(() => `${semanaInicio}|${itens.map((i) => `${i.id}:${i.quantidade}:${i.quantidadeAdicional ?? 0}:${JSON.stringify(i.maquinasPorEtapa ?? {})}`).join(",")}`, [semanaInicio, itens]);
+  const salvosEtapas = useMemo(() => rascunhoSalvo(itens, etapasDe), [itens, etapasDe]);
+  const assinatura = useMemo(
+    () => `${semanaInicio}|${modoWip}|${itens.map((i) => `${i.id}:${i.quantidade}:${i.quantidadeAdicional ?? 0}:${JSON.stringify(i.adicionalPorEtapa ?? {})}:${JSON.stringify(i.maquinasPorEtapa ?? {})}`).join(",")}`,
+    [semanaInicio, itens, modoWip]
+  );
 
   const [rascunho, setRascunho] = useState<Record<string, string>>(salvos);
+  const [rascunhoEtapas, setRascunhoEtapas] = useState<RascunhoEtapas>(salvosEtapas);
+  const [sugestaoWip, setSugestaoWip] = useState<SimulacaoCobertura["sugestaoWip"]>(null);
   const [analise, setAnalise] = useState<SimulacaoCobertura | null>(null);
   const [sugestao, setSugestao] = useState<SimulacaoCobertura["sugestao"]>(null);
   const [recomendacoes, setRecomendacoes] = useState<RecomendacaoMaquina[]>([]);
@@ -104,6 +131,8 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
   // Mudou a semana/itens salvos: volta ao que está gravado e descarta análise e sugestão antigas.
   useEffect(() => {
     setRascunho(salvos);
+    setRascunhoEtapas(salvosEtapas);
+    setSugestaoWip(null);
     setAnalise(null);
     setSugestao(null);
     setRecomendacoes([]);
@@ -111,26 +140,30 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
     setErro(null);
     setAviso(null);
     jaAnalisou.current = false;
-  }, [assinatura, salvos]);
+  }, [assinatura, salvos, salvosEtapas]);
 
   const itensPayload = useCallback(
-    (r: Record<string, string>) =>
-      itens.map((i) => ({
-        produto_id: i.produtoId,
-        quantidade: i.quantidade,
-        valor_unitario: i.valorUnitario,
-        quantidade_adicional: Math.max(0, toNumber(r[i.id] ?? 0) || 0),
-        maquinas_por_etapa: i.maquinasPorEtapa ?? {},
-      })),
-    [itens]
+    (r: Record<string, string>, re: RascunhoEtapas) =>
+      itens.map((i) => {
+        const etapas = etapasDe(i.produtoId);
+        return {
+          produto_id: i.produtoId,
+          quantidade: i.quantidade,
+          valor_unitario: i.valorUnitario,
+          quantidade_adicional: modoWip ? acabadoDe(etapas, re[i.id] ?? {}) : Math.max(0, toNumber(r[i.id] ?? 0) || 0),
+          ...(modoWip ? { adicional_etapas: numerosDeEtapas(etapas, re[i.id] ?? {}) } : {}),
+          maquinas_por_etapa: i.maquinasPorEtapa ?? {},
+        };
+      }),
+    [itens, modoWip, etapasDe]
   );
 
   const executar = useCallback(
-    async (r: Record<string, string>, comSugestao: boolean) => {
+    async (r: Record<string, string>, re: RascunhoEtapas, comSugestao: boolean) => {
       const minha = ++seq.current;
       setCarregando(true);
       setErro(null);
-      const resp = await analisarCoberturaNoServidor(semanaInicio, { sugerir: comSugestao, itens: itensPayload(r) });
+      const resp = await analisarCoberturaNoServidor(semanaInicio, { sugerir: comSugestao, itens: itensPayload(r, re) });
       if (minha !== seq.current) return; // chegou uma análise mais nova
       setCarregando(false);
       if (!resp.ok) {
@@ -142,6 +175,7 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
       if (comSugestao) {
         // a sugestão e as recomendações (máquina + carga) partem SÓ do previsto — independem do adicional digitado
         setSugestao(resp.dados.sugestao);
+        setSugestaoWip(resp.dados.sugestaoWip ?? null);
         setRecomendacoes(resp.dados.recomendacoes ?? []);
       }
     },
@@ -151,23 +185,33 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
   // edição manual: recalcula a cobertura e mostra a consequência (depois da 1ª análise)
   useEffect(() => {
     if (!jaAnalisou.current) return;
-    const t = setTimeout(() => void executar(rascunho, false), 700);
+    const t = setTimeout(() => void executar(rascunho, rascunhoEtapas, false), 700);
     return () => clearTimeout(t);
-  }, [rascunho, executar]);
+  }, [rascunho, rascunhoEtapas, executar]);
 
   const nomeMaq = (id: string) => analise?.nomes.maquinas[id] ?? "máquina";
   const nomeProd = (id: string) => (analise?.nomes.produtos[id] ?? itens.find((i) => i.produtoId === id)?.produtoNome ?? "produto").trim();
   const nomeEtapa = (id: string | null) => (id ? analise?.nomes.etapas[id] ?? "etapa" : "—");
 
-  const alterado = itens.some((i) => (toNumber(rascunho[i.id] ?? 0) || 0) !== (i.quantidadeAdicional ?? 0));
+  const alterado = modoWip
+    ? rascunhoEtapasAlterado(itens, etapasDe, rascunhoEtapas)
+    : itens.some((i) => (toNumber(rascunho[i.id] ?? 0) || 0) !== (i.quantidadeAdicional ?? 0));
+  const comErroEtapas = modoWip && rascunhoEtapasComErro(itens, etapasDe, rascunhoEtapas);
 
   // "Aplicar sugestão" abre uma confirmação simples; confirmar apenas PREENCHE os valores para revisão.
   function aplicarSugestao() {
-    if (!sugestao || !analise) return;
+    if (!(modoWip ? sugestaoWip : sugestao) || !analise) return;
     setConfirmando(true);
   }
 
   function preencherSugestao() {
+    if (modoWip) {
+      if (!sugestaoWip) return;
+      setConfirmando(false);
+      setRascunhoEtapas(preencherComSugestao(itens, etapasDe, sugestaoWip));
+      setAviso("Sugestão preenchida por etapa para você revisar. Nada foi salvo ainda.");
+      return;
+    }
     if (!sugestao) return;
     setConfirmando(false);
     const novo: Record<string, string> = { ...rascunho };
@@ -188,7 +232,14 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
     if (modoSimulacao || gravando) return;
     setGravando(true);
     setAviso(null);
-    const ok = await onSalvarAdicional(Object.fromEntries(itens.map((i) => [i.id, Math.max(0, toNumber(rascunho[i.id] ?? 0) || 0)])));
+    if (modoWip && comErroEtapas) {
+      setGravando(false);
+      setAviso("Corrija os valores por etapa antes de salvar.");
+      return;
+    }
+    const ok = modoWip
+      ? await onSalvarAdicional(Object.fromEntries(itens.map((i) => [i.id, acabadoDe(etapasDe(i.produtoId), rascunhoEtapas[i.id] ?? {})])), payloadEtapas(itens, etapasDe, rascunhoEtapas))
+      : await onSalvarAdicional(Object.fromEntries(itens.map((i) => [i.id, Math.max(0, toNumber(rascunho[i.id] ?? 0) || 0)])));
     setGravando(false);
     setAviso(ok ? "Carga adicional salva. O previsto não foi alterado." : "Não foi possível salvar a carga adicional.");
   }
@@ -228,7 +279,7 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
           </p>
         </div>
         <div className="stx-cob-acoes">
-          <button className="stx-prev-pill-btn" disabled={carregando || salvando} onClick={() => void executar(rascunho, true)} title="Simula a Escala com o mesmo motor e já calcula a sugestão de carga adicional">
+          <button className="stx-prev-pill-btn" disabled={carregando || salvando} onClick={() => void executar(rascunho, rascunhoEtapas, true)} title="Simula a Escala com o mesmo motor e já calcula a sugestão de carga adicional">
             {carregando && !cob ? "Analisando…" : "Analisar cobertura"}
           </button>
         </div>
@@ -346,6 +397,29 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
         </>
       )}
 
+      {modoWip ? (
+        <CargaAdicionalEtapas
+          itens={itens}
+          etapasDe={etapasDe}
+          rascunho={rascunhoEtapas}
+          onEditar={(itemId, etapaId, valor) => setRascunhoEtapas((r) => ({ ...r, [itemId]: { ...(r[itemId] ?? {}), [etapaId]: valor } }))}
+          analise={analise}
+          sugestao={sugestaoWip}
+          nomeProd={nomeProd}
+          nomeEtapa={nomeEtapa}
+          nomeMaq={nomeMaq}
+          carregando={carregando}
+          salvandoOuSimulando={modoSimulacao || salvando}
+          modoSimulacao={modoSimulacao}
+          gravando={gravando}
+          alterado={alterado}
+          temErro={comErroEtapas}
+          onAplicar={aplicarSugestao}
+          onSalvar={() => void salvar()}
+          onDesfazer={() => setRascunhoEtapas(salvosEtapas)}
+        />
+      ) : (
+        <>
       <div className="stx-cob-bloco">
         <h3>Previsto × Adicional × Total programado</h3>
         <div className="stx-cob-rolagem">
@@ -439,9 +513,37 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
         </div>
       )}
 
+        </>
+      )}
+
       </Recolhivel>
 
-      {confirmando && sugestao && analise && (() => {
+      {confirmando && modoWip && sugestaoWip && analise && (() => {
+        const resumo = resumirConfirmacaoWip(sugestaoWip, nomeProd);
+        return (
+          <div className="stx-modal-backdrop" onClick={() => setConfirmando(false)}>
+            <div className="stx-modal-card" role="dialog" aria-label={resumo.titulo} onClick={(e) => e.stopPropagation()}>
+              <p className="stx-modal-titulo">{resumo.titulo}</p>
+              {resumo.linhas.map((l, k) => <p key={k} className="stx-cob-sub" style={k === 0 ? { fontWeight: 700, color: "inherit" } : undefined}>{l}</p>)}
+              <p className="stx-analise-secao-titulo">Produtos afetados</p>
+              {resumo.produtos.map((pp) => (
+                <div className="stx-tabela-producao-linha" key={pp.produtoId} style={{ gridTemplateColumns: "2fr 1fr 1fr" }}>
+                  <span>{pp.nome}</span>
+                  <span>+{formatQtd(pp.acabado)} acabado</span>
+                  <span>{formatQtd(pp.estoque)} estoque</span>
+                </div>
+              ))}
+              <p className="stx-cob-dica">Confirmar apenas <b>preenche</b> a coluna Adicional de cada etapa para você revisar. Nada é salvo automaticamente e o previsto não muda.</p>
+              <div className="stx-form-actions" style={{ marginTop: 16, justifyContent: "flex-end" }}>
+                <button type="button" className="stx-btn-secondary" onClick={() => setConfirmando(false)}>Cancelar</button>
+                <button type="button" className="stx-btn-primary" onClick={preencherSugestao}>Preencher para revisão</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {confirmando && !modoWip && sugestao && analise && (() => {
         const resumo = resumirConfirmacaoSugestao(sugestao, analise.atual, nomeProd);
         return (
           <div className="stx-modal-backdrop" onClick={() => setConfirmando(false)}>

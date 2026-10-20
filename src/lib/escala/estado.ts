@@ -1,7 +1,9 @@
 // Contratos entre o banco (adaptador Supabase) e o orquestrador do servidor.
 // Tudo aqui é dado puro — o motor (src/features/escala) nunca vê Supabase.
 
+import type { ParametrosEscala } from "@/features/escala/parametros";
 import type { AlertaEscala, AlocacaoEscala, HistoricoEquidadeFuncionario, PeriodoEscala } from "@/features/escala/types";
+import type { ProximaSemana } from "@/features/escala/wip";
 
 export interface AvisoMontagem {
   tipo: "etapa_sem_maquina" | "sem_pools" | "sem_funcionarios_produtivos";
@@ -19,6 +21,9 @@ export interface ItemPrevistoBruto {
   produtoId: string;
   quantidade: number;
   quantidadeAdicional?: number; // carga adicional (produto acabado) acima do previsto; padrão 0
+  // Adicional POR ETAPA (etapaId -> peças), só usado com o WIP ativo. Item com ESTE campo: etapa sem valor = 0.
+  // Sem o campo: o adicional do item (acabado) vale igual para todas as etapas (comportamento anterior).
+  adicionalPorEtapa?: Record<string, number>;
   valorUnitario: number; // snapshot do item
   maquinasPorEtapa: Record<string, string[]>; // etapaId -> máquinas selecionadas
 }
@@ -64,6 +69,10 @@ export interface EstadoBruto {
   nomesProdutos?: Record<string, string>;
   // Equidade: histórico agregado da janela (escala realmente gravada, semanas ANTERIORES a esta).
   historicoEquidade?: HistoricoEquidadeFuncionario[];
+  // Parâmetros da Escala (escala_parametros) — entradas canônicas do motor. Ausente = padrões (WIP desligado).
+  parametros?: ParametrosEscala;
+  // Necessidade da PRÓXIMA semana por produto, só se a Previsão dela estiver salva (limite de estoque, regra A). null = não existe.
+  proximaSemana?: ProximaSemana | null;
 }
 
 export interface DiaParaAplicar {

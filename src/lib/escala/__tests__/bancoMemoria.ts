@@ -100,7 +100,7 @@ export class Mundo {
   trocarManual(data: string, periodoId: string, a: string, b: string) {
     const la = this.alocacoes.find((x) => x.data === data && x.periodoId === periodoId && x.funcionarioId === a)!;
     const lb = this.alocacoes.find((x) => x.data === data && x.periodoId === periodoId && x.funcionarioId === b)!;
-    const campos = ["maquinaId", "produtoId", "etapaId", "operacaoId", "pecas", "pecasAdicional", "motivoSemPosto", "excecaoRevezamento", "motivoExcecao"] as const;
+    const campos = ["maquinaId", "produtoId", "etapaId", "operacaoId", "pecas", "pecasAdicional", "tipoAdicional", "motivoSemPosto", "excecaoRevezamento", "motivoExcecao"] as const;
     campos.forEach((c) => {
       const t = (la as unknown as Record<string, unknown>)[c];
       (la as unknown as Record<string, unknown>)[c] = (lb as unknown as Record<string, unknown>)[c];

@@ -3,7 +3,8 @@
 // montarEntradaEscala + gerarEscala); o diagnóstico só conta o que o motor produziu.
 //
 // Corpo: { semana_inicio: "AAAA-MM-DD", sugerir?: boolean,
-//          itens?: [{ produto_id, quantidade?, quantidade_adicional?, maquinas_por_etapa?, valor_unitario? }] }
+//          itens?: [{ produto_id, quantidade?, quantidade_adicional?, adicional_etapas?: { etapaId: peças }, maquinas_por_etapa?, valor_unitario? }] }
+// Com o parâmetro wip_modo = "ativo" a resposta traz `modoWip: true` e `sugestaoWip` (acabado + estoque intermediário).
 // `itens` (opcional) substitui os itens previstos salvos — usado pelo modo simulação e pela
 // edição manual da carga adicional ANTES de salvar, para mostrar a consequência na hora.
 

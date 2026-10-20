@@ -4,6 +4,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { agregarHistoricoEquidade, JANELA_EQUIDADE_DIAS } from "@/features/escala/equidade";
+import { lerParametros } from "@/features/escala/parametros";
 import type { AlocacaoEscala, PeriodoEscala } from "@/features/escala/types";
 import { linhasConsolidadas, type LinhaHistoricoBruta } from "./historicoConsolidado";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "./estado";
@@ -59,6 +60,15 @@ async function carregarHistoricoEquidade(admin: SupabaseClient, semanaInicio: st
   return agregarHistoricoEquidade(linhasConsolidadas(brutas, snapshots, periodosAtuais, agoraMs));
 }
 
+// Necessidade da próxima semana por produto: só quando a Previsão dela está salva (tem itens previstos).
+function proximaSemanaDe(linha: { previsao_itens: { produto_id: string; quantidade: number; tipo: string }[] | null } | null): { quantidadePorProduto: Record<string, number> } | null {
+  const itens = (linha?.previsao_itens ?? []).filter((i) => i.tipo === "previsto");
+  if (itens.length === 0) return null;
+  const quantidadePorProduto: Record<string, number> = {};
+  itens.forEach((i) => (quantidadePorProduto[i.produto_id] = (quantidadePorProduto[i.produto_id] ?? 0) + Number(i.quantidade)));
+  return { quantidadePorProduto };
+}
+
 export async function resolverPrevisaoPorSemana(admin: SupabaseClient, semanaInicio: string): Promise<string | null> {
   const { data, error } = await admin.from("previsoes").select("id").eq("semana_inicio", semanaInicio).maybeSingle();
   if (error) throw new Error(`previsoes: ${error.message}`);
@@ -71,10 +81,10 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
       const prev = ok(await admin.from("previsoes").select("id, semana_inicio").eq("id", previsaoId).single(), "previsoes") as { id: string; semana_inicio: string };
       const semanaFim = somarDias(prev.semana_inicio, 6);
 
-      const [dias, equipe, itens, indispPrev, inativas, periodos, existentes, ausencias, indisp, operacoes] = await Promise.all([
+      const [dias, equipe, itens, indispPrev, inativas, periodos, existentes, ausencias, indisp, operacoes, params, proxima] = await Promise.all([
         admin.from("previsao_dias_produtivos").select("dia, ativo").eq("previsao_id", previsaoId),
         admin.from("previsao_equipe_semana").select("funcionario_id, produtivo").eq("previsao_id", previsaoId),
-        admin.from("previsao_itens").select("produto_id, valor_unitario, quantidade, quantidade_adicional, previsao_item_maquinas(etapa_id, maquina_id)").eq("previsao_id", previsaoId).eq("tipo", "previsto"),
+        admin.from("previsao_itens").select("produto_id, valor_unitario, quantidade, quantidade_adicional, previsao_item_maquinas(etapa_id, maquina_id), previsao_item_adicional_etapa(etapa_id, quantidade)").eq("previsao_id", previsaoId).eq("tipo", "previsto"),
         admin.from("previsao_maquinas_indisponiveis").select("maquina_id").eq("previsao_id", previsaoId),
         admin.from("maquinas").select("id").eq("ativo", false),
         admin.from("periodos").select("id, nome, inicio, fim").order("id"),
@@ -82,11 +92,13 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         admin.from("ausencias_funcionarios").select("funcionario_id, data, horario_inicio, horario_fim").gte("data", prev.semana_inicio).lte("data", semanaFim),
         admin.from("escala_recurso_indisponivel").select("maquina_id, desde, liberada_em").or(`liberada_em.is.null,liberada_em.gte.${prev.semana_inicio}T00:00:00-03:00`),
         admin.from("operacoes").select("id, nome"),
+        admin.from("escala_parametros").select("chave, valor"),
+        admin.from("previsoes").select("id, previsao_itens(produto_id, quantidade, tipo)").eq("semana_inicio", somarDias(prev.semana_inicio, 7)).maybeSingle(),
       ]);
 
       const diasRows = ok(dias, "previsao_dias_produtivos") as { dia: string; ativo: boolean }[];
       const equipeRows = (ok(equipe, "previsao_equipe_semana") as { funcionario_id: string; produtivo: boolean }[]).filter((r) => r.produtivo);
-      const itensRows = ok(itens, "previsao_itens") as { produto_id: string; valor_unitario: number; quantidade: number; quantidade_adicional: number | null; previsao_item_maquinas: { etapa_id: string; maquina_id: string }[] | null }[];
+      const itensRows = ok(itens, "previsao_itens") as { produto_id: string; valor_unitario: number; quantidade: number; quantidade_adicional: number | null; previsao_item_maquinas: { etapa_id: string; maquina_id: string }[] | null; previsao_item_adicional_etapa: { etapa_id: string; quantidade: number }[] | null }[];
       const existentesRows = ok(existentes, "escala_producao_dias") as { data: string; versao: number; periodos_snapshot: PeriodoEscala[] }[];
 
       const funcIds = equipeRows.map((r) => r.funcionario_id);
@@ -117,7 +129,11 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         (i.previsao_item_maquinas ?? []).forEach((r) => {
           (porEtapa[r.etapa_id] ||= []).push(r.maquina_id);
         });
-        return { produtoId: i.produto_id, quantidade: Number(i.quantidade), quantidadeAdicional: Number(i.quantidade_adicional ?? 0), valorUnitario: Number(i.valor_unitario), maquinasPorEtapa: porEtapa };
+        const porEtapaAdic = i.previsao_item_adicional_etapa ?? [];
+        return {
+          produtoId: i.produto_id, quantidade: Number(i.quantidade), quantidadeAdicional: Number(i.quantidade_adicional ?? 0), valorUnitario: Number(i.valor_unitario), maquinasPorEtapa: porEtapa,
+          ...(porEtapaAdic.length > 0 ? { adicionalPorEtapa: Object.fromEntries(porEtapaAdic.map((r) => [r.etapa_id, Number(r.quantidade)])) } : {}),
+        };
       });
 
       return {
@@ -150,7 +166,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         alocacoes: alocRows.map((r) => ({
           data: String(r.data), periodoId: String(r.periodo_id), funcionarioId: String(r.funcionario_id),
           maquinaId: (r.maquina_id as string | null) ?? null, produtoId: (r.produto_id as string | null) ?? null, etapaId: (r.etapa_id as string | null) ?? null,
-          operacaoId: (r.operacao_id as string | null) ?? null, pecas: Number(r.pecas ?? 0), ...(Number(r.pecas_adicional ?? 0) > 0 ? { pecasAdicional: Number(r.pecas_adicional) } : {}), motivoSemPosto: (r.motivo_sem_posto as string | null) ?? null,
+          operacaoId: (r.operacao_id as string | null) ?? null, pecas: Number(r.pecas ?? 0), ...(Number(r.pecas_adicional ?? 0) > 0 ? { pecasAdicional: Number(r.pecas_adicional) } : {}), ...(r.tipo_adicional === "acabado" || r.tipo_adicional === "intermediario" ? { tipoAdicional: r.tipo_adicional as "acabado" | "intermediario" } : {}), motivoSemPosto: (r.motivo_sem_posto as string | null) ?? null,
           excecaoRevezamento: Boolean(r.excecao_revezamento), motivoExcecao: (r.motivo_excecao as string | null) ?? null,
           origem: r.origem === "manual" ? "manual" : "auto",
         })) as AlocacaoEscala[],
@@ -158,6 +174,8 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         nomesMaquinas: Object.fromEntries((ok(maquinasNomes, "maquinas (nomes)") as { id: string; nome: string }[]).map((m) => [m.id, m.nome])),
         nomesProdutos: Object.fromEntries((ok(produtosNomes, "produtos (nomes)") as { id: string; nome: string }[]).map((x) => [x.id, x.nome])),
         historicoEquidade,
+        parametros: lerParametros(ok(params, "escala_parametros") as { chave: string; valor: unknown }[]),
+        proximaSemana: proximaSemanaDe(ok(proxima, "previsoes (próxima semana)") as { previsao_itens: { produto_id: string; quantidade: number; tipo: string }[] | null } | null),
       };
     },
 
@@ -169,7 +187,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         p_a_partir_periodo: p.aPartirDePeriodo,
         p_alocacoes: p.alocacoes.map((a) => ({
           data: a.data, periodo_id: a.periodoId, funcionario_id: a.funcionarioId, maquina_id: a.maquinaId, produto_id: a.produtoId,
-          etapa_id: a.etapaId, operacao_id: a.operacaoId, pecas: a.pecas, pecas_adicional: a.pecasAdicional ?? 0, origem: a.origem ?? "auto",
+          etapa_id: a.etapaId, operacao_id: a.operacaoId, pecas: a.pecas, pecas_adicional: a.pecasAdicional ?? 0, tipo_adicional: a.tipoAdicional ?? null, origem: a.origem ?? "auto",
           excecao_revezamento: a.excecaoRevezamento, motivo_excecao: a.motivoExcecao, motivo_sem_posto: a.motivoSemPosto,
         })),
         p_usuario_id: p.usuarioId,

@@ -43,7 +43,7 @@ export async function reprocessarEventosEsgotados(): Promise<{ ok: boolean; erro
 // Cobertura da equipe na Previsão (simulação SOMENTE LEITURA, mesmo motor da Escala).
 export async function analisarCoberturaNoServidor(
   semanaInicio: string,
-  opcoes: { sugerir?: boolean; itens?: { produto_id: string; quantidade?: number; quantidade_adicional?: number; valor_unitario?: number; maquinas_por_etapa?: Record<string, string[]> }[] } = {}
+  opcoes: { sugerir?: boolean; itens?: { produto_id: string; quantidade?: number; quantidade_adicional?: number; adicional_etapas?: Record<string, number>; valor_unitario?: number; maquinas_por_etapa?: Record<string, string[]> }[] } = {}
 ): Promise<{ ok: true; dados: import("./simularCobertura").SimulacaoCobertura } | { ok: false; erro: string }> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;

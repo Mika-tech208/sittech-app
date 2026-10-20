@@ -117,6 +117,9 @@ export interface PrevisaoItem {
   // continuam usando só `quantidade`. Total programado = quantidade + quantidadeAdicional.
   quantidadeAdicional?: number;
   adicionalAtualizadoEm?: string | null;
+  // Adicional POR ETAPA (etapaId -> peças): acabado = última etapa; o restante é estoque intermediário aguardando a
+  // etapa seguinte. Só é usado quando o modo WIP está ativo; ausente = o adicional do item vale para todas as etapas.
+  adicionalPorEtapa?: { [etapaId: string]: number };
 }
 
 export interface MembroEquipeSemana {

@@ -75,6 +75,9 @@ export interface AlocacaoEscala {
   // "manual" = troca feita por uma pessoa (decisão explícita, entrada canônica do recálculo);
   // ausente/"auto" = saída derivada do motor (NUNCA volta como entrada).
   origem?: "auto" | "manual";
+  // Só com o adicional por etapa (WIP) ativo e pecasAdicional > 0: "acabado" = última etapa do roteiro;
+  // "intermediario" = etapa anterior (alimenta o acabado ou fica como estoque intermediário).
+  tipoAdicional?: "acabado" | "intermediario";
 }
 
 // Histórico agregado (janela recente) a partir da escala REALMENTE gravada
@@ -113,6 +116,9 @@ export interface EntradaEscala {
   // Etapas da Previsão SEM nenhuma máquina selecionada: o motor as ignora (nunca usa máquina fora da
   // Previsão), mas o diagnóstico de cobertura precisa delas para dizer "falta selecionar máquina".
   poolsSemMaquina?: PoolEscala[];
+  // Adicional por etapa + estoque intermediário planejado (pipeline). Ausente = comportamento anterior.
+  // `limites`: teto de estoque entre a etapa k e a k+1, por chave do pool da etapa k.
+  wip?: { limites: Record<string, number> };
 }
 
 export type TipoAlerta =

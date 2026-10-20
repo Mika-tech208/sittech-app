@@ -13,6 +13,7 @@
 
 import { construirSlotsDeDias, epochMsNoFuso, minutosDoHorario, primeiroSlotFuturo } from "@/features/escala/tempo";
 import type { EntradaEscala, PeriodoEscala, PoolEscala } from "@/features/escala/types";
+import { calcularLimitesWip } from "@/features/escala/wip";
 import type { AvisoMontagem, EstadoBruto } from "./estado";
 
 export interface EntradaMontada {
@@ -52,6 +53,11 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
     if (!etapasPorProduto.has(e.produtoId)) etapasPorProduto.set(e.produtoId, []);
     etapasPorProduto.get(e.produtoId)!.push(e);
   });
+  // Adicional por ETAPA + estoque intermediário (WIP): ativo só pelo parâmetro wip_modo. Desligado = comportamento anterior, idêntico.
+  const wipAtivo = estado.parametros?.wipModo === "ativo";
+  // item com adicional por etapa: etapa sem valor = 0; item sem ele: o adicional do item (acabado) vale igual para todas as etapas
+  const capAdicional = (item: EstadoBruto["itens"][number], etapaId: string) =>
+    item.adicionalPorEtapa ? item.adicionalPorEtapa[etapaId] ?? 0 : item.quantidadeAdicional ?? 0;
   const pools = new Map<string, PoolEscala>();
   const semMaquina = new Map<string, PoolEscala>(); // só diagnóstico: etapas sem máquina selecionada
   [...estado.itens]
@@ -84,12 +90,13 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
             maquinasIds: [...new Set(maquinas)].sort(),
             metas: { ...etapa.metas },
             valorUnitario: item.valorUnitario,
-            ...(item.quantidadeAdicional ? { adicionalMax: item.quantidadeAdicional } : {}),
+            ...(wipAtivo ? { adicionalMax: capAdicional(item, etapa.id) } : item.quantidadeAdicional ? { adicionalMax: item.quantidadeAdicional } : {}),
             ...(etapa.maquinasCompativeis ? { maquinasCompativeisIds: [...etapa.maquinasCompativeis].sort() } : {}),
           });
         } else {
           atual.quantidade += item.quantidade;
-          if (item.quantidadeAdicional) atual.adicionalMax = (atual.adicionalMax ?? 0) + item.quantidadeAdicional;
+          if (wipAtivo) atual.adicionalMax = (atual.adicionalMax ?? 0) + capAdicional(item, etapa.id);
+          else if (item.quantidadeAdicional) atual.adicionalMax = (atual.adicionalMax ?? 0) + item.quantidadeAdicional;
           atual.maquinasIds = [...new Set([...atual.maquinasIds, ...maquinas])].sort();
           atual.valorUnitario = Math.max(atual.valorUnitario, item.valorUnitario);
         }
@@ -139,6 +146,7 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
       nomesOperacao: estado.nomesOperacao,
       historicoEquidade: estado.historicoEquidade,
       poolsSemMaquina: [...semMaquina.entries()].filter(([k]) => !pools.has(k)).map(([, p]) => p),
+      ...(wipAtivo ? { wip: { limites: calcularLimitesWip([...pools.values()], slots, { wipDiasLimite: estado.parametros?.wipDiasLimite ?? 1 }, estado.proximaSemana ?? null) } } : {}),
     },
     periodosPorDia,
     diasExistentesPorData: new Map(estado.diasExistentes.map((d) => [d.data, { versao: d.versao }])),

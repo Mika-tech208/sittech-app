@@ -7,6 +7,7 @@
 import { analisarCobertura, calcularCobertura, comMaquinasAdicionadas, recursosCompativeisVerificados, type CoberturaSemana, type RecursoSugerido, type RecursosVerificados } from "@/features/escala/cobertura";
 import { gerarEscala } from "@/features/escala/gerarEscala";
 import { sugerirAdicional, type SugestaoProduto } from "@/features/escala/sugestaoAdicional";
+import { sugerirAdicionalWip, type SugestaoWip } from "@/features/escala/sugestaoWip";
 import { chavePool, type EntradaEscala } from "@/features/escala/types";
 import type { EstadoBruto } from "./estado";
 import { montarEntradaEscala } from "./montarEntrada";
@@ -22,7 +23,7 @@ export interface AdicionalProduto {
   previsto: number;
   adicionalProgramado: number; // o que está gravado/informado
   adicionalAbsorvido: number; // o que a capacidade ociosa realmente absorve (mínimo entre as etapas = produto acabado)
-  porEtapa: { etapaId: string; absorvido: number }[];
+  porEtapa: { etapaId: string; absorvido: number; programado?: number }[]; // `programado` só no WIP (teto por etapa)
 }
 
 export type SugestaoProdutoDetalhada = SugestaoProduto & {
@@ -55,6 +56,10 @@ export interface SimulacaoCobertura {
   recomendacoes: RecomendacaoMaquina[];
   etapasSemMaquina: EtapaSemMaquina[];
   adicional: AdicionalProduto[];
+  /** adicional por ETAPA + estoque intermediário (WIP) ativo: a tela mostra a tabela por etapa e a sugestão de `sugestaoWip` */
+  modoWip: boolean;
+  /** sugestão do modo WIP (acabado + estoque intermediário), com cobertura e horas ociosas antes/depois */
+  sugestaoWip: SugestaoWip | null;
   sugestao: null | {
     porProduto: SugestaoProdutoDetalhada[];
     totalPecas: number;
@@ -75,6 +80,7 @@ export interface ItemRascunho {
   produto_id?: string;
   quantidade?: number;
   quantidade_adicional?: number;
+  adicional_etapas?: Record<string, number>; // etapaId -> peças (WIP)
   valor_unitario?: number;
   maquinas_por_etapa?: Record<string, string[]>;
 }
@@ -95,10 +101,20 @@ export function aplicarRascunhoItens(estado: EstadoBruto, itens: ItemRascunho[])
     const quantidade = Number(it.quantidade ?? salvo?.quantidade ?? 0);
     if (!Number.isFinite(adicional) || adicional < 0) throw new RascunhoInvalidoError("Quantidade adicional inválida.");
     if (!Number.isFinite(quantidade) || quantidade < 0) throw new RascunhoInvalidoError("Quantidade inválida.");
+    let adicionalPorEtapa: Record<string, number> | undefined;
+    if (it.adicional_etapas && typeof it.adicional_etapas === "object") {
+      adicionalPorEtapa = {};
+      for (const [etapaId, v] of Object.entries(it.adicional_etapas)) {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0) throw new RascunhoInvalidoError("Quantidade adicional por etapa inválida.");
+        adicionalPorEtapa[etapaId] = n;
+      }
+    }
     novos.push({
       produtoId: it.produto_id,
       quantidade,
       quantidadeAdicional: adicional,
+      ...(adicionalPorEtapa ? { adicionalPorEtapa } : {}),
       valorUnitario: Number(it.valor_unitario ?? salvo?.valorUnitario ?? 0),
       maquinasPorEtapa: it.maquinas_por_etapa ?? salvo?.maquinasPorEtapa ?? {},
     });
@@ -142,7 +158,7 @@ export function simularCobertura(estado: EstadoBruto, agoraMs: number, opcoes: {
   });
   [...porProduto.keys()].sort().forEach((produtoId) => {
     const pools = porProduto.get(produtoId)!;
-    const porEtapa = pools.map((p) => ({ etapaId: p.etapaId, absorvido: resultado.adicionalProduzido[chavePool(p.produtoId, p.etapaId)] ?? 0 }));
+    const porEtapa = pools.map((p) => ({ etapaId: p.etapaId, absorvido: resultado.adicionalProduzido[chavePool(p.produtoId, p.etapaId)] ?? 0, ...(entrada.wip ? { programado: p.adicionalMax ?? 0 } : {}) }));
     adicional.push({
       produtoId,
       previsto: Math.max(...pools.map((p) => p.quantidade)),
@@ -153,8 +169,13 @@ export function simularCobertura(estado: EstadoBruto, agoraMs: number, opcoes: {
   });
 
   let sugestao: SimulacaoCobertura["sugestao"] = null;
+  let sugestaoWip: SugestaoWip | null = null;
   let recomendacoesFinal: RecomendacaoMaquina[] = [];
-  if (opcoes.sugerir) {
+  if (opcoes.sugerir && entrada.wip) {
+    // modo WIP: acabado antes de estoque intermediário, pipeline no mesmo período. A recomendação de máquina por cenário
+    // completo é da Fase 2; aqui só a sugestão de adicional por etapa.
+    sugestaoWip = sugerirAdicionalWip(baseEntrada, { produtosIncompletos: incompletos, produtosPermitidos: previstos }).sugestao;
+  } else if (opcoes.sugerir) {
     const s = sugerirAdicional(baseEntrada, { produtosIncompletos: incompletos, produtosPermitidos: previstos });
     const rS = gerarEscala(s.entradaComSugestao);
     const { cobertura: coberturaApos, candidatos: candidatosApos } = analisarCobertura(s.entradaComSugestao, rS, previstos);
@@ -230,6 +251,8 @@ export function simularCobertura(estado: EstadoBruto, agoraMs: number, opcoes: {
   }
 
   const resultadoFinal = { sugestao, recomendacoes: recomendacoesFinal };
+  const foraWip = (sugestaoWip?.itens ?? []).map((i) => i.produtoId).filter((p) => !previstos.has(p));
+  if (foraWip.length > 0) throw new Error(`INVARIANTE VIOLADA: produto(s) fora da Previsão da semana na sugestão de adicional: ${[...new Set(foraWip)].join(", ")}`);
   const fora = produtosForaDaSemana({ adicional, etapasSemMaquina, recursosCompativeis: verificados.itens, ...resultadoFinal }, previstos);
   if (fora.length > 0) throw new Error(`INVARIANTE VIOLADA: produto(s) fora da Previsão da semana na recomendação: ${fora.join(", ")}`);
 
@@ -251,6 +274,8 @@ export function simularCobertura(estado: EstadoBruto, agoraMs: number, opcoes: {
     recomendacoes: recomendacoesFinal,
     etapasSemMaquina,
     adicional,
+    modoWip: Boolean(entrada.wip),
+    sugestaoWip,
     sugestao,
     nomes: { maquinas: estado.nomesMaquinas ?? {}, produtos: nomesProdutos, etapas },
   };
