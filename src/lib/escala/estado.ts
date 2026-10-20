@@ -1,7 +1,7 @@
 // Contratos entre o banco (adaptador Supabase) e o orquestrador do servidor.
 // Tudo aqui é dado puro — o motor (src/features/escala) nunca vê Supabase.
 
-import type { AlertaEscala, AlocacaoEscala, PeriodoEscala } from "@/features/escala/types";
+import type { AlertaEscala, AlocacaoEscala, HistoricoEquidadeFuncionario, PeriodoEscala } from "@/features/escala/types";
 
 export interface AvisoMontagem {
   tipo: "etapa_sem_maquina" | "sem_pools" | "sem_funcionarios_produtivos";
@@ -58,6 +58,8 @@ export interface EstadoBruto {
   indisponibilidades: IndisponibilidadeBruta[];
   alocacoes: AlocacaoEscala[]; // todas as existentes nos dias da escala
   nomesOperacao: Record<string, string>;
+  // Equidade: histórico agregado da janela (escala realmente gravada, semanas ANTERIORES a esta).
+  historicoEquidade?: HistoricoEquidadeFuncionario[];
 }
 
 export interface DiaParaAplicar {

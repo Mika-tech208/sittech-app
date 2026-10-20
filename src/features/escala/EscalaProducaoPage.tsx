@@ -93,10 +93,10 @@ export default function EscalaProducaoPage() {
     else setMensagem({ tipo: "ok", texto: "Escala calculada no servidor." });
   }
 
-  async function onTrocar(outroId: string) {
+  async function onTrocar(outroId: string, motivo: string) {
     if (!edicao) return;
     setErroModal(null);
-    const msg = await escala.trocar(edicao.data, edicao.periodoId, edicao.funcionarioId, outroId);
+    const msg = await escala.trocar(edicao.data, edicao.periodoId, edicao.funcionarioId, outroId, motivo);
     if (msg) setErroModal(msg);
     else { setEdicao(null); setMensagem({ tipo: "ok", texto: "Troca salva." }); }
   }

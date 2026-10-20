@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useEscalaTv } from "@/hooks/useEscalaTv";
+import { useWakeLockTv } from "@/hooks/useWakeLockTv";
 import LoginScreen from "@/components/shell/LoginScreen";
 import { temPermissao } from "@/lib/permissoes";
 import { dataHoraNoFuso, epochMsNoFuso } from "@/features/escala/tempo";
@@ -37,6 +38,7 @@ const ESTILOS_TV = `
 .stx-tv-vazio { font-size:clamp(20px,3.4vh,44px); color:#888; padding:3vh 1vw; }
 .stx-tv-rodape { padding:1vh 2vw; border-top:2px solid #333; font-size:clamp(13px,1.9vh,24px); color:#999; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 .stx-tv-alerta { color:#ff6b6b; font-weight:700; }
+.stx-tv-diag { color:#666; font-size:.85em; }
 `;
 
 function Coluna({ classe, titulo, sub, linhas }: { classe: string; titulo: string; sub?: string; linhas: LinhaTv[] }) {
@@ -78,6 +80,7 @@ export default function EscalaTvPage() {
   }, [podeSimular]);
   const tv = useEscalaTv(auth.autenticado && permitido && simulacao !== undefined, simulacao);
   const { snapshot, agoraMs } = tv;
+  const wakeLock = useWakeLockTv(auth.autenticado && permitido);
 
   // refaz a leitura quando o dia vira (a TV fica ligada o dia todo)
   const diaLocal = dataHoraNoFuso(agoraMs).data;
@@ -146,6 +149,9 @@ export default function EscalaTvPage() {
           {snapshot?.indisponiveis && snapshot.indisponiveis.length > 0
             ? `Indisponíveis: ${snapshot.indisponiveis.map((i) => i.maquina).join(", ")}`
             : "Todos os recursos disponíveis"}
+        </span>
+        <span className="stx-tv-diag" title="Diagnóstico da tela">
+          {wakeLock === "ativo" ? "Tela ativa" : wakeLock === "nao_suportado" ? "Wake Lock não suportado" : ""}
         </span>
         <span className={tv.desatualizado ? "stx-tv-alerta" : undefined}>
           {tv.desatualizado ? "ATUALIZAÇÃO PENDENTE — verifique a conexão" : snapshot?.versao !== undefined ? `versão ${snapshot.versao}` : ""}

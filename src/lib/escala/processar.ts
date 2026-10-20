@@ -11,6 +11,8 @@ import { AVISO_PRIMEIRA_GERACAO } from "@/features/escala/types";
 import { montarEntradaEscala } from "./montarEntrada";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento } from "./estado";
 
+export const MOTIVO_ESCALA_JA_EXISTE = "Escala da semana já existe";
+
 export interface EscalaIO {
   carregarEstado(): Promise<EstadoBruto>;
   aplicar(payload: PayloadAplicacao): Promise<{ versoes: Record<string, number> }>;
@@ -21,6 +23,9 @@ export interface OpcoesProcessamento {
   usuarioId?: string | null;
   eventoIds?: string[];
   criarSeNaoExiste: boolean; // só a geração manual cria escala; eventos só recalculam escalas que já existem
+  // Geração automática: só CRIA. Se a escala da semana já existe (inclusive porque outra chamada
+  // acabou de criar — o retry após conflito relê o estado), nada é alterado. Idempotente.
+  somenteSeNaoExiste?: boolean;
   maxTentativas?: number;
 }
 
@@ -31,6 +36,9 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
   for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
     const estado = await io.carregarEstado();
 
+    if (opcoes.somenteSeNaoExiste && estado.diasExistentes.length > 0) {
+      return { status: "ignorado", motivoIgnorado: MOTIVO_ESCALA_JA_EXISTE, tentativas: tentativa, alertas: [], alocacoesGravadas: 0 };
+    }
     if (estado.diasExistentes.length === 0 && !opcoes.criarSeNaoExiste) {
       return { status: "ignorado", motivoIgnorado: "Semana sem escala gerada", tentativas: tentativa, alertas: [], alocacoesGravadas: 0 };
     }

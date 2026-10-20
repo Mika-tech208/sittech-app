@@ -7,12 +7,14 @@ export function TrocaModal({
 }: {
   titulo: string;
   opcoes: { id: string; rotulo: string }[];
-  onConfirmar: (outroId: string) => void;
+  onConfirmar: (outroId: string, motivo: string) => void;
   onFechar: () => void;
   salvando: boolean;
   erro: string | null;
 }) {
   const [outro, setOutro] = useState("");
+  const [motivo, setMotivo] = useState("");
+  const motivoValido = motivo.trim().length >= 3;
   return (
     <div className="stx-esc-modal-bg" onClick={!salvando ? onFechar : undefined}>
       <div className="stx-esc-modal" onClick={(e) => e.stopPropagation()}>
@@ -25,11 +27,15 @@ export function TrocaModal({
             {opcoes.map((o) => <option key={o.id} value={o.id}>{o.rotulo}</option>)}
           </select>
         </div>
+        <div className="stx-esc-campo">
+          <label htmlFor="esc-troca-motivo">Motivo da troca (obrigatório)</label>
+          <input id="esc-troca-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: pedido do supervisor, treinamento…" maxLength={200} />
+        </div>
         <p className="stx-esc-muted">A troca vale só para este período. Um recálculo futuro (ausência, indisponibilidade, mudança na Previsão) pode reorganizar a escala.</p>
         {erro && <div className="stx-esc-banner erro">{erro}</div>}
         <div className="stx-esc-acoes">
           <button type="button" className="stx-esc-btn" onClick={onFechar} disabled={salvando}>Cancelar</button>
-          <button type="button" className="stx-esc-btn primario" disabled={!outro || salvando} onClick={() => onConfirmar(outro)}>{salvando ? "Salvando…" : "Trocar"}</button>
+          <button type="button" className="stx-esc-btn primario" disabled={!outro || !motivoValido || salvando} onClick={() => onConfirmar(outro, motivo.trim())}>{salvando ? "Salvando…" : "Trocar"}</button>
         </div>
       </div>
     </div>

@@ -67,6 +67,18 @@ export interface AlocacaoEscala {
   motivoExcecao: string | null;
 }
 
+// Histórico agregado (janela recente) a partir da escala REALMENTE gravada
+// (escala_producao_alocacoes). Interno ao motor — nunca exibido na interface.
+//  - periodosDisponiveis: períodos em que a pessoa estava disponível (tinha
+//    linha na escala; ausência não gera linha, logo não vira "dívida");
+//  - porOperacao / porMaquina: exposições (períodos com posto) na janela.
+export interface HistoricoEquidadeFuncionario {
+  funcionarioId: string;
+  periodosDisponiveis: number;
+  porOperacao: Record<string, number>;
+  porMaquina: Record<string, number>;
+}
+
 export interface EntradaEscala {
   slots: SlotEscala[]; // todos os slots produtivos da semana, em ordem
   aPartirDe: number; // primeiro slot MUTÁVEL (os anteriores estão congelados)
@@ -79,6 +91,9 @@ export interface EntradaEscala {
   congeladas: AlocacaoEscala[]; // alocações de slots < aPartirDe (consumo planejado + histórico de rotação)
   alocacoesAtuais?: AlocacaoEscala[]; // plano vigente em slots >= aPartirDe (só para minimizar mudanças)
   nomesOperacao?: Record<string, string>;
+  // Equidade histórica (opcional). Sem histórico, só a exposição acumulada
+  // na própria escala em geração (congeladas + períodos já decididos) conta.
+  historicoEquidade?: HistoricoEquidadeFuncionario[];
 }
 
 export type TipoAlerta =

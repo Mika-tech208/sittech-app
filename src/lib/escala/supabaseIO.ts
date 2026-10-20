@@ -3,9 +3,11 @@
 // outbox de eventos. Nada de regra de negócio aqui — só I/O.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { agregarHistoricoEquidade, JANELA_EQUIDADE_DIAS } from "@/features/escala/equidade";
 import type { AlocacaoEscala, PeriodoEscala } from "@/features/escala/types";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "./estado";
 import { processarSemana, type EscalaIO, type OpcoesProcessamento } from "./processar";
+import { gerarEscalaSemanal, type DepsGeracaoSemanal, type OpcoesGeracaoSemanal, type ResultadoGeracaoSemanal } from "./geracaoSemanal";
 import type { ResultadoProcessamento } from "./estado";
 
 const META_COLS = "meta_m1, meta_m2, meta_m3, meta_t1, meta_t2, meta_t3";
@@ -24,6 +26,30 @@ function somarDias(iso: string, dias: number): string {
   const d = new Date(iso + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + dias);
   return d.toISOString().slice(0, 10);
+}
+
+// Equidade: lê a escala REALMENTE gravada nas semanas anteriores (janela
+// recente) — sem tabela agregada: ~100 linhas/dia, ~3 mil em 30 dias. O
+// PostgREST limita a resposta (1000 linhas por padrão), então pagina.
+const PAGINA_HISTORICO = 1000;
+async function carregarHistoricoEquidade(admin: SupabaseClient, semanaInicio: string) {
+  const desde = somarDias(semanaInicio, -JANELA_EQUIDADE_DIAS);
+  const linhas: { funcionarioId: string; maquinaId: string | null; operacaoId: string | null }[] = [];
+  for (let de = 0; ; de += PAGINA_HISTORICO) {
+    const resp = await admin
+      .from("escala_producao_alocacoes")
+      .select("data, periodo_id, funcionario_id, maquina_id, operacao_id")
+      .gte("data", desde)
+      .lt("data", semanaInicio)
+      .order("data")
+      .order("periodo_id")
+      .order("funcionario_id")
+      .range(de, de + PAGINA_HISTORICO - 1);
+    const pagina = ok(resp, "escala_producao_alocacoes (histórico)") as { funcionario_id: string; maquina_id: string | null; operacao_id: string | null }[];
+    pagina.forEach((r) => linhas.push({ funcionarioId: r.funcionario_id, maquinaId: r.maquina_id, operacaoId: r.operacao_id }));
+    if (pagina.length < PAGINA_HISTORICO) break;
+  }
+  return agregarHistoricoEquidade(linhas);
 }
 
 export async function resolverPrevisaoPorSemana(admin: SupabaseClient, semanaInicio: string): Promise<string | null> {
@@ -69,6 +95,8 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         ? (ok(await admin.from("escala_producao_alocacoes").select("*").in("data", datasExistentes), "escala_producao_alocacoes") as Record<string, unknown>[])
         : [];
 
+      const historicoEquidade = await carregarHistoricoEquidade(admin, prev.semana_inicio);
+
       const itensBrutos = itensRows.map((i) => {
         const porEtapa: Record<string, string[]> = {};
         (i.previsao_item_maquinas ?? []).forEach((r) => {
@@ -110,6 +138,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
           excecaoRevezamento: Boolean(r.excecao_revezamento), motivoExcecao: (r.motivo_excecao as string | null) ?? null,
         })) as AlocacaoEscala[],
         nomesOperacao: Object.fromEntries((ok(operacoes, "operacoes") as { id: string; nome: string }[]).map((o) => [o.id, o.nome])),
+        historicoEquidade,
       };
     },
 
@@ -170,6 +199,36 @@ export async function processarEventosPendentes(admin: SupabaseClient, agoraMs: 
 
   const resumo = { semanas: porSemana.size, processadas: 0, ignoradas: 0, erros: 0 };
   for (const [previsaoId, lista] of porSemana) {
+    // Eventos 'geracao_semanal' (geração automática que falhou e está sendo retomada):
+    // não têm Previsão associada — tentam gerar a semana indicada no payload.
+    const semanais = lista.filter((e) => e.tipo === "geracao_semanal");
+    if (semanais.length > 0) {
+      for (const ev of semanais) {
+        const semana = typeof ev.payload?.semanaInicio === "string" ? (ev.payload.semanaInicio as string) : null;
+        try {
+          const r = semana ? await gerarEscalaSemanalDoServidor(admin, agoraMs, { semanaAlvo: semana, eventoId: ev.id }) : null;
+          if (!r) {
+            await admin.rpc("escala_concluir_eventos", { p_ids: [ev.id], p_status: "ignorado", p_erro: "evento sem semana" });
+            resumo.ignoradas++;
+          } else if (r.status === "gerada" || r.status === "ja_existe") {
+            await admin.rpc("escala_concluir_eventos", { p_ids: [ev.id], p_status: "processado", p_erro: null });
+            resumo.processadas++;
+          } else if (r.status === "semana_nao_atual" || r.status === "fora_da_janela") {
+            await admin.rpc("escala_concluir_eventos", { p_ids: [ev.id], p_status: "ignorado", p_erro: r.status });
+            resumo.ignoradas++;
+          } else {
+            await admin.rpc("escala_concluir_eventos", { p_ids: [ev.id], p_status: "erro", p_erro: r.mensagem });
+            resumo.erros++;
+          }
+        } catch (e) {
+          await admin.rpc("escala_concluir_eventos", { p_ids: [ev.id], p_status: "erro", p_erro: e instanceof Error ? e.message : String(e) });
+          resumo.erros++;
+        }
+      }
+      const restantes = lista.filter((e) => e.tipo !== "geracao_semanal");
+      if (restantes.length === 0) continue;
+      lista.splice(0, lista.length, ...restantes);
+    }
     const ids = lista.map((e) => e.id);
     if (!previsaoId) {
       await admin.rpc("escala_concluir_eventos", { p_ids: ids, p_status: "ignorado", p_erro: "evento sem previsão associada" });
@@ -253,4 +312,41 @@ export async function gerarEscalaDaSemana(
     await admin.rpc("escala_concluir_eventos", { p_ids: [eventoId], p_status: "erro", p_erro: e instanceof Error ? e.message : String(e) });
     throw e;
   }
+}
+
+// ---- geração automática da semana (segunda 06:30 America/Sao_Paulo) ----
+
+export async function gerarEscalaSemanalDoServidor(
+  admin: SupabaseClient,
+  agoraMs: number,
+  opcoes: OpcoesGeracaoSemanal & { eventoId?: string } = {}
+): Promise<ResultadoGeracaoSemanal> {
+  const deps: DepsGeracaoSemanal = {
+    resolverPrevisao: (semana) => resolverPrevisaoPorSemana(admin, semana),
+    async semanaTemEscala(previsaoId) {
+      const { count, error } = await admin.from("escala_producao_dias").select("data", { count: "exact", head: true }).eq("previsao_id", previsaoId);
+      if (error) throw new Error(`escala_producao_dias: ${error.message}`);
+      return (count ?? 0) > 0;
+    },
+    gerar: (previsaoId) => processarSemana(criarEscalaIO(admin, previsaoId), { agoraMs, criarSeNaoExiste: true, somenteSeNaoExiste: true }),
+    async registrarErro(semana, mensagem) {
+      if (opcoes.eventoId) return; // retentativa de um evento que já existe: ele próprio volta a "erro" no chamador
+      // um único evento aberto por semana (as 3 execuções de segunda não multiplicam)
+      const { count, error } = await admin
+        .from("escala_producao_eventos")
+        .select("id", { count: "exact", head: true })
+        .eq("tipo", "geracao_semanal")
+        .in("status", ["pendente", "processando", "erro"])
+        .contains("payload", { semanaInicio: semana });
+      if (error) throw new Error(`escala_producao_eventos: ${error.message}`);
+      if ((count ?? 0) > 0) return;
+      const id = await registrarEvento(admin, "geracao_semanal", null, { semanaInicio: semana, origem: "automatica" });
+      await admin.rpc("escala_concluir_eventos", { p_ids: [id], p_status: "erro", p_erro: mensagem });
+    },
+    async registrarGerada(semana, previsaoId, resumo) {
+      const id = await registrarEvento(admin, "geracao_semanal", previsaoId, { semanaInicio: semana, origem: opcoes.eventoId ? "retentativa" : "automatica", resumo });
+      await admin.rpc("escala_concluir_eventos", { p_ids: [id], p_status: "processado", p_erro: null });
+    },
+  };
+  return gerarEscalaSemanal(deps, agoraMs, opcoes);
 }

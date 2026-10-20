@@ -19,6 +19,7 @@
 
 import { atribuicaoMinima } from "./matching";
 import { calcularFolgas, EPS, metaNoSlot, type FolgaPool } from "./folga";
+import { ContadoresEquidade } from "./equidade";
 import { sobrepoe } from "./tempo";
 import {
   chavePool, MOTIVO_DEMANDA_ESGOTADA, MOTIVO_JA_COBERTA, MOTIVO_POSTOS_OCUPADOS, MOTIVO_RECURSOS_INDISPONIVEIS,
@@ -26,9 +27,11 @@ import {
 } from "./types";
 
 // Pesos do custo de atribuição (ordem de grandeza = ordem de prioridade):
-// revezamento >> exposição à operação no dia > minimizar mudanças > equidade
-// de ociosidade > mesma máquina em slots seguidos.
-const CUSTO_ROTACAO = 1_000_000;
+// revezamento >> equidade histórica por operação >> por máquina (equidade.ts)
+// > exposição à operação no dia > minimizar mudanças > equidade de ociosidade
+// > mesma máquina em slots seguidos. (O gargalo vence tudo isso: ele decide
+// QUAIS postos são cobertos, antes da atribuição de pessoas.)
+const CUSTO_ROTACAO = 1_000_000_000;
 const CUSTO_EXPOSICAO = 1_000;
 const CUSTO_MUDANCA = 100;
 const CUSTO_OCIO = 10;
@@ -128,6 +131,15 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
   });
   congeladas.forEach((a) => {
     if (!a.maquinaId) ociosidade.set(a.funcionarioId, (ociosidade.get(a.funcionarioId) ?? 0) + 1);
+  });
+  // ---- equidade: histórico da janela + congeladas desta escala (em ordem de slot) ----
+  const equidade = new ContadoresEquidade(funcionarios.map((f) => f.id), entrada.historicoEquidade);
+  slots.slice(0, aPartirDe).forEach((sl) => {
+    const linhas = congeladasPorSlot.get(chaveSlot(sl)) ?? [];
+    equidade.registrarPeriodo(
+      linhas.map((a) => a.funcionarioId),
+      linhas.filter((a) => a.maquinaId && a.operacaoId).map((a) => ({ funcionarioId: a.funcionarioId, operacaoId: a.operacaoId as string, maquinaId: a.maquinaId as string }))
+    );
   });
   const registrarDia = (s: SlotEscala, aloc: AlocacaoEscala[]) => {
     aloc.forEach((a) => {
@@ -245,6 +257,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
         const op = par.pool.operacaoId;
         if (histOp.get(f.id) === op) c += CUSTO_ROTACAO;
         c += CUSTO_EXPOSICAO * (opsHoje.get(f.id)?.get(op) ?? 0);
+        c += equidade.custo(f.id, op, par.m);
         const atual = atuais.get(`${chaveSlot(slot)}|${f.id}`);
         if (atual !== undefined && atual !== par.m) c += CUSTO_MUDANCA;
         if (ultimaMaquinaFunc.get(f.id) === par.m) c += CUSTO_MESMA_MAQUINA;
@@ -329,6 +342,10 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
       if (!a.maquinaId) ociosidade.set(a.funcionarioId, (ociosidade.get(a.funcionarioId) ?? 0) + 1);
     });
     registrarDia(slot, nova);
+    equidade.registrarPeriodo(
+      disponiveis.map((f) => f.id),
+      nova.filter((a) => a.maquinaId && a.operacaoId).map((a) => ({ funcionarioId: a.funcionarioId, operacaoId: a.operacaoId as string, maquinaId: a.maquinaId as string }))
+    );
     alocacoesSaida.push(...nova);
 
     if (n === 0) alertas.push({ tipo: "sem_funcionarios", data: slot.data, periodoId: slot.periodoId });

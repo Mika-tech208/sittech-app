@@ -1,0 +1,71 @@
+# Escala de Produção — GERAÇÃO AUTOMÁTICA da semana (toda segunda, 06:30
+# America/Sao_Paulo). Chama /api/escala/gerar-semana, que SEMPRE valida no
+# servidor a data, o fuso (America/Sao_Paulo), o dia da semana e a semana atual
+# — o horário UTC do GitHub não é confiado.
+#
+# 06:30 America/Sao_Paulo (UTC-3) = 09:30 UTC. As duas execuções seguintes
+# (10:30 e 12:30 UTC) são só REDE DE SEGURANÇA contra atraso/descarte do
+# agendador do GitHub; a rota é idempotente (se a escala já existe, não faz
+# nada), então rodar mais de uma vez não duplica nada.
+#
+# Segredos (somente em GitHub Actions Secrets — nunca no repositório):
+#   ESCALA_GERAR_SEMANA_URL     URL completa, ex.: https://<dominio>/api/escala/gerar-semana
+#   CRON_SECRET                 o mesmo valor configurado no Vercel
+#   VERCEL_PROTECTION_BYPASS    OPCIONAL — só para alvos com Deployment Protection (Preview)
+#
+# Falha (job vermelho) em qualquer HTTP diferente de 200 — inclusive quando a
+# Previsão Semanal não existe (a rota responde 422 e registra o erro no módulo).
+# O `schedule` só dispara a partir da branch padrão do repositório.
+
+name: Escala - gerar semana (segunda 06:30)
+
+on:
+  schedule:
+    - cron: "30 9 * * 1"
+    - cron: "30 10 * * 1"
+    - cron: "30 12 * * 1"
+
+concurrency:
+  group: escala-gerar-semana
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  gerar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Chamar /api/escala/gerar-semana
+        env:
+          ESCALA_GERAR_SEMANA_URL: ${{ secrets.ESCALA_GERAR_SEMANA_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ESCALA_GERAR_SEMANA_URL}" ] || [ -z "${CRON_SECRET}" ]; then
+            echo "::error::Secrets ESCALA_GERAR_SEMANA_URL e CRON_SECRET precisam estar configurados."
+            exit 1
+          fi
+
+          # cabeçalhos num arquivo (fora da linha de comando)
+          umask 077
+          {
+            echo "Authorization: Bearer ${CRON_SECRET}"
+            if [ -n "${VERCEL_PROTECTION_BYPASS}" ]; then
+              echo "x-vercel-protection-bypass: ${VERCEL_PROTECTION_BYPASS}"
+            fi
+          } > headers.txt
+
+          code=$(curl -sS --max-time 70 --retry 2 --retry-delay 5 --retry-all-errors \
+            -H @headers.txt -o resposta.json -w '%{http_code}' "${ESCALA_GERAR_SEMANA_URL}") || code="000"
+          rm -f headers.txt
+
+          echo "HTTP ${code}"
+          cat resposta.json 2>/dev/null || true
+          echo
+
+          if [ "${code}" != "200" ]; then
+            echo "::error::Geração semanal da Escala falhou (HTTP ${code})."
+            exit 1
+          fi

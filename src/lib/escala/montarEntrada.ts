@@ -121,6 +121,7 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
       congeladas,
       alocacoesAtuais,
       nomesOperacao: estado.nomesOperacao,
+      historicoEquidade: estado.historicoEquidade,
     },
     periodosPorDia,
     diasExistentesPorData: new Map(estado.diasExistentes.map((d) => [d.data, { versao: d.versao }])),
