@@ -120,7 +120,9 @@ export interface EntradaEscala {
   // `limites`: teto de estoque entre a etapa k e a k+1, por chave do pool da etapa k.
   // `saldo0` (Fase 3): estoque intermediário CONFIRMADO que a semana usa, por chave do pool da etapa ORIGEM. Já está descontado da
   // quantidade a produzir da origem; aqui só alimenta o alerta de falta de material (a etapa seguinte pode consumir esse estoque).
-  wip?: { limites: Record<string, number>; saldo0?: Record<string, number> };
+  // `estoqueConfirmado` (Fase 3): o MESMO saldo confirmado (disponível na abertura) ocupa o limite de estoque do par: o motor só
+  // planeja de WIP adicional o espaço que sobra (limite − confirmado − adicional já planejado), nunca negativo.
+  wip?: { limites: Record<string, number>; saldo0?: Record<string, number>; estoqueConfirmado?: Record<string, number> };
 }
 
 export type TipoAlerta =
@@ -128,6 +130,7 @@ export type TipoAlerta =
   | "subcarga_previsao"
   | "gargalo_sem_operador"
   | "risco_falta_material"
+  | "wip_acima_do_limite"
   | "sem_funcionarios";
 
 export interface AlertaEscala {

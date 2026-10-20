@@ -8,6 +8,7 @@ import { criarClienteAdmin } from "@/lib/supabase-admin";
 import { autenticarRequisicaoIntelligence } from "@/features/intelligence/auth";
 import { dataNoFusoSP, inicioDaSemana } from "@/features/escala/wipSaldo";
 import { criarWipDb } from "@/lib/escala/wipIO";
+import { limitesDaSemana } from "@/lib/escala/wipLimites";
 import { ajustarWip, ativarControleWip, confirmarWip, criarControleWip, verWip, WipErro } from "@/lib/escala/wipServico";
 
 export const runtime = "nodejs";
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
   try {
     const admin = criarClienteAdmin();
     const { data: modo } = await admin.rpc("escala_wip_modo");
-    const r = await verWip(criarWipDb(admin), auth.usuario, semana, hoje);
+    const r = await verWip(criarWipDb(admin), auth.usuario, semana, hoje, modo === "ativo" ? await limitesDaSemana(admin, semana, Date.now()) : {});
     return NextResponse.json({ ok: true, modoWip: modo === "ativo", hoje, semana, ...r });
   } catch (e) {
     return resposta(e);

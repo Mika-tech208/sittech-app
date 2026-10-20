@@ -343,6 +343,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
         adicRem,
         adicAlocado,
         saldo0: new Map(),
+        ocupado: new Map(Object.entries(entrada.wip!.estoqueConfirmado ?? {})),
         limites: entrada.wip!.limites,
         livres: (p) =>
           [...new Set(p.maquinasIds)]
@@ -557,6 +558,14 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     }
   });
 
+  // estoque confirmado acima do limite: não apaga nem corrige; só impede NOVO WIP (o previsto continua consumindo) e avisa
+  Object.entries(entrada.wip?.estoqueConfirmado ?? {}).forEach(([k, confirmado]) => {
+    const L = entrada.wip!.limites[k];
+    if (L !== undefined && confirmado > L + EPS) {
+      const [produtoId, etapaId] = k.split("|");
+      alertas.push({ tipo: "wip_acima_do_limite", produtoId, etapaId, pecas: confirmado, quantidade: L });
+    }
+  });
   alertas.push(...riscoFaltaMaterial(pools, slots, [...congeladas, ...alocacoesSaida], indicePorSlot, entrada.wip?.saldo0));
 
   alocacoesSaida.sort((a, b) => (indicePorSlot.get(chaveSlot(a)) as number) - (indicePorSlot.get(chaveSlot(b)) as number) || (a.funcionarioId < b.funcionarioId ? -1 : 1));

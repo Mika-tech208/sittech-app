@@ -75,7 +75,8 @@ export type CodigoInconsistenciaWip =
   | "rota_alterada" // as etapas não são mais consecutivas no roteiro atual
   | "etapa_inexistente"
   | "produto_inativo"
-  | "confirmacao_sem_justificativa"; // confirmação acima do estimado sem motivo
+  | "confirmacao_sem_justificativa" // confirmação acima do estimado sem motivo
+  | "acima_do_limite"; // estoque confirmado acima do limite definido: não apaga nada e impede NOVO WIP (o previsto ainda pode consumi-lo)
 
 export interface InconsistenciaWip {
   codigo: CodigoInconsistenciaWip;
@@ -214,6 +215,26 @@ function inicioDaSemanaApos(data: string): string {
   return seg > data ? seg : somarDias(seg, 7);
 }
 
+// Espaço restante para NOVO WIP no par: limite − estoque confirmado que já ocupa o par − WIP adicional já planejado. Nunca negativo.
+export function espacoRestanteWip(limite: number, confirmadoOcupando: number, adicionalPlanejado: number): number {
+  return Math.max(0, limite - Math.max(0, confirmadoOcupando) - Math.max(0, adicionalPlanejado));
+}
+
+// Do saldo confirmado disponível na abertura da semana alvo, o que as semanas FUTURAS já reservam (mesma cadeia da alocação: uma só fonte)
+export function reservadoParaSemanasFuturas(c: ControleWip, e: EntradaWip, semanaAlvo: string): number {
+  const a = alocacaoDaSemana(c, e, semanaAlvo);
+  let estoque = Math.max(0, a.disponivelAbertura - a.alocado);
+  let reservado = 0;
+  const futuras = e.semanas.filter((s) => s.semanaInicio > semanaAlvo).sort((x, y) => (x.semanaInicio < y.semanaInicio ? -1 : 1));
+  for (const w of futuras) {
+    const q = Math.max(0, w.quantidadePorProduto[c.produtoId] ?? 0);
+    const usa = Math.min(estoque, q);
+    reservado += usa;
+    estoque -= usa;
+  }
+  return reservado;
+}
+
 export interface ResumoControleWip {
   controle: ControleWip;
   estimado: EstimadoWip; // ao fim de `hoje`
@@ -225,9 +246,22 @@ export interface ResumoControleWip {
   alocado: number; // WIP confirmado que a semana alvo usa
   aProduzir: number; // previstoOrigem − alocado (etapa origem)
   semana: AlocacaoSemanaWip;
+  // Limite de estoque (Fase 3): o mesmo saldo confirmado que reduz a produção e que é reservado às semanas é o que ocupa o limite.
+  limite: number | null; // teto de estoque entre as etapas (null = desconhecido)
+  confirmadoOcupando: number; // confirmado disponível na abertura da semana alvo (ocupa o par, mesmo que reservado)
+  reservadoSemana: number; // do confirmado, o que a semana alvo usa para reduzir a produção da origem
+  reservadoFuturo: number; // do confirmado, o que semanas futuras já reservam
+  adicionalPlanejado: number; // WIP adicional programado (Previsão) para o par: A_origem − A_seguinte
+  espacoRestante: number | null; // limite − confirmado − adicional planejado (≥ 0)
+  acimaDoLimite: boolean;
 }
 
-export function resumoWip(e: EntradaWip, semanaAlvo: string): ResumoControleWip[] {
+export interface OpcoesResumoWip {
+  limites?: Record<string, number>; // "produto|etapaOrigem" -> limite
+  adicionalPlanejado?: Record<string, number>; // "produto|etapaOrigem" -> WIP adicional programado
+}
+
+export function resumoWip(e: EntradaWip, semanaAlvo: string, opcoes: OpcoesResumoWip = {}): ResumoControleWip[] {
   return e.controles
     .filter((c) => c.ativo)
     .map((c) => {
@@ -236,8 +270,19 @@ export function resumoWip(e: EntradaWip, semanaAlvo: string): ResumoControleWip[
       const conf = confirmadoDisponivelAte(c, e, e.hoje);
       const semana = alocacaoDaSemana(c, e, semanaAlvo);
       const q = Math.max(0, e.semanas.find((s) => s.semanaInicio === semanaAlvo)?.quantidadePorProduto[c.produtoId] ?? 0);
-      const status: StatusWip = inc.length > 0 ? "divergencia" : conf > EPS ? "confirmado" : est.valor > EPS ? "estimado" : "sem_saldo";
-      return { controle: c, estimado: est, confirmadoDisponivel: conf, ultimaConfirmacao: ultimaConfirmacao(c, e, e.hoje), status, inconsistencias: inc, previstoOrigem: q, alocado: semana.alocado, aProduzir: Math.max(0, q - semana.alocado), semana };
+      const chaveP = `${c.produtoId}|${c.etapaOrigemId}`;
+      const limite = opcoes.limites?.[chaveP] ?? null;
+      const ocupando = semana.disponivelAbertura;
+      const planejado = opcoes.adicionalPlanejado?.[chaveP] ?? 0;
+      const acima = limite !== null && ocupando > limite + EPS;
+      if (acima) inc.push({ codigo: "acima_do_limite", mensagem: "Estoque intermediário acima do limite definido. Nada é apagado nem corrigido; novo WIP fica impedido até o estoque baixar.", bloqueante: false });
+      const status: StatusWip = inc.some((i) => i.bloqueante) ? "divergencia" : conf > EPS ? "confirmado" : est.valor > EPS ? "estimado" : "sem_saldo";
+      return {
+        controle: c, estimado: est, confirmadoDisponivel: conf, ultimaConfirmacao: ultimaConfirmacao(c, e, e.hoje), status, inconsistencias: inc,
+        previstoOrigem: q, alocado: semana.alocado, aProduzir: Math.max(0, q - semana.alocado), semana,
+        limite, confirmadoOcupando: ocupando, reservadoSemana: semana.alocado, reservadoFuturo: reservadoParaSemanasFuturas(c, e, semanaAlvo), adicionalPlanejado: planejado,
+        espacoRestante: limite === null ? null : espacoRestanteWip(limite, ocupando, planejado), acimaDoLimite: acima,
+      };
     });
 }
 
@@ -247,7 +292,8 @@ export interface SaldoParaMotor {
   produtoId: string;
   etapaOrigemId: string;
   etapaSeguinteId: string;
-  saldo: number;
+  saldo: number; // alocado à semana: reduz o que a origem produz
+  disponivel: number; // confirmado disponível na abertura: OCUPA o limite de estoque do par (mesma fonte do saldo)
 }
 export interface PlanejamentoWip {
   saldos: SaldoParaMotor[];
@@ -261,7 +307,7 @@ export function planejamentoDaSemana(e: EntradaWip, semanaAlvo: string): Planeja
     .filter((c) => c.ativo)
     .forEach((c) => {
       const a = alocacaoDaSemana(c, e, semanaAlvo);
-      if (a.alocado > EPS) saldos.push({ controleId: c.id, produtoId: c.produtoId, etapaOrigemId: c.etapaOrigemId, etapaSeguinteId: c.etapaSeguinteId, saldo: a.alocado });
+      if (a.alocado > EPS || a.disponivelAbertura > EPS) saldos.push({ controleId: c.id, produtoId: c.produtoId, etapaOrigemId: c.etapaOrigemId, etapaSeguinteId: c.etapaSeguinteId, saldo: a.alocado, disponivel: a.disponivelAbertura });
       if (a.precisaSnapshot) snapshotsNovos.push({ controleId: c.id, saldoEstimado: a.estimadoAbertura, saldoConfirmadoDisponivel: a.disponivelAbertura, saldoAlocado: a.alocado });
     });
   return { saldos, snapshotsNovos };

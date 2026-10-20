@@ -27,6 +27,19 @@ export function linhaPrevistoWip(c: ResumoControleWip): string {
   return `Previsto: ${fmt(c.previstoOrigem)} · WIP confirmado: ${fmt(c.alocado)} · A produzir: ${fmt(c.aProduzir)}`;
 }
 
+// Limite de estoque do par: "Limite 20.000 · Confirmado 14.100 · Reservado 7.200 nesta semana + 6.900 futuras · WIP planejado 0 · Espaço para novo WIP 5.900"
+export function linhaLimiteWip(c: ResumoControleWip): string | null {
+  if (c.limite === null) return null;
+  const partes = [
+    `Limite ${fmt(c.limite)}`,
+    `Confirmado ${fmt(c.confirmadoOcupando)}`,
+    `Reservado ${fmt(c.reservadoSemana)} nesta semana${c.reservadoFuturo > 0 ? ` + ${fmt(c.reservadoFuturo)} em semanas futuras` : ""}`,
+    `WIP planejado ${fmt(c.adicionalPlanejado)}`,
+    c.acimaDoLimite ? "Espaço para novo WIP: nenhum (acima do limite)" : `Espaço para novo WIP ${fmt(c.espacoRestante ?? 0)}`,
+  ];
+  return partes.join(" · ");
+}
+
 export function textoUltimaConfirmacao(c: ResumoControleWip): string {
   const u = c.ultimaConfirmacao;
   if (!u) return "nunca confirmado";

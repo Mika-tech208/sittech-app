@@ -19,6 +19,7 @@ export default function AlertasEscala({ alocacoes, alertas, nomes }: { alocacoes
   const gargalos = alertas.filter((a) => a.tipo === "gargalo_sem_operador");
   const risco = alertas.filter((a) => a.tipo === "risco_falta_material");
   const semFunc = alertas.filter((a) => a.tipo === "sem_funcionarios");
+  const acimaLimite = alertas.filter((a) => a.tipo === "wip_acima_do_limite");
 
   const vazio = semPosto.length === 0 && excecoes.length === 0 && alertas.length === 0;
   return (
@@ -50,6 +51,14 @@ export default function AlertasEscala({ alocacoes, alertas, nomes }: { alocacoes
         {risco.length > 0 && (
           <div className="stx-esc-linha">
             <span><b>Risco de falta de material:</b> {risco.length} etapa(s) seguinte(s) processariam mais peças do que a anterior já produziu ({risco.map((a) => nomes.produtos.get(a.produtoId || "") || "produto").join(", ")}). Estoque intermediário inicial é desconhecido — é alerta, não bloqueio.</span>
+          </div>
+        )}
+        {acimaLimite.length > 0 && (
+          <div className="stx-esc-linha">
+            <span>
+              <b>Estoque intermediário acima do limite definido:</b> novo WIP impedido; o previsto continua podendo consumir o saldo.
+              <div className="stx-esc-muted">{acimaLimite.map((a) => `${nomes.produtos.get(a.produtoId || "") || "Produto"}: ${Math.round(a.pecas || 0).toLocaleString("pt-BR")} confirmadas, limite ${Math.round(a.quantidade || 0).toLocaleString("pt-BR")}`).join(" · ")}</div>
+            </span>
           </div>
         )}
         {semFunc.length > 0 && (

@@ -10,7 +10,7 @@ import type { ResumoControleWip } from "@/features/escala/wipSaldo";
 import type { Produto } from "@/types/domain";
 import { formatQtd, toNumber } from "@/lib/format";
 import Recolhivel from "@/features/previsao/components/Recolhivel";
-import { alertaInconsistencia, exigeMotivo, linhaPrevistoWip, resumoCabecalhoWip, ROTULO_STATUS_WIP, textoUltimaConfirmacao } from "@/features/previsao/estoqueIntermediarioTexto";
+import { alertaInconsistencia, exigeMotivo, linhaLimiteWip, linhaPrevistoWip, resumoCabecalhoWip, ROTULO_STATUS_WIP, textoUltimaConfirmacao } from "@/features/previsao/estoqueIntermediarioTexto";
 
 const ESTILOS = `
 .stx-wip-card { border:1px solid var(--border, rgba(255,255,255,.14)); border-radius:12px; padding:12px 14px; margin:10px 0; }
@@ -118,6 +118,7 @@ export default function EstoqueIntermediario({ semanaInicio, produtos }: Estoque
                 <div><small>Última confirmação</small><b style={{ fontSize: 13 }}>{textoUltimaConfirmacao(c)}</b></div>
               </div>
               <p className="stx-cob-sub">{linhaPrevistoWip(c)}</p>
+              {linhaLimiteWip(c) && <p className="stx-cob-sub" style={{ color: c.acimaDoLimite ? "var(--danger)" : undefined }}>{linhaLimiteWip(c)}</p>}
               {c.estimado.valor < 0 && <p className="stx-cob-dica">Estimado negativo: a etapa seguinte consumiu mais do que a origem produziu — nenhum estoque é inventado.</p>}
               {c.inconsistencias.map((i) => <p className="stx-wip-alerta" key={i.codigo}>{alertaInconsistencia(i)}</p>)}
 

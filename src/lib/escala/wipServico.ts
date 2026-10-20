@@ -4,7 +4,7 @@
 // Quem pode: administrador ou usuário com a permissão específica `escala_wip_confirmar`. Quem só tem Previsão/Escala LÊ.
 // O servidor recalcula o ESTIMADO no momento (nunca confia no que o navegador viu) e grava com auditoria (usuário, data/hora).
 
-import { confirmadoDisponivelAte, estimadoAte, resumoWip, type EntradaWip, type ResumoControleWip } from "@/features/escala/wipSaldo";
+import { confirmadoDisponivelAte, estimadoAte, resumoWip, type EntradaWip, type OpcoesResumoWip, type ResumoControleWip } from "@/features/escala/wipSaldo";
 import { temPermissao, type Permissao } from "@/lib/permissoes";
 
 export type AcaoWip = "ver" | "criar_controle" | "ativar_controle" | "confirmar" | "ajustar";
@@ -47,10 +47,10 @@ export interface WipDb {
 
 const VAZIO: DadosWip = { controles: [], ajustes: [], confirmacoes: [], producao: [], snapshots: [], semanas: [], roteiro: { produtoAtivo: {}, etapasPorProduto: {} } };
 
-export async function verWip(db: WipDb, usuario: UsuarioWip, semanaInicio: string, hoje: string): Promise<{ podeAlterar: boolean; controles: ResumoControleWip[] }> {
+export async function verWip(db: WipDb, usuario: UsuarioWip, semanaInicio: string, hoje: string, opcoes: OpcoesResumoWip = {}): Promise<{ podeAlterar: boolean; controles: ResumoControleWip[] }> {
   exigir(usuario, "ver");
   const d = (await db.carregar(semanaInicio)) ?? VAZIO;
-  return { podeAlterar: autorizadoWip(usuario, "confirmar"), controles: resumoWip({ ...d, hoje }, semanaInicio) };
+  return { podeAlterar: autorizadoWip(usuario, "confirmar"), controles: resumoWip({ ...d, hoje }, semanaInicio, opcoes) };
 }
 
 async function achar(db: WipDb, controleId: string, semanaInicio: string, hoje: string) {

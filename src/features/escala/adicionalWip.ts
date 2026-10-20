@@ -30,6 +30,7 @@ export interface EntradaSelecaoWip {
   adicAlocado: Map<string, number>; // adicional acumulado por etapa (congelado + períodos anteriores)
   saldo0: Map<string, number>; // estoque confirmado aguardando a etapa seguinte, por chave da etapa de origem (Fase 3)
   limites: Record<string, number>; // teto de estoque entre k e k+1, por chave da etapa k
+  ocupado?: Map<string, number>; // estoque CONFIRMADO que já ocupa o par (por chave da etapa k): consome o limite (Fase 3)
   livres: (pool: PoolEscala) => string[]; // máquinas selecionadas, disponíveis neste período, na ordem de preferência
   meta: (pool: PoolEscala) => number; // peças por máquina neste período
   usadas: Set<string>; // máquinas já usadas neste período (previsto) — é atualizado aqui
@@ -171,7 +172,7 @@ export function selecionarAdicionalWip(e: EntradaSelecaoWip): PostoAdicional[] {
         if (k > 0) cap = Math.min(cap, g(e.saldo0, chave(st[k - 1])) + aloc(st[k - 1]) - aloc(p)); // pipeline: só o que já existe
         if (k < n - 1) {
           const L = e.limites[chave(p)];
-          if (L !== undefined) cap = Math.min(cap, L - (g(e.saldo0, chave(p)) + aloc(p) - aloc(st[k + 1])));
+          if (L !== undefined) cap = Math.min(cap, L - (g(e.ocupado ?? new Map(), chave(p)) + aloc(p) - aloc(st[k + 1])));
         }
         if (cap <= EPS) continue;
         const livres = livresDe(p).length;

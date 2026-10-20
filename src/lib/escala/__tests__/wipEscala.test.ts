@@ -133,3 +133,74 @@ describe("foto semanal na abertura da semana", () => {
     expect(m.snapshotsGravados).toBe(0);
   });
 });
+
+// ---------------- Fase 3 (correção): o confirmado consome o limite de estoque no motor ----------------
+import { gerarEscala } from "@/features/escala/gerarEscala";
+
+describe("limite de estoque com WIP confirmado (motor)", () => {
+  const cenario = (confirmado: number, capEtapa1 = 100000) => {
+    const e = estado(confirmado > 0 ? wipBase({ confirmacoes: [confirmacao(confirmado)] }) : undefined);
+    e.itens[0].adicionalPorEtapa = { eA1: capEtapa1, eA2: 0 }; // só WIP na etapa 1 (estoque aguardando a etapa 2)
+    const { entrada } = montarEntradaEscala(e, AGORA);
+    const r = gerarEscala(entrada);
+    return { entrada, r, a1: r.adicionalProduzido["pA|eA1"] ?? 0, limite: entrada.wip!.limites["pA|eA1"] };
+  };
+  const L = cenario(0).limite;
+
+  it("pré-condição: o limite existe e há WIP planejado sem saldo confirmado", () => {
+    expect(L).toBeGreaterThan(0);
+    expect(cenario(0).a1).toBeGreaterThan(0);
+    expect(cenario(0).a1).toBeLessThanOrEqual(L + 1e-6);
+  });
+
+  it("confirmado ABAIXO do limite: o WIP novo cabe só no espaço que sobra (limite − confirmado)", () => {
+    const c = Math.round(L / 2);
+    const x = cenario(c);
+    expect(x.entrada.wip?.estoqueConfirmado?.["pA|eA1"]).toBe(c);
+    expect(x.a1).toBeLessThanOrEqual(L - c + 1e-6);
+    expect(x.a1).toBeLessThan(cenario(0).a1 + 1e-6);
+  });
+
+  it("confirmado EXATAMENTE no limite: nenhum WIP novo, sem alerta", () => {
+    const x = cenario(L);
+    expect(x.a1).toBe(0);
+    expect(x.r.alertas.some((a) => a.tipo === "wip_acima_do_limite")).toBe(false);
+  });
+
+  it("confirmado ACIMA do limite: nenhum WIP novo, nada é apagado, o previsto continua consumindo e há alerta", () => {
+    const c = L + 500;
+    const x = cenario(c);
+    expect(x.a1).toBe(0);
+    expect(x.entrada.wip?.estoqueConfirmado?.["pA|eA1"]).toBe(c); // não corrigido
+    expect(x.entrada.pools.find((p) => p.etapaId === "eA1")!.quantidade).toBe(Math.max(0, 3000 - c)); // o previsto consome o saldo
+    expect(x.r.alertas.some((a) => a.tipo === "wip_acima_do_limite" && a.pecas === c && a.quantidade === L)).toBe(true);
+  });
+
+  it("confirmado + WIP planejado chegando EXATAMENTE ao limite é permitido; acima disso é cortado", () => {
+    const c = Math.round(L / 4);
+    const exato = cenario(c, L - c);
+    expect(exato.a1 + c).toBeLessThanOrEqual(L + 1e-6);
+    const maior = cenario(c, L); // planejou mais do que cabe: o motor corta no espaço restante
+    expect(maior.a1 + c).toBeLessThanOrEqual(L + 1e-6);
+    expect(maior.a1).toBeLessThanOrEqual(L - c + 1e-6);
+  });
+
+  it("sem saldo confirmado o limite é o da Fase 1 (comportamento antigo)", () => {
+    const x = cenario(0);
+    expect(x.entrada.wip?.estoqueConfirmado).toBeUndefined();
+  });
+
+  it("o mesmo saldo não reduz a produção e fica livre para o limite: alocado ≤ disponível e ambos vêm da mesma fonte", () => {
+    const c = 900;
+    const x = cenario(c);
+    expect(x.entrada.wip?.saldo0?.["pA|eA1"]).toBe(c);                // reduz a produção
+    expect(x.entrada.wip?.estoqueConfirmado?.["pA|eA1"]).toBe(c);     // ocupa o limite
+    expect(x.entrada.pools.find((p) => p.etapaId === "eA1")!.quantidade).toBe(3000 - c);
+  });
+
+  it("estimado (sem confirmação) NÃO ocupa o limite", () => {
+    const e = estado(wipBase());
+    e.itens[0].adicionalPorEtapa = { eA1: 100000, eA2: 0 };
+    expect(montarEntradaEscala(e, AGORA).entrada.wip?.estoqueConfirmado).toBeUndefined();
+  });
+});

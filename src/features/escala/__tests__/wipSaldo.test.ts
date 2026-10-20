@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  espacoRestanteWip, reservadoParaSemanasFuturas,
   alocacaoDaSemana, confirmadoDisponivelAte, estimadoAte, inconsistencias, inicioDaSemana, planejamentoDaSemana, resumoWip, somarDias,
   type EntradaWip,
 } from "../wipSaldo";
@@ -60,7 +61,7 @@ describe("estimado NÃO altera o planejamento; só o CONFIRMADO", () => {
   it("com confirmação: o confirmado (alocado) entra para a semana seguinte", () => {
     const e = base({ producao: [prod(E1, "2026-10-20", 7200)], confirmacoes: [conf(7200, "2026-10-25", 7200)] });
     const pl = planejamentoDaSemana(e, "2026-10-26");
-    expect(pl.saldos).toEqual([{ controleId: C1, produtoId: P, etapaOrigemId: E1, etapaSeguinteId: E2, saldo: 7200 }]);
+    expect(pl.saldos).toEqual([{ controleId: C1, produtoId: P, etapaOrigemId: E1, etapaSeguinteId: E2, saldo: 7200, disponivel: 7200 }]);
   });
   it("confirmação PARCIAL: só o confirmado entra (o resto do estimado continua só estimado)", () => {
     const e = base({ producao: [prod(E1, "2026-10-20", 7200)], confirmacoes: [conf(5000, "2026-10-25", 7200, "contei só 5.000")] });
@@ -226,5 +227,104 @@ describe("determinismo, reversibilidade e datas", () => {
     expect(inicioDaSemana("2026-10-25")).toBe("2026-10-19"); // domingo
     expect(inicioDaSemana("2026-10-26")).toBe("2026-10-26");
     expect(inicioDaSemana("2026-10-29")).toBe("2026-10-26");
+  });
+});
+
+// ---------------- Fase 3 (correção): o confirmado consome o LIMITE de estoque, uma só fonte de verdade ----------------
+describe("limite de estoque: espaço restante para NOVO WIP", () => {
+  it("abaixo do limite: limite − confirmado − WIP planejado", () => {
+    expect(espacoRestanteWip(20000, 14100, 0)).toBe(5900);
+    expect(espacoRestanteWip(20000, 14100, 900)).toBe(5000);
+  });
+  it("exatamente no limite: zero", () => {
+    expect(espacoRestanteWip(20000, 20000, 0)).toBe(0);
+  });
+  it("confirmado + WIP planejado chegando exatamente ao limite: zero", () => {
+    expect(espacoRestanteWip(20000, 14100, 5900)).toBe(0);
+  });
+  it("acima do limite: nunca negativo", () => {
+    expect(espacoRestanteWip(20000, 25000, 0)).toBe(0);
+    expect(espacoRestanteWip(20000, 14100, 9000)).toBe(0);
+  });
+
+  const comConf = (q: number, extra: Partial<EntradaWip> = {}) => base({ producao: [prod(E1, "2026-10-20", Math.max(q, 1))], confirmacoes: [conf(q, "2026-10-25", q)], ...extra });
+  const r = (e: EntradaWip, limite: number, planejado = 0) => resumoWip(e, "2026-10-26", { limites: { [`${P}|${E1}`]: limite }, adicionalPlanejado: { [`${P}|${E1}`]: planejado } })[0];
+
+  it("confirmado abaixo do limite: mostra limite, confirmado, reservado e espaço restante (14.100 de 20.000 = 5.900)", () => {
+    const x = r(comConf(14100, { semanas: [{ semanaInicio: "2026-10-26", quantidadePorProduto: { [P]: 7200 } }, { semanaInicio: "2026-11-02", quantidadePorProduto: { [P]: 9000 } }] }), 20000);
+    expect(x).toMatchObject({ limite: 20000, confirmadoOcupando: 14100, reservadoSemana: 7200, reservadoFuturo: 6900, espacoRestante: 5900, acimaDoLimite: false });
+  });
+  it("confirmado exatamente no limite: sem espaço e SEM alerta", () => {
+    const x = r(comConf(20000), 20000);
+    expect(x).toMatchObject({ espacoRestante: 0, acimaDoLimite: false });
+    expect(x.inconsistencias.map((i) => i.codigo)).not.toContain("acima_do_limite");
+  });
+  it("confirmado acima do limite: não apaga nada, impede novo WIP e alerta (não bloqueante: o previsto continua consumindo)", () => {
+    const x = r(comConf(25000), 20000);
+    expect(x).toMatchObject({ confirmadoOcupando: 25000, espacoRestante: 0, acimaDoLimite: true });
+    const al = x.inconsistencias.find((i) => i.codigo === "acima_do_limite")!;
+    expect(al.mensagem).toContain("Estoque intermediário acima do limite definido");
+    expect(al.bloqueante).toBe(false);
+    expect(x.status).toBe("confirmado"); // não vira divergência: o saldo continua entrando no planejamento
+    expect(x.alocado).toBeGreaterThan(0);
+    expect(planejamentoDaSemana(comConf(25000), "2026-10-26").saldos[0].disponivel).toBe(25000); // nada foi apagado
+  });
+  it("confirmado + WIP planejado chegando exatamente ao limite", () => {
+    expect(r(comConf(14100), 20000, 5900).espacoRestante).toBe(0);
+  });
+  const lim = { limites: { [`${P}|${E1}`]: 20000 } };
+  const conf21 = (q: number) => conf(q, "2026-10-21", q);
+  it("consumo pela etapa seguinte libera espaço para novo WIP", () => {
+    const antes = resumoWip(base({ hoje: "2026-10-25", producao: [prod(E1, "2026-10-20", 14100)], confirmacoes: [conf21(14100)] }), "2026-10-26", lim)[0];
+    const depois = resumoWip(base({ hoje: "2026-10-25", producao: [prod(E1, "2026-10-20", 14100), prod(E2, "2026-10-23", 3000)], confirmacoes: [conf21(14100)] }), "2026-10-26", lim)[0];
+    expect(antes).toMatchObject({ confirmadoOcupando: 14100, espacoRestante: 5900 });
+    expect(depois).toMatchObject({ confirmadoOcupando: 11100, espacoRestante: 8900 });
+  });
+  it("ajuste POSITIVO não cria confirmado: o limite só muda quando alguém confirma a nova contagem", () => {
+    const e = base({ hoje: "2026-10-25", producao: [prod(E1, "2026-10-20", 14100)], confirmacoes: [conf21(14100)], ajustes: [{ controleId: C1, data: "2026-10-23", quantidade: 8000, motivo: "caixas achadas" }] });
+    const x = resumoWip(e, "2026-10-26", lim)[0];
+    expect(x.estimado.valor).toBe(22100);               // o estimado já passa do limite...
+    expect(x.confirmadoOcupando).toBe(14100);            // ...mas o confirmado (que entra no motor e no limite) não
+    expect(x.espacoRestante).toBe(5900);
+    const confirmado = resumoWip({ ...e, confirmacoes: [...e.confirmacoes, conf(22100, "2026-10-24", 22100, null, "k2", "2026-10-24T10:00:00Z")] }, "2026-10-26", lim)[0];
+    expect(confirmado).toMatchObject({ confirmadoOcupando: 22100, acimaDoLimite: true, espacoRestante: 0 });
+  });
+  it("ajuste NEGATIVO reabre capacidade de estoque", () => {
+    const e = base({ hoje: "2026-10-25", producao: [prod(E1, "2026-10-20", 14100)], confirmacoes: [conf21(14100)], ajustes: [{ controleId: C1, data: "2026-10-23", quantidade: -2000, motivo: "contagem física" }] });
+    const x = resumoWip(e, "2026-10-26", lim)[0];
+    expect(x).toMatchObject({ confirmadoOcupando: 12100, espacoRestante: 7900 });
+  });
+});
+
+describe("uma só fonte de verdade: o mesmo saldo não reduz uma semana e fica livre para outra", () => {
+  const e = base({
+    hoje: "2026-10-25",
+    confirmacoes: [conf(10000, "2026-10-25", 10000)],
+    semanas: [{ semanaInicio: "2026-10-26", quantidadePorProduto: { [P]: 6000 } }, { semanaInicio: "2026-11-02", quantidadePorProduto: { [P]: 9000 } }, { semanaInicio: "2026-11-09", quantidadePorProduto: { [P]: 9000 } }],
+  });
+  it("duas (ou três) semanas tentando reservar o mesmo saldo: a soma das alocações nunca passa do confirmado", () => {
+    const aloc = ["2026-10-26", "2026-11-02", "2026-11-09"].map((w) => alocacaoDaSemana(e.controles[0], e, w).alocado);
+    expect(aloc).toEqual([6000, 4000, 0]);
+    expect(aloc.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(10000);
+  });
+  it("o que a semana usa + o que as futuras reservam = o confirmado disponível (nada sobra 'livre' em duplicidade)", () => {
+    const a = alocacaoDaSemana(e.controles[0], e, "2026-10-26");
+    expect(a.alocado + reservadoParaSemanasFuturas(e.controles[0], e, "2026-10-26")).toBe(a.disponivelAbertura);
+    // a próxima semana enxerga só o que sobrou depois da reserva da anterior (ocupa o limite só com o que é dela)
+    expect(alocacaoDaSemana(e.controles[0], e, "2026-11-02").disponivelAbertura).toBe(4000);
+    expect(alocacaoDaSemana(e.controles[0], e, "2026-11-09").disponivelAbertura).toBe(0);
+  });
+  it("o motor recebe a MESMA fonte para reduzir a produção e para ocupar o limite", () => {
+    const [s] = planejamentoDaSemana(e, "2026-10-26").saldos;
+    expect(s).toMatchObject({ saldo: 6000, disponivel: 10000 });
+    expect(s.saldo).toBeLessThanOrEqual(s.disponivel);
+    const [s2] = planejamentoDaSemana(e, "2026-11-02").saldos;
+    expect(s2).toMatchObject({ saldo: 4000, disponivel: 4000 });
+  });
+  it("idempotente: recalcular com as mesmas entradas (inclusive confirmação duplicada com a mesma data) dá o mesmo resultado", () => {
+    const dup = { ...e, confirmacoes: [...e.confirmacoes, { ...e.confirmacoes[0], id: "k1-dup" }] };
+    const a = JSON.stringify(resumoWip(e, "2026-10-26", { limites: { [`${P}|${E1}`]: 20000 } }));
+    expect(JSON.stringify(resumoWip(e, "2026-10-26", { limites: { [`${P}|${E1}`]: 20000 } }))).toBe(a);
+    expect(planejamentoDaSemana(dup, "2026-10-26").saldos[0].saldo).toBe(planejamentoDaSemana(e, "2026-10-26").saldos[0].saldo);
   });
 });

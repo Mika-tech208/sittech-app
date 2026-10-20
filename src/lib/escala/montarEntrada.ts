@@ -110,6 +110,7 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
   // Só com o WIP ativo e só saldo CONFIRMADO e alocado a esta semana. Estimado nunca entra.
   let planejamentoWip: PlanejamentoWip | null = null;
   const saldo0: Record<string, number> = {};
+  const estoqueConfirmado: Record<string, number> = {};
   if (wipAtivo && estado.wipControle && estado.wipControle.controles.length > 0) {
     const qAlvo: Record<string, number> = {};
     estado.itens.forEach((i) => (qAlvo[i.produtoId] = (qAlvo[i.produtoId] ?? 0) + i.quantidade));
@@ -119,6 +120,8 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
       const k = `${s.produtoId}|${s.etapaOrigemId}`;
       const p = pools.get(k);
       if (!p) return;
+      // uma só fonte: o disponível na abertura ocupa o limite; dele, o alocado reduz a produção da origem
+      if (s.disponivel > 0) estoqueConfirmado[k] = (estoqueConfirmado[k] ?? 0) + s.disponivel;
       const usado = Math.min(s.saldo, p.quantidade);
       if (usado <= 0) return;
       p.quantidade = p.quantidade - usado;
@@ -168,7 +171,7 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
       nomesOperacao: estado.nomesOperacao,
       historicoEquidade: estado.historicoEquidade,
       poolsSemMaquina: [...semMaquina.entries()].filter(([k]) => !pools.has(k)).map(([, p]) => p),
-      ...(wipAtivo ? { wip: { limites: calcularLimitesWip([...pools.values()], slots, { wipDiasLimite: estado.parametros?.wipDiasLimite ?? 1 }, estado.proximaSemana ?? null), ...(Object.keys(saldo0).length > 0 ? { saldo0 } : {}) } } : {}),
+      ...(wipAtivo ? { wip: { limites: calcularLimitesWip([...pools.values()], slots, { wipDiasLimite: estado.parametros?.wipDiasLimite ?? 1 }, estado.proximaSemana ?? null), ...(Object.keys(saldo0).length > 0 ? { saldo0 } : {}), ...(Object.keys(estoqueConfirmado).length > 0 ? { estoqueConfirmado } : {}) } } : {}),
     },
     periodosPorDia,
     diasExistentesPorData: new Map(estado.diasExistentes.map((d) => [d.data, { versao: d.versao }])),
