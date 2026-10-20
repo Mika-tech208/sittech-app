@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { AtingibilidadeProduto } from "@/features/escala/atingibilidade";
 import type { DiagnosticoGlobal } from "@/features/escala/atingibilidade";
-import { diagnosticoGlobalTexto, faltaDoProduto, manchete, periodosTexto, ROTULO_BENEFICIO, ROTULO_STATUS, textoAcao, textoGanhos, NOTA_INDEPENDENTES } from "../atingibilidadeTexto";
+import { diagnosticoGlobalTexto, explicacaoRecursoCompartilhado, rotuloStatusProduto, faltaDoProduto, manchete, periodosTexto, ROTULO_BENEFICIO, ROTULO_STATUS, textoAcao, textoGanhos, NOTA_INDEPENDENTES } from "../atingibilidadeTexto";
 
 const base: AtingibilidadeProduto = { produtoId: "p", status: "em_risco", causa: "maquina_livre_nao_priorizada", faltaPlano: 8400, faltaMinima: 0, valorEmRisco: 0, gargaloEtapaId: "e", periodosNecessarios: 2, acao: null, etapas: [] };
 
@@ -50,5 +50,16 @@ describe("textos da atingibilidade", () => {
     expect(margem).toEqual(["Caixa Amarela passa de Atingível no limite para Atingível.", "Peças faltantes: sem alteração."]);
     const produtivo = textoGanhos({ beneficios: ["produtivo"], faltaReduzida: 3200, minutosOciososReduzidos: 0, produtos: [] }, () => "x");
     expect(produtivo).toEqual(["Falta reduzida em 3.200 peças."]);
+  });
+
+  it("recurso compartilhado: rótulo 'Impossível com a configuração atual' e explicação de quem disputa a capacidade", () => {
+    expect(rotuloStatusProduto({ status: "impossivel", causa: "recurso_compartilhado_saturado" })).toBe("Impossível com a configuração atual");
+    expect(rotuloStatusProduto({ status: "impossivel", causa: "capacidade_maquinas" })).toBe("Impossível com a capacidade atual");
+    expect(rotuloStatusProduto({ status: "em_risco", causa: "semana_sem_equipe" })).toBe("Em risco");
+    const d: DiagnosticoGlobal = { cabe: false, equipe: { necessarioPeriodosPessoa: 1, disponivelPeriodosPessoa: 9, deficit: 0, insuficiente: false }, mensagem: null,
+      recursosSaturados: [{ maquinas: ["e15"], produtos: ["a", "b", "c"], necessarioPeriodosMaquina: 32, disponivelPeriodosMaquina: 24, deficit: 8 }] };
+    const nomeP = (id: string) => ({ a: "Conector 3/4\"", b: "Luva 3/4\"", c: "Pino" })[id] as string;
+    expect(explicacaoRecursoCompartilhado("a", d, nomeP, () => "Etiquetadora 15")).toBe("Este produto disputa capacidade de Etiquetadora 15 com Luva 3/4\", Pino.");
+    expect(explicacaoRecursoCompartilhado("z", d, nomeP, () => "x")).toBeNull();
   });
 });

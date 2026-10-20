@@ -20,7 +20,7 @@ export const ROTULO_STATUS: Record<StatusAtingibilidade, string> = {
 export const TEXTO_CAUSA: Record<CausaAtingibilidade, string> = {
   sem_maquina: "A etapa não tem máquina selecionada.",
   capacidade_maquinas: "As máquinas selecionadas da etapa não produzem o necessário nos períodos restantes, mesmo rodando o tempo todo.",
-  recurso_compartilhado_saturado: "O recurso compartilhado com outros produtos não comporta o conjunto da programação (veja o diagnóstico da semana) e o plano deixou faltar peças deste produto.",
+  recurso_compartilhado_saturado: "Recurso compartilhado saturado: a configuração conjunta da semana não comporta todos os produtos que o usam, e o plano deixou faltar peças deste produto.",
   semana_sem_equipe: "Este produto cabe sozinho, mas a semana inteira não cabe na equipe disponível — e o plano deixou faltar peças dele. Isso NÃO prova que ele, sozinho, seja impossível.",
   maquina_livre_nao_priorizada: "A máquina ficou livre enquanto faltavam peças desta etapa — a equipe estava em outro produto.",
   recurso_compartilhado: "As máquinas da etapa estiveram ocupadas por outros produtos.",
@@ -29,6 +29,28 @@ export const TEXTO_CAUSA: Record<CausaAtingibilidade, string> = {
 
 const fmt = (v: number, casas = 0) => v.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
 
+// Rótulo do status de UM produto. Quando a causa é recurso compartilhado, a limitação vem da configuração conjunta da semana.
+export function rotuloStatusProduto(p: Pick<AtingibilidadeProduto, "status" | "causa">): string {
+  return p.status === "impossivel" && p.causa === "recurso_compartilhado_saturado" ? "Impossível com a configuração atual" : ROTULO_STATUS[p.status];
+}
+
+// "Este produto disputa capacidade da Etiquetadora 15 com Conector 3/4" e Luva 3/4"."
+export function explicacaoRecursoCompartilhado(
+  produtoId: string,
+  diag: DiagnosticoGlobal,
+  nomeProduto: (id: string) => string,
+  nomeMaquina: (id: string) => string
+): string | null {
+  const partes = diag.recursosSaturados
+    .filter((r) => r.produtos.includes(produtoId))
+    .map((r) => {
+      const maquinas = r.maquinas.slice(0, 4).map(nomeMaquina).join(", ") + (r.maquinas.length > 4 ? "…" : "");
+      const outros = r.produtos.filter((x) => x !== produtoId).map(nomeProduto);
+      return `${maquinas}${outros.length > 0 ? ` com ${outros.join(", ")}` : ""}`;
+    });
+  return partes.length === 0 ? null : `Este produto disputa capacidade de ${partes.join("; e de ")}.`;
+}
+
 export function faltaDoProduto(p: Pick<AtingibilidadeProduto, "faltaPlano" | "faltaMinima">): number {
   return Math.max(p.faltaPlano, p.faltaMinima);
 }
@@ -36,7 +58,7 @@ export function faltaDoProduto(p: Pick<AtingibilidadeProduto, "faltaPlano" | "fa
 // "Em risco de faltar 8.400 peças" / "Impossível com a capacidade atual — faltam 8.400 peças" / "Fecha, mas sem folga"
 export function manchete(p: AtingibilidadeProduto): string {
   const falta = faltaDoProduto(p);
-  if (p.status === "impossivel") return falta > 0 ? `Impossível com a capacidade atual — faltam ${fmt(falta)} peças` : "Impossível com a capacidade atual";
+  if (p.status === "impossivel") return falta > 0 ? `${rotuloStatusProduto(p)} — faltam ${fmt(falta)} peças` : rotuloStatusProduto(p);
   if (p.status === "em_risco") return falta > 0 ? `Em risco de faltar ${fmt(falta)} peças` : "Em risco";
   if (p.status === "atingivel_no_limite") {
     const folga = p.etapas.length > 0 ? Math.min(...p.etapas.map((e) => e.folgaPercentual)) : 0;

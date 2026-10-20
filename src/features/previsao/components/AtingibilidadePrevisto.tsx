@@ -9,12 +9,14 @@ import type { RecomendacaoGlobal } from "@/features/escala/recomendacaoMaquina";
 import { formatBRL, formatQtd } from "@/lib/format";
 import {
   diagnosticoGlobalTexto,
+  explicacaoRecursoCompartilhado,
   linhasRecomendacao,
   manchete,
   NOTA_INDEPENDENTES,
   PERGUNTA_ATINGIBILIDADE,
   PERGUNTA_COBERTURA,
   periodosTexto,
+  rotuloStatusProduto,
   ROTULO_BENEFICIO,
   ROTULO_STATUS,
   TEXTO_CAUSA,
@@ -121,10 +123,14 @@ export function DetalheAtingibilidade({
           const per = periodosTexto(p.periodosNecessarios);
           return (
             <div className="stx-ating-prod" key={p.produtoId}>
-              <b>{nomeProd(p.produtoId)}</b> <span className={`stx-badge ${p.status}`}>{ROTULO_STATUS[p.status]}</span>
+              <b>{nomeProd(p.produtoId)}</b> <span className={`stx-badge ${p.status}`}>{rotuloStatusProduto(p)}</span>
               <p>{manchete(p)}</p>
               {p.gargaloEtapaId && <p>Gargalo: <b>{nomeEtapa(p.gargaloEtapaId)}</b></p>}
               {p.causa && <p style={{ color: "var(--text-muted)" }}>{TEXTO_CAUSA[p.causa]}</p>}
+              {p.causa === "recurso_compartilhado_saturado" && (() => {
+                const t = explicacaoRecursoCompartilhado(p.produtoId, ating.diagnosticoGlobal, nomeProd, nomeMaq);
+                return t ? <p>{t}</p> : null;
+              })()}
               {per && <p style={{ color: "var(--text-muted)" }}>{per}</p>}
               {acao && <p className="acao">Ação: {acao}</p>}
               <div className="stx-cob-rolagem">
@@ -139,7 +145,7 @@ export function DetalheAtingibilidade({
                         <td className={e.faltaPlano > 0 ? "stx-cob-neg" : undefined}>{e.faltaPlano > 0 ? formatQtd(e.faltaPlano) : "—"}</td>
                         <td>{formatQtd(e.capacidadeMaquinas)}</td>
                         <td>{num1(e.folgaPercentual)}%</td>
-                        <td><span className={`stx-badge ${e.status}`}>{ROTULO_STATUS[e.status]}</span></td>
+                        <td><span className={`stx-badge ${e.status}`}>{rotuloStatusProduto(e)}</span></td>
                       </tr>
                     ))}
                   </tbody>
