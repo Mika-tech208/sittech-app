@@ -32,6 +32,9 @@ export interface PoolEscala {
   maquinasIds: string[]; // M_P: máquinas selecionadas na Previsão para a etapa
   metas: Record<string, number>; // periodoId -> peças por máquina no período (meta_m1..meta_t3)
   valorUnitario: number; // snapshot do item previsto
+  // CARGA ADICIONAL (2ª camada): peças de produto acabado ACIMA do previsto, só para
+  // ocupar quem ficaria sem posto. Padrão 0 (= comportamento anterior, idêntico).
+  adicionalMax?: number;
 }
 
 export interface FuncionarioEscala {
@@ -61,7 +64,8 @@ export interface AlocacaoEscala {
   produtoId: string | null;
   etapaId: string | null;
   operacaoId: string | null;
-  pecas: number; // crédito planejado (snapshot) — 0 quando sem posto
+  pecas: number; // crédito planejado do PREVISTO (snapshot) — 0 quando sem posto ou quando o posto é só de adicional
+  pecasAdicional?: number; // crédito da carga ADICIONAL (2ª camada); ausente/0 = posto do previsto
   motivoSemPosto: string | null;
   excecaoRevezamento: boolean;
   motivoExcecao: string | null;
@@ -136,6 +140,7 @@ export interface ResultadoEscala {
   // semanal é tratada como ainda restante (V1 não desconta Produção Real).
   primeiraGeracaoComSemanaEmAndamento: boolean;
   pecasRestantes: Record<string, number>; // "produto|etapa" -> peças não atendidas no fim da semana
+  adicionalProduzido: Record<string, number>; // "produto|etapa" -> peças da carga adicional alocadas (só quando há adicional)
 }
 
 export const MOTIVO_DEMANDA_ESGOTADA = "Demanda da Previsão esgotada";

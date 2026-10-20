@@ -62,13 +62,27 @@ function comparar(a: Par, b: Par): number {
   return a.m < b.m ? -1 : a.m > b.m ? 1 : 0;
 }
 
+// 2ª camada (carga adicional): só entra depois do previsto, e só em máquinas livres e
+// já selecionadas. Prioridade: maior valor do posto > continuidade da máquina > ordem
+// do roteiro > desempate estável. (Fechar produto acabado e usar capacidade ociosa já
+// estão garantidos por quem define `adicionalMax` e pela própria regra da camada.)
+const SEM_FOLGA: FolgaPool = { folga: 0, folgaPeriodos: 0, muBarra: 0, gargalo: false };
+function compararAdicional(a: Par, b: Par): number {
+  if (Math.abs(a.valorPosto - b.valorPosto) > 1e-9) return a.valorPosto > b.valorPosto ? -1 : 1;
+  if (a.continuidade !== b.continuidade) return a.continuidade > b.continuidade ? -1 : 1;
+  if (a.pool.ordemEtapa !== b.pool.ordemEtapa) return a.pool.ordemEtapa - b.pool.ordemEtapa;
+  if (a.pool.produtoId !== b.pool.produtoId) return a.pool.produtoId < b.pool.produtoId ? -1 : 1;
+  if (a.pool.etapaId !== b.pool.etapaId) return a.pool.etapaId < b.pool.etapaId ? -1 : 1;
+  return a.m < b.m ? -1 : a.m > b.m ? 1 : 0;
+}
+
 function chaveSlot(s: { data: string; periodoId: string }): string {
   return `${s.data}|${s.periodoId}`;
 }
 
 export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
   const { slots, aPartirDe } = entrada;
-  const vazio: ResultadoEscala = { alocacoes: [], alertas: [], resumoSlots: [], primeiraGeracaoComSemanaEmAndamento: false, pecasRestantes: {} };
+  const vazio: ResultadoEscala = { alocacoes: [], alertas: [], resumoSlots: [], primeiraGeracaoComSemanaEmAndamento: false, pecasRestantes: {}, adicionalProduzido: {} };
   if (slots.length === 0 || aPartirDe >= slots.length) return vazio;
 
   const pools = [...entrada.pools].sort((a, b) => (a.produtoId + a.etapaId < b.produtoId + b.etapaId ? -1 : 1));
@@ -87,6 +101,16 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     if (a.maquinaId && a.produtoId && a.etapaId) {
       const k = chavePool(a.produtoId, a.etapaId);
       if (rem.has(k)) rem.set(k, Math.max(0, (rem.get(k) as number) - a.pecas));
+    }
+  });
+
+  // ---- carga adicional restante (2ª camada) = adicionalMax − créditos adicionais já congelados ----
+  const adicRem = new Map<string, number>();
+  pools.forEach((p) => adicRem.set(chavePool(p.produtoId, p.etapaId), Math.max(0, p.adicionalMax ?? 0)));
+  congeladas.forEach((a) => {
+    if (a.maquinaId && a.produtoId && a.etapaId && (a.pecasAdicional ?? 0) > 0) {
+      const k = chavePool(a.produtoId, a.etapaId);
+      if (adicRem.has(k)) adicRem.set(k, Math.max(0, (adicRem.get(k) as number) - (a.pecasAdicional as number)));
     }
   });
 
@@ -121,7 +145,8 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
   const opsHoje = new Map<string, Map<string, number>>(); // funcionário -> op -> vezes no dia
   const ociosidade = new Map<string, number>(); // funcionário -> slots sem posto na semana
   const ultimaMaquinaFunc = new Map<string, string | null>();
-  const ultimoProdutoMaquina = new Map<string, string>();
+  const ultimoProdutoMaquina = new Map<string, string>(); // continuidade do PREVISTO (nunca influenciada pelo adicional)
+  const ultimoProdutoGeral = new Map<string, string>(); // continuidade nas duas camadas (só para ordenar o adicional)
 
   const congeladasPorSlot = new Map<string, AlocacaoEscala[]>();
   congeladas.forEach((a) => {
@@ -162,11 +187,17 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     anterior.forEach((a) => {
       histOp.set(a.funcionarioId, a.maquinaId ? a.operacaoId : null);
       ultimaMaquinaFunc.set(a.funcionarioId, a.maquinaId);
-      if (a.maquinaId && a.produtoId) ultimoProdutoMaquina.set(a.maquinaId, a.produtoId);
+      if (a.maquinaId && a.produtoId) {
+        if (!((a.pecasAdicional ?? 0) > 0)) ultimoProdutoMaquina.set(a.maquinaId, a.produtoId);
+        ultimoProdutoGeral.set(a.maquinaId, a.produtoId);
+      }
     });
   } else if (aPartirDe > 0) {
     (congeladasPorSlot.get(chaveSlot(slots[aPartirDe - 1])) ?? []).forEach((a) => {
-      if (a.maquinaId && a.produtoId) ultimoProdutoMaquina.set(a.maquinaId, a.produtoId);
+      if (a.maquinaId && a.produtoId) {
+        if (!((a.pecasAdicional ?? 0) > 0)) ultimoProdutoMaquina.set(a.maquinaId, a.produtoId);
+        ultimoProdutoGeral.set(a.maquinaId, a.produtoId);
+      }
     });
   }
 
@@ -250,33 +281,90 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
       alertas.push({ tipo: "gargalo_sem_operador", data: slot.data, periodoId: slot.periodoId, produtoId, etapaId });
     });
 
+    // ---- custo de pôr uma pessoa num posto / deixá-la sem posto (mesma fórmula nas duas camadas) ----
+    const custoPosto = (fid: string, par: Par): number => {
+      let c = 0;
+      const op = par.pool.operacaoId;
+      if (histOp.get(fid) === op) c += CUSTO_ROTACAO;
+      c += CUSTO_EXPOSICAO * (opsHoje.get(fid)?.get(op) ?? 0);
+      c += equidade.custo(fid, op, par.m);
+      const atual = atuais.get(`${chaveSlot(slot)}|${fid}`);
+      if (atual !== undefined && atual !== par.m) c += CUSTO_MUDANCA;
+      if (ultimaMaquinaFunc.get(fid) === par.m) c += CUSTO_MESMA_MAQUINA;
+      return c;
+    };
+    const custoOcio = (fid: string): number => {
+      let c = CUSTO_OCIO * (ociosidade.get(fid) ?? 0);
+      const atual = atuais.get(`${chaveSlot(slot)}|${fid}`);
+      if (atual !== undefined && atual !== null) c += CUSTO_MUDANCA;
+      return c;
+    };
+
     // ---- matriz de custo n×n: K postos reais + (n-K) colunas "sem posto" ----
     const custo: number[][] = disponiveis.map((f) => {
       const linha: number[] = [];
-      aceitos.forEach(({ par }) => {
-        let c = 0;
-        const op = par.pool.operacaoId;
-        if (histOp.get(f.id) === op) c += CUSTO_ROTACAO;
-        c += CUSTO_EXPOSICAO * (opsHoje.get(f.id)?.get(op) ?? 0);
-        c += equidade.custo(f.id, op, par.m);
-        const atual = atuais.get(`${chaveSlot(slot)}|${f.id}`);
-        if (atual !== undefined && atual !== par.m) c += CUSTO_MUDANCA;
-        if (ultimaMaquinaFunc.get(f.id) === par.m) c += CUSTO_MESMA_MAQUINA;
-        linha.push(c);
-      });
-      for (let j = K; j < n; j++) {
-        let c = CUSTO_OCIO * (ociosidade.get(f.id) ?? 0);
-        const atual = atuais.get(`${chaveSlot(slot)}|${f.id}`);
-        if (atual !== undefined && atual !== null) c += CUSTO_MUDANCA;
-        linha.push(c);
-      }
+      aceitos.forEach(({ par }) => linha.push(custoPosto(f.id, par)));
+      for (let j = K; j < n; j++) linha.push(custoOcio(f.id));
       return linha;
     });
     const atribuicao = atribuicaoMinima(custo);
 
+    // ---- 2ª camada (carga ADICIONAL): ocupa SÓ quem ficaria sem posto, em máquinas livres ----
+    // Nunca desloca o previsto: a seleção dos postos do previsto (acima) e a atribuição das
+    // pessoas a eles (matriz acima) já estão decididas; aqui só entram os "sem posto".
+    const aceitos2: { par: Par; pecas: number }[] = [];
+    const destinoAdicional = new Map<number, number>(); // índice em `disponiveis` -> índice em aceitos2
+    const ociosos = disponiveis.map((_, i) => i).filter((i) => atribuicao[i] >= K);
+    if (ociosos.length > 0) {
+      const pares2: Par[] = [];
+      pools.forEach((p) => {
+        const chave = chavePool(p.produtoId, p.etapaId);
+        const ar = adicRem.get(chave) ?? 0;
+        const mu = metaNoSlot(p, slot);
+        if (ar <= EPS || mu <= 0) return;
+        [...new Set(p.maquinasIds)].sort().forEach((m) => {
+          if (!maquinaDisponivel(m, t) || maquinasUsadas.has(m)) return;
+          pares2.push({ m, pool: p, chave, folga: SEM_FOLGA, valorPosto: Math.min(mu, ar) * p.valorUnitario, continuidade: ultimoProdutoGeral.get(m) === p.produtoId ? 1 : 0 });
+        });
+      });
+      pares2.sort(compararAdicional);
+      const usadas2 = new Set<string>();
+      const contagem2 = new Map<string, number>();
+      const comprometido2 = new Map<string, number>();
+      for (const par of pares2) {
+        if (aceitos2.length >= ociosos.length) break;
+        if (usadas2.has(par.m)) continue;
+        const ar0 = adicRem.get(par.chave) as number;
+        const ar = ar0 - (comprometido2.get(par.chave) ?? 0);
+        const mu = metaNoSlot(par.pool, slot);
+        if ((contagem2.get(par.chave) ?? 0) >= Math.max(1, Math.ceil((ar0 - EPS) / mu))) continue;
+        const g = Math.min(mu, ar);
+        if (g <= EPS) continue;
+        aceitos2.push({ par, pecas: g });
+        usadas2.add(par.m);
+        contagem2.set(par.chave, (contagem2.get(par.chave) ?? 0) + 1);
+        comprometido2.set(par.chave, (comprometido2.get(par.chave) ?? 0) + g);
+      }
+      if (aceitos2.length > 0) {
+        const n1 = ociosos.length;
+        const K2n = aceitos2.length;
+        const custo2 = ociosos.map((i) => {
+          const linha: number[] = [];
+          aceitos2.forEach(({ par }) => linha.push(custoPosto(disponiveis[i].id, par)));
+          for (let j = K2n; j < n1; j++) linha.push(custoOcio(disponiveis[i].id));
+          return linha;
+        });
+        const a2 = atribuicaoMinima(custo2);
+        ociosos.forEach((i, r) => {
+          if (a2[r] < K2n) destinoAdicional.set(i, a2[r]);
+        });
+      }
+    }
+    const K2 = aceitos2.length;
+
     // ---- motivo de "sem posto" ----
     let motivoSemPosto = MOTIVO_DEMANDA_ESGOTADA;
-    if (n > K) {
+    if (n > K + K2) {
       const pendentes = pools.filter((p) => (rem.get(chavePool(p.produtoId, p.etapaId)) ?? 0) > EPS);
       if (pendentes.length === 0) {
         motivoSemPosto = MOTIVO_DEMANDA_ESGOTADA;
@@ -291,7 +379,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
 
     // ---- exceções de rotação (Hall por operação) ----
     const postosPorOp = new Map<string, number>();
-    aceitos.forEach(({ par }) => postosPorOp.set(par.pool.operacaoId, (postosPorOp.get(par.pool.operacaoId) ?? 0) + 1));
+    [...aceitos, ...aceitos2].forEach(({ par }) => postosPorOp.set(par.pool.operacaoId, (postosPorOp.get(par.pool.operacaoId) ?? 0) + 1));
     const vinhamDaOp = new Map<string, number>();
     disponiveis.forEach((f) => {
       const o = histOp.get(f.id);
@@ -321,6 +409,26 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
               (par.folga.gargalo ? " (posto de gargalo mantido: gargalo vence revezamento)" : "")
             : null,
         });
+      } else if (destinoAdicional.has(i)) {
+        const { par, pecas } = aceitos2[destinoAdicional.get(i) as number];
+        const op = par.pool.operacaoId;
+        const repetiu = histOp.get(f.id) === op;
+        nova.push({
+          data: slot.data,
+          periodoId: slot.periodoId,
+          funcionarioId: f.id,
+          maquinaId: par.m,
+          produtoId: par.pool.produtoId,
+          etapaId: par.pool.etapaId,
+          operacaoId: op,
+          pecas: 0,
+          pecasAdicional: pecas,
+          motivoSemPosto: null,
+          excecaoRevezamento: repetiu,
+          motivoExcecao: repetiu
+            ? `Repetição inevitável da operação "${nomeOp(op)}" (carga adicional): ${postosPorOp.get(op) ?? 0} posto(s) desta operação neste período e apenas ${n - (vinhamDaOp.get(op) ?? 0)} funcionário(s) disponível(is) que não vinham dela`
+            : null,
+        });
       } else {
         nova.push({
           data: slot.data, periodoId: slot.periodoId, funcionarioId: f.id, maquinaId: null, produtoId: null, etapaId: null, operacaoId: null,
@@ -333,6 +441,12 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     aceitos.forEach(({ par, pecas }) => {
       rem.set(par.chave, Math.max(0, (rem.get(par.chave) as number) - pecas));
       ultimoProdutoMaquina.set(par.m, par.pool.produtoId);
+      ultimoProdutoGeral.set(par.m, par.pool.produtoId);
+    });
+    destinoAdicional.forEach((idx) => {
+      const { par, pecas } = aceitos2[idx];
+      adicRem.set(par.chave, Math.max(0, (adicRem.get(par.chave) as number) - pecas));
+      ultimoProdutoGeral.set(par.m, par.pool.produtoId);
     });
     funcionarios.forEach((f) => {
       if (ausente(f.id, slot)) ultimaMaquinaFunc.set(f.id, null);
@@ -351,9 +465,18 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     alocacoesSaida.push(...nova);
 
     if (n === 0) alertas.push({ tipo: "sem_funcionarios", data: slot.data, periodoId: slot.periodoId });
-    if (n > K) alertas.push({ tipo: "subcarga_previsao", data: slot.data, periodoId: slot.periodoId, quantidade: n - K, motivo: motivoSemPosto });
-    resumoSlots.push({ data: slot.data, periodoId: slot.periodoId, funcionariosDisponiveis: n, postosComDemanda: maquinasCandidatas.size, postosPreenchidos: K, semPosto: n - K });
+    if (n > K + K2) alertas.push({ tipo: "subcarga_previsao", data: slot.data, periodoId: slot.periodoId, quantidade: n - K - K2, motivo: motivoSemPosto });
+    resumoSlots.push({ data: slot.data, periodoId: slot.periodoId, funcionariosDisponiveis: n, postosComDemanda: maquinasCandidatas.size, postosPreenchidos: K + K2, semPosto: n - K - K2 });
   }
+
+  // ---- carga adicional alocada (só aparece quando há adicional) ----
+  const adicionalProduzido: Record<string, number> = {};
+  alocacoesSaida.forEach((a) => {
+    if (a.maquinaId && a.produtoId && a.etapaId && (a.pecasAdicional ?? 0) > 0) {
+      const k = chavePool(a.produtoId, a.etapaId);
+      adicionalProduzido[k] = (adicionalProduzido[k] ?? 0) + (a.pecasAdicional as number);
+    }
+  });
 
   // ---- demanda não atendida no fim da semana ----
   const pecasRestantes: Record<string, number> = {};
@@ -376,6 +499,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     resumoSlots,
     primeiraGeracaoComSemanaEmAndamento: aPartirDe > 0 && congeladas.length === 0,
     pecasRestantes,
+    adicionalProduzido,
   };
 }
 
@@ -395,7 +519,7 @@ function riscoFaltaMaterial(
     if (!a.maquinaId || !a.produtoId || !a.etapaId) return;
     const arr = creditoPorSlot.get(chavePool(a.produtoId, a.etapaId));
     const i = indicePorSlot.get(chaveSlot(a));
-    if (arr && i !== undefined) arr[i] += a.pecas;
+    if (arr && i !== undefined) arr[i] += a.pecas + (a.pecasAdicional ?? 0);
   });
   const alertas: AlertaEscala[] = [];
   const porProduto = new Map<string, PoolEscala[]>();
