@@ -1,0 +1,81 @@
+# Escala de Produção — FALLBACK da outbox.
+#
+# O fluxo normal recalcula a Escala na hora (o navegador chama
+# /api/escala/processar logo após a ação). Este workflow é só a rede de
+# segurança: a cada 5 minutos chama /api/escala/drenar, que processa eventos
+# pendentes, com erro (até 3 tentativas) e "processando" travado — mesmo com
+# todas as telas fechadas. A rota é idempotente e respeita os locks/versões
+# da Escala, então rodar junto com a chamada imediata não duplica nada.
+#
+# Segredos (somente em GitHub Actions Secrets — nunca no repositório):
+#   ESCALA_DRENAR_URL           URL completa, ex.: https://<dominio>/api/escala/drenar
+#   CRON_SECRET                 o mesmo valor configurado no Vercel
+#   VERCEL_PROTECTION_BYPASS    OPCIONAL — só para alvos com Deployment Protection (Preview)
+#
+# Observação do GitHub: o agendamento (`schedule`) só dispara a partir da
+# branch padrão do repositório.
+
+name: Escala - drenar outbox (fallback)
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+  push: # TEMPORÁRIO (teste na branch de Preview) — remover
+    branches: [test/integridade-gravacao-v2]
+    paths: [".github/workflows/escala-drenar.yml"]
+
+concurrency:
+  group: escala-drenar
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  drenar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Chamar /api/escala/drenar
+        env:
+          ESCALA_DRENAR_URL: ${{ secrets.ESCALA_DRENAR_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ESCALA_DRENAR_URL}" ] || [ -z "${CRON_SECRET}" ]; then
+            echo "::error::Secrets ESCALA_DRENAR_URL e CRON_SECRET precisam estar configurados."
+            exit 1
+          fi
+
+          # cabeçalhos num arquivo (fora da linha de comando)
+          umask 077
+          {
+            echo "Authorization: Bearer ${CRON_SECRET}"
+            if [ -n "${VERCEL_PROTECTION_BYPASS}" ]; then
+              echo "x-vercel-protection-bypass: ${VERCEL_PROTECTION_BYPASS}"
+            fi
+          } > headers.txt
+
+          code=$(curl -sS --max-time 70 --retry 2 --retry-delay 5 --retry-all-errors \
+            -H @headers.txt -o resposta.json -w '%{http_code}' "${ESCALA_DRENAR_URL}") || code="000"
+          rm -f headers.txt
+
+          echo "HTTP ${code}"
+          cat resposta.json 2>/dev/null || true
+          echo
+
+          if [ "${code}" != "200" ]; then
+            echo "::error::Drenagem da Escala falhou (HTTP ${code})."
+            exit 1
+          fi
+
+          erros=$(jq -r '.erros // 0' resposta.json)
+          esgotados=$(jq -r '.esgotados // 0' resposta.json)
+          if [ "${erros}" != "0" ]; then
+            echo "::warning::${erros} evento(s) da Escala falharam neste ciclo (serão tentados de novo)."
+          fi
+          if [ "${esgotados}" != "0" ]; then
+            echo "::error::${esgotados} evento(s) da Escala esgotaram as tentativas — use 'Tentar novamente' na tela Escala de Produção."
+            exit 1
+          fi
