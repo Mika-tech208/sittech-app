@@ -25,7 +25,7 @@
 
 import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { EPS, metaNoSlot } from "./folga";
-import { chavePool, type EntradaEscala, type PoolEscala, type ResultadoEscala } from "./types";
+import { chavePool, MOTIVO_REVEZAMENTO, type EntradaEscala, type PoolEscala, type ResultadoEscala } from "./types";
 
 export type StatusAtingibilidade = "atingivel" | "atingivel_no_limite" | "em_risco" | "impossivel";
 export type CausaAtingibilidade =
@@ -35,6 +35,7 @@ export type CausaAtingibilidade =
   | "semana_sem_equipe" // [contexto] o produto cabe sozinho, mas a semana inteira não cabe na equipe e o plano deixou faltar peças dele
   | "maquina_livre_nao_priorizada" // [plano] máquina da etapa ficou livre com peças faltando (equipe estava em outro produto)
   | "recurso_compartilhado" // [plano] as máquinas da etapa estiveram ocupadas por outros produtos
+  | "revezamento_obrigatorio" // [plano] a máquina ficou livre porque ninguém podia ocupá-la sem repetir a operação consecutiva (restrição ergonômica)
   | "folga_curta"; // fecha, mas com folga de capacidade menor que a margem (atingível no limite)
 
 export interface AcaoRecomendada {
@@ -157,11 +158,14 @@ export function analisarAtingibilidade(entrada: EntradaEscala, resultado: Result
     porSlot.get(k)!.push(a);
   });
   const livres = new Map<string, Map<string, number>>(); // pool -> máquina -> períodos
+  const livresPorRotacao = new Map<string, number>(); // pool -> períodos-máquina livres em períodos com posto vazio por revezamento
+  const livresTotal = new Map<string, number>();
   let periodosPessoa = 0;
   slots.forEach((s) => {
     const linhas = porSlot.get(`${s.data}|${s.periodoId}`) ?? [];
     periodosPessoa += linhas.length;
     const usadas = new Set(linhas.filter((l) => l.maquinaId).map((l) => l.maquinaId as string));
+    const rotacaoVazia = linhas.some((l) => !l.maquinaId && l.motivoSemPosto === MOTIVO_REVEZAMENTO);
     comMaquina.forEach((p) => {
       if ((rem.get(chave(p)) as number) <= EPS || metaNoSlot(p, s) <= 0) return;
       [...new Set(p.maquinasIds)].forEach((m) => {
@@ -169,6 +173,8 @@ export function analisarAtingibilidade(entrada: EntradaEscala, resultado: Result
         if (!livres.has(chave(p))) livres.set(chave(p), new Map());
         const mm = livres.get(chave(p)) as Map<string, number>;
         mm.set(m, (mm.get(m) ?? 0) + 1);
+        livresTotal.set(chave(p), (livresTotal.get(chave(p)) ?? 0) + 1);
+        if (rotacaoVazia) livresPorRotacao.set(chave(p), (livresPorRotacao.get(chave(p)) ?? 0) + 1);
       });
     });
     linhas.forEach((l) => {
@@ -232,7 +238,11 @@ export function analisarAtingibilidade(entrada: EntradaEscala, resultado: Result
       else if (faltaMinima > EPS) { status = "impossivel"; causa = "capacidade_maquinas"; }
       else if (faltaPlano > EPS && conjuntoInviavel.has(k)) { status = "impossivel"; causa = "recurso_compartilhado_saturado"; }
       else if (faltaPlano > EPS && equipeInsuficiente) { status = "em_risco"; causa = "semana_sem_equipe"; }
-      else if (faltaPlano > EPS) { status = "em_risco"; causa = livresPool.length > 0 ? "maquina_livre_nao_priorizada" : "recurso_compartilhado"; }
+      else if (faltaPlano > EPS) {
+        status = "em_risco";
+        const porRot = (livresPorRotacao.get(k) ?? 0) >= 0.5 * (livresTotal.get(k) ?? 0) && (livresPorRotacao.get(k) ?? 0) > 0;
+        causa = porRot ? "revezamento_obrigatorio" : livresPool.length > 0 ? "maquina_livre_nao_priorizada" : "recurso_compartilhado";
+      }
       else if (folga < margem * 100 - 1e-9) { status = "atingivel_no_limite"; causa = "folga_curta"; }
       return { produtoId: p.produtoId, etapaId: p.etapaId, ordem: p.ordemEtapa, maquinas: [...new Set(p.maquinasIds)].sort(), necessidade, produzidoNoPlano: Math.max(0, necessidade - faltaPlano), faltaPlano, capacidadeMaquinas: cap, faltaMinima, folgaPercentual: folga, periodosMaquinaLivre: livresPool, status, causa };
     });

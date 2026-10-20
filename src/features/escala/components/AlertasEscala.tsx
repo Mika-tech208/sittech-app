@@ -20,6 +20,7 @@ export default function AlertasEscala({ alocacoes, alertas, nomes }: { alocacoes
   const risco = alertas.filter((a) => a.tipo === "risco_falta_material");
   const semFunc = alertas.filter((a) => a.tipo === "sem_funcionarios");
   const acimaLimite = alertas.filter((a) => a.tipo === "wip_acima_do_limite");
+  const rotacao = alertas.filter((a) => a.tipo === "rotacao_sem_solucao");
 
   const vazio = semPosto.length === 0 && excecoes.length === 0 && alertas.length === 0;
   return (
@@ -51,6 +52,15 @@ export default function AlertasEscala({ alocacoes, alertas, nomes }: { alocacoes
         {risco.length > 0 && (
           <div className="stx-esc-linha">
             <span><b>Risco de falta de material:</b> {risco.length} etapa(s) seguinte(s) processariam mais peças do que a anterior já produziu ({risco.map((a) => nomes.produtos.get(a.produtoId || "") || "produto").join(", ")}). Estoque intermediário inicial é desconhecido — é alerta, não bloqueio.</span>
+          </div>
+        )}
+        {rotacao.length > 0 && (
+          <div className="stx-esc-linha">
+            <span>
+              <b>Sem escala válida sem repetir operação consecutiva:</b> {rotacao.length} período(s) com posto sem operador por causa do revezamento obrigatório (regra ergonômica, sem exceção).
+              <div className="stx-esc-muted">{rotacao.slice(0, 5).map((a) => `${rotuloSlot(a.data, a.periodoId)}: ${a.motivo ?? ""}`).join(" | ")}{rotacao.length > 5 ? ` … e mais ${rotacao.length - 5}` : ""}</div>
+              <div className="stx-esc-muted">Alternativas: habilitar mais pessoas nessa operação; selecionar máquina de outra operação; reduzir ou redistribuir os postos dessa operação; ou aceitar o posto vazio.</div>
+            </span>
           </div>
         )}
         {acimaLimite.length > 0 && (

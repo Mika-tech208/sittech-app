@@ -25,7 +25,7 @@ import { sobrepoe } from "./tempo";
 import { selecionarAdicionalWip } from "./adicionalWip";
 import { etapasPorProduto } from "./wip";
 import {
-  chavePool, MOTIVO_DEMANDA_ESGOTADA, MOTIVO_JA_COBERTA, MOTIVO_POSTOS_OCUPADOS, MOTIVO_RECURSOS_INDISPONIVEIS,
+  chavePool, MOTIVO_DEMANDA_ESGOTADA, MOTIVO_JA_COBERTA, MOTIVO_REVEZAMENTO, MOTIVO_POSTOS_OCUPADOS, MOTIVO_RECURSOS_INDISPONIVEIS,
   type AlertaEscala, type AlocacaoEscala, type EntradaEscala, type PoolEscala, type ResultadoEscala, type ResumoSlot, type SlotEscala,
 } from "./types";
 
@@ -35,6 +35,7 @@ import {
 // > mesma máquina em slots seguidos. (O gargalo vence tudo isso: ele decide
 // QUAIS postos são cobertos, antes da atribuição de pessoas.)
 const CUSTO_ROTACAO = 1_000_000_000;
+const CUSTO_ROTACAO_PROIBIDO = 1e13; // revezamento duro: par proibido (nunca escolhido quando existe atribuição válida — e a seleção de postos garante que existe)
 const CUSTO_EXPOSICAO = 1_000;
 const CUSTO_MUDANCA = 100;
 const CUSTO_OCIO = 10;
@@ -91,6 +92,7 @@ function chaveSlot(s: { data: string; periodoId: string }): string {
 
 export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
   const { slots, aPartirDe } = entrada;
+  const DURO = entrada.revezamentoDuro === true; // revezamento é RESTRIÇÃO do otimizador (Fase 4a)
   const vazio: ResultadoEscala = { alocacoes: [], alertas: [], resumoSlots: [], primeiraGeracaoComSemanaEmAndamento: false, pecasRestantes: {}, adicionalProduzido: {} };
   if (slots.length === 0 || aPartirDe >= slots.length) return vazio;
 
@@ -264,6 +266,30 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     });
     pares.sort(comparar);
 
+    // ---- revezamento duro: existe atribuição das pessoas a estes postos SEM repetir a operação do período anterior? ----
+    // Emparelhamento bipartido (caminhos aumentantes). Os postos são testados na ordem de prioridade de sempre (gargalo → folga →
+    // valor → continuidade…); como o conjunto de postos atribuíveis forma um matroide de transversais, o guloso é ótimo: nenhum posto
+    // de maior prioridade é sacrificado por um de menor.
+    const viavelOps = (ops: string[], pessoas: string[]): boolean => {
+      const postoDaPessoa = new Map<string, number>(); // pessoa -> posto que ocupa
+      const tenta = (pi: number, vistos: Set<string>): boolean => {
+        for (const fid of pessoas) {
+          if (histOp.get(fid) === ops[pi] || vistos.has(fid)) continue;
+          vistos.add(fid);
+          const ocupado = postoDaPessoa.get(fid);
+          if (ocupado === undefined || tenta(ocupado, vistos)) {
+            postoDaPessoa.set(fid, pi);
+            return true;
+          }
+        }
+        return false;
+      };
+      for (let i = 0; i < ops.length; i++) if (!tenta(i, new Set())) return false;
+      return true;
+    };
+    const viavel = (postos: Par[], pessoas: string[]): boolean => viavelOps(postos.map((p) => p.pool.operacaoId), pessoas);
+    const cortadosPorRotacao = new Set<string>(); // postos (máquinas) que só não entraram por causa do revezamento
+    const operacoesCortadas = new Set<string>();
     const permitido = new Map<string, number>();
     poolsComDemanda.forEach((p) => {
       const k = chavePool(p.produtoId, p.etapaId);
@@ -281,6 +307,11 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
       const mu = metaNoSlot(par.pool, slot);
       const g = Math.min(mu, (rem.get(par.chave) as number) - (comprometido.get(par.chave) ?? 0));
       if (g <= EPS) continue;
+      if (DURO && !viavel([...aceitos.map((a) => a.par), par], disponiveis.map((f) => f.id))) {
+        cortadosPorRotacao.add(par.m);
+        operacoesCortadas.add(par.pool.operacaoId);
+        continue;
+      }
       aceitos.push({ par, pecas: g });
       maquinasUsadas.add(par.m);
       contagem.set(par.chave, (contagem.get(par.chave) ?? 0) + 1);
@@ -305,7 +336,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     const custoPosto = (fid: string, par: Par): number => {
       let c = 0;
       const op = par.pool.operacaoId;
-      if (histOp.get(fid) === op) c += CUSTO_ROTACAO;
+      if (histOp.get(fid) === op) c += DURO ? CUSTO_ROTACAO_PROIBIDO : CUSTO_ROTACAO;
       c += CUSTO_EXPOSICAO * (opsHoje.get(fid)?.get(op) ?? 0);
       c += equidade.custo(fid, op, par.m);
       const atual = atuais.get(`${chaveSlot(slot)}|${fid}`);
@@ -342,6 +373,8 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
         etapas: etapasWip,
         adicRem,
         adicAlocado,
+        // revezamento duro: cada posto escolhido (cadeia inteira ou estoque) só entra se o conjunto ainda admite atribuição sem repetir
+        viavel: DURO ? (ops: string[]) => viavelOps(ops, ociosos.map((i) => disponiveis[i].id)) : undefined,
         saldo0: new Map(),
         ocupado: new Map(Object.entries(entrada.wip!.estoqueConfirmado ?? {})),
         limites: entrada.wip!.limites,
@@ -407,6 +440,11 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
         if ((contagem2.get(par.chave) ?? 0) >= Math.max(1, Math.ceil((ar0 - EPS) / mu))) continue;
         const g = Math.min(mu, ar);
         if (g <= EPS) continue;
+        if (DURO && !viavel([...aceitos2.map((a) => a.par), par], ociosos.map((i) => disponiveis[i].id))) {
+          cortadosPorRotacao.add(par.m);
+          operacoesCortadas.add(par.pool.operacaoId);
+          continue;
+        }
         aceitos2.push({ par, pecas: g });
         usadas2.add(par.m);
         contagem2.set(par.chave, (contagem2.get(par.chave) ?? 0) + 1);
@@ -444,6 +482,17 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
       }
     }
 
+    // ---- revezamento duro sem solução: deixa o posto sem operador e registra (nunca repete) ----
+    if (DURO && cortadosPorRotacao.size > 0 && n > K + K2) {
+      motivoSemPosto = MOTIVO_REVEZAMENTO;
+      alertas.push({
+        tipo: "rotacao_sem_solucao",
+        data: slot.data,
+        periodoId: slot.periodoId,
+        quantidade: cortadosPorRotacao.size,
+        motivo: `Não existe escala válida para preencher todos os postos neste período sem repetir operação consecutiva (${cortadosPorRotacao.size} posto(s) sem operador; operação: ${[...operacoesCortadas].map(nomeOp).join(", ")})`,
+      });
+    }
     // ---- exceções de rotação (Hall por operação) ----
     const postosPorOp = new Map<string, number>();
     [...aceitos, ...aceitos2].forEach(({ par }) => postosPorOp.set(par.pool.operacaoId, (postosPorOp.get(par.pool.operacaoId) ?? 0) + 1));

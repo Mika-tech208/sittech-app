@@ -123,6 +123,10 @@ export interface EntradaEscala {
   // `estoqueConfirmado` (Fase 3): o MESMO saldo confirmado (disponível na abertura) ocupa o limite de estoque do par: o motor só
   // planeja de WIP adicional o espaço que sobra (limite − confirmado − adicional já planejado), nunca negativo.
   wip?: { limites: Record<string, number>; saldo0?: Record<string, number>; estoqueConfirmado?: Record<string, number> };
+  // REVEZAMENTO DURO (Fase 4a): a mesma pessoa NUNCA executa a mesma operacao_id em períodos consecutivos do mesmo dia (qualquer máquina,
+  // produto ou posto; M3→T1 conta; o primeiro período do dia zera). Solução que repete é eliminada do espaço de busca: sem solução válida o
+  // posto fica sem operador e gera `rotacao_sem_solucao`. Ausente/false = comportamento anterior (repetição "inevitável" vira exceção).
+  revezamentoDuro?: boolean;
 }
 
 export type TipoAlerta =
@@ -131,6 +135,7 @@ export type TipoAlerta =
   | "gargalo_sem_operador"
   | "risco_falta_material"
   | "wip_acima_do_limite"
+  | "rotacao_sem_solucao"
   | "sem_funcionarios";
 
 export interface AlertaEscala {
@@ -167,6 +172,7 @@ export interface ResultadoEscala {
 }
 
 export const MOTIVO_DEMANDA_ESGOTADA = "Demanda da Previsão esgotada";
+export const MOTIVO_REVEZAMENTO = "Revezamento obrigatório: sem posto livre que não repita a operação do período anterior";
 export const MOTIVO_JA_COBERTA = "Demanda restante já coberta neste período";
 export const MOTIVO_RECURSOS_INDISPONIVEIS = "Recursos com demanda restante indisponíveis";
 export const MOTIVO_POSTOS_OCUPADOS = "Todos os postos da Previsão com demanda já estão ocupados neste período";

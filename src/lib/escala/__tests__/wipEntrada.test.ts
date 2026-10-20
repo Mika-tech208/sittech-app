@@ -15,7 +15,10 @@ describe("parâmetros da Escala", () => {
     expect(lerParametros([])).toEqual(PARAMETROS_PADRAO);
     expect(lerParametros(null)).toEqual(PARAMETROS_PADRAO);
     expect(lerParametros([{ chave: "wip_modo", valor: "qualquer" }]).wipModo).toBe("desligado");
-    expect(lerParametros([{ chave: "wip_modo", valor: "ativo" }, { chave: "wip_dias_limite", valor: 2 }])).toEqual({ wipModo: "ativo", wipDiasLimite: 2, atingibilidadeMargem: 0.1 });
+    expect(lerParametros([{ chave: "wip_modo", valor: "ativo" }, { chave: "wip_dias_limite", valor: 2 }])).toEqual({ wipModo: "ativo", wipDiasLimite: 2, atingibilidadeMargem: 0.1, revezamentoModo: "duro" });
+    expect(lerParametros([{ chave: "revezamento_modo", valor: "mole" }]).revezamentoModo).toBe("mole");
+    expect(lerParametros([{ chave: "revezamento_modo", valor: "qualquer" }]).revezamentoModo).toBe("duro"); // desconhecido = duro (regra definitiva)
+    expect(lerParametros([]).revezamentoModo).toBe("duro");
     expect(lerParametros([{ chave: "atingibilidade_margem", valor: 0.25 }]).atingibilidadeMargem).toBe(0.25);
     expect(lerParametros([{ chave: "atingibilidade_margem", valor: 7 }]).atingibilidadeMargem).toBe(0.1); // fora de 0–1: padrão
     expect(lerParametros([{ chave: "wip_dias_limite", valor: -3 }]).wipDiasLimite).toBe(PARAMETROS_PADRAO.wipDiasLimite);

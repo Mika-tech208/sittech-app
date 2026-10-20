@@ -182,7 +182,7 @@ export function useEscalaProducao(pronto: boolean, semanaInicio: string) {
 
   const trocar = (data: string, periodoId: string, a: string, b: string, motivo: string) => executar(async () => {
     const { error } = await supabase.rpc("escala_trocar_alocacoes", { p_data: data, p_periodo_id: periodoId, p_funcionario_a: a, p_funcionario_b: b, p_motivo: motivo });
-    return error ? error.message.replace(/^(ESCALA_PERIODO_NAO_EDITAVEL|ESCALA_MOTIVO_OBRIGATORIO):\s*/, "") : null;
+    return error ? error.message.replace(/^(ESCALA_PERIODO_NAO_EDITAVEL|ESCALA_MOTIVO_OBRIGATORIO|ESCALA_ROTACAO_VIOLADA):\s*/, "") : null;
   });
 
   const bloquear = (maquinaId: string, motivo: string, observacao: string) => executar(async () => {

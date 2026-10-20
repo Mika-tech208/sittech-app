@@ -19,15 +19,17 @@
 // programado, mas ele está bloqueado):
 //   E) limite_estoque ....... o estoque intermediário da etapa já está no limite;
 //   F) aguardando_etapa_anterior  a etapa anterior ainda não produziu o material (pipeline).
+//   G) revezamento_obrigatorio .. (revezamento duro) há posto livre, mas nenhuma atribuição possível sem repetir a operação do período
+//                             anterior: o posto fica sem operador. É a causa da pessoa sem posto, e vem ANTES das demais.
 
 import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { gerarEscala } from "./gerarEscala";
 import { EPS, metaNoSlot } from "./folga";
 import { etapasPorProduto } from "./wip";
-import { chavePool, type AlocacaoEscala, type EntradaEscala, type PoolEscala, type ResultadoEscala } from "./types";
+import { chavePool, MOTIVO_REVEZAMENTO, type AlocacaoEscala, type EntradaEscala, type PoolEscala, type ResultadoEscala } from "./types";
 
-export type CausaOciosidade = "carga" | "maquina_nao_selecionada" | "recurso_indisponivel" | "sem_recurso_compativel" | "limite_estoque" | "aguardando_etapa_anterior";
-export const CAUSAS: CausaOciosidade[] = ["carga", "maquina_nao_selecionada", "recurso_indisponivel", "sem_recurso_compativel", "limite_estoque", "aguardando_etapa_anterior"];
+export type CausaOciosidade = "carga" | "maquina_nao_selecionada" | "recurso_indisponivel" | "sem_recurso_compativel" | "limite_estoque" | "aguardando_etapa_anterior" | "revezamento_obrigatorio";
+export const CAUSAS: CausaOciosidade[] = ["carga", "maquina_nao_selecionada", "recurso_indisponivel", "sem_recurso_compativel", "limite_estoque", "aguardando_etapa_anterior", "revezamento_obrigatorio"];
 
 export type ContagemCausas = Record<CausaOciosidade, number>;
 
@@ -68,7 +70,7 @@ export interface CandidatoRecurso {
 }
 
 function zeros(): ContagemCausas {
-  return { carga: 0, maquina_nao_selecionada: 0, recurso_indisponivel: 0, sem_recurso_compativel: 0, limite_estoque: 0, aguardando_etapa_anterior: 0 };
+  return { carga: 0, maquina_nao_selecionada: 0, recurso_indisponivel: 0, sem_recurso_compativel: 0, limite_estoque: 0, aguardando_etapa_anterior: 0, revezamento_obrigatorio: 0 };
 }
 
 // `produtosPermitidos`: recursos compatíveis só são sugeridos para etapas de produtos JÁ PREVISTOS na semana.
@@ -116,6 +118,7 @@ export function analisarCobertura(
     sem_recurso_compativel: { pessoasPeriodo: 0, minutos: 0 },
     limite_estoque: { pessoasPeriodo: 0, minutos: 0 },
     aguardando_etapa_anterior: { pessoasPeriodo: 0, minutos: 0 },
+    revezamento_obrigatorio: { pessoasPeriodo: 0, minutos: 0 },
   };
   // etapas por produto, em ordem (só usado no modo WIP: pipeline e limite de estoque)
   const etapasDoProduto = entrada.wip ? etapasPorProduto(pools) : null;
@@ -130,14 +133,17 @@ export function analisarCobertura(
     const minutos = slot.fimMin - slot.inicioMin;
     const disponiveis = linhas.length;
     const ociosos = linhas.filter((a) => !a.maquinaId).length;
+    const porRotacao = linhas.filter((a) => !a.maquinaId && a.motivoSemPosto === MOTIVO_REVEZAMENTO).length; // revezamento duro: posto vazio, não falta de carga
+    const ociososOutros = ociosos - porRotacao;
     const usadas = new Set(linhas.filter((a) => a.maquinaId).map((a) => a.maquinaId as string));
     const causas = zeros();
     const compativeisLivres: string[] = [];
 
-    if (ociosos > 0) {
+    causas.revezamento_obrigatorio = porRotacao;
+    if (ociososOutros > 0) {
       const disp = (m: string) => maquinaDisponivelNoSlot(entrada, m, slot);
       const livresLista = selecionadas.filter((m) => disp(m) && !usadas.has(m));
-      const a = Math.min(ociosos, livresLista.length);
+      const a = Math.min(ociososOutros, livresLista.length);
       causas.carga = a;
       if (etapasDoProduto) {
         // WIP: o que sobrou de adicional programado depois das decisões DESTE período e por que não foi usado
@@ -172,7 +178,7 @@ export function analisarCobertura(
         causas.limite_estoque = nLimite;
         causas.aguardando_etapa_anterior = nAguardando;
       }
-      let resto = ociosos - a;
+      let resto = ociososOutros - a;
 
       // etapas que ainda queriam mais máquinas neste período (e não conseguiram)
       const insatisfeitos: PoolEscala[] = [...pools, ...poolsSemMaquina].filter((p) => {

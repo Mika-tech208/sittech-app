@@ -6,7 +6,7 @@ export function TrocaModal({
   titulo, opcoes, onConfirmar, onFechar, salvando, erro,
 }: {
   titulo: string;
-  opcoes: { id: string; rotulo: string }[];
+  opcoes: { id: string; rotulo: string; bloqueio?: string }[]; // bloqueio: troca proibida pelo revezamento (sem exceção, sem bypass)
   onConfirmar: (outroId: string, motivo: string) => void;
   onFechar: () => void;
   salvando: boolean;
@@ -24,9 +24,10 @@ export function TrocaModal({
           <label htmlFor="esc-troca-outro">Trocar com</label>
           <select id="esc-troca-outro" value={outro} onChange={(e) => setOutro(e.target.value)}>
             <option value="">Selecione…</option>
-            {opcoes.map((o) => <option key={o.id} value={o.id}>{o.rotulo}</option>)}
+            {opcoes.map((o) => <option key={o.id} value={o.id} disabled={Boolean(o.bloqueio)}>{o.rotulo}{o.bloqueio ? " — não permitido (repetiria a operação)" : ""}</option>)}
           </select>
         </div>
+        {opcoes.some((o) => o.bloqueio) && <p className="stx-esc-muted">Trocas que fariam alguém repetir a mesma operação em períodos consecutivos não são permitidas — não há exceção.</p>}
         <div className="stx-esc-campo">
           <label htmlFor="esc-troca-motivo">Motivo da troca (obrigatório)</label>
           <input id="esc-troca-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: pedido do supervisor, treinamento…" maxLength={200} />

@@ -27,6 +27,7 @@ import GradeEscala from "./components/GradeEscala";
 import AlertasEscala from "./components/AlertasEscala";
 import { BloquearModal, TrocaModal, MOTIVOS_INDISPONIBILIDADE } from "./components/ModaisEscala";
 import { ESTILOS_ESCALA } from "./components/estilos";
+import { validarTroca } from "./rotacao";
 
 function rotuloDia(data: string): string {
   return new Date(data + "T00:00:00").toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
@@ -176,10 +177,16 @@ export default function EscalaProducaoPage() {
     );
   }
 
+  const ordemPeriodosDoDia = (diaAtual?.periodos ?? []).map((p) => p.id);
   const opcoesTroca = edicao
     ? alocacoesDoDia.filter((a) => a.periodoId === edicao.periodoId && a.funcionarioId !== edicao.funcionarioId).map((a) => ({
         id: a.funcionarioId,
         rotulo: `${estado.nomes.funcionarios.get(a.funcionarioId) || "Funcionário"} — ${a.maquinaId ? estado.nomes.maquinas.get(a.maquinaId) || "posto" : "sem posto"}`,
+        // revezamento duro: a troca que repetiria a operação em períodos consecutivos é bloqueada já aqui (o servidor aplica a mesma regra)
+        bloqueio: (() => {
+          const r = validarTroca(alocacoesDoDia, ordemPeriodosDoDia, edicao.periodoId, edicao.funcionarioId, a.funcionarioId);
+          return r.ok ? undefined : r.mensagem;
+        })(),
       }))
     : [];
   const aEditar = edicao ? alocacoesDoDia.find((a) => a.periodoId === edicao.periodoId && a.funcionarioId === edicao.funcionarioId) : null;

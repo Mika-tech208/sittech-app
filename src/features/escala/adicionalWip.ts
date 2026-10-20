@@ -30,6 +30,9 @@ export interface EntradaSelecaoWip {
   adicAlocado: Map<string, number>; // adicional acumulado por etapa (congelado + períodos anteriores)
   saldo0: Map<string, number>; // estoque confirmado aguardando a etapa seguinte, por chave da etapa de origem (Fase 3)
   limites: Record<string, number>; // teto de estoque entre k e k+1, por chave da etapa k
+  // Revezamento duro (Fase 4a): recebe as operações de TODOS os postos já escolhidos + o(s) novo(s) e diz se ainda existe atribuição de
+  // pessoas sem repetir a operação consecutiva. Cadeia/estoque que torna o conjunto inviável é descartado inteiro (a cadeia é atômica).
+  viavel?: (operacoes: string[]) => boolean;
   ocupado?: Map<string, number>; // estoque CONFIRMADO que já ocupa o par (por chave da etapa k): consome o limite (Fase 3)
   livres: (pool: PoolEscala) => string[]; // máquinas selecionadas, disponíveis neste período, na ordem de preferência
   meta: (pool: PoolEscala) => number; // peças por máquina neste período
@@ -78,6 +81,7 @@ export function selecionarAdicionalWip(e: EntradaSelecaoWip): PostoAdicional[] {
     ms.forEach((m) => {
       const parte = Math.min(mu, resto);
       if (parte <= EPS) return;
+      if (e.viavel && !e.viavel([...posts.map((x) => x.pool.operacaoId), p.operacaoId])) return; // revezamento duro
       posts.push({ m, pool: p, pecas: parte });
       e.usadas.add(m);
       comp.set(chave(p), g(comp, chave(p)) + parte);
@@ -130,6 +134,7 @@ export function selecionarAdicionalWip(e: EntradaSelecaoWip): PostoAdicional[] {
         ms.forEach((m) => reservadas.add(m));
         escolhidos.set(k, ms);
       }
+      if (e.viavel && !e.viavel([...posts.map((x) => x.pool.operacaoId), ...st.flatMap((p, k) => (escolhidos.get(k) ?? []).map(() => p.operacaoId))])) return null;
       const saida: PostoAdicional[] = [];
       st.forEach((p, k) => {
         const ms = escolhidos.get(k);

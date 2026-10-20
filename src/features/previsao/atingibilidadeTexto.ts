@@ -24,6 +24,7 @@ export const TEXTO_CAUSA: Record<CausaAtingibilidade, string> = {
   semana_sem_equipe: "Este produto cabe sozinho, mas a semana inteira não cabe na equipe disponível — e o plano deixou faltar peças dele. Isso NÃO prova que ele, sozinho, seja impossível.",
   maquina_livre_nao_priorizada: "A máquina ficou livre enquanto faltavam peças desta etapa — a equipe estava em outro produto.",
   recurso_compartilhado: "As máquinas da etapa estiveram ocupadas por outros produtos.",
+  revezamento_obrigatorio: "A máquina ficou livre porque ninguém podia ocupá-la sem repetir a mesma operação em períodos consecutivos (regra ergonômica, sem exceção).",
   folga_curta: "Fecha, mas usa quase toda a capacidade (folga menor que a margem configurada): qualquer parada no gargalo faz faltar peças.",
 };
 

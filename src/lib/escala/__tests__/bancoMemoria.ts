@@ -5,6 +5,7 @@
 // exatamente como o fluxo real de eventos.
 
 import { PERIODOS_REAIS } from "@/features/escala/__tests__/helpers";
+import { validarTroca } from "@/features/escala/rotacao";
 import type { AlocacaoEscala } from "@/features/escala/types";
 import type { EstadoBruto, PayloadAplicacao } from "../estado";
 import { montarEntradaEscala } from "../montarEntrada";
@@ -108,6 +109,9 @@ export class Mundo {
 
   // Troca manual (como a RPC escala_trocar_alocacoes): só o que ainda não começou.
   trocarManual(data: string, periodoId: string, a: string, b: string) {
+    // revezamento duro: mesma regra da RPC — a troca que repetiria a operação em períodos consecutivos é BLOQUEADA (sem exceção)
+    const r = validarTroca(this.alocacoes.filter((x) => x.data === data), PERIODOS_REAIS.map((p) => p.id), periodoId, a, b);
+    if (!r.ok) throw new Error(`ESCALA_ROTACAO_VIOLADA: ${r.mensagem}`);
     const la = this.alocacoes.find((x) => x.data === data && x.periodoId === periodoId && x.funcionarioId === a)!;
     const lb = this.alocacoes.find((x) => x.data === data && x.periodoId === periodoId && x.funcionarioId === b)!;
     const campos = ["maquinaId", "produtoId", "etapaId", "operacaoId", "pecas", "pecasAdicional", "tipoAdicional", "motivoSemPosto", "excecaoRevezamento", "motivoExcecao"] as const;

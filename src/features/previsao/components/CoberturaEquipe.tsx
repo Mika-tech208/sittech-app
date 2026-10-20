@@ -72,8 +72,9 @@ const ROTULO_CAUSA: Record<CausaOciosidade, { titulo: string; explica: string }>
   sem_recurso_compativel: { titulo: "Sem recurso possível", explica: "Não há máquina livre nem compatível para ocupar essas pessoas." },
   limite_estoque: { titulo: "Limite de estoque intermediário", explica: "A máquina está livre e há adicional programado, mas o estoque entre as etapas já está no limite." },
   aguardando_etapa_anterior: { titulo: "Aguardando a etapa anterior", explica: "A máquina está livre e há adicional programado, mas a etapa anterior ainda não produziu o material (pipeline)." },
+  revezamento_obrigatorio: { titulo: "Revezamento obrigatório", explica: "Há posto livre, mas ninguém pode ocupá-lo sem repetir a mesma operação em períodos consecutivos (regra ergonômica, sem exceção). O posto fica sem operador." },
 };
-const ORDEM_CAUSAS: CausaOciosidade[] = ["carga", "maquina_nao_selecionada", "recurso_indisponivel", "sem_recurso_compativel", "limite_estoque", "aguardando_etapa_anterior"];
+const ORDEM_CAUSAS: CausaOciosidade[] = ["carga", "maquina_nao_selecionada", "recurso_indisponivel", "sem_recurso_compativel", "limite_estoque", "aguardando_etapa_anterior", "revezamento_obrigatorio"];
 const NOMES_PERIODO: Record<string, string> = { m1: "M1", m2: "M2", m3: "M3", t1: "T1", t2: "T2", t3: "T3" };
 
 function pct(v: number): string {

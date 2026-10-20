@@ -171,6 +171,7 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
       nomesOperacao: estado.nomesOperacao,
       historicoEquidade: estado.historicoEquidade,
       poolsSemMaquina: [...semMaquina.entries()].filter(([k]) => !pools.has(k)).map(([, p]) => p),
+      ...(estado.parametros?.revezamentoModo === "duro" ? { revezamentoDuro: true } : {}),
       ...(wipAtivo ? { wip: { limites: calcularLimitesWip([...pools.values()], slots, { wipDiasLimite: estado.parametros?.wipDiasLimite ?? 1 }, estado.proximaSemana ?? null), ...(Object.keys(saldo0).length > 0 ? { saldo0 } : {}), ...(Object.keys(estoqueConfirmado).length > 0 ? { estoqueConfirmado } : {}) } } : {}),
     },
     periodosPorDia,
