@@ -167,7 +167,7 @@ export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): stri
   </div>
   ${semanaAtualRec.itens.length === 0 ? "<p>Nenhum item lançado pra essa semana.</p>" : linhasItens}
   ${semanaAtualRec.itens.length > 0 ? `<p class="total">Total geral de funcionários necessários na semana: <b>${totalFuncionarios}</b> de ${equipeProdutivaCount} produtivos na semana</p>
-  <p style="margin-top:4px; font-size:14px;">Uso da equipe em horas: <b>${pctEquipePDF.toFixed(1)}%</b> <span style="font-weight:400; color:#8a8f94; font-size:12px;">(${horasPessoaDemandadasPDF.toFixed(1)}h demandadas de ${horasPessoaDisponiveisPDF.toFixed(1)}h disponíveis)</span></p>` : ""}
+  <p style="margin-top:4px; font-size:14px;">Uso estimado em horas-máquina: <b>${pctEquipePDF.toFixed(1)}%</b> <span style="font-weight:400; color:#8a8f94; font-size:12px;">(${horasPessoaDemandadasPDF.toFixed(1)}h demandadas de ${horasPessoaDisponiveisPDF.toFixed(1)}h disponíveis)</span></p>` : ""}
   ${usoMaquinas.length > 0 ? `
   <h2 class="secao">Uso de cada máquina essa semana</h2>
   <p class="secao-sub">Todas as máquinas com demanda na programação, não só as compartilhadas entre produtos.</p>

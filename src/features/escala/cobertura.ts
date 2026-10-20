@@ -66,7 +66,12 @@ function zeros(): ContagemCausas {
   return { carga: 0, maquina_nao_selecionada: 0, recurso_indisponivel: 0, sem_recurso_compativel: 0 };
 }
 
-export function analisarCobertura(entrada: EntradaEscala, resultado: ResultadoEscala): { cobertura: CoberturaSemana; candidatos: CandidatoRecurso[] } {
+// `produtosPermitidos`: recursos compatíveis só são sugeridos para etapas de produtos JÁ PREVISTOS na semana.
+export function analisarCobertura(
+  entrada: EntradaEscala,
+  resultado: ResultadoEscala,
+  produtosPermitidos?: Set<string>
+): { cobertura: CoberturaSemana; candidatos: CandidatoRecurso[] } {
   const slots = entrada.slots.slice(entrada.aPartirDe);
   const pools = [...entrada.pools].sort((a, b) => (a.produtoId + a.etapaId < b.produtoId + b.etapaId ? -1 : 1));
   // etapas sem máquina selecionada: o motor não as simula, mas elas AINDA têm demanda — entram só como
@@ -128,6 +133,7 @@ export function analisarCobertura(entrada: EntradaEscala, resultado: ResultadoEs
 
       // etapas que ainda queriam mais máquinas neste período (e não conseguiram)
       const insatisfeitos: PoolEscala[] = [...pools, ...poolsSemMaquina].filter((p) => {
+        if (produtosPermitidos && !produtosPermitidos.has(p.produtoId)) return false;
         const mu = metaNoSlot(p, slot);
         if (mu <= 0) return false;
         const k = chavePool(p.produtoId, p.etapaId);

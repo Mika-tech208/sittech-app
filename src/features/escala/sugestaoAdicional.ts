@@ -51,14 +51,18 @@ function comTetos(entrada: EntradaEscala, tetoPorProduto: Map<string, number>): 
   return { ...entrada, pools: entrada.pools.map((p) => ({ ...p, adicionalMax: tetoPorProduto.get(p.produtoId) ?? 0 })) };
 }
 
-export function sugerirAdicional(entrada: EntradaEscala, opcoes: { produtosIncompletos?: Set<string> } = {}): ResultadoSugestao {
+// REGRA DURA: a carga adicional só pode aumentar a quantidade de PRODUTOS JÁ PREVISTOS na semana.
+// `produtosPermitidos` (quando informado) é a lista desses produtos — qualquer outro produto presente
+// na entrada NUNCA recebe teto, aconteça o que acontecer (valor, produtividade, capacidade ociosa…).
+export function sugerirAdicional(entrada: EntradaEscala, opcoes: { produtosIncompletos?: Set<string>; produtosPermitidos?: Set<string> } = {}): ResultadoSugestao {
   const incompletos = opcoes.produtosIncompletos ?? new Set<string>();
+  const permitidos = opcoes.produtosPermitidos;
   const porProduto = new Map<string, PoolEscala[]>();
   [...entrada.pools].forEach((p) => {
     if (!porProduto.has(p.produtoId)) porProduto.set(p.produtoId, []);
     porProduto.get(p.produtoId)!.push(p);
   });
-  const produtos = [...porProduto.keys()].sort();
+  const produtos = [...porProduto.keys()].filter((p) => !permitidos || permitidos.has(p)).sort();
   porProduto.forEach((l) => l.sort((a, b) => a.ordemEtapa - b.ordemEtapa || (a.etapaId < b.etapaId ? -1 : 1)));
 
   let tetos = new Map<string, number>(produtos.map((p) => [p, incompletos.has(p) ? 0 : TETO_ILIMITADO]));

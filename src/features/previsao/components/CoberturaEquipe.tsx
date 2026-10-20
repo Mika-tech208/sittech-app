@@ -14,7 +14,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { analisarCoberturaNoServidor } from "@/lib/escala/disparar";
-import type { SimulacaoCobertura } from "@/lib/escala/simularCobertura";
+import type { RecomendacaoMaquina, SimulacaoCobertura } from "@/lib/escala/simularCobertura";
+import { resumirConfirmacaoSugestao } from "@/features/previsao/confirmacaoSugestao";
 import type { CoberturaSemana, CausaOciosidade } from "@/features/escala/cobertura";
 import { formatBRL, formatQtd, toNumber } from "@/lib/format";
 import type { PrevisaoItem } from "@/types/domain";
@@ -41,6 +42,9 @@ const ESTILOS = `
 .stx-cob-cel { padding:4px 6px; border-radius:6px; text-align:center; min-width:46px; }
 .stx-cob-rolagem { overflow-x:auto; }
 .stx-cob-neg { color:var(--danger); }
+.stx-cob-rec { margin:8px 0; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,.04); font-size:13px; }
+.stx-cob-rec ul { margin:4px 0 0 18px; padding:0; }
+.stx-cob-nota { color:var(--text-muted); font-size:12px; margin:6px 0 0; }
 `;
 
 const ROTULO_CAUSA: Record<CausaOciosidade, { titulo: string; explica: string }> = {
@@ -78,6 +82,8 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
   const [rascunho, setRascunho] = useState<Record<string, string>>(salvos);
   const [analise, setAnalise] = useState<SimulacaoCobertura | null>(null);
   const [sugestao, setSugestao] = useState<SimulacaoCobertura["sugestao"]>(null);
+  const [recomendacoes, setRecomendacoes] = useState<RecomendacaoMaquina[]>([]);
+  const [confirmando, setConfirmando] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -91,6 +97,8 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
     setRascunho(salvos);
     setAnalise(null);
     setSugestao(null);
+    setRecomendacoes([]);
+    setConfirmando(false);
     setErro(null);
     setAviso(null);
     jaAnalisou.current = false;
@@ -122,7 +130,11 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
       }
       jaAnalisou.current = true;
       setAnalise(resp.dados);
-      if (comSugestao) setSugestao(resp.dados.sugestao);
+      if (comSugestao) {
+        // a sugestão e as recomendações (máquina + carga) partem SÓ do previsto — independem do adicional digitado
+        setSugestao(resp.dados.sugestao);
+        setRecomendacoes(resp.dados.recomendacoes ?? []);
+      }
     },
     [semanaInicio, itensPayload]
   );
@@ -140,8 +152,15 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
 
   const alterado = itens.some((i) => (toNumber(rascunho[i.id] ?? 0) || 0) !== (i.quantidadeAdicional ?? 0));
 
+  // "Aplicar sugestão" abre uma confirmação simples; confirmar apenas PREENCHE os valores para revisão.
   function aplicarSugestao() {
+    if (!sugestao || !analise) return;
+    setConfirmando(true);
+  }
+
+  function preencherSugestao() {
     if (!sugestao) return;
+    setConfirmando(false);
     const novo: Record<string, string> = { ...rascunho };
     const primeiroPorProduto = new Map<string, string>();
     itens.forEach((i) => {
@@ -153,7 +172,7 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
       if (itemId) novo[itemId] = String(p.adicionalSugerido);
     });
     setRascunho(novo);
-    setAviso("Sugestão carregada na coluna Adicional para você revisar. Nada foi salvo ainda.");
+    setAviso("Sugestão preenchida na coluna Adicional para você revisar. Nada foi salvo ainda.");
   }
 
   async function salvar() {
@@ -191,19 +210,20 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
           </p>
         </div>
         <div className="stx-cob-acoes">
-          <button className="stx-prev-pill-btn" disabled={carregando || salvando} onClick={() => void executar(rascunho, false)}>
+          <button className="stx-prev-pill-btn" disabled={carregando || salvando} onClick={() => void executar(rascunho, true)} title="Simula a Escala com o mesmo motor e já calcula a sugestão de carga adicional">
             {carregando && !cob ? "Analisando…" : "Analisar cobertura"}
-          </button>
-          <button className="stx-prev-pill-btn" disabled={carregando || salvando} onClick={() => void executar(rascunho, true)} title="Calcula a carga adicional que fecha produto acabado, usando o mesmo motor">
-            Sugerir carga adicional
           </button>
         </div>
       </div>
 
+      <p className="stx-cob-nota" title="Cobertura da equipe = simulação da Escala (responde se os funcionários terão posto ao longo dos períodos). Uso estimado em horas-máquina = leitura anterior, baseada na carga produtiva e nas máquinas.">
+        <b>Cobertura da equipe</b> é a simulação da Escala: responde se os funcionários terão posto ao longo dos períodos. Não é o mesmo que o <b>Uso estimado em horas-máquina</b> (leitura anterior, baseada na carga produtiva/máquinas) — os dois percentuais medem coisas diferentes.
+      </p>
+
       {erro && <p className="stx-save-error">{erro}</p>}
       {aviso && <p className="stx-cob-sub">{aviso}</p>}
 
-      {!cob && !erro && <p className="stx-cob-dica">Clique em “Analisar cobertura” para ver a situação da semana.</p>}
+      {!cob && !erro && <p className="stx-cob-dica">Clique em “Analisar cobertura” para ver a situação da semana e a sugestão de carga adicional.</p>}
 
       {cob && analise && (
         <>
@@ -244,38 +264,31 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
                 </div>
               )}
 
-              {(analise.recursosCompativeis.length > 0 || analise.etapasSemMaquina.length > 0) && (
+              {(recomendacoes.length > 0 || analise.etapasSemMaquina.length > 0) && (
                 <div className="stx-cob-bloco">
-                  <h3>Recursos compatíveis do roteiro que não estão selecionados</h3>
+                  <h3>Como aumentar a cobertura (máquina + carga, sempre juntas)</h3>
                   {analise.etapasSemMaquina.map((e) => (
                     <div className="stx-cob-linha" key={`${e.produtoId}|${e.etapaId}`}>
-                      <span><b>{nomeProd(e.produtoId)} › {nomeEtapa(e.etapaId)}</b><small>Etapa sem nenhuma máquina selecionada — o produto não fecha. Compatíveis: {e.compativeis.map(nomeMaq).join(", ") || "nenhuma cadastrada"}</small></span>
+                      <span><b>{nomeProd(e.produtoId)} › {nomeEtapa(e.etapaId)}</b><small>Etapa de produto previsto sem nenhuma máquina selecionada — o produto não fecha. Compatíveis do roteiro: {e.compativeis.map(nomeMaq).join(", ") || "nenhuma cadastrada"}</small></span>
                     </div>
                   ))}
-                  {analise.recursosCompativeis.slice(0, 8).map((r) => (
-                    <div className="stx-cob-linha" key={r.maquinaId}>
-                      <span>
-                        <b>{nomeMaq(r.maquinaId)}</b>
-                        <small>para {r.poolsAfetados.map((p) => `${nomeProd(p.produtoId)} › ${nomeEtapa(p.etapaId)}`).join(", ")}</small>
-                      </span>
-                      <span>
-                        sozinha: −{horas(r.ganhoMinutos)} sem posto · cobertura → {pct(r.coberturaApos)}
-                        {r.comCargaAdicional && r.comCargaAdicional.pecas > 0 && (
-                          <small><b>com carga adicional (+{formatQtd(r.comCargaAdicional.pecas)} peças): cobertura → {pct(r.comCargaAdicional.coberturaApos)}</b></small>
+                  {recomendacoes.map((r, i) => (
+                    <div className="stx-cob-rec" key={i}>
+                      <b>Para aumentar a cobertura{r.todas ? " (todas as máquinas recomendadas juntas)" : ""}:</b>
+                      <ul>
+                        <li>selecionar {r.maquinas.map(nomeMaq).join(r.todas ? ", " : " ou ")}{" "}
+                          <span style={{ color: "var(--text-muted)" }}>({r.poolsAfetados.map((p) => `${nomeProd(p.produtoId)} › ${nomeEtapa(p.etapaId)}`).join(", ")})</span>;</li>
+                        {r.pecasAdicionais > 0 && (
+                          <li>adicionar aproximadamente {r.adicionalPorProduto.map((a) => `+${formatQtd(a.pecas)} peças de ${nomeProd(a.produtoId)}`).join(", ")};</li>
                         )}
-                      </span>
+                        <li>cobertura estimada: <b>{pct(r.coberturaDe)} → {pct(r.coberturaPara)}</b> (−{horas(r.ganhoHoras * 60)} sem posto).</li>
+                      </ul>
                     </div>
                   ))}
-                  {analise.recursosCombinado && (
-                    <p className="stx-cob-sub">
-                      Todos juntos: cobertura → {pct(analise.recursosCombinado.coberturaApos)} (−{horas(analise.recursosCombinado.ganhoMinutos)} sem posto)
-                      {analise.recursosCombinado.comCargaAdicional && analise.recursosCombinado.comCargaAdicional.pecas > 0 && <> — e com a carga adicional correspondente (+{formatQtd(analise.recursosCombinado.comCargaAdicional.pecas)} peças): <b>{pct(analise.recursosCombinado.comCargaAdicional.coberturaApos)}</b></>}.
-                    </p>
+                  {recomendacoes.length === 0 && analise.etapasSemMaquina.length === 0 && (
+                    <p className="stx-cob-dica">Nenhuma máquina compatível melhora a cobertura além do que a carga adicional sugerida já consegue.</p>
                   )}
-                  {!sugestao && analise.recursosCompativeis.length > 0 && (
-                    <p className="stx-cob-dica">Um recurso novo sozinho só antecipa o trabalho já programado; o ganho maior aparece junto com carga adicional — clique em “Sugerir carga adicional” para ver o efeito combinado.</p>
-                  )}
-                  <p className="stx-cob-dica">Nada é selecionado automaticamente: se concordar, adicione a máquina ao item da Previsão.</p>
+                  <p className="stx-cob-dica">Nada é aplicado automaticamente. Só aparecem produtos já previstos nesta semana; selecione a máquina no item da Previsão e programe a carga adicional se concordar. A máquina sozinha só antecipa o trabalho já programado — o ganho vem junto com a carga.</p>
                 </div>
               )}
 
@@ -405,13 +418,32 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
               <span>{p.adicionalSugerido > 0 ? `+${formatQtd(p.adicionalSugerido)}` : "0"}</span>
             </div>
           ))}
-          {sugestao.recursosRestantes.length > 0 && (
-            <p className="stx-cob-sub">
-              Mesmo com a sugestão, selecionar {sugestao.recursosRestantes.slice(0, 3).map((r) => nomeMaq(r.maquinaId)).join(", ")} reduziria ainda mais a ociosidade.
-            </p>
-          )}
         </div>
       )}
+
+      {confirmando && sugestao && analise && (() => {
+        const resumo = resumirConfirmacaoSugestao(sugestao, analise.atual, nomeProd);
+        return (
+          <div className="stx-modal-backdrop" onClick={() => setConfirmando(false)}>
+            <div className="stx-modal-card" role="dialog" aria-label={resumo.titulo} onClick={(e) => e.stopPropagation()}>
+              <p className="stx-modal-titulo">{resumo.titulo}</p>
+              {resumo.linhas.map((l, i) => <p key={i} className="stx-cob-sub" style={i === 0 ? { fontWeight: 700, color: "inherit" } : undefined}>{l}</p>)}
+              <p className="stx-analise-secao-titulo">Produtos afetados</p>
+              {resumo.produtos.map((p) => (
+                <div className="stx-tabela-producao-linha" key={p.produtoId} style={{ gridTemplateColumns: "2fr 1fr" }}>
+                  <span>{p.nome}</span>
+                  <span>+{formatQtd(p.pecas)} peças</span>
+                </div>
+              ))}
+              <p className="stx-cob-dica">Confirmar apenas <b>preenche</b> a coluna Adicional para você revisar. Nada é salvo automaticamente e o previsto não muda.</p>
+              <div className="stx-form-actions" style={{ marginTop: 16, justifyContent: "flex-end" }}>
+                <button type="button" className="stx-btn-secondary" onClick={() => setConfirmando(false)}>Cancelar</button>
+                <button type="button" className="stx-btn-primary" onClick={preencherSugestao}>Preencher para revisão</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

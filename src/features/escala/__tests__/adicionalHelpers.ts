@@ -19,8 +19,10 @@ export function somaPor(r: ResultadoEscala, campo: "pecas" | "pecasAdicional"): 
   const m = new Map<string, number>();
   r.alocacoes.forEach((a) => {
     if (!a.maquinaId || !a.produtoId || !a.etapaId) return;
+    const v = campo === "pecas" ? a.pecas : a.pecasAdicional ?? 0;
+    if (v === 0) return; // só créditos reais: uma linha de adicional não cria "crédito 0" de previsto
     const k = chavePool(a.produtoId, a.etapaId);
-    m.set(k, (m.get(k) ?? 0) + (campo === "pecas" ? a.pecas : a.pecasAdicional ?? 0));
+    m.set(k, (m.get(k) ?? 0) + v);
   });
   return m;
 }

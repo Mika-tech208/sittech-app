@@ -238,9 +238,9 @@ export default function ItensPrevistos({
             </p>
           ) : (
             <p className="stx-custos-total" style={{ marginTop: 4 }}>
-              Uso da equipe em horas: <b style={{ color: "var(--accent)" }}>{pctEquipe.toFixed(1)}%</b>
+              <span title="Leitura baseada na carga produtiva e nas máquinas (horas-máquina demandadas × horas disponíveis da equipe). Não é a Cobertura da equipe: ela vem da simulação da Escala e responde se os funcionários terão posto em cada período." style={{ cursor: "help", borderBottom: "1px dotted var(--text-muted)" }}>Uso estimado em horas-máquina</span>: <b style={{ color: "var(--accent)" }}>{pctEquipe.toFixed(1)}%</b>
               {" "}<span style={{ fontWeight: 400, color: "var(--text-muted)", fontSize: 12 }}>
-                ({horasPessoaDemandadas.toFixed(1)}h demandadas de {horasPessoaDisponiveis.toFixed(1)}h disponíveis nos {equipeProdutivaCount} funcionários produtivos)
+                ({horasPessoaDemandadas.toFixed(1)}h demandadas de {horasPessoaDisponiveis.toFixed(1)}h disponíveis nos {equipeProdutivaCount} funcionários produtivos — para saber se a equipe terá posto em cada período, veja a <b>Cobertura da equipe</b>)
               </span>
             </p>
           )}

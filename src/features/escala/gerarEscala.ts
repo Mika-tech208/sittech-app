@@ -45,6 +45,7 @@ interface Par {
   folga: FolgaPool;
   valorPosto: number;
   continuidade: number;
+  lag?: number; // só camada de adicional: quanto esta etapa está ATRASADA em relação à etapa mais atrasada do produto
 }
 
 function porId<T extends { id: string }>(a: T, b: T): number {
@@ -64,11 +65,16 @@ function comparar(a: Par, b: Par): number {
 }
 
 // 2ª camada (carga adicional): só entra depois do previsto, e só em máquinas livres e
-// já selecionadas. Prioridade: maior valor do posto > continuidade da máquina > ordem
-// do roteiro > desempate estável. (Fechar produto acabado e usar capacidade ociosa já
-// estão garantidos por quem define `adicionalMax` e pela própria regra da camada.)
+// já selecionadas dos produtos JÁ PREVISTOS (os pools vêm só dos itens da Previsão).
+// Ordem: (1) fechar produto acabado e (2) usar capacidade ociosa — garantidos por quem
+// define `adicionalMax` e pela própria regra da camada; (3) gargalo/fluxo: a etapa mais
+// ATRASADA dentro do seu produto (a que limita o produto acabado) passa na frente;
+// (4) maior valor do posto; (5) continuidade da máquina; (6) ordem do roteiro; (7) ids.
 const SEM_FOLGA: FolgaPool = { folga: 0, folgaPeriodos: 0, muBarra: 0, gargalo: false };
 function compararAdicional(a: Par, b: Par): number {
+  const la = a.lag ?? 0;
+  const lb = b.lag ?? 0;
+  if (Math.abs(la - lb) > 1e-9) return la < lb ? -1 : 1;
   if (Math.abs(a.valorPosto - b.valorPosto) > 1e-9) return a.valorPosto > b.valorPosto ? -1 : 1;
   if (a.continuidade !== b.continuidade) return a.continuidade > b.continuidade ? -1 : 1;
   if (a.pool.ordemEtapa !== b.pool.ordemEtapa) return a.pool.ordemEtapa - b.pool.ordemEtapa;
@@ -112,6 +118,22 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     if (a.maquinaId && a.produtoId && a.etapaId && (a.pecasAdicional ?? 0) > 0) {
       const k = chavePool(a.produtoId, a.etapaId);
       if (adicRem.has(k)) adicRem.set(k, Math.max(0, (adicRem.get(k) as number) - (a.pecasAdicional as number)));
+    }
+  });
+
+  // ---- equilíbrio da cadeia (2ª camada): adicional já alocado por etapa, e etapas de cada produto ----
+  const adicAlocado = new Map<string, number>();
+  const chavesDoProduto = new Map<string, string[]>();
+  pools.forEach((p) => {
+    if ((p.adicionalMax ?? 0) <= 0) return;
+    const k = chavePool(p.produtoId, p.etapaId);
+    adicAlocado.set(k, 0);
+    chavesDoProduto.set(p.produtoId, [...(chavesDoProduto.get(p.produtoId) ?? []), k]);
+  });
+  congeladas.forEach((a) => {
+    if (a.maquinaId && a.produtoId && a.etapaId && (a.pecasAdicional ?? 0) > 0) {
+      const k = chavePool(a.produtoId, a.etapaId);
+      if (adicAlocado.has(k)) adicAlocado.set(k, (adicAlocado.get(k) as number) + (a.pecasAdicional as number));
     }
   });
 
@@ -308,14 +330,17 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     const ociosos = disponiveis.map((_, i) => i).filter((i) => atribuicao[i] >= K);
     if (ociosos.length > 0) {
       const pares2: Par[] = [];
+      const minAlocadoDoProduto = new Map<string, number>();
+      chavesDoProduto.forEach((chaves, produto) => minAlocadoDoProduto.set(produto, Math.min(...chaves.map((k) => adicAlocado.get(k) as number))));
       pools.forEach((p) => {
         const chave = chavePool(p.produtoId, p.etapaId);
         const ar = adicRem.get(chave) ?? 0;
         const mu = metaNoSlot(p, slot);
         if (ar <= EPS || mu <= 0) return;
+        const lag = (adicAlocado.get(chave) ?? 0) - (minAlocadoDoProduto.get(p.produtoId) ?? 0);
         [...new Set(p.maquinasIds)].sort().forEach((m) => {
           if (!maquinaDisponivel(m, t) || maquinasUsadas.has(m)) return;
-          pares2.push({ m, pool: p, chave, folga: SEM_FOLGA, valorPosto: Math.min(mu, ar) * p.valorUnitario, continuidade: ultimoProdutoGeral.get(m) === p.produtoId ? 1 : 0 });
+          pares2.push({ m, pool: p, chave, folga: SEM_FOLGA, valorPosto: Math.min(mu, ar) * p.valorUnitario, continuidade: ultimoProdutoGeral.get(m) === p.produtoId ? 1 : 0, lag });
         });
       });
       pares2.sort(compararAdicional);
@@ -437,6 +462,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     destinoAdicional.forEach((idx) => {
       const { par, pecas } = aceitos2[idx];
       adicRem.set(par.chave, Math.max(0, (adicRem.get(par.chave) as number) - pecas));
+      adicAlocado.set(par.chave, (adicAlocado.get(par.chave) ?? 0) + pecas);
       ultimoProdutoGeral.set(par.m, par.pool.produtoId);
     });
     funcionarios.forEach((f) => {

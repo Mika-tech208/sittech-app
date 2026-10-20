@@ -30,6 +30,17 @@ export type SugestaoProdutoDetalhada = SugestaoProduto & {
   recursosEtapaLimitante: string[];
 };
 
+export interface RecomendacaoMaquina {
+  maquinas: string[]; // alternativas equivalentes (qualquer uma dá o mesmo efeito)
+  poolsAfetados: { produtoId: string; etapaId: string }[]; // etapas de produtos JÁ PREVISTOS onde seria selecionada
+  adicionalPorProduto: { produtoId: string; pecas: number }[]; // carga adicional do cenário (produto acabado)
+  pecasAdicionais: number;
+  coberturaDe: number; // cobertura hoje (como programado)
+  coberturaPara: number; // cobertura estimada: máquina + carga adicional, verificada pelo motor
+  ganhoHoras: number; // horas-pessoa que deixam de ficar sem posto
+  todas?: boolean; // cenário com todas as máquinas recomendadas juntas
+}
+
 export interface SimulacaoCobertura {
   semanaInicio: string;
   primeiroPeriodoAnalisado: { data: string; periodoId: string } | null;
@@ -40,6 +51,8 @@ export interface SimulacaoCobertura {
   somentePrevisto: CoberturaSemana;
   recursosCompativeis: RecursoSugerido[];
   recursosCombinado: RecursosVerificados["combinado"];
+  /** máquina + carga adicional, sempre em conjunto (a máquina sozinha só antecipa o trabalho) */
+  recomendacoes: RecomendacaoMaquina[];
   etapasSemMaquina: EtapaSemMaquina[];
   adicional: AdicionalProduto[];
   sugestao: null | {
@@ -76,6 +89,8 @@ export function aplicarRascunhoItens(estado: EstadoBruto, itens: ItemRascunho[])
   for (const it of itens) {
     if (typeof it.produto_id !== "string") continue;
     const salvo = salvos.get(it.produto_id);
+    // REGRA DURA: carga adicional só em itens JÁ PREVISTOS na semana — nunca cria item novo
+    if (!salvo) throw new RascunhoInvalidoError("Produto fora da Previsão desta semana: a carga adicional só pode aumentar itens já previstos.");
     const adicional = Number(it.quantidade_adicional ?? 0);
     const quantidade = Number(it.quantidade ?? salvo?.quantidade ?? 0);
     if (!Number.isFinite(adicional) || adicional < 0) throw new RascunhoInvalidoError("Quantidade adicional inválida.");
@@ -100,12 +115,14 @@ export function simularSemana(estado: EstadoBruto, agoraMs: number) {
 export function simularCobertura(estado: EstadoBruto, agoraMs: number, opcoes: { sugerir: boolean } = { sugerir: false }): SimulacaoCobertura {
   const { montada, entrada, resultado } = simularSemana(estado, agoraMs);
   const analisados = entrada.slots.slice(entrada.aPartirDe);
+  // Só produtos JÁ PREVISTOS na semana podem aparecer em qualquer recomendação.
+  const previstos = new Set(estado.itens.map((i) => i.produtoId));
 
-  const { cobertura: atual, candidatos } = analisarCobertura(entrada, resultado);
+  const { cobertura: atual, candidatos } = analisarCobertura(entrada, resultado, previstos);
 
   const haAdicional = entrada.pools.some((p) => (p.adicionalMax ?? 0) > 0);
   const baseEntrada = semAdicional(entrada);
-  const somentePrevisto = haAdicional ? analisarCobertura(baseEntrada, gerarEscala(baseEntrada)).cobertura : atual;
+  const somentePrevisto = haAdicional ? analisarCobertura(baseEntrada, gerarEscala(baseEntrada), previstos).cobertura : atual;
 
   const verificados = recursosCompativeisVerificados(entrada, atual, candidatos);
 
@@ -136,29 +153,66 @@ export function simularCobertura(estado: EstadoBruto, agoraMs: number, opcoes: {
   });
 
   let sugestao: SimulacaoCobertura["sugestao"] = null;
+  let recomendacoesFinal: RecomendacaoMaquina[] = [];
   if (opcoes.sugerir) {
-    const s = sugerirAdicional(baseEntrada, { produtosIncompletos: incompletos });
+    const s = sugerirAdicional(baseEntrada, { produtosIncompletos: incompletos, produtosPermitidos: previstos });
     const rS = gerarEscala(s.entradaComSugestao);
-    const { cobertura: coberturaApos, candidatos: candidatosApos } = analisarCobertura(s.entradaComSugestao, rS);
+    const { cobertura: coberturaApos, candidatos: candidatosApos } = analisarCobertura(s.entradaComSugestao, rS, previstos);
     const restantes = recursosCompativeisVerificados(s.entradaComSugestao, coberturaApos, candidatosApos);
-    // efeito real de cada recurso compatível: refaz a sugestão de carga COM a máquina (mesmo motor)
+    // Recomendação CONJUNTA: uma máquina nova sozinha só antecipa o trabalho previsto (a carga é finita);
+    // o efeito real vem junto com a carga adicional que ela destrava. Cada cenário refaz a sugestão de carga
+    // COM a máquina, no mesmo motor, só com produtos já previstos.
     const produtosSemMaquina = (e: typeof entrada) => new Set((e.poolsSemMaquina ?? []).map((p) => p.produtoId));
-    const comCarga = (adicoes: Map<string, Set<string>>) => {
+    const cenario = (adicoes: Map<string, Set<string>>) => {
       const nova = comMaquinasAdicionadas(baseEntrada, adicoes);
-      const sN = sugerirAdicional(nova, { produtosIncompletos: produtosSemMaquina(nova) });
+      const sN = sugerirAdicional(nova, { produtosIncompletos: produtosSemMaquina(nova), produtosPermitidos: previstos });
       const cob = calcularCobertura(sN.entradaComSugestao, gerarEscala(sN.entradaComSugestao));
-      return { pecas: sN.totalPecas, coberturaApos: cob.percentual, ganhoMinutosVsSugestao: coberturaApos.minutosSemPosto - cob.minutosSemPosto };
+      return { sN, cob };
     };
-    verificados.itens.slice(0, 6).forEach((r) => {
-      r.comCargaAdicional = comCarga(new Map(r.poolsAfetados.map((p) => [chavePool(p.produtoId, p.etapaId), new Set([r.maquinaId])])));
+    const adicoesDe = (c: { maquinaId: string; pools: string[] }) => new Map(c.pools.map((k) => [k, new Set([c.maquinaId])]));
+    const cenarios = new Map(candidatos.slice(0, 10).map((c) => [c.maquinaId, { c, ...cenario(adicoesDe(c)) }]));
+
+    verificados.itens.forEach((r) => {
+      const x = cenarios.get(r.maquinaId);
+      if (x) r.comCargaAdicional = { pecas: x.sN.totalPecas, coberturaApos: x.cob.percentual, ganhoMinutosVsSugestao: coberturaApos.minutosSemPosto - x.cob.minutosSemPosto };
     });
+
+    const piso = Math.max(atual.percentual, coberturaApos.percentual) + 0.5; // só recomenda o que supera (≥ 0,5 p.p.) o que já se consegue sem máquina nova
+    const grupos = new Map<string, RecomendacaoMaquina>();
+    const montar = (maquinas: string[], poolsKeys: string[], x: { sN: ReturnType<typeof sugerirAdicional>; cob: CoberturaSemana }, todas = false): RecomendacaoMaquina => ({
+      maquinas,
+      poolsAfetados: poolsKeys.map((k) => { const [produtoId, etapaId] = k.split("|"); return { produtoId, etapaId }; }),
+      adicionalPorProduto: x.sN.porProduto.filter((p) => p.adicionalSugerido > 0).map((p) => ({ produtoId: p.produtoId, pecas: p.adicionalSugerido })),
+      pecasAdicionais: x.sN.totalPecas,
+      coberturaDe: atual.percentual,
+      coberturaPara: x.cob.percentual,
+      ganhoHoras: (atual.minutosSemPosto - x.cob.minutosSemPosto) / 60,
+      ...(todas ? { todas: true } : {}),
+    });
+    cenarios.forEach((x) => {
+      if (x.cob.percentual <= piso) return;
+      const chave = `${[...x.c.pools].sort().join("+")}|${x.cob.percentual.toFixed(2)}|${Math.round(x.sN.totalPecas)}`;
+      const ja = grupos.get(chave);
+      if (ja) ja.maquinas.push(x.c.maquinaId);
+      else grupos.set(chave, montar([x.c.maquinaId], x.c.pools, x));
+    });
+    const recomendacoes = [...grupos.values()].map((g) => ({ ...g, maquinas: [...g.maquinas].sort() })).sort((a, b) => b.coberturaPara - a.coberturaPara || (a.maquinas[0] < b.maquinas[0] ? -1 : 1)).slice(0, 4);
+    const uteis = [...cenarios.values()].filter((x) => x.cob.percentual > piso);
+    if (uteis.length > 1) {
+      const adicoes = new Map<string, Set<string>>();
+      uteis.forEach((x) => x.c.pools.forEach((k) => adicoes.set(k, new Set([...(adicoes.get(k) ?? []), x.c.maquinaId]))));
+      const todos = cenario(adicoes);
+      if (todos.cob.percentual > piso) recomendacoes.push(montar(uteis.map((x) => x.c.maquinaId).sort(), [...adicoes.keys()].sort(), todos, true));
+    }
+    recomendacoesFinal = recomendacoes;
     if (verificados.combinado) {
       const adicoes = new Map<string, Set<string>>();
       verificados.itens.forEach((r) => r.poolsAfetados.forEach((p) => {
         const k = chavePool(p.produtoId, p.etapaId);
         adicoes.set(k, new Set([...(adicoes.get(k) ?? []), r.maquinaId]));
       }));
-      verificados.combinado.comCargaAdicional = comCarga(adicoes);
+      const x = cenario(adicoes);
+      verificados.combinado.comCargaAdicional = { pecas: x.sN.totalPecas, coberturaApos: x.cob.percentual, ganhoMinutosVsSugestao: coberturaApos.minutosSemPosto - x.cob.minutosSemPosto };
     }
     const detalhadas: SugestaoProdutoDetalhada[] = s.porProduto.map((p) => {
       const pool = baseEntrada.pools.find((x) => x.produtoId === p.produtoId && x.etapaId === p.etapaLimitanteId);
@@ -175,10 +229,16 @@ export function simularCobertura(estado: EstadoBruto, agoraMs: number, opcoes: {
     };
   }
 
+  const resultadoFinal = { sugestao, recomendacoes: recomendacoesFinal };
+  const fora = produtosForaDaSemana({ adicional, etapasSemMaquina, recursosCompativeis: verificados.itens, ...resultadoFinal }, previstos);
+  if (fora.length > 0) throw new Error(`INVARIANTE VIOLADA: produto(s) fora da Previsão da semana na recomendação: ${fora.join(", ")}`);
+
+  // dicionários de rótulos: só produtos previstos (e suas etapas) — o catálogo inteiro não sai na resposta
   const etapas: Record<string, string> = {};
-  estado.etapas.forEach((e) => {
+  estado.etapas.filter((e) => previstos.has(e.produtoId)).forEach((e) => {
     etapas[e.id] = estado.nomesOperacao[e.operacaoId] ?? "Etapa";
   });
+  const nomesProdutos = Object.fromEntries(Object.entries(estado.nomesProdutos ?? {}).filter(([id]) => previstos.has(id)));
 
   return {
     semanaInicio: estado.semanaInicio,
@@ -188,9 +248,34 @@ export function simularCobertura(estado: EstadoBruto, agoraMs: number, opcoes: {
     somentePrevisto,
     recursosCompativeis: verificados.itens,
     recursosCombinado: verificados.combinado,
+    recomendacoes: recomendacoesFinal,
     etapasSemMaquina,
     adicional,
     sugestao,
-    nomes: { maquinas: estado.nomesMaquinas ?? {}, produtos: estado.nomesProdutos ?? {}, etapas },
+    nomes: { maquinas: estado.nomesMaquinas ?? {}, produtos: nomesProdutos, etapas },
   };
+}
+
+// Todos os produtos citados em QUALQUER recomendação/diagnóstico que NÃO estão previstos na semana.
+// Tem de ser sempre vazio: a carga adicional e as máquinas sugeridas só valem para produtos já previstos.
+export function produtosForaDaSemana(
+  sim: {
+    adicional: { produtoId: string }[];
+    etapasSemMaquina: { produtoId: string }[];
+    recursosCompativeis: { poolsAfetados: { produtoId: string }[] }[];
+    sugestao: null | { porProduto: { produtoId: string }[] };
+    recomendacoes: { poolsAfetados: { produtoId: string }[]; adicionalPorProduto: { produtoId: string }[] }[];
+  },
+  previstos: Set<string>
+): string[] {
+  const citados = new Set<string>();
+  sim.adicional.forEach((a) => citados.add(a.produtoId));
+  sim.etapasSemMaquina.forEach((a) => citados.add(a.produtoId));
+  sim.recursosCompativeis.forEach((r) => r.poolsAfetados.forEach((p) => citados.add(p.produtoId)));
+  sim.sugestao?.porProduto.forEach((p) => citados.add(p.produtoId));
+  sim.recomendacoes.forEach((r) => {
+    r.poolsAfetados.forEach((p) => citados.add(p.produtoId));
+    r.adicionalPorProduto.forEach((p) => citados.add(p.produtoId));
+  });
+  return [...citados].filter((p) => !previstos.has(p)).sort();
 }
