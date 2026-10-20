@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Home, CalendarClock, Gauge, Package, Cog, Receipt, LineChart as LineChartIcon, Wallet, Clock, Users, Upload,
   ChevronDown, ChevronRight, ChevronLeft, LayoutGrid, BarChart3, PauseCircle, ClipboardCheck, ClipboardList,
-  Database, UserCog, AlertTriangle, UserX, X,
+  Database, UserCog, AlertTriangle, UserX, X, CalendarRange, Tv,
 } from "lucide-react";
 import { temPermissao, temAlgumaPermissaoProducaoReal } from "@/lib/permissoes";
 import { LOGO_DARK, LOGO_LIGHT } from "@/lib/logos";
@@ -15,6 +15,7 @@ export interface GruposAbertos {
   financeiro: boolean;
   planejamento: boolean;
   producaoReal: boolean;
+  escala: boolean;
   administracao: boolean;
 }
 
@@ -216,6 +217,26 @@ export default function Sidebar({
                 )}
                 {temPermissao(usuarioLogado, "capacidade") && (
                   <Link href="/capacidade" className={`stx-tab-v ${abaAtiva === "capacidade" ? "active" : ""}`} title="Capacidade semanal"><Gauge size={16} />{!recolhida && "Capacidade semanal"}</Link>
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        {(temPermissao(usuarioLogado, "escala_producao") || temPermissao(usuarioLogado, "escala_producao_tv")) && (
+          <>
+            {!recolhida && (
+              <button className="stx-sidebar-grupo-header" onClick={() => toggleGrupo("escala")}>
+                Escala de produção{gruposAbertos.escala ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              </button>
+            )}
+            {(recolhida || gruposAbertos.escala) && (
+              <>
+                {temPermissao(usuarioLogado, "escala_producao") && (
+                  <Link href="/escala-producao" className={`stx-tab-v ${abaAtiva === "escalaProducao" ? "active" : ""}`} title="Escala de Produção"><CalendarRange size={16} />{!recolhida && "Escala de Produção"}</Link>
+                )}
+                {(temPermissao(usuarioLogado, "escala_producao") || temPermissao(usuarioLogado, "escala_producao_tv")) && (
+                  <Link href="/escala-producao/tv" className={`stx-tab-v ${abaAtiva === "escalaProducaoTv" ? "active" : ""}`} title="Modo TV"><Tv size={16} />{!recolhida && "Modo TV"}</Link>
                 )}
               </>
             )}

@@ -19,7 +19,7 @@ import type { GruposAbertos } from "@/components/shell/Sidebar";
 type Grupo = keyof GruposAbertos;
 
 const TODOS_FECHADOS: GruposAbertos = {
-  gestao: false, financeiro: false, planejamento: false, producaoReal: false, administracao: false,
+  gestao: false, financeiro: false, planejamento: false, producaoReal: false, escala: false, administracao: false,
 };
 
 // Mesma lista de abas que Sidebar.tsx usa em cada bloco de grupo — só
@@ -43,6 +43,8 @@ const GRUPO_POR_ABA: Record<string, Grupo> = {
   prParadas: "producaoReal",
   prValidacao: "producaoReal",
   prDadosImportados: "producaoReal",
+  escalaProducao: "escala",
+  escalaProducaoTv: "escala",
   usuarios: "administracao",
   importar: "administracao",
 };

@@ -1,0 +1,256 @@
+// SERVER-ONLY. Adaptador Supabase (service_role) para o processador da
+// Escala: lê o estado de uma semana, aplica o recálculo via RPC e opera o
+// outbox de eventos. Nada de regra de negócio aqui — só I/O.
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AlocacaoEscala, PeriodoEscala } from "@/features/escala/types";
+import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "./estado";
+import { processarSemana, type EscalaIO, type OpcoesProcessamento } from "./processar";
+import type { ResultadoProcessamento } from "./estado";
+
+const META_COLS = "meta_m1, meta_m2, meta_m3, meta_t1, meta_t2, meta_t3";
+const PERIODOS_META = ["m1", "m2", "m3", "t1", "t2", "t3"] as const;
+
+function ok<T>(resp: { data: T | null; error: { message: string } | null }, onde: string): T {
+  if (resp.error) throw new Error(`${onde}: ${resp.error.message}`);
+  return (resp.data ?? ([] as unknown)) as T;
+}
+
+function hhmm(t: string): string {
+  return String(t).slice(0, 5);
+}
+
+function somarDias(iso: string, dias: number): string {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+export async function resolverPrevisaoPorSemana(admin: SupabaseClient, semanaInicio: string): Promise<string | null> {
+  const { data, error } = await admin.from("previsoes").select("id").eq("semana_inicio", semanaInicio).maybeSingle();
+  if (error) throw new Error(`previsoes: ${error.message}`);
+  return (data as { id: string } | null)?.id ?? null;
+}
+
+export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): EscalaIO {
+  return {
+    async carregarEstado(): Promise<EstadoBruto> {
+      const prev = ok(await admin.from("previsoes").select("id, semana_inicio").eq("id", previsaoId).single(), "previsoes") as { id: string; semana_inicio: string };
+      const semanaFim = somarDias(prev.semana_inicio, 6);
+
+      const [dias, equipe, itens, indispPrev, inativas, periodos, existentes, ausencias, indisp, operacoes] = await Promise.all([
+        admin.from("previsao_dias_produtivos").select("dia, ativo").eq("previsao_id", previsaoId),
+        admin.from("previsao_equipe_semana").select("funcionario_id, produtivo").eq("previsao_id", previsaoId),
+        admin.from("previsao_itens").select("produto_id, valor_unitario, quantidade, previsao_item_maquinas(etapa_id, maquina_id)").eq("previsao_id", previsaoId).eq("tipo", "previsto"),
+        admin.from("previsao_maquinas_indisponiveis").select("maquina_id").eq("previsao_id", previsaoId),
+        admin.from("maquinas").select("id").eq("ativo", false),
+        admin.from("periodos").select("id, nome, inicio, fim").order("id"),
+        admin.from("escala_producao_dias").select("data, versao, periodos_snapshot").eq("previsao_id", previsaoId),
+        admin.from("ausencias_funcionarios").select("funcionario_id, data, horario_inicio, horario_fim").gte("data", prev.semana_inicio).lte("data", semanaFim),
+        admin.from("escala_recurso_indisponivel").select("maquina_id, desde, liberada_em").or(`liberada_em.is.null,liberada_em.gte.${prev.semana_inicio}T00:00:00-03:00`),
+        admin.from("operacoes").select("id, nome"),
+      ]);
+
+      const diasRows = ok(dias, "previsao_dias_produtivos") as { dia: string; ativo: boolean }[];
+      const equipeRows = (ok(equipe, "previsao_equipe_semana") as { funcionario_id: string; produtivo: boolean }[]).filter((r) => r.produtivo);
+      const itensRows = ok(itens, "previsao_itens") as { produto_id: string; valor_unitario: number; quantidade: number; previsao_item_maquinas: { etapa_id: string; maquina_id: string }[] | null }[];
+      const existentesRows = ok(existentes, "escala_producao_dias") as { data: string; versao: number; periodos_snapshot: PeriodoEscala[] }[];
+
+      const funcIds = equipeRows.map((r) => r.funcionario_id);
+      const funcRows = funcIds.length
+        ? (ok(await admin.from("funcionarios").select("id, nome, ativo").in("id", funcIds), "funcionarios") as { id: string; nome: string; ativo: boolean }[])
+        : [];
+      const produtoIds = [...new Set(itensRows.map((i) => i.produto_id))];
+      const etapaRows = produtoIds.length
+        ? (ok(await admin.from("roteiro_etapas").select(`id, produto_id, operacao_id, ordem, ${META_COLS}`).in("produto_id", produtoIds), "roteiro_etapas") as unknown as Record<string, string | number>[])
+        : [];
+      const datasExistentes = existentesRows.map((d) => d.data);
+      const alocRows = datasExistentes.length
+        ? (ok(await admin.from("escala_producao_alocacoes").select("*").in("data", datasExistentes), "escala_producao_alocacoes") as Record<string, unknown>[])
+        : [];
+
+      const itensBrutos = itensRows.map((i) => {
+        const porEtapa: Record<string, string[]> = {};
+        (i.previsao_item_maquinas ?? []).forEach((r) => {
+          (porEtapa[r.etapa_id] ||= []).push(r.maquina_id);
+        });
+        return { produtoId: i.produto_id, quantidade: Number(i.quantidade), valorUnitario: Number(i.valor_unitario), maquinasPorEtapa: porEtapa };
+      });
+
+      return {
+        previsaoId,
+        semanaInicio: prev.semana_inicio,
+        diasProdutivos: diasRows.filter((d) => d.ativo).map((d) => d.dia).sort(),
+        periodosAtuais: (ok(periodos, "periodos") as PeriodoEscala[]).map((p) => ({ id: p.id, nome: p.nome, inicio: hhmm(p.inicio), fim: hhmm(p.fim) })),
+        diasExistentes: existentesRows.map((d) => ({ data: d.data, versao: d.versao, periodosSnapshot: d.periodos_snapshot })),
+        equipeProdutiva: equipeRows.map((r) => {
+          const f = funcRows.find((x) => x.id === r.funcionario_id);
+          return { funcionarioId: r.funcionario_id, nome: f?.nome, ativo: f?.ativo ?? false };
+        }),
+        itens: itensBrutos,
+        etapas: etapaRows.map((e) => ({
+          id: String(e.id),
+          produtoId: String(e.produto_id),
+          operacaoId: String(e.operacao_id),
+          ordem: Number(e.ordem),
+          metas: Object.fromEntries(PERIODOS_META.map((p) => [p, Number(e[`meta_${p}`] ?? 0)])),
+        })),
+        maquinasIndisponiveisPrevisao: (ok(indispPrev, "previsao_maquinas_indisponiveis") as { maquina_id: string }[]).map((r) => r.maquina_id),
+        maquinasInativas: (ok(inativas, "maquinas") as { id: string }[]).map((r) => r.id),
+        ausencias: (ok(ausencias, "ausencias_funcionarios") as { funcionario_id: string; data: string; horario_inicio: string | null; horario_fim: string | null }[]).map((a) => ({
+          funcionarioId: a.funcionario_id, data: a.data, horarioInicio: a.horario_inicio, horarioFim: a.horario_fim,
+        })),
+        indisponibilidades: (ok(indisp, "escala_recurso_indisponivel") as { maquina_id: string; desde: string; liberada_em: string | null }[]).map((i) => ({
+          maquinaId: i.maquina_id, desde: i.desde, liberadaEm: i.liberada_em,
+        })),
+        alocacoes: alocRows.map((r) => ({
+          data: String(r.data), periodoId: String(r.periodo_id), funcionarioId: String(r.funcionario_id),
+          maquinaId: (r.maquina_id as string | null) ?? null, produtoId: (r.produto_id as string | null) ?? null, etapaId: (r.etapa_id as string | null) ?? null,
+          operacaoId: (r.operacao_id as string | null) ?? null, pecas: Number(r.pecas ?? 0), motivoSemPosto: (r.motivo_sem_posto as string | null) ?? null,
+          excecaoRevezamento: Boolean(r.excecao_revezamento), motivoExcecao: (r.motivo_excecao as string | null) ?? null,
+        })) as AlocacaoEscala[],
+        nomesOperacao: Object.fromEntries((ok(operacoes, "operacoes") as { id: string; nome: string }[]).map((o) => [o.id, o.nome])),
+      };
+    },
+
+    async aplicar(p: PayloadAplicacao) {
+      const { data, error } = await admin.rpc("escala_aplicar_recalculo", {
+        p_previsao_id: p.previsaoId,
+        p_dias: p.dias,
+        p_a_partir_data: p.aPartirDeData,
+        p_a_partir_periodo: p.aPartirDePeriodo,
+        p_alocacoes: p.alocacoes.map((a) => ({
+          data: a.data, periodo_id: a.periodoId, funcionario_id: a.funcionarioId, maquina_id: a.maquinaId, produto_id: a.produtoId,
+          etapa_id: a.etapaId, operacao_id: a.operacaoId, pecas: a.pecas, origem: "auto",
+          excecao_revezamento: a.excecaoRevezamento, motivo_excecao: a.motivoExcecao, motivo_sem_posto: a.motivoSemPosto,
+        })),
+        p_usuario_id: p.usuarioId,
+        p_evento_ids: p.eventoIds,
+        p_resumo: p.resumo,
+        p_remover_dias: p.removerDias,
+      });
+      if (error) {
+        if (error.message.includes("ESCALA_VERSAO_CONFLITO")) throw new ConflitoDeVersaoError(error.message);
+        throw new Error(`escala_aplicar_recalculo: ${error.message}`);
+      }
+      return { versoes: ((data as { versoes?: Record<string, number> } | null)?.versoes) ?? {} };
+    },
+  };
+}
+
+// ---- outbox ----
+
+export interface EventoOutbox {
+  id: string;
+  tipo: string;
+  previsao_id: string | null;
+  payload: Record<string, unknown>;
+  usuario_id: string | null;
+  tentativas: number;
+}
+
+export async function registrarEvento(admin: SupabaseClient, tipo: string, previsaoId: string | null, payload: Record<string, unknown> = {}, usuarioId: string | null = null): Promise<string> {
+  const { data, error } = await admin.rpc("escala_registrar_evento", { p_tipo: tipo, p_previsao_id: previsaoId, p_payload: payload, p_usuario_id: usuarioId });
+  if (error) throw new Error(`escala_registrar_evento: ${error.message}`);
+  return data as string;
+}
+
+// Reivindica e processa os eventos pendentes/falhados (retry simples: até 3
+// tentativas, controlado pelo próprio banco). Um recálculo por semana mesmo
+// que haja vários eventos dela. Não depende de nenhuma tela aberta.
+export async function processarEventosPendentes(admin: SupabaseClient, agoraMs: number, limite = 50): Promise<{ semanas: number; processadas: number; ignoradas: number; erros: number }> {
+  const { data, error } = await admin.rpc("escala_reivindicar_eventos", { p_limite: limite });
+  if (error) throw new Error(`escala_reivindicar_eventos: ${error.message}`);
+  const eventos = (data ?? []) as EventoOutbox[];
+  const porSemana = new Map<string | null, EventoOutbox[]>();
+  eventos.forEach((e) => {
+    if (!porSemana.has(e.previsao_id)) porSemana.set(e.previsao_id, []);
+    porSemana.get(e.previsao_id)!.push(e);
+  });
+
+  const resumo = { semanas: porSemana.size, processadas: 0, ignoradas: 0, erros: 0 };
+  for (const [previsaoId, lista] of porSemana) {
+    const ids = lista.map((e) => e.id);
+    if (!previsaoId) {
+      await admin.rpc("escala_concluir_eventos", { p_ids: ids, p_status: "ignorado", p_erro: "evento sem previsão associada" });
+      resumo.ignoradas += ids.length;
+      continue;
+    }
+    try {
+      const r: ResultadoProcessamento = await processarSemana(criarEscalaIO(admin, previsaoId), {
+        agoraMs, eventoIds: ids, criarSeNaoExiste: lista.some((e) => e.tipo === "geracao_manual"), usuarioId: lista.find((e) => e.usuario_id)?.usuario_id ?? null,
+      });
+      if (r.status === "processado") {
+        resumo.processadas += ids.length; // a RPC de aplicação já baixou os eventos
+      } else {
+        await admin.rpc("escala_concluir_eventos", { p_ids: ids, p_status: r.status === "ignorado" ? "ignorado" : "processado", p_erro: r.motivoIgnorado ?? null });
+        resumo.ignoradas += ids.length;
+      }
+    } catch (e) {
+      await admin.rpc("escala_concluir_eventos", { p_ids: ids, p_status: "erro", p_erro: e instanceof Error ? e.message : String(e) });
+      resumo.erros += ids.length;
+    }
+  }
+  return resumo;
+}
+
+export interface ResumoDrenagem {
+  lotes: number;
+  semanas: number;
+  processadas: number;
+  ignoradas: number;
+  erros: number;
+  // Situação da fila DEPOIS da drenagem — o que a rotina agendada precisa enxergar.
+  pendentesRestantes: number;
+  esgotados: number; // eventos em erro que já gastaram as 3 tentativas (ficam parados até intervenção)
+}
+
+// Drenagem completa da outbox para o worker agendado: reivindica em lotes
+// até esvaziar (ou até MAX_LOTES). Para no primeiro lote com erro — senão os
+// eventos com erro seriam reivindicados de novo no mesmo ciclo e queimariam
+// as 3 tentativas de uma vez. Idempotente: a reivindicação é `skip locked`
+// e a aplicação é protegida por lock/versão, então execuções concorrentes
+// (cron + chamada imediata do navegador) não duplicam trabalho.
+const MAX_LOTES = 10;
+const TAMANHO_LOTE = 50;
+
+export async function drenarOutbox(admin: SupabaseClient, agoraMs: number): Promise<ResumoDrenagem> {
+  const resumo: ResumoDrenagem = { lotes: 0, semanas: 0, processadas: 0, ignoradas: 0, erros: 0, pendentesRestantes: 0, esgotados: 0 };
+  for (let i = 0; i < MAX_LOTES; i++) {
+    const r = await processarEventosPendentes(admin, agoraMs, TAMANHO_LOTE);
+    const tratados = r.processadas + r.ignoradas + r.erros;
+    if (tratados === 0) break;
+    resumo.lotes++;
+    resumo.semanas += r.semanas;
+    resumo.processadas += r.processadas;
+    resumo.ignoradas += r.ignoradas;
+    resumo.erros += r.erros;
+    if (r.erros > 0 || tratados < TAMANHO_LOTE) break;
+  }
+  const pend = await admin.from("escala_producao_eventos").select("id", { count: "exact", head: true }).in("status", ["pendente", "processando"]);
+  if (pend.error) throw new Error(`escala_producao_eventos (pendentes): ${pend.error.message}`);
+  const esg = await admin.from("escala_producao_eventos").select("id", { count: "exact", head: true }).eq("status", "erro").gte("tentativas", 3);
+  if (esg.error) throw new Error(`escala_producao_eventos (esgotados): ${esg.error.message}`);
+  resumo.pendentesRestantes = pend.count ?? 0;
+  resumo.esgotados = esg.count ?? 0;
+  return resumo;
+}
+
+// Geração manual / regeração: registra o evento (histórico) e processa na hora.
+export async function gerarEscalaDaSemana(
+  admin: SupabaseClient,
+  semanaInicio: string,
+  usuarioId: string | null,
+  agoraMs: number,
+  extra?: Partial<OpcoesProcessamento>
+): Promise<ResultadoProcessamento> {
+  const previsaoId = await resolverPrevisaoPorSemana(admin, semanaInicio);
+  if (!previsaoId) throw new Error("Não existe Previsão Semanal para esta semana");
+  const eventoId = await registrarEvento(admin, "geracao_manual", previsaoId, { semanaInicio }, usuarioId);
+  try {
+    return await processarSemana(criarEscalaIO(admin, previsaoId), { agoraMs, usuarioId, eventoIds: [eventoId], criarSeNaoExiste: true, ...extra });
+  } catch (e) {
+    await admin.rpc("escala_concluir_eventos", { p_ids: [eventoId], p_status: "erro", p_erro: e instanceof Error ? e.message : String(e) });
+    throw e;
+  }
+}

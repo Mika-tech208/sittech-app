@@ -16,6 +16,8 @@ export type Permissao =
   | "producao_real_ocorrencias"
   | "producao_real_apontamentos_realizados"
   | "ausencias_funcionarios"
+  | "escala_producao"
+  | "escala_producao_tv"
   | "usuarios"
   | "auditoria";
 
@@ -42,6 +44,8 @@ export const GRUPOS_PERMISSOES: GrupoPermissoes[] = [
       { chave: "producao_real_historico", label: "Produção Real — Histórico" },
       { chave: "producao_real_ocorrencias", label: "Produção Real — Ocorrências" },
       { chave: "ausencias_funcionarios", label: "Faltas e Ausências" },
+      { chave: "escala_producao", label: "Escala de Produção" },
+      { chave: "escala_producao_tv", label: "Escala de Produção — TV (somente leitura)" },
     ],
   },
   {

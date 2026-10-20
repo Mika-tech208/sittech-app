@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/escala/drenar", "schedule": "0 9 * * *" }
+  ]
+}
