@@ -118,7 +118,9 @@ export interface EntradaEscala {
   poolsSemMaquina?: PoolEscala[];
   // Adicional por etapa + estoque intermediário planejado (pipeline). Ausente = comportamento anterior.
   // `limites`: teto de estoque entre a etapa k e a k+1, por chave do pool da etapa k.
-  wip?: { limites: Record<string, number> };
+  // `saldo0` (Fase 3): estoque intermediário CONFIRMADO que a semana usa, por chave do pool da etapa ORIGEM. Já está descontado da
+  // quantidade a produzir da origem; aqui só alimenta o alerta de falta de material (a etapa seguinte pode consumir esse estoque).
+  wip?: { limites: Record<string, number>; saldo0?: Record<string, number> };
 }
 
 export type TipoAlerta =

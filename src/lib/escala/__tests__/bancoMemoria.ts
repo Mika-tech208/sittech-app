@@ -54,6 +54,7 @@ export class Mundo {
   alocacoes: AlocacaoComOrigem[] = [];
   dias = new Map<string, { versao: number; snapshot: typeof PERIODOS_REAIS }>();
   recalculos = 0;
+  snapshotsGravados = 0;
 
   constructor(entradas: EstadoBruto) {
     this.entradas = entradas;
@@ -71,6 +72,15 @@ export class Mundo {
         diasExistentes: [...this.dias].map(([data, d]) => ({ data, versao: d.versao, periodosSnapshot: d.snapshot })),
         alocacoes: this.alocacoes.map((a) => ({ ...a })),
       }),
+      // foto de abertura da semana (WIP): idempotente, a 1ª gravada vale (como a RPC wip_gravar_snapshots)
+      gravarSnapshotsWip: async (semanaInicio: string, snaps: { controleId: string; saldoEstimado: number; saldoConfirmadoDisponivel: number; saldoAlocado: number }[]) => {
+        this.snapshotsGravados++;
+        const w = this.entradas.wipControle;
+        if (!w) return;
+        snaps.forEach((x) => {
+          if (!w.snapshots.some((y) => y.semanaInicio === semanaInicio && y.controleId === x.controleId)) w.snapshots.push({ semanaInicio, ...x });
+        });
+      },
       aplicar: async (p: PayloadAplicacao) => {
         const ordem = (periodoId: string, data: string) => (this.dias.get(data)?.snapshot ?? PERIODOS_REAIS).findIndex((x) => x.id === periodoId);
         p.dias.forEach((d) => {

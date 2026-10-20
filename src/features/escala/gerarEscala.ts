@@ -557,7 +557,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     }
   });
 
-  alertas.push(...riscoFaltaMaterial(pools, slots, [...congeladas, ...alocacoesSaida], indicePorSlot));
+  alertas.push(...riscoFaltaMaterial(pools, slots, [...congeladas, ...alocacoesSaida], indicePorSlot, entrada.wip?.saldo0));
 
   alocacoesSaida.sort((a, b) => (indicePorSlot.get(chaveSlot(a)) as number) - (indicePorSlot.get(chaveSlot(b)) as number) || (a.funcionarioId < b.funcionarioId ? -1 : 1));
 
@@ -579,7 +579,8 @@ function riscoFaltaMaterial(
   pools: PoolEscala[],
   slots: SlotEscala[],
   alocacoes: AlocacaoEscala[],
-  indicePorSlot: Map<string, number>
+  indicePorSlot: Map<string, number>,
+  saldo0?: Record<string, number> // estoque confirmado entre a etapa k e a k+1 (Fase 3): material já existente
 ): AlertaEscala[] {
   const creditoPorSlot = new Map<string, number[]>();
   pools.forEach((p) => creditoPorSlot.set(chavePool(p.produtoId, p.etapaId), new Array(slots.length).fill(0)));
@@ -600,7 +601,7 @@ function riscoFaltaMaterial(
     for (let k = 0; k + 1 < etapas.length; k++) {
       const a = creditoPorSlot.get(chavePool(produtoId, etapas[k].etapaId))!;
       const b = creditoPorSlot.get(chavePool(produtoId, etapas[k + 1].etapaId))!;
-      let ca = 0;
+      let ca = saldo0?.[chavePool(produtoId, etapas[k].etapaId)] ?? 0;
       let cb = 0;
       for (let u = 0; u < slots.length; u++) {
         ca += a[u];

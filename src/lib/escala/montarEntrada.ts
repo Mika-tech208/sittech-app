@@ -14,7 +14,8 @@
 import { construirSlotsDeDias, epochMsNoFuso, minutosDoHorario, primeiroSlotFuturo } from "@/features/escala/tempo";
 import type { EntradaEscala, PeriodoEscala, PoolEscala } from "@/features/escala/types";
 import { calcularLimitesWip } from "@/features/escala/wip";
-import type { AvisoMontagem, EstadoBruto } from "./estado";
+import { dataNoFusoSP, planejamentoDaSemana, type PlanejamentoWip } from "@/features/escala/wipSaldo";
+import type { AvisoMontagem, EstadoBruto, SnapshotWipParaGravar } from "./estado";
 
 export interface EntradaMontada {
   entrada: EntradaEscala;
@@ -22,6 +23,7 @@ export interface EntradaMontada {
   diasExistentesPorData: Map<string, { versao: number }>;
   removerDias: string[];
   avisos: AvisoMontagem[];
+  snapshotsWip: SnapshotWipParaGravar[]; // fotos de abertura a gravar (semana já aberta, ainda sem foto)
 }
 
 export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): EntradaMontada {
@@ -104,6 +106,26 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
     });
   if (pools.size === 0) avisos.push({ tipo: "sem_pools" });
 
+  // ---- estoque intermediário CONFIRMADO (Fase 3): reduz o que a etapa ORIGEM precisa produzir; o previsto salvo não muda ----
+  // Só com o WIP ativo e só saldo CONFIRMADO e alocado a esta semana. Estimado nunca entra.
+  let planejamentoWip: PlanejamentoWip | null = null;
+  const saldo0: Record<string, number> = {};
+  if (wipAtivo && estado.wipControle && estado.wipControle.controles.length > 0) {
+    const qAlvo: Record<string, number> = {};
+    estado.itens.forEach((i) => (qAlvo[i.produtoId] = (qAlvo[i.produtoId] ?? 0) + i.quantidade));
+    const semanas = [...estado.wipControle.semanas.filter((s) => s.semanaInicio !== estado.semanaInicio), { semanaInicio: estado.semanaInicio, quantidadePorProduto: qAlvo }];
+    planejamentoWip = planejamentoDaSemana({ ...estado.wipControle, semanas, hoje: dataNoFusoSP(agoraMs) }, estado.semanaInicio);
+    planejamentoWip.saldos.forEach((s) => {
+      const k = `${s.produtoId}|${s.etapaOrigemId}`;
+      const p = pools.get(k);
+      if (!p) return;
+      const usado = Math.min(s.saldo, p.quantidade);
+      if (usado <= 0) return;
+      p.quantidade = p.quantidade - usado;
+      saldo0[k] = (saldo0[k] ?? 0) + usado;
+    });
+  }
+
   // ---- equipe produtiva (marcada na Previsão e ainda ativa) ----
   const funcionarios = estado.equipeProdutiva.filter((f) => f.ativo).map((f) => ({ id: f.funcionarioId, nome: f.nome }));
   if (funcionarios.length === 0) avisos.push({ tipo: "sem_funcionarios_produtivos" });
@@ -146,12 +168,13 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
       nomesOperacao: estado.nomesOperacao,
       historicoEquidade: estado.historicoEquidade,
       poolsSemMaquina: [...semMaquina.entries()].filter(([k]) => !pools.has(k)).map(([, p]) => p),
-      ...(wipAtivo ? { wip: { limites: calcularLimitesWip([...pools.values()], slots, { wipDiasLimite: estado.parametros?.wipDiasLimite ?? 1 }, estado.proximaSemana ?? null) } } : {}),
+      ...(wipAtivo ? { wip: { limites: calcularLimitesWip([...pools.values()], slots, { wipDiasLimite: estado.parametros?.wipDiasLimite ?? 1 }, estado.proximaSemana ?? null), ...(Object.keys(saldo0).length > 0 ? { saldo0 } : {}) } } : {}),
     },
     periodosPorDia,
     diasExistentesPorData: new Map(estado.diasExistentes.map((d) => [d.data, { versao: d.versao }])),
     removerDias,
     avisos,
+    snapshotsWip: planejamentoWip?.snapshotsNovos ?? [],
   };
 }
 

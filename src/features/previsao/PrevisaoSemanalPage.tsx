@@ -39,6 +39,7 @@ import StatusProgramacao from "@/features/previsao/components/StatusProgramacao"
 import ProdutosProgramados from "@/features/previsao/components/ProdutosProgramados";
 import AjustarCapacidadeModal from "@/features/previsao/components/AjustarCapacidadeModal";
 import DiasEEquipeSemana from "@/features/previsao/components/DiasEEquipeSemana";
+import EstoqueIntermediario from "@/features/previsao/components/EstoqueIntermediario";
 import CoberturaEquipe from "@/features/previsao/components/CoberturaEquipe";
 import {
   diasDaSemana, resolverDiasProdutivos, alternarDia, resolverEquipeProdutiva, alternarMembro, marcarTodos, definirOperacao,
@@ -547,6 +548,8 @@ export default function PrevisaoSemanalPage() {
                     produtos={produtos}
                   />
                 )}
+
+                <EstoqueIntermediario semanaInicio={semanaAtual} produtos={produtos} />
 
                 <ItensPrevistos
                   loading={previsoesHook.loading}

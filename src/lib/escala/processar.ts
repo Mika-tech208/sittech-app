@@ -9,13 +9,15 @@
 import { gerarEscala } from "@/features/escala/gerarEscala";
 import { AVISO_PRIMEIRA_GERACAO } from "@/features/escala/types";
 import { montarEntradaEscala } from "./montarEntrada";
-import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento } from "./estado";
+import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento, type SnapshotWipParaGravar } from "./estado";
 
 export const MOTIVO_ESCALA_JA_EXISTE = "Escala da semana já existe";
 
 export interface EscalaIO {
   carregarEstado(agoraMs?: number): Promise<EstadoBruto>; // agoraMs: só o consolidado (períodos já iniciados) entra no histórico de equidade
   aplicar(payload: PayloadAplicacao): Promise<{ versoes: Record<string, number> }>;
+  // Foto de abertura da semana (WIP): idempotente, a 1ª gravada vale. Opcional (só o banco real e o banco em memória implementam).
+  gravarSnapshotsWip?(semanaInicio: string, snapshots: SnapshotWipParaGravar[]): Promise<void>;
 }
 
 export interface OpcoesProcessamento {
@@ -92,6 +94,8 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
     };
 
     try {
+      // a foto da abertura é gravada ANTES da escala: se a escala for aplicada, a foto que a explica já existe
+      if (montada.snapshotsWip.length > 0 && io.gravarSnapshotsWip) await io.gravarSnapshotsWip(estado.semanaInicio, montada.snapshotsWip);
       const { versoes } = await io.aplicar(payload);
       return {
         status: "processado",

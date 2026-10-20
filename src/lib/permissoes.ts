@@ -18,6 +18,7 @@ export type Permissao =
   | "ausencias_funcionarios"
   | "escala_producao"
   | "escala_producao_tv"
+  | "escala_wip_confirmar"
   | "usuarios"
   | "auditoria";
 
@@ -46,6 +47,7 @@ export const GRUPOS_PERMISSOES: GrupoPermissoes[] = [
       { chave: "ausencias_funcionarios", label: "Faltas e Ausências" },
       { chave: "escala_producao", label: "Escala de Produção" },
       { chave: "escala_producao_tv", label: "Escala de Produção — TV (somente leitura)" },
+      { chave: "escala_wip_confirmar", label: "Escala de Produção — Confirmar/ajustar estoque intermediário (WIP)" },
     ],
   },
   {

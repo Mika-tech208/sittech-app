@@ -9,6 +9,7 @@ import type { AlocacaoEscala, PeriodoEscala } from "@/features/escala/types";
 import { linhasConsolidadas, type LinhaHistoricoBruta } from "./historicoConsolidado";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "./estado";
 import { processarSemana, type EscalaIO, type OpcoesProcessamento } from "./processar";
+import { carregarWipControle, gravarSnapshotsWip } from "./wipIO";
 import { classificarGeracao, gerarEscalaSemanal, type DepsGeracaoSemanal, type OpcoesGeracaoSemanal, type ResultadoGeracaoSemanal } from "./geracaoSemanal";
 import type { ResultadoProcessamento } from "./estado";
 
@@ -136,6 +137,10 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         };
       });
 
+      const parametros = lerParametros(ok(params, "escala_parametros") as { chave: string; valor: unknown }[]);
+      // estoque intermediário (Fase 3): só é lido com o WIP ativo; sem controles = undefined (comportamento anterior)
+      const wipControle = parametros.wipModo === "ativo" ? await carregarWipControle(admin, prev.semana_inicio) : undefined;
+
       return {
         previsaoId,
         semanaInicio: prev.semana_inicio,
@@ -174,9 +179,14 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         nomesMaquinas: Object.fromEntries((ok(maquinasNomes, "maquinas (nomes)") as { id: string; nome: string }[]).map((m) => [m.id, m.nome])),
         nomesProdutos: Object.fromEntries((ok(produtosNomes, "produtos (nomes)") as { id: string; nome: string }[]).map((x) => [x.id, x.nome])),
         historicoEquidade,
-        parametros: lerParametros(ok(params, "escala_parametros") as { chave: string; valor: unknown }[]),
+        parametros,
+        ...(wipControle ? { wipControle } : {}),
         proximaSemana: proximaSemanaDe(ok(proxima, "previsoes (próxima semana)") as { previsao_itens: { produto_id: string; quantidade: number; tipo: string }[] | null } | null),
       };
+    },
+
+    async gravarSnapshotsWip(semanaInicio, snapshots) {
+      await gravarSnapshotsWip(admin, semanaInicio, snapshots);
     },
 
     async aplicar(p: PayloadAplicacao) {

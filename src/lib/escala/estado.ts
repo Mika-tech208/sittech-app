@@ -4,6 +4,7 @@
 import type { ParametrosEscala } from "@/features/escala/parametros";
 import type { AlertaEscala, AlocacaoEscala, HistoricoEquidadeFuncionario, PeriodoEscala } from "@/features/escala/types";
 import type { ProximaSemana } from "@/features/escala/wip";
+import type { EntradaWip } from "@/features/escala/wipSaldo";
 
 export interface AvisoMontagem {
   tipo: "etapa_sem_maquina" | "sem_pools" | "sem_funcionarios_produtivos";
@@ -73,12 +74,23 @@ export interface EstadoBruto {
   parametros?: Pick<ParametrosEscala, "wipModo" | "wipDiasLimite"> & Partial<ParametrosEscala>;
   // Necessidade da PRÓXIMA semana por produto, só se a Previsão dela estiver salva (limite de estoque, regra A). null = não existe.
   proximaSemana?: ProximaSemana | null;
+  // Controle de estoque intermediário (Fase 3): dados BRUTOS (controles, ajustes, confirmações, Produção Real, fotos, previsões).
+  // Só carregado com wip_modo = "ativo". `hoje` é derivado do relógio da execução. Ausente/vazio = nenhum saldo (comportamento anterior).
+  wipControle?: Omit<EntradaWip, "hoje">;
 }
 
 export interface DiaParaAplicar {
   data: string;
   versao_base: number | null;
   periodos_snapshot: PeriodoEscala[];
+}
+
+// Foto de abertura da semana (gravada UMA vez, nunca recalculada) — o orquestrador persiste antes de aplicar a escala.
+export interface SnapshotWipParaGravar {
+  controleId: string;
+  saldoEstimado: number;
+  saldoConfirmadoDisponivel: number;
+  saldoAlocado: number;
 }
 
 export interface PayloadAplicacao {
