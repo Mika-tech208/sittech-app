@@ -20,7 +20,6 @@ name: Escala - drenar outbox (fallback)
 on:
   schedule:
     - cron: "*/5 * * * *"
-  workflow_dispatch: # TEMPORÁRIO (teste real contra PROD) — remover
 
 concurrency:
   group: escala-drenar
