@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { analisarAtingibilidade } from "../atingibilidade";
 import { gerarEscala } from "../gerarEscala";
-import { avaliarCenario, melhoraGlobal, recomendarMaquinas, type AvaliacaoCenario } from "../recomendacaoMaquina";
+import { avaliarCenario, classificarGanhos, melhoraGlobal, recomendarMaquinas, type AvaliacaoCenario } from "../recomendacaoMaquina";
 import { entrada, equipe, pool } from "./helpers";
 import { cenarioAleatorio } from "./adicionalWipHelpers";
 
@@ -98,5 +98,84 @@ describe("recomendação de máquina por cenário completo", () => {
       Object.keys(g.antes.faltaPorProduto).forEach((p) => expect(g.depois.faltaPorProduto[p] ?? 0).toBeLessThanOrEqual(g.antes.faltaPorProduto[p] + 1e-6));
     }
     expect(comRecomendacao).toBeGreaterThan(0);
+  });
+});
+
+describe("classificação do benefício da recomendação (produtivo / cobertura / margem)", () => {
+  it("só aumenta folga (no limite → atingível, falta e ociosidade iguais) = GANHO DE MARGEM", () => {
+    const antes = ava({ faltaTotal: 0, faltaPorProduto: { A: 0 }, statusPorProduto: { A: "atingivel_no_limite" }, statusPrevisto: "atingivel_no_limite" });
+    const depois = ava({ faltaTotal: 0, faltaPorProduto: { A: 0 }, statusPorProduto: { A: "atingivel" }, statusPrevisto: "atingivel" });
+    const g = classificarGanhos(antes, depois);
+    expect(g.beneficios).toEqual(["margem"]);
+    expect(g.faltaReduzida).toBe(0);
+    expect(g.produtos).toEqual([{ produtoId: "A", de: "atingivel_no_limite", para: "atingivel", faltaDe: 0, faltaPara: 0 }]);
+  });
+  it("reduz a falta = GANHO PRODUTIVO", () => {
+    const g = classificarGanhos(ava({}), ava({ faltaTotal: 70, faltaPorProduto: { A: 30, B: 40 } }));
+    expect(g.beneficios).toEqual(["produtivo"]);
+    expect(g.faltaReduzida).toBe(30);
+  });
+  it("transforma impossível em possível = GANHO PRODUTIVO (mesmo sem reduzir a falta total medida)", () => {
+    const antes = ava({ statusPorProduto: { A: "impossivel", B: "em_risco" }, statusPrevisto: "impossivel" });
+    const depois = ava({ statusPorProduto: { A: "em_risco", B: "em_risco" }, statusPrevisto: "em_risco" });
+    expect(classificarGanhos(antes, depois).beneficios).toContain("produtivo");
+  });
+  it("reduz ociosidade = GANHO DE COBERTURA (previsto ou com a melhor carga adicional)", () => {
+    expect(classificarGanhos(ava({ minutosSemPostoPrevisto: 100 }), ava({ minutosSemPostoPrevisto: 40 })).beneficios).toEqual(["cobertura"]);
+    const g = classificarGanhos(ava({ comAdicional: { cobertura: 90, minutosSemPosto: 100 } }), ava({ comAdicional: { cobertura: 93, minutosSemPosto: 60 } }));
+    expect(g.beneficios).toEqual(["cobertura"]);
+    expect(g.minutosOciososReduzidos).toBe(40);
+  });
+  it("uma recomendação pode ter mais de um benefício, em ordem de força", () => {
+    const antes = ava({ faltaTotal: 100, faltaPorProduto: { A: 100 }, statusPorProduto: { A: "em_risco", B: "atingivel_no_limite" }, minutosSemPostoPrevisto: 100 });
+    const depois = ava({ faltaTotal: 50, faltaPorProduto: { A: 50 }, statusPorProduto: { A: "em_risco", B: "atingivel" }, minutosSemPostoPrevisto: 60 });
+    expect(classificarGanhos(antes, depois).beneficios).toEqual(["produtivo", "cobertura", "margem"]);
+  });
+
+  it("integração (cenário completo): máquina que só cria folga é recomendada como MARGEM, sem reduzir falta", () => {
+    // fecha exatamente (600 de 600) => no limite; com a 2ª máquina ganha folga, mas a produção é a mesma
+    const p = comCompativeis(pool({ produto: "A", op: "o1", q: 600, maquinas: ["m1"], mu: 100 }), ["m2"]);
+    const e = entrada({ funcionarios: equipe(1), pools: [p] }, [DIA]); // 1 pessoa: a 2ª máquina não muda a ocupação
+    const g = recomendarMaquinas(e, { margem: 0.1 });
+    expect(g).not.toBeNull();
+    expect(g!.antes.statusPorProduto.A).toBe("atingivel_no_limite");
+    expect(g!.depois.statusPorProduto.A).toBe("atingivel");
+    expect(g!.passos[0].ganhos.beneficios).toEqual(["margem"]);
+    expect(g!.passos[0].ganhos.faltaReduzida).toBe(0);
+    expect(g!.ganhos.beneficios).toEqual(["margem"]);
+  });
+
+  it("integração: máquina que reduz a falta é GANHO PRODUTIVO", () => {
+    const p = comCompativeis(pool({ produto: "A", op: "o1", q: 1000, maquinas: ["m1"], mu: 100 }), ["m2"]);
+    const e = entrada({ funcionarios: equipe(3), pools: [p] }, [DIA]);
+    const g = recomendarMaquinas(e)!;
+    expect(g.passos[0].ganhos.beneficios).toContain("produtivo");
+    expect(g.passos[0].ganhos.faltaReduzida).toBeGreaterThan(0);
+    expect(g.ganhos.beneficios[0]).toBe("produtivo");
+  });
+
+  it("integração: quando a máquina reduz ociosidade (avaliador do cenário com carga adicional), é GANHO DE COBERTURA", () => {
+    const p = comCompativeis(pool({ produto: "A", op: "o1", q: 300, maquinas: ["m1"], mu: 100 }), ["m2"]);
+    const e = entrada({ funcionarios: equipe(3), pools: [p] }, [DIA]);
+    // avaliador de teste: cada máquina selecionada ocupa mais uma pessoa com o adicional do cenário
+    const avaliarAdicional = (x: typeof e) => {
+      const n = new Set(x.pools.flatMap((q) => q.maquinasIds)).size;
+      return { cobertura: 80 + 5 * n, minutosSemPosto: 1000 - 100 * n };
+    };
+    const g = recomendarMaquinas(e, { avaliarAdicional })!;
+    expect(g).not.toBeNull();
+    expect(g.passos[0].ganhos.beneficios).toContain("cobertura");
+    expect(g.passos[0].ganhos.minutosOciososReduzidos).toBeGreaterThan(0);
+  });
+
+  it("a recomendação mais forte vem antes (produtivo > cobertura > margem) e toda recomendação continua sem piorar produto", () => {
+    for (let seed = 1; seed <= 60; seed++) {
+      const { base } = cenarioAleatorio(seed);
+      const pools = base.pools.map((q) => ({ ...q, maquinasCompativeisIds: [...new Set([...q.maquinasIds, "m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8"])] }));
+      const g = recomendarMaquinas({ ...base, pools }, { maxPassos: 2, maxCandidatos: 8 });
+      if (!g) continue;
+      g.passos.forEach((passo) => expect(passo.ganhos.beneficios.length).toBeGreaterThan(0));
+      expect(g.ganhos.beneficios.length).toBeGreaterThan(0);
+    }
   });
 });

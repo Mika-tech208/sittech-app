@@ -8,7 +8,7 @@
 // Cenário avaliado = previsto + (quando informado) a melhor carga adicional possível para esse cenário (`comAdicional`),
 // porque uma máquina nova pode render cobertura exatamente por destravar o adicional.
 
-import { analisarAtingibilidade, type StatusAtingibilidade } from "./atingibilidade";
+import { analisarAtingibilidade, ORDEM_STATUS, type StatusAtingibilidade } from "./atingibilidade";
 import { analisarCobertura, calcularCobertura, comMaquinasAdicionadas } from "./cobertura";
 import { EPS } from "./folga";
 import { gerarEscala } from "./gerarEscala";
@@ -30,17 +30,32 @@ export interface AvaliacaoCenario {
 
 export type AvaliadorAdicional = (entrada: EntradaEscala) => { cobertura: number; minutosSemPosto: number };
 
+// Tipo de benefício de uma recomendação (pode ter mais de um):
+//   produtivo ... reduz o que não fecha, ou transforma programação impossível em possível;
+//   cobertura ... reduz pessoas-período sem posto / horas ociosas;
+//   margem ...... não aumenta produção nem reduz falta: só cria mais folga operacional (ex.: "no limite" → "atingível").
+export type BeneficioRecomendacao = "produtivo" | "cobertura" | "margem";
+
+export interface GanhosRecomendacao {
+  beneficios: BeneficioRecomendacao[]; // em ordem de força: produtivo, cobertura, margem
+  faltaReduzida: number; // peças
+  minutosOciososReduzidos: number; // horas-pessoa ociosas × 60 (previsto ou com a melhor carga adicional)
+  produtos: { produtoId: string; de: StatusAtingibilidade; para: StatusAtingibilidade; faltaDe: number; faltaPara: number }[]; // com mudança de status ou de falta
+}
+
 export interface PassoRecomendacao {
   maquinaId: string;
   alternativas: string[]; // máquinas que dão exatamente o mesmo resultado nesta etapa
   poolsAfetados: { produtoId: string; etapaId: string }[];
   depois: AvaliacaoCenario; // cenário completo ACUMULADO até este passo
+  ganhos: GanhosRecomendacao; // ganho INCREMENTAL deste passo sobre o anterior
 }
 
 export interface RecomendacaoGlobal {
   antes: AvaliacaoCenario;
   passos: PassoRecomendacao[];
   depois: AvaliacaoCenario;
+  ganhos: GanhosRecomendacao; // conjunto de todos os passos sobre o cenário original
   produtosMelhorados: { produtoId: string; de: StatusAtingibilidade; para: StatusAtingibilidade; faltaDe: number; faltaPara: number }[];
   cenariosSimulados: number; // quantos cenários completos foram executados
 }
@@ -63,11 +78,34 @@ export function avaliarCenario(entrada: EntradaEscala, margem: number, avaliarAd
 }
 
 const minutosEfetivos = (a: AvaliacaoCenario) => (a.comAdicional ? a.comAdicional.minutosSemPosto : a.minutosSemPostoPrevisto);
-const ORDEM: Record<StatusAtingibilidade, number> = { atingivel: 0, em_risco: 1, impossivel: 2 };
+const ORDEM = ORDEM_STATUS;
+
+// Classifica o benefício de ir de `antes` para `depois` (ambos cenários completos).
+export function classificarGanhos(antes: AvaliacaoCenario, depois: AvaliacaoCenario): GanhosRecomendacao {
+  const ids = [...new Set([...Object.keys(antes.faltaPorProduto), ...Object.keys(depois.faltaPorProduto), ...Object.keys(antes.statusPorProduto), ...Object.keys(depois.statusPorProduto)])].sort();
+  const st = (a: AvaliacaoCenario, p: string): StatusAtingibilidade => a.statusPorProduto[p] ?? "atingivel";
+  const falta = (a: AvaliacaoCenario, p: string) => a.faltaPorProduto[p] ?? 0;
+  const faltaReduzida = Math.max(0, antes.faltaTotal - depois.faltaTotal);
+  const minutosOciososReduzidos = Math.max(0, minutosEfetivos(antes) - minutosEfetivos(depois));
+  const produtos = ids
+    .filter((p) => ORDEM[st(depois, p)] !== ORDEM[st(antes, p)] || Math.abs(falta(depois, p) - falta(antes, p)) > EPS)
+    .map((p) => ({ produtoId: p, de: st(antes, p), para: st(depois, p), faltaDe: falta(antes, p), faltaPara: falta(depois, p) }));
+  const impossivelParaPossivel = ids.some((p) => st(antes, p) === "impossivel" && st(depois, p) !== "impossivel") || (antes.statusPrevisto === "impossivel" && depois.statusPrevisto !== "impossivel");
+  const produtivo = faltaReduzida > EPS || impossivelParaPossivel;
+  const cobertura = minutosOciososReduzidos > 1e-6;
+  const margem = ids.some((p) => st(antes, p) === "atingivel_no_limite" && st(depois, p) === "atingivel");
+  const beneficios: BeneficioRecomendacao[] = [];
+  if (produtivo) beneficios.push("produtivo");
+  if (cobertura) beneficios.push("cobertura");
+  if (margem) beneficios.push("margem");
+  if (beneficios.length === 0 && produtos.some((x) => ORDEM[x.para] < ORDEM[x.de])) beneficios.push("margem");
+  return { beneficios, faltaReduzida, minutosOciososReduzidos, produtos };
+}
+const forca = (g: GanhosRecomendacao) => (g.beneficios.includes("produtivo") ? 0 : g.beneficios.includes("cobertura") ? 1 : 2);
 
 // Melhora GLOBAL e sem regressão: nenhum produto com mais falta ou status pior, cobertura não menor e ao menos um ganho.
 export function melhoraGlobal(antes: AvaliacaoCenario, depois: AvaliacaoCenario): boolean {
-  const produtos = new Set([...Object.keys(antes.faltaPorProduto), ...Object.keys(depois.faltaPorProduto)]);
+  const produtos = new Set([...Object.keys(antes.faltaPorProduto), ...Object.keys(depois.faltaPorProduto), ...Object.keys(antes.statusPorProduto), ...Object.keys(depois.statusPorProduto)]);
   for (const p of produtos) {
     if ((depois.faltaPorProduto[p] ?? 0) > (antes.faltaPorProduto[p] ?? 0) + EPS) return false;
     if (ORDEM[depois.statusPorProduto[p] ?? "atingivel"] > ORDEM[antes.statusPorProduto[p] ?? "atingivel"]) return false;
@@ -142,7 +180,7 @@ export function recomendarMaquinas(
       return { par, nova, ava };
     });
     // 2) avaliação completa (com o adicional do cenário) dos que mais prometem — e dos que só destravariam adicional
-    const comGanhoBarato = triados.filter((t) => t.ava.faltaTotal < avaliacaoAtual.faltaTotal - EPS || t.ava.minutosSemPostoPrevisto < avaliacaoAtual.minutosSemPostoPrevisto - 1e-6);
+    const comGanhoBarato = triados.filter((t) => melhoraGlobal(avaliacaoAtual, t.ava));
     const escolhaCara = opcoes.avaliarAdicional
       ? [...comGanhoBarato.sort((a, b) => a.ava.faltaTotal - b.ava.faltaTotal || a.ava.minutosSemPostoPrevisto - b.ava.minutosSemPostoPrevisto), ...triados.filter((t) => !comGanhoBarato.includes(t))].slice(0, maxCaras)
       : comGanhoBarato;
@@ -153,15 +191,17 @@ export function recomendarMaquinas(
     });
     const bons = avaliados.filter((t) => melhoraGlobal(avaliacaoAtual, t.ava));
     if (bons.length === 0) break;
-    bons.sort(
+    const comGanho = bons.map((t) => ({ ...t, ganhos: classificarGanhos(avaliacaoAtual, t.ava) }));
+    comGanho.sort(
       (a, b) =>
+        forca(a.ganhos) - forca(b.ganhos) ||
         a.ava.valorEmRisco - b.ava.valorEmRisco ||
         a.ava.faltaTotal - b.ava.faltaTotal ||
         minutosEfetivos(a.ava) - minutosEfetivos(b.ava) ||
         (a.par.maquinaId < b.par.maquinaId ? -1 : 1)
     );
-    const melhor = bons[0];
-    const alternativas = bons
+    const melhor = comGanho[0];
+    const alternativas = comGanho
       .filter((t) => t !== melhor && t.par.poolKey === melhor.par.poolKey && Math.abs(t.ava.faltaTotal - melhor.ava.faltaTotal) < EPS && Math.abs(minutosEfetivos(t.ava) - minutosEfetivos(melhor.ava)) < 1e-6)
       .map((t) => t.par.maquinaId)
       .sort();
@@ -170,7 +210,7 @@ export function recomendarMaquinas(
     if (!escolhidos.has(melhor.par.poolKey)) escolhidos.set(melhor.par.poolKey, new Set());
     escolhidos.get(melhor.par.poolKey)!.add(melhor.par.maquinaId);
     const [produtoId, etapaId] = melhor.par.poolKey.split("|");
-    passos.push({ maquinaId: melhor.par.maquinaId, alternativas, poolsAfetados: [{ produtoId, etapaId }], depois: melhor.ava });
+    passos.push({ maquinaId: melhor.par.maquinaId, alternativas, poolsAfetados: [{ produtoId, etapaId }], depois: melhor.ava, ganhos: melhor.ganhos });
   }
   if (passos.length === 0) return null;
 
@@ -179,5 +219,5 @@ export function recomendarMaquinas(
     .filter((p) => (depois.faltaPorProduto[p] ?? 0) < (antes.faltaPorProduto[p] ?? 0) - EPS || ORDEM[depois.statusPorProduto[p] ?? "atingivel"] < ORDEM[antes.statusPorProduto[p] ?? "atingivel"])
     .sort()
     .map((p) => ({ produtoId: p, de: antes.statusPorProduto[p] ?? "atingivel", para: depois.statusPorProduto[p] ?? "atingivel", faltaDe: antes.faltaPorProduto[p] ?? 0, faltaPara: depois.faltaPorProduto[p] ?? 0 }));
-  return { antes, passos, depois, produtosMelhorados, cenariosSimulados: simulados };
+  return { antes, passos, depois, ganhos: classificarGanhos(antes, depois), produtosMelhorados, cenariosSimulados: simulados };
 }

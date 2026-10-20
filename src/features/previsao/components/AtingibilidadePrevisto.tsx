@@ -8,12 +8,14 @@ import type { AtingibilidadeSemana, StatusAtingibilidade } from "@/features/esca
 import type { RecomendacaoGlobal } from "@/features/escala/recomendacaoMaquina";
 import { formatBRL, formatQtd } from "@/lib/format";
 import {
+  diagnosticoGlobalTexto,
   linhasRecomendacao,
   manchete,
   NOTA_INDEPENDENTES,
   PERGUNTA_ATINGIBILIDADE,
   PERGUNTA_COBERTURA,
   periodosTexto,
+  ROTULO_BENEFICIO,
   ROTULO_STATUS,
   TEXTO_CAUSA,
   textoAcao,
@@ -30,6 +32,16 @@ export const ESTILOS_ATINGIBILIDADE = `
 .stx-duo-sub { font-size:13px; color:var(--text-muted); margin:4px 0 0; }
 .stx-badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700; }
 .stx-badge.atingivel { background:rgba(60,200,140,.16); color:var(--accent); }
+.stx-badge.atingivel_no_limite { background:rgba(120,170,255,.16); color:#8db4ff; }
+.stx-badge.produtivo { background:var(--accent); color:#06281a; }
+.stx-badge.cobertura { background:rgba(120,170,255,.22); color:#9cbcff; }
+.stx-badge.margem { background:transparent; color:var(--text-muted); border:1px solid var(--border, rgba(255,255,255,.2)); font-weight:600; }
+.stx-rec-passo { margin:8px 0; padding:8px 10px; border-radius:10px; background:rgba(255,255,255,.04); }
+.stx-rec-passo.forte { border-left:3px solid var(--accent); }
+.stx-rec-passo.fraco { font-size:12px; opacity:.8; }
+.stx-rec-passo p { margin:3px 0 0; }
+.stx-diag { margin:8px 0; padding:10px 12px; border-radius:10px; background:rgba(240,90,90,.10); border-left:3px solid var(--danger); font-size:13px; }
+.stx-diag p { margin:2px 0; }
 .stx-badge.em_risco { background:rgba(240,173,78,.18); color:var(--warning); }
 .stx-badge.impossivel { background:rgba(240,90,90,.18); color:var(--danger); }
 .stx-ating-prod { padding:10px 0; border-bottom:1px solid var(--border, rgba(255,255,255,.08)); font-size:13px; }
@@ -40,7 +52,7 @@ export const ESTILOS_ATINGIBILIDADE = `
 
 const pct = (v: number) => `${v.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 const num1 = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
-const COR: Record<StatusAtingibilidade, string> = { atingivel: "var(--accent)", em_risco: "var(--warning)", impossivel: "var(--danger)" };
+const COR: Record<StatusAtingibilidade, string> = { atingivel: "var(--accent)", atingivel_no_limite: "#8db4ff", em_risco: "var(--warning)", impossivel: "var(--danger)" };
 
 export function CartoesCoberturaAtingibilidade({ cob, pessoas, ating, semAnalise }: { cob: CoberturaSemana; pessoas: PessoasComPosto; ating: AtingibilidadeSemana; semAnalise?: boolean }) {
   return (
@@ -61,8 +73,9 @@ export function CartoesCoberturaAtingibilidade({ cob, pessoas, ating, semAnalise
           <p className="stx-duo-kicker">Atingibilidade do previsto</p>
           <p className="stx-duo-pergunta">“{PERGUNTA_ATINGIBILIDADE}”</p>
           <p className="stx-duo-valor pequeno" style={{ color: COR[ating.status] }}>{ROTULO_STATUS[ating.status]}</p>
+          {ating.diagnosticoGlobal.mensagem && <p className="stx-duo-sub"><b>{ating.diagnosticoGlobal.mensagem}</b></p>}
           <p className="stx-duo-sub">
-            {ating.atingiveis} atingíveis · {ating.emRisco} em risco · {ating.impossiveis} impossíveis
+            {ating.atingiveis} atingíveis · {ating.atingiveisNoLimite} no limite · {ating.emRisco} em risco · {ating.impossiveis} impossíveis
             {ating.faltaTotalPlano > 0 ? ` · faltam ${formatQtd(ating.faltaTotalPlano)} peças (${formatBRL(ating.valorEmRisco)})` : ""}
           </p>
           {semAnalise && <p className="stx-duo-sub">Sem equipe disponível nos períodos restantes.</p>}
@@ -85,9 +98,21 @@ export function DetalheAtingibilidade({
   nomeMaq: (id: string) => string;
 }) {
   const comProblema = ating.produtos.filter((p) => p.status !== "atingivel");
+  const diag = diagnosticoGlobalTexto(ating.diagnosticoGlobal, nomeProd, nomeMaq);
   return (
     <div className="stx-cob-bloco">
-      <h3>Atingibilidade do previsto — por produto e etapa</h3>
+      <h3>Atingibilidade do previsto — diagnóstico da semana</h3>
+      {diag.length === 0 ? (
+        <p className="stx-cob-ok">A programação semanal cabe na equipe e nos recursos compartilhados.</p>
+      ) : (
+        diag.map((d, i) => (
+          <div className="stx-diag" key={i}>
+            <p><b>{d.titulo}</b></p>
+            {d.linhas.map((l, k) => <p key={k}>{l}</p>)}
+          </div>
+        ))
+      )}
+      <h3 style={{ marginTop: 14 }}>Por produto e etapa</h3>
       {comProblema.length === 0 ? (
         <p className="stx-cob-ok">Todos os produtos previstos fecham com folga (≥ {Math.round(ating.margem * 100)}%) nas máquinas atuais.</p>
       ) : (
@@ -151,9 +176,13 @@ export function RecomendacaoMaquinaGlobal({
         <p className="stx-cob-dica">Nenhuma máquina compatível melhora o cenário completo (atingibilidade e cobertura) sem piorar outro produto.</p>
       ) : (
         <div className="stx-cob-rec">
-          <ul>
-            {linhas.passos.map((p, i) => <li key={i}><b>{p.titulo}</b></li>)}
-          </ul>
+          {linhas.passos.map((p, i) => (
+            <div key={i} className={`stx-rec-passo ${p.forte ? "forte" : "fraco"}`}>
+              <b>{p.titulo}</b>
+              <p>{p.beneficios.map((b) => <span key={b} className={`stx-badge ${b}`} style={{ marginRight: 6 }}>{ROTULO_BENEFICIO[b]}</span>)}</p>
+              {p.efeitos.map((e, k) => <p key={k}>{e}</p>)}
+            </div>
+          ))}
           <p style={{ margin: "8px 0 2px" }}><b>Efeito no cenário completo:</b></p>
           <ul>
             {linhas.resumo.map((l, i) => <li key={i}>{l}</li>)}

@@ -4,32 +4,38 @@
 // É diferente de Cobertura da equipe ("estamos conseguindo ocupar as pessoas?"): uma semana pode ter cobertura 100% e
 // previsto impossível (todo mundo trabalhando, mas as máquinas do gargalo não dão conta) — não é contradição.
 //
-// Classificação (a mais grave entre as etapas de cada produto):
-//   • Impossível com a capacidade atual — há PROVA, independente do motor, de que não cabe:
+// Quatro estados (o mais grave entre as etapas de cada produto):
+//   • Atingível ................. cabe, com folga ≥ margem configurada;
+//   • Atingível no limite ....... cabe matematicamente, mas a folga é MENOR que a margem (usa quase toda a capacidade).
+//                                 Folga 0% NÃO é "em risco": é só "no limite";
+//   • Em risco .................. há capacidade teórica para fechar, mas existe uma condição CONCRETA no plano que ameaça o
+//                                 fechamento: o plano do motor deixa faltar peças (máquina livre sem ser priorizada, máquinas
+//                                 ocupadas por outros produtos, ou o produto participa de uma semana que não cabe na equipe).
+//                                 Na Fase 4 a Produção Real/performance será outra fonte desse risco;
+//   • Impossível com a capacidade atual — há PROVA, independente do motor, ATRIBUÍVEL ao produto/etapa:
 //       - etapa sem máquina selecionada;
-//       - Σ (máquinas selecionadas × meta × períodos em que estão disponíveis) < peças necessárias;
-//       - máquinas compartilhadas: os períodos-máquina que o conjunto de etapas precisa (no melhor ritmo) excedem os
-//         que o conjunto de máquinas tem;
-//       - equipe: períodos-pessoa necessários (no melhor ritmo) excedem os disponíveis.
-//   • Em risco — não há prova de impossibilidade, mas o plano do motor deixa faltar peças (máquina ficou livre sem
-//     ser priorizada, ou recurso compartilhado), ou a folga de capacidade é menor que a margem.
-//   • Atingível — o plano conclui todas as etapas com folga ≥ margem.
-// As provas são LIMITES (otimistas): "impossível" nunca é afirmado sem prova; o que o motor não fecha mas cabe em tese
-// fica "em risco" com uma ação.
+//       - Σ (máquinas selecionadas × meta × períodos disponíveis) < peças necessárias (as máquinas da etapa não dão conta);
+//       - recurso compartilhado saturado: os períodos-máquina que o conjunto de etapas precisa (no melhor ritmo) excedem os
+//         que o conjunto de máquinas tem, e o plano deixou faltar peças do produto.
+//
+// INSUFICIÊNCIA GLOBAL DE EQUIPE é diagnóstico da SEMANA, não do produto: períodos-pessoa necessários (no mínimo) > disponíveis
+// prova que "a programação semanal como um todo não cabe", mas não prova que cada produto, sozinho, é impossível. O produto
+// que cabe sozinho e participa dessa semana aparece "Em risco" (se o plano deixou faltar peças dele), com a causa explícita.
+// As provas são LIMITES (otimistas): "impossível" nunca é afirmado sem prova.
 
 import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { EPS, metaNoSlot } from "./folga";
 import { chavePool, type EntradaEscala, type PoolEscala, type ResultadoEscala } from "./types";
 
-export type StatusAtingibilidade = "atingivel" | "em_risco" | "impossivel";
+export type StatusAtingibilidade = "atingivel" | "atingivel_no_limite" | "em_risco" | "impossivel";
 export type CausaAtingibilidade =
-  | "sem_maquina" // etapa sem máquina selecionada
-  | "capacidade_maquinas" // as máquinas selecionadas da etapa não produzem o necessário nos períodos restantes
-  | "capacidade_conjunta" // máquinas compartilhadas entre etapas/produtos não dão conta do conjunto
-  | "equipe_insuficiente" // períodos-pessoa necessários > disponíveis
-  | "maquina_livre_nao_priorizada" // máquina da etapa ficou livre com peças faltando (equipe estava em outro produto)
-  | "recurso_compartilhado" // as máquinas da etapa estiveram ocupadas por outros produtos
-  | "folga_curta"; // fecha, mas com folga de capacidade menor que a margem
+  | "sem_maquina" // [prova] etapa sem máquina selecionada
+  | "capacidade_maquinas" // [prova] as máquinas selecionadas da etapa não produzem o necessário nos períodos restantes
+  | "recurso_compartilhado_saturado" // [prova] máquinas compartilhadas entre etapas/produtos não dão conta do conjunto
+  | "semana_sem_equipe" // [contexto] o produto cabe sozinho, mas a semana inteira não cabe na equipe e o plano deixou faltar peças dele
+  | "maquina_livre_nao_priorizada" // [plano] máquina da etapa ficou livre com peças faltando (equipe estava em outro produto)
+  | "recurso_compartilhado" // [plano] as máquinas da etapa estiveram ocupadas por outros produtos
+  | "folga_curta"; // fecha, mas com folga de capacidade menor que a margem (atingível no limite)
 
 export interface AcaoRecomendada {
   tipo: "priorizar_maquina" | "selecionar_maquina" | "reduzir_quantidade" | "aumentar_equipe" | "acompanhar";
@@ -74,15 +80,32 @@ export interface AtingibilidadeSemana {
   status: StatusAtingibilidade;
   margem: number;
   atingiveis: number;
+  atingiveisNoLimite: number;
   emRisco: number;
   impossiveis: number;
   faltaTotalPlano: number;
   valorEmRisco: number;
-  equipe: { periodosPessoaDisponiveis: number; periodosPessoaNecessariosMinimo: number; insuficiente: boolean };
+  diagnosticoGlobal: DiagnosticoGlobal;
   produtos: AtingibilidadeProduto[];
 }
 
-const ORDEM_STATUS: Record<StatusAtingibilidade, number> = { atingivel: 0, em_risco: 1, impossivel: 2 };
+export interface RecursoSaturado {
+  maquinas: string[];
+  produtos: string[]; // produtos com etapa que usa o conjunto
+  necessarioPeriodosMaquina: number; // no melhor ritmo (mínimo)
+  disponivelPeriodosMaquina: number;
+  deficit: number;
+}
+
+// Diagnóstico da SEMANA como um todo (vem antes do detalhe por produto).
+export interface DiagnosticoGlobal {
+  cabe: boolean; // false = a programação semanal não cabe (equipe global ou algum produto comprovadamente impossível)
+  equipe: { necessarioPeriodosPessoa: number; disponivelPeriodosPessoa: number; deficit: number; insuficiente: boolean };
+  recursosSaturados: RecursoSaturado[];
+  mensagem: string | null;
+}
+
+export const ORDEM_STATUS: Record<StatusAtingibilidade, number> = { atingivel: 0, atingivel_no_limite: 1, em_risco: 2, impossivel: 3 };
 const pior = (a: StatusAtingibilidade, b: StatusAtingibilidade) => (ORDEM_STATUS[a] >= ORDEM_STATUS[b] ? a : b);
 
 export function analisarAtingibilidade(entrada: EntradaEscala, resultado: ResultadoEscala, opcoes: { margem?: number } = {}): AtingibilidadeSemana {
@@ -173,6 +196,7 @@ export function analisarAtingibilidade(entrada: EntradaEscala, resultado: Result
     p.maquinasIds.forEach((m) => c.maquinas.add(m));
   });
   const conjuntoInviavel = new Set<string>(); // chaves de pool em conjuntos inviáveis
+  const recursosSaturados: RecursoSaturado[] = [];
   conjuntos.forEach((c) => {
     const precisa = c.pools.reduce((s, p) => s + ((muMax.get(chave(p)) ?? 0) > 0 ? (need0.get(chave(p)) as number) / (muMax.get(chave(p)) as number) : 0), 0);
     let tem = 0;
@@ -180,7 +204,11 @@ export function analisarAtingibilidade(entrada: EntradaEscala, resultado: Result
       if (!c.pools.some((p) => metaNoSlot(p, s) > 0)) return;
       tem += [...c.maquinas].filter((m) => maquinaDisponivelNoSlot(entrada, m, s)).length;
     });
-    if (precisa > tem + 1e-6) c.pools.forEach((p) => conjuntoInviavel.add(chave(p)));
+    if (precisa > tem + 1e-6) {
+      c.pools.forEach((p) => conjuntoInviavel.add(chave(p)));
+      // só é "recurso compartilhado" se mais de uma etapa disputa o conjunto; uma etapa sozinha já é capacidade_maquinas
+      if (c.pools.length > 1) recursosSaturados.push({ maquinas: [...c.maquinas].sort(), produtos: [...new Set(c.pools.map((p) => p.produtoId))].sort(), necessarioPeriodosMaquina: precisa, disponivelPeriodosMaquina: tem, deficit: precisa - tem });
+    }
   });
 
   // equipe: períodos-pessoa mínimos (cada máquina-período precisa de uma pessoa)
@@ -202,10 +230,10 @@ export function analisarAtingibilidade(entrada: EntradaEscala, resultado: Result
       let causa: CausaAtingibilidade | null = null;
       if (semMaq) { status = "impossivel"; causa = "sem_maquina"; }
       else if (faltaMinima > EPS) { status = "impossivel"; causa = "capacidade_maquinas"; }
-      else if (faltaPlano > EPS && conjuntoInviavel.has(k)) { status = "impossivel"; causa = "capacidade_conjunta"; }
-      else if (faltaPlano > EPS && equipeInsuficiente) { status = "impossivel"; causa = "equipe_insuficiente"; }
+      else if (faltaPlano > EPS && conjuntoInviavel.has(k)) { status = "impossivel"; causa = "recurso_compartilhado_saturado"; }
+      else if (faltaPlano > EPS && equipeInsuficiente) { status = "em_risco"; causa = "semana_sem_equipe"; }
       else if (faltaPlano > EPS) { status = "em_risco"; causa = livresPool.length > 0 ? "maquina_livre_nao_priorizada" : "recurso_compartilhado"; }
-      else if (folga < margem * 100 - 1e-9) { status = "em_risco"; causa = "folga_curta"; }
+      else if (folga < margem * 100 - 1e-9) { status = "atingivel_no_limite"; causa = "folga_curta"; }
       return { produtoId: p.produtoId, etapaId: p.etapaId, ordem: p.ordemEtapa, maquinas: [...new Set(p.maquinasIds)].sort(), necessidade, produzidoNoPlano: Math.max(0, necessidade - faltaPlano), faltaPlano, capacidadeMaquinas: cap, faltaMinima, folgaPercentual: folga, periodosMaquinaLivre: livresPool, status, causa };
     });
 
@@ -216,8 +244,7 @@ export function analisarAtingibilidade(entrada: EntradaEscala, resultado: Result
   [...porProduto.keys()].sort().forEach((produtoId) => {
     const es = porProduto.get(produtoId) as AtingibilidadeEtapa[];
     const valor = todos.find((p) => p.produtoId === produtoId)?.valorUnitario ?? 0;
-    let status: StatusAtingibilidade = "atingivel";
-    es.forEach((e) => (status = pior(status, e.status)));
+    const status = es.reduce<StatusAtingibilidade>((acc, e) => pior(acc, e.status), "atingivel");
     // gargalo: a etapa com mais peças faltando; sem falta, a de menor folga
     const gargalo = [...es].sort((a, b) => Math.max(b.faltaPlano, b.faltaMinima) - Math.max(a.faltaPlano, a.faltaMinima) || a.folgaPercentual - b.folgaPercentual || a.ordem - b.ordem)[0];
     const doGargalo = ORDEM_STATUS[gargalo.status] === ORDEM_STATUS[status] ? gargalo : es.filter((e) => e.status === status).sort((a, b) => Math.max(b.faltaPlano, b.faltaMinima) - Math.max(a.faltaPlano, a.faltaMinima))[0] ?? gargalo;
@@ -225,7 +252,7 @@ export function analisarAtingibilidade(entrada: EntradaEscala, resultado: Result
     const faltaMinima = Math.max(...es.map((e) => e.faltaMinima));
     let periodosNecessarios = 0;
     let acao: AcaoRecomendada | null = null;
-    if (status !== "atingivel") {
+    if (status !== "atingivel" && status !== "atingivel_no_limite") {
       const pool = todos.find((p) => p.produtoId === produtoId && p.etapaId === doGargalo.etapaId) as PoolEscala;
       const porPeriodo = (muMedio.get(chave(pool)) ?? 0) * Math.max(1, doGargalo.maquinas.length);
       const faltou = Math.max(doGargalo.faltaPlano, doGargalo.faltaMinima);
@@ -234,12 +261,12 @@ export function analisarAtingibilidade(entrada: EntradaEscala, resultado: Result
       if (causa === "maquina_livre_nao_priorizada" && doGargalo.periodosMaquinaLivre.length > 0) {
         const m = doGargalo.periodosMaquinaLivre[0];
         acao = { tipo: "priorizar_maquina", produtoId, etapaId: doGargalo.etapaId, maquinaId: m.maquinaId, periodos: Math.max(1, Math.min(m.periodos, periodosNecessarios || m.periodos)) };
-      } else if (causa === "sem_maquina" || causa === "capacidade_maquinas" || causa === "capacidade_conjunta") {
+      } else if (causa === "sem_maquina" || causa === "capacidade_maquinas" || causa === "recurso_compartilhado_saturado") {
         const compat = (pool.maquinasCompativeisIds ?? []).filter((m) => !pool.maquinasIds.includes(m)).sort();
         acao = compat.length > 0
           ? { tipo: "selecionar_maquina", produtoId, etapaId: doGargalo.etapaId, compativeis: compat }
           : { tipo: "reduzir_quantidade", produtoId, etapaId: doGargalo.etapaId, quantidade: Math.max(0, Math.floor(Math.min(...es.map((e) => Math.min(e.necessidade, e.capacidadeMaquinas))))) };
-      } else if (causa === "equipe_insuficiente") {
+      } else if (causa === "semana_sem_equipe") {
         acao = { tipo: "aumentar_equipe", produtoId, etapaId: doGargalo.etapaId };
       } else if (causa === "recurso_compartilhado") {
         const compat = (pool.maquinasCompativeisIds ?? []).filter((m) => !pool.maquinasIds.includes(m)).sort();
@@ -248,21 +275,36 @@ export function analisarAtingibilidade(entrada: EntradaEscala, resultado: Result
         acao = { tipo: "acompanhar", produtoId, etapaId: doGargalo.etapaId };
       }
     }
-    produtos.push({ produtoId, status, causa: status === "atingivel" ? null : doGargalo.causa, faltaPlano, faltaMinima, valorEmRisco: Math.max(faltaPlano, faltaMinima) * valor, gargaloEtapaId: status === "atingivel" ? null : doGargalo.etapaId, periodosNecessarios, acao, etapas: es });
+    if (status === "atingivel_no_limite") acao = { tipo: "acompanhar", produtoId, etapaId: doGargalo.etapaId };
+    const gargaloRelevante = status !== "atingivel";
+    produtos.push({ produtoId, status, causa: gargaloRelevante ? doGargalo.causa : null, faltaPlano, faltaMinima, valorEmRisco: Math.max(faltaPlano, faltaMinima) * valor, gargaloEtapaId: gargaloRelevante ? doGargalo.etapaId : null, periodosNecessarios, acao, etapas: es });
   });
   void periodosPorDia;
 
-  let status: StatusAtingibilidade = "atingivel";
-  produtos.forEach((p) => (status = pior(status, p.status)));
+  const deficitEquipe = Math.max(0, precisaPessoa - periodosPessoa);
+  const cabe = !equipeInsuficiente && !produtos.some((p) => p.status === "impossivel");
+  const mensagem = equipeInsuficiente
+    ? "Programação semanal não cabe na equipe disponível"
+    : produtos.some((p) => p.status === "impossivel")
+      ? "Há produto que não cabe nos recursos atuais"
+      : null;
+  const statusProdutos = produtos.reduce<StatusAtingibilidade>((acc, p) => pior(acc, p.status), "atingivel");
+  const status: StatusAtingibilidade = cabe ? statusProdutos : "impossivel";
   return {
     status,
     margem,
     atingiveis: produtos.filter((p) => p.status === "atingivel").length,
+    atingiveisNoLimite: produtos.filter((p) => p.status === "atingivel_no_limite").length,
     emRisco: produtos.filter((p) => p.status === "em_risco").length,
     impossiveis: produtos.filter((p) => p.status === "impossivel").length,
     faltaTotalPlano: produtos.reduce((s, p) => s + p.faltaPlano, 0),
     valorEmRisco: produtos.reduce((s, p) => s + p.valorEmRisco, 0),
-    equipe: { periodosPessoaDisponiveis: periodosPessoa, periodosPessoaNecessariosMinimo: precisaPessoa, insuficiente: equipeInsuficiente },
+    diagnosticoGlobal: {
+      cabe,
+      equipe: { necessarioPeriodosPessoa: precisaPessoa, disponivelPeriodosPessoa: periodosPessoa, deficit: deficitEquipe, insuficiente: equipeInsuficiente },
+      recursosSaturados: recursosSaturados.sort((a, b) => b.deficit - a.deficit),
+      mensagem,
+    },
     produtos,
   };
 }

@@ -23,32 +23,71 @@ describe("atingibilidade do previsto × cobertura da equipe", () => {
     expect(a.produtos[0].acao?.quantidade).toBe(600);
   });
 
-  it("atingível quando cabe com folga; em risco quando fecha sem folga (margem)", () => {
-    const folgada = entrada({ funcionarios: equipe(2), pools: [pool({ produto: "A", op: "op", q: 300, maquinas: ["m1"], mu: 100 })] }, [DIA]);
-    expect(analisarAtingibilidade(folgada, gerarEscala(folgada)).status).toBe("atingivel");
-    const justa = entrada({ funcionarios: equipe(1), pools: [pool({ produto: "A", op: "op", q: 600, maquinas: ["m1"], mu: 100 })] }, [DIA]);
-    const a = analisarAtingibilidade(justa, gerarEscala(justa));
-    expect(a.status).toBe("em_risco");
+  const umProduto = (q: number, pessoas = 2) => entrada({ funcionarios: equipe(pessoas), pools: [pool({ produto: "A", op: "op", q, maquinas: ["m1"], mu: 100 })] }, [DIA]);
+  it("quantidade que fecha EXATAMENTE (folga 0%) => Atingível no limite — nunca 'Em risco' só por folga", () => {
+    const e = umProduto(600);
+    const a = analisarAtingibilidade(e, gerarEscala(e));
+    expect(a.produtos[0].status).toBe("atingivel_no_limite");
     expect(a.produtos[0].causa).toBe("folga_curta");
     expect(a.produtos[0].faltaPlano).toBe(0);
-    // margem zero: fechar justo é atingível
-    expect(analisarAtingibilidade(justa, gerarEscala(justa), { margem: 0 }).status).toBe("atingivel");
+    expect(a.status).toBe("atingivel_no_limite");
+    expect(a.diagnosticoGlobal.cabe).toBe(true);
+    expect(a.atingiveisNoLimite).toBe(1);
+    expect(a.emRisco).toBe(0);
+  });
+  it("folga >= margem => Atingível; folga < margem => Atingível no limite; margem 0 => Atingível", () => {
+    // capacidade 600: 540 => folga 11,1% (≥ 10%); 560 => 7,1% (< 10%)
+    expect(analisarAtingibilidade(umProduto(540), gerarEscala(umProduto(540))).produtos[0].status).toBe("atingivel");
+    expect(analisarAtingibilidade(umProduto(560), gerarEscala(umProduto(560))).produtos[0].status).toBe("atingivel_no_limite");
+    expect(analisarAtingibilidade(umProduto(600), gerarEscala(umProduto(600)), { margem: 0 }).produtos[0].status).toBe("atingivel");
+    expect(analisarAtingibilidade(umProduto(300), gerarEscala(umProduto(300))).status).toBe("atingivel");
+  });
+  it("'Em risco' exige evidência no plano (peças faltando); folga baixa sozinha nunca é risco", () => {
+    for (const q of [540, 560, 580, 600]) {
+      const e = umProduto(q);
+      const a = analisarAtingibilidade(e, gerarEscala(e));
+      expect(a.produtos[0].status).not.toBe("em_risco");
+    }
   });
 
-  it("máquinas compartilhadas que não dão conta do conjunto => impossível por capacidade conjunta", () => {
+  it("máquinas compartilhadas que não dão conta do conjunto => impossível por recurso compartilhado saturado (diagnóstico da semana lista o recurso)", () => {
     // duas etapas de produtos diferentes usam a MESMA máquina: 2 × 400 = 800 > 600 períodos-máquina possíveis
     const e = entrada({ funcionarios: equipe(4), pools: [pool({ produto: "A", op: "o1", q: 400, maquinas: ["mS"], mu: 100 }), pool({ produto: "B", op: "o2", q: 400, maquinas: ["mS"], mu: 100 })] }, [DIA]);
     const a = analisarAtingibilidade(e, gerarEscala(e));
-    expect(a.produtos.every((p) => p.status === "impossivel")).toBe(true);
-    expect(a.produtos.map((p) => p.causa)).toEqual(["capacidade_conjunta", "capacidade_conjunta"]);
+    expect(a.produtos.some((p) => p.status === "impossivel")).toBe(true);
+    a.produtos.filter((p) => p.status === "impossivel").forEach((p) => expect(p.causa).toBe("recurso_compartilhado_saturado"));
+    expect(a.diagnosticoGlobal.recursosSaturados).toHaveLength(1);
+    expect(a.diagnosticoGlobal.recursosSaturados[0]).toMatchObject({ maquinas: ["mS"], produtos: ["A", "B"] });
+    expect(a.diagnosticoGlobal.recursosSaturados[0].deficit).toBeCloseTo(2, 6); // 8 necessários − 6 disponíveis
+    expect(a.diagnosticoGlobal.cabe).toBe(false);
   });
 
-  it("equipe insuficiente: períodos-pessoa necessários > disponíveis", () => {
+  it("insuficiência GLOBAL de equipe é diagnóstico da semana: NÃO transforma cada produto em Impossível", () => {
+    // 1 pessoa, 2 máquinas próprias: cada produto cabe sozinho (400 ≤ 600), mas a semana precisa de 8 pessoas-período e há 6
     const e = entrada({ funcionarios: equipe(1), pools: [pool({ produto: "A", op: "o1", q: 400, maquinas: ["m1"], mu: 100 }), pool({ produto: "B", op: "o2", q: 400, maquinas: ["m2"], mu: 100 })] }, [DIA]);
     const a = analisarAtingibilidade(e, gerarEscala(e));
-    expect(a.equipe.insuficiente).toBe(true);
-    expect(a.produtos.some((p) => p.causa === "equipe_insuficiente")).toBe(true);
-    expect(a.status).toBe("impossivel");
+    expect(a.diagnosticoGlobal.equipe).toMatchObject({ insuficiente: true, deficit: 2 });
+    expect(a.diagnosticoGlobal.equipe.necessarioPeriodosPessoa).toBeCloseTo(8, 6);
+    expect(a.diagnosticoGlobal.equipe.disponivelPeriodosPessoa).toBe(6);
+    expect(a.diagnosticoGlobal.mensagem).toBe("Programação semanal não cabe na equipe disponível");
+    expect(a.diagnosticoGlobal.cabe).toBe(false);
+    expect(a.status).toBe("impossivel"); // a SEMANA não cabe
+    a.produtos.forEach((p) => expect(p.status).not.toBe("impossivel")); // nenhum produto é impossível sozinho
+    const comFalta = a.produtos.filter((p) => p.faltaPlano > 0);
+    expect(comFalta.length).toBeGreaterThan(0);
+    comFalta.forEach((p) => { expect(p.status).toBe("em_risco"); expect(p.causa).toBe("semana_sem_equipe"); });
+  });
+
+  it("produto individualmente impossível continua Impossível, mesmo numa semana que também não cabe na equipe", () => {
+    // A: capacidade das máquinas 600 < 1000 (prova atribuível); B cabe sozinho
+    const e = entrada({ funcionarios: equipe(1), pools: [pool({ produto: "A", op: "o1", q: 1000, maquinas: ["m1"], mu: 100 }), pool({ produto: "B", op: "o2", q: 300, maquinas: ["m2"], mu: 100 })] }, [DIA]);
+    const a = analisarAtingibilidade(e, gerarEscala(e));
+    expect(a.diagnosticoGlobal.equipe.insuficiente).toBe(true);
+    const pa = a.produtos.find((p) => p.produtoId === "A")!;
+    const pb = a.produtos.find((p) => p.produtoId === "B")!;
+    expect(pa.status).toBe("impossivel");
+    expect(pa.causa).toBe("capacidade_maquinas");
+    expect(pb.status).not.toBe("impossivel");
   });
 
   it("etapa sem máquina selecionada: impossível, com as compatíveis como ação", () => {
@@ -104,9 +143,13 @@ describe("atingibilidade — propriedades (cenários aleatórios)", () => {
           expect(et.produzidoNoPlano).toBeLessThanOrEqual(et.capacidadeMaquinas + 1e-6);
           expect(et.faltaPlano).toBeLessThanOrEqual(et.necessidade + 1e-6);
         });
-        if (p.status === "atingivel") expect(p.faltaPlano).toBe(0);
+        if (p.status === "atingivel" || p.status === "atingivel_no_limite") expect(p.faltaPlano).toBe(0);
         if (p.status === "impossivel") expect(p.faltaPlano > 0 || p.faltaMinima > 0).toBe(true);
+        if (p.status === "em_risco") expect(p.faltaPlano).toBeGreaterThan(0); // risco exige evidência no plano
         if (p.faltaPlano > 0) expect(p.status === "em_risco" || p.status === "impossivel").toBe(true);
+        if (p.status === "atingivel_no_limite") expect(Math.min(...p.etapas.map((et) => et.folgaPercentual))).toBeLessThan(a.margem * 100);
+        // impossível só com prova atribuível ao produto (nunca só por equipe global)
+        if (p.status === "impossivel") expect(["sem_maquina", "capacidade_maquinas", "recurso_compartilhado_saturado"]).toContain(p.causa);
       });
     }
   });
