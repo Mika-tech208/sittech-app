@@ -14,7 +14,7 @@ import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type Re
 export const MOTIVO_ESCALA_JA_EXISTE = "Escala da semana já existe";
 
 export interface EscalaIO {
-  carregarEstado(): Promise<EstadoBruto>;
+  carregarEstado(agoraMs?: number): Promise<EstadoBruto>; // agoraMs: só o consolidado (períodos já iniciados) entra no histórico de equidade
   aplicar(payload: PayloadAplicacao): Promise<{ versoes: Record<string, number> }>;
 }
 
@@ -34,7 +34,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
   let ultimoConflito: Error | null = null;
 
   for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
-    const estado = await io.carregarEstado();
+    const estado = await io.carregarEstado(opcoes.agoraMs);
 
     if (opcoes.somenteSeNaoExiste && estado.diasExistentes.length > 0) {
       return { status: "ignorado", motivoIgnorado: MOTIVO_ESCALA_JA_EXISTE, tentativas: tentativa, alertas: [], alocacoesGravadas: 0 };
@@ -54,6 +54,11 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
     }
 
     const resultado = gerarEscala(entrada);
+    // A troca manual que o motor manteve continua sendo "manual" (decisão de uma pessoa); o resto é
+    // saída automática. Sem isso a marca se perderia no 1º recálculo e a troca viraria acaso.
+    const chaveTroca = (x: { data: string; periodoId: string; funcionarioId: string; maquinaId: string | null }) => `${x.data}|${x.periodoId}|${x.funcionarioId}|${x.maquinaId ?? ""}`;
+    const manuaisMantidas = new Set((entrada.trocasManuais ?? []).map(chaveTroca));
+    resultado.alocacoes = resultado.alocacoes.map((x) => (manuaisMantidas.has(chaveTroca(x)) ? { ...x, origem: "manual" as const } : x));
     const slotCorte = entrada.slots[entrada.aPartirDe];
     // se só há dias a remover e nenhum slot mutável, corta no começo do dia mais próximo removido
     const aPartirDeData = slotCorte?.data ?? montada.removerDias.slice().sort()[0];

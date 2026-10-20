@@ -95,7 +95,7 @@ describe("montarEntradaEscala", () => {
     const { entrada } = montarEntradaEscala(e, epochMsNoFuso(D1, "09:30")); // M2 em andamento
     expect(entrada.slots[entrada.aPartirDe].periodoId).toBe("m3");
     expect(entrada.congeladas.map((a) => a.periodoId)).toEqual(["m1", "m2"]);
-    expect(entrada.alocacoesAtuais?.map((a) => a.periodoId)).toEqual(["m3"]);
+    expect(entrada.trocasManuais ?? []).toEqual([]); // m3 é automática: saída derivada, não entra
   });
 
   it("dia existente mantém o snapshot de horários; dia não produtivo só conta períodos já iniciados e entra em removerDias", () => {

@@ -343,14 +343,14 @@ describe("Estado, determinismo e desempenho", () => {
     expect(gerarEscala(entrada({ pools, funcionarios: func }, [D1, D2])).alocacoes).toEqual(a.alocacoes);
   });
 
-  it("alocações atuais só influenciam o desempate (minimizar mudanças) — nunca a cobertura", () => {
+  it("trocas manuais só influenciam o desempate (preferência suave) — nunca a cobertura", () => {
     const base = {
       funcionarios: equipe(2),
       pools: [pool({ produto: "pa", op: "A", q: 100000, maquinas: ["mA"] }), pool({ produto: "pb", op: "B", q: 100000, maquinas: ["mB"] })],
     };
     const livre = gerarEscala(entrada(base));
     const atuais = livre.alocacoes.map((a) => ({ ...a }));
-    const refeita = gerarEscala(entrada({ ...base, alocacoesAtuais: atuais }));
+    const refeita = gerarEscala(entrada({ ...base, trocasManuais: atuais }));
     expect(refeita.alocacoes).toEqual(livre.alocacoes);
   });
 

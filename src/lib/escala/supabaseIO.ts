@@ -4,8 +4,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { agregarHistoricoEquidade, JANELA_EQUIDADE_DIAS } from "@/features/escala/equidade";
-import { minutosDoHorario } from "@/features/escala/tempo";
 import type { AlocacaoEscala, PeriodoEscala } from "@/features/escala/types";
+import { linhasConsolidadas, type LinhaHistoricoBruta } from "./historicoConsolidado";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "./estado";
 import { processarSemana, type EscalaIO, type OpcoesProcessamento } from "./processar";
 import { classificarGeracao, gerarEscalaSemanal, type DepsGeracaoSemanal, type OpcoesGeracaoSemanal, type ResultadoGeracaoSemanal } from "./geracaoSemanal";
@@ -29,26 +29,19 @@ function somarDias(iso: string, dias: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-// Equidade: lê a escala REALMENTE gravada nas semanas anteriores (janela
-// recente) — sem tabela agregada: ~100 linhas/dia, ~3 mil em 30 dias. Cada
-// linha vale os MINUTOS do período, tirados do snapshot de horários do próprio
-// dia (os horários podem mudar com o tempo). O PostgREST limita a resposta
-// (1000 linhas por padrão), então pagina.
+// Equidade: lê a escala REALMENTE gravada nas semanas anteriores (janela recente) — sem tabela
+// agregada: ~100 linhas/dia, ~3 mil em 30 dias — e conta SÓ os períodos que já começaram
+// (historicoConsolidado.ts): o plano futuro de uma semana em curso é saída descartável e nunca
+// vira histórico. O PostgREST limita a resposta (1000 linhas por padrão), então pagina.
 const PAGINA_HISTORICO = 1000;
-function duracaoMin(p: { inicio: string; fim: string }): number {
-  return Math.max(0, minutosDoHorario(p.fim) - minutosDoHorario(p.inicio));
-}
-async function carregarHistoricoEquidade(admin: SupabaseClient, semanaInicio: string, periodosAtuais: PeriodoEscala[]) {
+async function carregarHistoricoEquidade(admin: SupabaseClient, semanaInicio: string, periodosAtuais: PeriodoEscala[], agoraMs: number) {
   const desde = somarDias(semanaInicio, -JANELA_EQUIDADE_DIAS);
   const snapshots = ok(
     await admin.from("escala_producao_dias").select("data, periodos_snapshot").gte("data", desde).lt("data", semanaInicio),
     "escala_producao_dias (histórico)"
   ) as { data: string; periodos_snapshot: PeriodoEscala[] }[];
-  const minutosPorPeriodo = new Map<string, number>();
-  snapshots.forEach((d) => (d.periodos_snapshot ?? []).forEach((p) => minutosPorPeriodo.set(`${d.data}|${p.id}`, duracaoMin(p))));
-  const fallback = new Map(periodosAtuais.map((p) => [p.id, duracaoMin(p)]));
 
-  const linhas: { funcionarioId: string; maquinaId: string | null; operacaoId: string | null; minutos: number }[] = [];
+  const brutas: LinhaHistoricoBruta[] = [];
   for (let de = 0; ; de += PAGINA_HISTORICO) {
     const resp = await admin
       .from("escala_producao_alocacoes")
@@ -59,14 +52,11 @@ async function carregarHistoricoEquidade(admin: SupabaseClient, semanaInicio: st
       .order("periodo_id")
       .order("funcionario_id")
       .range(de, de + PAGINA_HISTORICO - 1);
-    const pagina = ok(resp, "escala_producao_alocacoes (histórico)") as { data: string; periodo_id: string; funcionario_id: string; maquina_id: string | null; operacao_id: string | null }[];
-    pagina.forEach((r) => {
-      const minutos = minutosPorPeriodo.get(`${r.data}|${r.periodo_id}`) ?? fallback.get(r.periodo_id) ?? 0;
-      if (minutos > 0) linhas.push({ funcionarioId: r.funcionario_id, maquinaId: r.maquina_id, operacaoId: r.operacao_id, minutos });
-    });
+    const pagina = ok(resp, "escala_producao_alocacoes (histórico)") as LinhaHistoricoBruta[];
+    brutas.push(...pagina);
     if (pagina.length < PAGINA_HISTORICO) break;
   }
-  return agregarHistoricoEquidade(linhas);
+  return agregarHistoricoEquidade(linhasConsolidadas(brutas, snapshots, periodosAtuais, agoraMs));
 }
 
 export async function resolverPrevisaoPorSemana(admin: SupabaseClient, semanaInicio: string): Promise<string | null> {
@@ -77,7 +67,7 @@ export async function resolverPrevisaoPorSemana(admin: SupabaseClient, semanaIni
 
 export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): EscalaIO {
   return {
-    async carregarEstado(): Promise<EstadoBruto> {
+    async carregarEstado(agoraMs: number = Date.now()): Promise<EstadoBruto> {
       const prev = ok(await admin.from("previsoes").select("id, semana_inicio").eq("id", previsaoId).single(), "previsoes") as { id: string; semana_inicio: string };
       const semanaFim = somarDias(prev.semana_inicio, 6);
 
@@ -120,7 +110,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         : [];
 
       const periodosAtuais = (ok(periodos, "periodos") as PeriodoEscala[]).map((p) => ({ id: p.id, nome: p.nome, inicio: hhmm(p.inicio), fim: hhmm(p.fim) }));
-      const historicoEquidade = await carregarHistoricoEquidade(admin, prev.semana_inicio, periodosAtuais);
+      const historicoEquidade = await carregarHistoricoEquidade(admin, prev.semana_inicio, periodosAtuais, agoraMs);
 
       const itensBrutos = itensRows.map((i) => {
         const porEtapa: Record<string, string[]> = {};
@@ -162,6 +152,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
           maquinaId: (r.maquina_id as string | null) ?? null, produtoId: (r.produto_id as string | null) ?? null, etapaId: (r.etapa_id as string | null) ?? null,
           operacaoId: (r.operacao_id as string | null) ?? null, pecas: Number(r.pecas ?? 0), ...(Number(r.pecas_adicional ?? 0) > 0 ? { pecasAdicional: Number(r.pecas_adicional) } : {}), motivoSemPosto: (r.motivo_sem_posto as string | null) ?? null,
           excecaoRevezamento: Boolean(r.excecao_revezamento), motivoExcecao: (r.motivo_excecao as string | null) ?? null,
+          origem: r.origem === "manual" ? "manual" : "auto",
         })) as AlocacaoEscala[],
         nomesOperacao: Object.fromEntries((ok(operacoes, "operacoes") as { id: string; nome: string }[]).map((o) => [o.id, o.nome])),
         nomesMaquinas: Object.fromEntries((ok(maquinasNomes, "maquinas (nomes)") as { id: string; nome: string }[]).map((m) => [m.id, m.nome])),
@@ -178,7 +169,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         p_a_partir_periodo: p.aPartirDePeriodo,
         p_alocacoes: p.alocacoes.map((a) => ({
           data: a.data, periodo_id: a.periodoId, funcionario_id: a.funcionarioId, maquina_id: a.maquinaId, produto_id: a.produtoId,
-          etapa_id: a.etapaId, operacao_id: a.operacaoId, pecas: a.pecas, pecas_adicional: a.pecasAdicional ?? 0, origem: "auto",
+          etapa_id: a.etapaId, operacao_id: a.operacaoId, pecas: a.pecas, pecas_adicional: a.pecasAdicional ?? 0, origem: a.origem ?? "auto",
           excecao_revezamento: a.excecaoRevezamento, motivo_excecao: a.motivoExcecao, motivo_sem_posto: a.motivoSemPosto,
         })),
         p_usuario_id: p.usuarioId,

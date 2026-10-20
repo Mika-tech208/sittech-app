@@ -215,7 +215,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
   }
 
   const atuais = new Map<string, string | null>();
-  (entrada.alocacoesAtuais ?? []).forEach((a) => atuais.set(`${chaveSlot(a)}|${a.funcionarioId}`, a.maquinaId));
+  (entrada.trocasManuais ?? []).forEach((a) => atuais.set(`${chaveSlot(a)}|${a.funcionarioId}`, a.maquinaId));
 
   const alocacoesSaida: AlocacaoEscala[] = [];
   const alertas: AlertaEscala[] = [];

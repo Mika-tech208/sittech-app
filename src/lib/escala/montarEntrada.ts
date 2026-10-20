@@ -119,7 +119,10 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
   // ---- alocações existentes: congeladas (< aPartirDe) e vigentes (>= aPartirDe) ----
   const indicePorSlot = new Map(slots.map((s) => [`${s.data}|${s.periodoId}`, s.indice]));
   const congeladas = estado.alocacoes.filter((a) => (indicePorSlot.get(`${a.data}|${a.periodoId}`) ?? Number.POSITIVE_INFINITY) < aPartirDe);
-  const alocacoesAtuais = estado.alocacoes.filter((a) => (indicePorSlot.get(`${a.data}|${a.periodoId}`) ?? -1) >= aPartirDe);
+  // Só as trocas MANUAIS futuras são entrada. As linhas automáticas futuras são saída do recálculo
+  // anterior: reaproveitá-las tornaria o plano dependente do CAMINHO de eventos (ver
+  // __tests__/reprodutibilidade.test.ts).
+  const trocasManuais = estado.alocacoes.filter((a) => a.origem === "manual" && (indicePorSlot.get(`${a.data}|${a.periodoId}`) ?? -1) >= aPartirDe);
 
   return {
     entrada: {
@@ -132,7 +135,7 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
       maquinasInativas: estado.maquinasInativas,
       indisponibilidades,
       congeladas,
-      alocacoesAtuais,
+      trocasManuais,
       nomesOperacao: estado.nomesOperacao,
       historicoEquidade: estado.historicoEquidade,
       poolsSemMaquina: [...semMaquina.entries()].filter(([k]) => !pools.has(k)).map(([, p]) => p),

@@ -72,6 +72,9 @@ export interface AlocacaoEscala {
   motivoSemPosto: string | null;
   excecaoRevezamento: boolean;
   motivoExcecao: string | null;
+  // "manual" = troca feita por uma pessoa (decisão explícita, entrada canônica do recálculo);
+  // ausente/"auto" = saída derivada do motor (NUNCA volta como entrada).
+  origem?: "auto" | "manual";
 }
 
 // Histórico agregado (janela recente) a partir da escala REALMENTE gravada
@@ -99,7 +102,10 @@ export interface EntradaEscala {
   maquinasInativas?: string[];
   indisponibilidades: IndisponibilidadeRecursoEscala[]; // escala_recurso_indisponivel
   congeladas: AlocacaoEscala[]; // alocações de slots < aPartirDe (consumo planejado + histórico de rotação)
-  alocacoesAtuais?: AlocacaoEscala[]; // plano vigente em slots >= aPartirDe (só para minimizar mudanças)
+  // Trocas MANUAIS vigentes em slots >= aPartirDe (origem "manual"): única parte do plano futuro
+  // que é entrada do motor (preferência suave para manter a decisão de quem trocou). O plano
+  // futuro automático anterior NÃO entra — mesmas entradas => mesma escala.
+  trocasManuais?: AlocacaoEscala[];
   nomesOperacao?: Record<string, string>;
   // Equidade histórica (opcional). Sem histórico, só a exposição acumulada
   // na própria escala em geração (congeladas + períodos já decididos) conta.
