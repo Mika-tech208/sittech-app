@@ -45,3 +45,32 @@ begin
   return v_id;
 end;
 $$;
+
+-- O worker da outbox também reivindica 'geracao_semanal' (retentativas da
+-- geração automática: até 3 tentativas, depois fica "esgotado" e aparece no
+-- alerta da tela com "Tentar novamente").
+create or replace function public.escala_reivindicar_eventos(p_limite integer default 50)
+returns setof public.escala_producao_eventos
+language sql
+security invoker
+set search_path = public, pg_temp
+as $$
+  with candidatos as (
+    select id
+    from escala_producao_eventos
+    where tipo in ('ausencia', 'previsao', 'recurso_bloqueado', 'recurso_liberado', 'geracao_manual', 'geracao_semanal')
+      and (
+        status = 'pendente'
+        or (status = 'erro' and tentativas < 3)
+        or (status = 'processando' and iniciado_em < now() - interval '5 minutes')
+      )
+    order by criado_em
+    limit greatest(1, least(coalesce(p_limite, 50), 200))
+    for update skip locked
+  )
+  update escala_producao_eventos e
+     set status = 'processando', tentativas = e.tentativas + 1, iniciado_em = now()
+    from candidatos c
+   where e.id = c.id
+  returning e.*;
+$$;
