@@ -18,6 +18,7 @@ import { timingSafeEqual } from "node:crypto";
 import { criarClienteAdmin } from "@/lib/supabase-admin";
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import { gerarEscalaSemanalDoServidor } from "@/lib/escala/supabaseIO";
+import type { TentativaGeracao } from "@/lib/escala/geracaoSemanal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,13 @@ function segredoValido(request: Request): boolean | null {
   const recebido = Buffer.from(request.headers.get("authorization") ?? "");
   const esperado = Buffer.from(`Bearer ${segredo}`);
   return recebido.length === esperado.length && timingSafeEqual(recebido, esperado);
+}
+
+// Segunda-feira tem 3 execuções: 06:30 (principal) e 07:30/09:30 (recuperação). O workflow
+// informa qual delas disparou (?tentativa=principal|recuperacao); o histórico diferencia
+// "geração principal", "geração por recuperação" e "já existia". Valor inválido/ausente = principal.
+function tentativaDaRequisicao(request: Request): TentativaGeracao {
+  return new URL(request.url).searchParams.get("tentativa") === "recuperacao" ? "recuperacao" : "principal";
 }
 
 function agoraDaRequisicao(request: Request): number {
@@ -44,9 +52,10 @@ async function gerarSemana(request: Request) {
   if (!ok) return NextResponse.json({ erro: "Não autorizado." }, { status: 401 });
 
   try {
-    const r = await gerarEscalaSemanalDoServidor(criarClienteAdmin(), agoraDaRequisicao(request));
+    const r = await gerarEscalaSemanalDoServidor(criarClienteAdmin(), agoraDaRequisicao(request), { tentativa: tentativaDaRequisicao(request) });
     const falha = r.status === "sem_previsao" || r.status === "previsao_invalida";
     if (falha) console.error(`escala/gerar-semana: ${r.mensagem}`);
+    else console.info(JSON.stringify({ evento: "escala/gerar-semana", status: r.status, tentativa: tentativaDaRequisicao(request), classificacao: "classificacao" in r ? r.classificacao : null }));
     return NextResponse.json({ ok: !falha, ...r }, { status: falha ? 422 : 200 });
   } catch (e) {
     console.error("escala/gerar-semana:", e instanceof Error ? e.message : e);

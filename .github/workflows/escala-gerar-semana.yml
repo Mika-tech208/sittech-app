@@ -3,10 +3,15 @@
 # servidor a data, o fuso (America/Sao_Paulo), o dia da semana e a semana atual
 # — o horário UTC do GitHub não é confiado.
 #
-# 06:30 America/Sao_Paulo (UTC-3) = 09:30 UTC. As duas execuções seguintes
-# (10:30 e 12:30 UTC) são só REDE DE SEGURANÇA contra atraso/descarte do
-# agendador do GitHub; a rota é idempotente (se a escala já existe, não faz
-# nada), então rodar mais de uma vez não duplica nada.
+# Segunda-feira tem 3 execuções (America/Sao_Paulo = UTC-3):
+#   06:30 SP = 09:30 UTC  -> tentativa PRINCIPAL
+#   07:30 SP = 10:30 UTC  -> RECUPERAÇÃO
+#   09:30 SP = 12:30 UTC  -> RECUPERAÇÃO
+# As de recuperação são só rede de segurança contra atraso/descarte do agendador
+# do GitHub; a rota é idempotente (se a escala já existe, responde "já existia"
+# sem alterar nada). O histórico diferencia: geração principal / geração por
+# recuperação / já existia (o rótulo vem de QUAL agendamento disparou, não do
+# relógio, que o GitHub pode atrasar).
 #
 # Segredos (somente em GitHub Actions Secrets — nunca no repositório):
 #   ESCALA_GERAR_SEMANA_URL     URL completa, ex.: https://<dominio>/api/escala/gerar-semana
@@ -41,12 +46,22 @@ jobs:
           ESCALA_GERAR_SEMANA_URL: ${{ secrets.ESCALA_GERAR_SEMANA_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
+          AGENDAMENTO: ${{ github.event.schedule }}
         run: |
           set -euo pipefail
           if [ -z "${ESCALA_GERAR_SEMANA_URL}" ] || [ -z "${CRON_SECRET}" ]; then
             echo "::error::Secrets ESCALA_GERAR_SEMANA_URL e CRON_SECRET precisam estar configurados."
             exit 1
           fi
+
+          # qual execução de segunda-feira é esta?
+          case "${AGENDAMENTO}" in
+            "30 10 * * 1"|"30 12 * * 1") tentativa="recuperacao" ;;
+            *) tentativa="principal" ;; # "30 9 * * 1" (06:30 SP) ou execução manual/teste
+          esac
+          sep="?"; case "${ESCALA_GERAR_SEMANA_URL}" in *\?*) sep="&" ;; esac
+          alvo="${ESCALA_GERAR_SEMANA_URL}${sep}tentativa=${tentativa}"
+          echo "Execução: ${tentativa} (agendamento: ${AGENDAMENTO:-manual})"
 
           # cabeçalhos num arquivo (fora da linha de comando)
           umask 077
@@ -58,7 +73,7 @@ jobs:
           } > headers.txt
 
           code=$(curl -sS --max-time 70 --retry 2 --retry-delay 5 --retry-all-errors \
-            -H @headers.txt -o resposta.json -w '%{http_code}' "${ESCALA_GERAR_SEMANA_URL}") || code="000"
+            -H @headers.txt -o resposta.json -w '%{http_code}' "${alvo}") || code="000"
           rm -f headers.txt
 
           echo "HTTP ${code}"

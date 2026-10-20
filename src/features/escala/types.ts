@@ -69,12 +69,15 @@ export interface AlocacaoEscala {
 
 // Histórico agregado (janela recente) a partir da escala REALMENTE gravada
 // (escala_producao_alocacoes). Interno ao motor — nunca exibido na interface.
-//  - periodosDisponiveis: períodos em que a pessoa estava disponível (tinha
-//    linha na escala; ausência não gera linha, logo não vira "dívida");
-//  - porOperacao / porMaquina: exposições (períodos com posto) na janela.
+// Tudo em MINUTOS (os períodos têm durações diferentes: M1/M2 96, M3 91,
+// T1/T2/T3 80 — um M1 NÃO equivale a um T1):
+//  - minutosDisponiveis: minutos dos períodos em que a pessoa estava disponível
+//    (tinha linha na escala, com ou sem posto; ausência não gera linha, logo
+//    não vira "dívida");
+//  - porOperacao / porMaquina: minutos expostos (períodos COM posto) na janela.
 export interface HistoricoEquidadeFuncionario {
   funcionarioId: string;
-  periodosDisponiveis: number;
+  minutosDisponiveis: number;
   porOperacao: Record<string, number>;
   porMaquina: Record<string, number>;
 }

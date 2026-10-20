@@ -37,9 +37,18 @@ export function contextoSemanaSP(agoraMs: number): ContextoSemana {
   return { dataLocal: data, diaDaSemana: dia, semanaInicio: somarDias(data, -((dia + 6) % 7)), minutosDoDia: minutos };
 }
 
+// Segunda-feira tem 3 execuções (06:30 principal; 07:30 e 09:30 recuperação). Quem
+// diferencia é o agendamento que disparou — não o relógio, que o GitHub pode atrasar.
+export type TentativaGeracao = "principal" | "recuperacao";
+export type ClassificacaoGeracao = "geracao_principal" | "geracao_recuperacao" | "ja_existia";
+
+export function classificarGeracao(tentativa: TentativaGeracao): ClassificacaoGeracao {
+  return tentativa === "recuperacao" ? "geracao_recuperacao" : "geracao_principal";
+}
+
 export type ResultadoGeracaoSemanal =
-  | { status: "gerada"; semanaInicio: string; alocacoesGravadas: number; aviso?: string }
-  | { status: "ja_existe"; semanaInicio: string }
+  | { status: "gerada"; semanaInicio: string; alocacoesGravadas: number; aviso?: string; tentativa: TentativaGeracao; classificacao: ClassificacaoGeracao }
+  | { status: "ja_existe"; semanaInicio: string; tentativa: TentativaGeracao; classificacao: "ja_existia" }
   | { status: "sem_previsao"; semanaInicio: string; mensagem: string }
   | { status: "previsao_invalida"; semanaInicio: string; mensagem: string }
   | { status: "fora_da_janela"; dataLocal: string; diaDaSemana: number; motivo: string }
@@ -51,10 +60,13 @@ export interface DepsGeracaoSemanal {
   // gera SOMENTE se não existir (somenteSeNaoExiste) — a chamada pode perder a corrida e voltar "ignorado: já existe"
   gerar(previsaoId: string): Promise<ResultadoProcessamento>;
   registrarErro(semanaInicio: string, mensagem: string): Promise<void>;
-  registrarGerada(semanaInicio: string, previsaoId: string, resumo: Record<string, unknown>): Promise<void>;
+  registrarGerada(semanaInicio: string, previsaoId: string, resumo: Record<string, unknown>, tentativa: TentativaGeracao): Promise<void>;
+  // a escala já existia (retry, execução de recuperação ou perdeu a corrida): fica no histórico como "já existia"
+  registrarJaExistia(semanaInicio: string, previsaoId: string, tentativa: TentativaGeracao): Promise<void>;
 }
 
 export interface OpcoesGeracaoSemanal {
+  tentativa?: TentativaGeracao; // padrão: principal
   // Chamada agendada: exige segunda-feira. Retentativa de um evento antigo: informa a semana alvo
   // (deve ser a semana atual) e dispensa a exigência do dia da semana.
   semanaAlvo?: string;
@@ -62,6 +74,7 @@ export interface OpcoesGeracaoSemanal {
 
 export async function gerarEscalaSemanal(deps: DepsGeracaoSemanal, agoraMs: number, opcoes: OpcoesGeracaoSemanal = {}): Promise<ResultadoGeracaoSemanal> {
   const ctx = contextoSemanaSP(agoraMs);
+  const tentativa: TentativaGeracao = opcoes.tentativa ?? "principal";
 
   let semana = ctx.semanaInicio;
   if (opcoes.semanaAlvo) {
@@ -77,14 +90,20 @@ export async function gerarEscalaSemanal(deps: DepsGeracaoSemanal, agoraMs: numb
     return { status: "sem_previsao", semanaInicio: semana, mensagem: MENSAGEM_SEM_PREVISAO };
   }
 
-  if (await deps.semanaTemEscala(previsaoId)) return { status: "ja_existe", semanaInicio: semana };
+  if (await deps.semanaTemEscala(previsaoId)) {
+    await deps.registrarJaExistia(semana, previsaoId, tentativa);
+    return { status: "ja_existe", semanaInicio: semana, tentativa, classificacao: "ja_existia" };
+  }
 
   const r = await deps.gerar(previsaoId);
   if (r.status === "processado") {
-    await deps.registrarGerada(semana, previsaoId, { alocacoesGravadas: r.alocacoesGravadas, tentativas: r.tentativas, aviso: r.aviso ?? null });
-    return { status: "gerada", semanaInicio: semana, alocacoesGravadas: r.alocacoesGravadas, aviso: r.aviso };
+    await deps.registrarGerada(semana, previsaoId, { alocacoesGravadas: r.alocacoesGravadas, tentativas: r.tentativas, aviso: r.aviso ?? null }, tentativa);
+    return { status: "gerada", semanaInicio: semana, alocacoesGravadas: r.alocacoesGravadas, aviso: r.aviso, tentativa, classificacao: classificarGeracao(tentativa) };
   }
-  if (r.motivoIgnorado === MOTIVO_ESCALA_JA_EXISTE) return { status: "ja_existe", semanaInicio: semana };
+  if (r.motivoIgnorado === MOTIVO_ESCALA_JA_EXISTE) {
+    await deps.registrarJaExistia(semana, previsaoId, tentativa); // perdeu a corrida para outra execução
+    return { status: "ja_existe", semanaInicio: semana, tentativa, classificacao: "ja_existia" };
+  }
   if (r.status === "sem_alteracao") {
     return { status: "fora_da_janela", dataLocal: ctx.dataLocal, diaDaSemana: ctx.diaDaSemana, motivo: "Nenhum período futuro na semana para gerar" };
   }

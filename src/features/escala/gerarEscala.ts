@@ -27,7 +27,7 @@ import {
 } from "./types";
 
 // Pesos do custo de atribuição (ordem de grandeza = ordem de prioridade):
-// revezamento >> equidade histórica por operação >> por máquina (equidade.ts)
+// revezamento >> equidade histórica por operação >> por máquina (equidade.ts, em minutos)
 // > exposição à operação no dia > minimizar mudanças > equidade de ociosidade
 // > mesma máquina em slots seguidos. (O gargalo vence tudo isso: ele decide
 // QUAIS postos são cobertos, antes da atribuição de pessoas.)
@@ -138,7 +138,8 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     const linhas = congeladasPorSlot.get(chaveSlot(sl)) ?? [];
     equidade.registrarPeriodo(
       linhas.map((a) => a.funcionarioId),
-      linhas.filter((a) => a.maquinaId && a.operacaoId).map((a) => ({ funcionarioId: a.funcionarioId, operacaoId: a.operacaoId as string, maquinaId: a.maquinaId as string }))
+      linhas.filter((a) => a.maquinaId && a.operacaoId).map((a) => ({ funcionarioId: a.funcionarioId, operacaoId: a.operacaoId as string, maquinaId: a.maquinaId as string })),
+      sl.fimMin - sl.inicioMin
     );
   });
   const registrarDia = (s: SlotEscala, aloc: AlocacaoEscala[]) => {
@@ -344,7 +345,8 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     registrarDia(slot, nova);
     equidade.registrarPeriodo(
       disponiveis.map((f) => f.id),
-      nova.filter((a) => a.maquinaId && a.operacaoId).map((a) => ({ funcionarioId: a.funcionarioId, operacaoId: a.operacaoId as string, maquinaId: a.maquinaId as string }))
+      nova.filter((a) => a.maquinaId && a.operacaoId).map((a) => ({ funcionarioId: a.funcionarioId, operacaoId: a.operacaoId as string, maquinaId: a.maquinaId as string })),
+      slot.fimMin - slot.inicioMin
     );
     alocacoesSaida.push(...nova);
 

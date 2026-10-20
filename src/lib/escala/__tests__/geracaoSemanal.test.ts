@@ -4,7 +4,7 @@ import { PERIODOS_REAIS } from "@/features/escala/__tests__/helpers";
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import type { HistoricoEquidadeFuncionario } from "@/features/escala/types";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "../estado";
-import { contextoSemanaSP, gerarEscalaSemanal, MENSAGEM_SEM_PREVISAO, type DepsGeracaoSemanal } from "../geracaoSemanal";
+import { classificarGeracao, contextoSemanaSP, gerarEscalaSemanal, MENSAGEM_SEM_PREVISAO, type DepsGeracaoSemanal } from "../geracaoSemanal";
 import { processarSemana, type EscalaIO } from "../processar";
 
 const SEG = "2026-10-26"; // segunda-feira
@@ -21,6 +21,7 @@ function criarBanco(opcoes: { previsao?: boolean; escalaExistente?: boolean; his
     payloads: [] as PayloadAplicacao[],
     erros: [] as string[],
     geradas: 0,
+    historico: [] as { classificacao: string; tentativa: string }[], // o que ficaria no histórico (eventos geracao_semanal)
     chamadasGerar: 0,
     agora: undefined as number | undefined,
   };
@@ -79,7 +80,8 @@ function criarBanco(opcoes: { previsao?: boolean; escalaExistente?: boolean; his
       return processarSemana(io, { agoraMs: b.agora ?? segunda0630, criarSeNaoExiste: true, somenteSeNaoExiste: true });
     },
     async registrarErro(_s, mensagem) { b.erros.push(mensagem); },
-    async registrarGerada() { b.geradas++; },
+    async registrarGerada(_s, _p, _r, tentativa) { b.geradas++; b.historico.push({ classificacao: classificarGeracao(tentativa), tentativa }); },
+    async registrarJaExistia(_s, _p, tentativa) { b.historico.push({ classificacao: "ja_existia", tentativa }); },
   };
   return Object.assign(b, { deps, io });
 }
@@ -130,7 +132,7 @@ describe("geração semanal — regras", () => {
   it("3: escala já existente responde idempotente sem sequer chamar o gerador", async () => {
     const b = criarBanco({ escalaExistente: true });
     const r = await gerarEscalaSemanal(b.deps, segunda0630);
-    expect(r).toEqual({ status: "ja_existe", semanaInicio: SEG });
+    expect(r).toEqual({ status: "ja_existe", semanaInicio: SEG, tentativa: "principal", classificacao: "ja_existia" });
     expect(b.chamadasGerar).toBe(0);
     expect(b.aplicacoesGravadas).toBe(0);
     expect(b.dias.get(SEG)?.versao).toBe(4);
@@ -189,7 +191,7 @@ describe("geração semanal — regras", () => {
   });
 
   it("9: a escala gerada aplica a equidade histórica (histórico invertido => atribuição diferente)", async () => {
-    const h = (id: string, a: number, bb: number): HistoricoEquidadeFuncionario => ({ funcionarioId: id, periodosDisponiveis: 100, porOperacao: { opA: a, opB: bb }, porMaquina: {} });
+    const h = (id: string, a: number, bb: number): HistoricoEquidadeFuncionario => ({ funcionarioId: id, minutosDisponiveis: 100 * 90, porOperacao: { opA: a * 90, opB: bb * 90 }, porMaquina: {} });
     const primeiroSlot = (b: ReturnType<typeof criarBanco>) => b.payloads[0].alocacoes.filter((a) => a.data === SEG && a.periodoId === "m1" && a.maquinaId).map((a) => `${a.funcionarioId}:${a.operacaoId}`).sort();
     // f1,f2 fizeram muita opA; f3,f4 muita opB
     const b1 = criarBanco({ historico: [h("f1", 50, 0), h("f2", 50, 0), h("f3", 0, 50), h("f4", 0, 50)] });
@@ -224,13 +226,75 @@ describe("geração semanal — regras", () => {
   });
 });
 
+describe("rotulagem das 3 execuções de segunda (principal / recuperação / já existia)", () => {
+  const seg0630 = epochMsNoFuso(SEG, "06:30");
+  const seg0730 = epochMsNoFuso(SEG, "07:30");
+  const seg0930 = epochMsNoFuso(SEG, "09:30");
+
+  it("06:30 principal gera; 07:30 e 09:30 (recuperação) viram 'já existia' e não duplicam", async () => {
+    const b = criarBanco();
+    const r1 = await gerarEscalaSemanal(b.deps, seg0630, { tentativa: "principal" });
+    const r2 = await gerarEscalaSemanal(b.deps, seg0730, { tentativa: "recuperacao" });
+    const r3 = await gerarEscalaSemanal(b.deps, seg0930, { tentativa: "recuperacao" });
+    expect(r1).toMatchObject({ status: "gerada", tentativa: "principal", classificacao: "geracao_principal" });
+    expect(r2).toMatchObject({ status: "ja_existe", tentativa: "recuperacao", classificacao: "ja_existia" });
+    expect(r3).toMatchObject({ status: "ja_existe", tentativa: "recuperacao", classificacao: "ja_existia" });
+    expect(b.historico.map((h) => h.classificacao)).toEqual(["geracao_principal", "ja_existia", "ja_existia"]);
+    expect(b.aplicacoesGravadas).toBe(1);
+    expect(b.dias.get(SEG)?.versao).toBe(1);
+  });
+
+  it("a principal falhou (sem Previsão) e a Previsão surgiu: a 07:30 gera como RECUPERAÇÃO e a 09:30 vira 'já existia'", async () => {
+    const b = criarBanco({ previsao: false });
+    expect((await gerarEscalaSemanal(b.deps, seg0630, { tentativa: "principal" })).status).toBe("sem_previsao");
+    b.previsaoId = "prev1"; // a Previsão foi criada depois das 06:30
+    const r2 = await gerarEscalaSemanal(b.deps, seg0730, { tentativa: "recuperacao" });
+    const r3 = await gerarEscalaSemanal(b.deps, seg0930, { tentativa: "recuperacao" });
+    expect(r2).toMatchObject({ status: "gerada", tentativa: "recuperacao", classificacao: "geracao_recuperacao" });
+    expect(r3).toMatchObject({ status: "ja_existe", classificacao: "ja_existia" });
+    expect(b.historico.map((h) => h.classificacao)).toEqual(["geracao_recuperacao", "ja_existia"]);
+    expect(b.aplicacoesGravadas).toBe(1);
+  });
+
+  it("principal e recuperação simultâneas: uma escala só; a perdedora da corrida é 'já existia'", async () => {
+    const b = criarBanco();
+    const [r1, r2] = await Promise.all([
+      gerarEscalaSemanal(b.deps, seg0630, { tentativa: "principal" }),
+      gerarEscalaSemanal(b.deps, seg0630, { tentativa: "recuperacao" }),
+    ]);
+    expect([r1.status, r2.status].sort()).toEqual(["gerada", "ja_existe"]);
+    expect(b.aplicacoesGravadas).toBe(1);
+    expect(b.historico.filter((h) => h.classificacao === "ja_existia")).toHaveLength(1);
+    expect(b.historico.filter((h) => h.classificacao !== "ja_existia")).toHaveLength(1);
+  });
+
+  it("sem informar a tentativa vale 'principal' (chamada manual/curl)", async () => {
+    const b = criarBanco();
+    const r = await gerarEscalaSemanal(b.deps, seg0630);
+    expect(r).toMatchObject({ status: "gerada", tentativa: "principal", classificacao: "geracao_principal" });
+  });
+});
+
 describe("8: workflow do GitHub Actions (geração semanal)", () => {
   const yml = readFileSync(`${process.cwd()}/.github/workflows/escala-gerar-semana.yml`, "utf8");
   const gatilhos = yml.split("\n").filter((l) => /^\s*- cron:/.test(l)).map((l) => l.replace(/^\s*- cron:\s*/, "").replace(/"/g, ""));
 
-  it("agenda segunda 06:30 de São Paulo = 09:30 UTC (mais duas execuções de segurança, também só na segunda)", () => {
-    expect(gatilhos[0]).toBe("30 9 * * 1");
-    gatilhos.forEach((g) => expect(g.endsWith(" * * 1")).toBe(true));
+  it("tem EXATAMENTE as 3 execuções de segunda: 06:30, 07:30 e 09:30 de São Paulo (09:30, 10:30 e 12:30 UTC)", () => {
+    expect(gatilhos).toEqual(["30 9 * * 1", "30 10 * * 1", "30 12 * * 1"]);
+    // conferência de fuso: UTC → America/Sao_Paulo
+    const hora = (utc: string) => {
+      const [m, h] = utc.split(" ");
+      const t = Date.UTC(2026, 9, 26, Number(h), Number(m)); // segunda 26/10/2026
+      return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(t);
+    };
+    expect(gatilhos.map(hora)).toEqual(["06:30", "07:30", "09:30"]);
+  });
+
+  it("informa a tentativa conforme o agendamento: o 06:30 é principal, os outros dois são recuperação", () => {
+    expect(yml).toContain("github.event.schedule");
+    expect(yml).toMatch(/"30 10 \* \* 1"\|"30 12 \* \* 1"\) tentativa="recuperacao"/);
+    expect(yml).toContain('*) tentativa="principal"');
+    expect(yml).toContain("tentativa=${tentativa}");
   });
 
   it("não tem outros gatilhos (sem push, sem workflow_dispatch)", () => {

@@ -4,10 +4,11 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { agregarHistoricoEquidade, JANELA_EQUIDADE_DIAS } from "@/features/escala/equidade";
+import { minutosDoHorario } from "@/features/escala/tempo";
 import type { AlocacaoEscala, PeriodoEscala } from "@/features/escala/types";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "./estado";
 import { processarSemana, type EscalaIO, type OpcoesProcessamento } from "./processar";
-import { gerarEscalaSemanal, type DepsGeracaoSemanal, type OpcoesGeracaoSemanal, type ResultadoGeracaoSemanal } from "./geracaoSemanal";
+import { classificarGeracao, gerarEscalaSemanal, type DepsGeracaoSemanal, type OpcoesGeracaoSemanal, type ResultadoGeracaoSemanal } from "./geracaoSemanal";
 import type { ResultadoProcessamento } from "./estado";
 
 const META_COLS = "meta_m1, meta_m2, meta_m3, meta_t1, meta_t2, meta_t3";
@@ -29,12 +30,25 @@ function somarDias(iso: string, dias: number): string {
 }
 
 // Equidade: lê a escala REALMENTE gravada nas semanas anteriores (janela
-// recente) — sem tabela agregada: ~100 linhas/dia, ~3 mil em 30 dias. O
-// PostgREST limita a resposta (1000 linhas por padrão), então pagina.
+// recente) — sem tabela agregada: ~100 linhas/dia, ~3 mil em 30 dias. Cada
+// linha vale os MINUTOS do período, tirados do snapshot de horários do próprio
+// dia (os horários podem mudar com o tempo). O PostgREST limita a resposta
+// (1000 linhas por padrão), então pagina.
 const PAGINA_HISTORICO = 1000;
-async function carregarHistoricoEquidade(admin: SupabaseClient, semanaInicio: string) {
+function duracaoMin(p: { inicio: string; fim: string }): number {
+  return Math.max(0, minutosDoHorario(p.fim) - minutosDoHorario(p.inicio));
+}
+async function carregarHistoricoEquidade(admin: SupabaseClient, semanaInicio: string, periodosAtuais: PeriodoEscala[]) {
   const desde = somarDias(semanaInicio, -JANELA_EQUIDADE_DIAS);
-  const linhas: { funcionarioId: string; maquinaId: string | null; operacaoId: string | null }[] = [];
+  const snapshots = ok(
+    await admin.from("escala_producao_dias").select("data, periodos_snapshot").gte("data", desde).lt("data", semanaInicio),
+    "escala_producao_dias (histórico)"
+  ) as { data: string; periodos_snapshot: PeriodoEscala[] }[];
+  const minutosPorPeriodo = new Map<string, number>();
+  snapshots.forEach((d) => (d.periodos_snapshot ?? []).forEach((p) => minutosPorPeriodo.set(`${d.data}|${p.id}`, duracaoMin(p))));
+  const fallback = new Map(periodosAtuais.map((p) => [p.id, duracaoMin(p)]));
+
+  const linhas: { funcionarioId: string; maquinaId: string | null; operacaoId: string | null; minutos: number }[] = [];
   for (let de = 0; ; de += PAGINA_HISTORICO) {
     const resp = await admin
       .from("escala_producao_alocacoes")
@@ -45,8 +59,11 @@ async function carregarHistoricoEquidade(admin: SupabaseClient, semanaInicio: st
       .order("periodo_id")
       .order("funcionario_id")
       .range(de, de + PAGINA_HISTORICO - 1);
-    const pagina = ok(resp, "escala_producao_alocacoes (histórico)") as { funcionario_id: string; maquina_id: string | null; operacao_id: string | null }[];
-    pagina.forEach((r) => linhas.push({ funcionarioId: r.funcionario_id, maquinaId: r.maquina_id, operacaoId: r.operacao_id }));
+    const pagina = ok(resp, "escala_producao_alocacoes (histórico)") as { data: string; periodo_id: string; funcionario_id: string; maquina_id: string | null; operacao_id: string | null }[];
+    pagina.forEach((r) => {
+      const minutos = minutosPorPeriodo.get(`${r.data}|${r.periodo_id}`) ?? fallback.get(r.periodo_id) ?? 0;
+      if (minutos > 0) linhas.push({ funcionarioId: r.funcionario_id, maquinaId: r.maquina_id, operacaoId: r.operacao_id, minutos });
+    });
     if (pagina.length < PAGINA_HISTORICO) break;
   }
   return agregarHistoricoEquidade(linhas);
@@ -95,7 +112,8 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         ? (ok(await admin.from("escala_producao_alocacoes").select("*").in("data", datasExistentes), "escala_producao_alocacoes") as Record<string, unknown>[])
         : [];
 
-      const historicoEquidade = await carregarHistoricoEquidade(admin, prev.semana_inicio);
+      const periodosAtuais = (ok(periodos, "periodos") as PeriodoEscala[]).map((p) => ({ id: p.id, nome: p.nome, inicio: hhmm(p.inicio), fim: hhmm(p.fim) }));
+      const historicoEquidade = await carregarHistoricoEquidade(admin, prev.semana_inicio, periodosAtuais);
 
       const itensBrutos = itensRows.map((i) => {
         const porEtapa: Record<string, string[]> = {};
@@ -109,7 +127,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         previsaoId,
         semanaInicio: prev.semana_inicio,
         diasProdutivos: diasRows.filter((d) => d.ativo).map((d) => d.dia).sort(),
-        periodosAtuais: (ok(periodos, "periodos") as PeriodoEscala[]).map((p) => ({ id: p.id, nome: p.nome, inicio: hhmm(p.inicio), fim: hhmm(p.fim) })),
+        periodosAtuais,
         diasExistentes: existentesRows.map((d) => ({ data: d.data, versao: d.versao, periodosSnapshot: d.periodos_snapshot })),
         equipeProdutiva: equipeRows.map((r) => {
           const f = funcRows.find((x) => x.id === r.funcionario_id);
@@ -340,12 +358,19 @@ export async function gerarEscalaSemanalDoServidor(
         .contains("payload", { semanaInicio: semana });
       if (error) throw new Error(`escala_producao_eventos: ${error.message}`);
       if ((count ?? 0) > 0) return;
-      const id = await registrarEvento(admin, "geracao_semanal", null, { semanaInicio: semana, origem: "automatica" });
+      const id = await registrarEvento(admin, "geracao_semanal", null, { semanaInicio: semana, origem: "automatica", tentativa: opcoes.tentativa ?? "principal", classificacao: "erro" });
       await admin.rpc("escala_concluir_eventos", { p_ids: [id], p_status: "erro", p_erro: mensagem });
     },
-    async registrarGerada(semana, previsaoId, resumo) {
-      const id = await registrarEvento(admin, "geracao_semanal", previsaoId, { semanaInicio: semana, origem: opcoes.eventoId ? "retentativa" : "automatica", resumo });
+    async registrarGerada(semana, previsaoId, resumo, tentativa) {
+      const id = await registrarEvento(admin, "geracao_semanal", previsaoId, {
+        semanaInicio: semana, origem: opcoes.eventoId ? "retentativa" : "automatica", tentativa, classificacao: classificarGeracao(tentativa), resumo,
+      });
       await admin.rpc("escala_concluir_eventos", { p_ids: [id], p_status: "processado", p_erro: null });
+    },
+    async registrarJaExistia(semana, previsaoId, tentativa) {
+      if (opcoes.eventoId) return; // retentativa de evento existente: não gera linha de histórico extra
+      const id = await registrarEvento(admin, "geracao_semanal", previsaoId, { semanaInicio: semana, origem: "automatica", tentativa, classificacao: "ja_existia" });
+      await admin.rpc("escala_concluir_eventos", { p_ids: [id], p_status: "ignorado", p_erro: "já existia" });
     },
   };
   return gerarEscalaSemanal(deps, agoraMs, opcoes);
