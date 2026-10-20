@@ -19,6 +19,7 @@ import { resumirConfirmacaoSugestao } from "@/features/previsao/confirmacaoSuges
 import type { CoberturaSemana, CausaOciosidade } from "@/features/escala/cobertura";
 import { formatBRL, formatQtd, toNumber } from "@/lib/format";
 import type { PrevisaoItem } from "@/types/domain";
+import Recolhivel from "@/features/previsao/components/Recolhivel";
 
 const ESTILOS = `
 .stx-cob-topo { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
@@ -61,6 +62,14 @@ function pct(v: number): string {
 }
 function horas(min: number): string {
   return `${(min / 60).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h`;
+}
+// "14h 20min" (ou "50min", "3h") a partir de minutos — usado no resumo do cabeçalho recolhido.
+function duracao(min: number): string {
+  const total = Math.round(min);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h === 0) return `${m}min`;
+  return m === 0 ? `${h}h` : `${h}h ${m}min`;
 }
 function dataCurta(iso: string): string {
   const [, m, d] = iso.split("-");
@@ -198,12 +207,21 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
     else if (maqMin > 0 && cargaMin > 0) conclusao = `Parte é falta de peças (${horas(cargaMin)}) e parte é falta de postos/máquinas (${horas(maqMin)}): só programar mais quantidade não resolve tudo.`;
   }
 
+  // Resumo mostrado no cabeçalho com o bloco recolhido (só leitura do que já foi calculado).
+  let resumoCab: string;
+  if (carregando && !cob) resumoCab = "analisando…";
+  else if (erro && !cob) resumoCab = "não foi possível analisar";
+  else if (!cob) resumoCab = "ainda não analisada";
+  else if (cob.minutosDisponiveis === 0) resumoCab = "nenhum funcionário disponível nos períodos restantes";
+  else if (cob.minutosSemPosto === 0) resumoCab = "100% ✓";
+  else resumoCab = `${pct(cob.percentual)} · ${duracao(cob.minutosSemPosto)} sem posto`;
+
   return (
     <div className="stx-panel">
       <style>{ESTILOS}</style>
+      <Recolhivel id="previsao-cobertura-equipe" titulo="Cobertura da equipe" resumo={`· ${resumoCab}`}>
       <div className="stx-cob-topo">
         <div>
-          <p className="stx-panel-title">Cobertura da equipe</p>
           <p className="stx-panel-sub">
             Simula a Escala desta semana com o mesmo motor que a gera, para saber se a programação ocupa toda a equipe produtiva.
             Considera dias produtivos, equipe selecionada e ausências já registradas, nos períodos ainda não iniciados.
@@ -420,6 +438,8 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
           ))}
         </div>
       )}
+
+      </Recolhivel>
 
       {confirmando && sugestao && analise && (() => {
         const resumo = resumirConfirmacaoSugestao(sugestao, analise.atual, nomeProd);

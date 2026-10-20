@@ -3,6 +3,7 @@
 import { isoParaBR } from "@/lib/date";
 import { resumirEquipe } from "@/features/capacidade/diasEEquipe";
 import type { MembroEquipeSemana } from "@/types/domain";
+import Recolhivel from "@/features/previsao/components/Recolhivel";
 
 const NOMES_DIA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
 
@@ -59,9 +60,12 @@ export default function DiasEEquipeSemana({
         </p>
       )}
 
-      <div className="stx-panel-title-row" style={{ marginTop: 22 }}>
-        <p className="stx-panel-title">Equipe produtiva da semana</p>
-      </div>
+      <div style={{ marginTop: 22 }}>
+      <Recolhivel
+        id="previsao-equipe-produtiva"
+        titulo="Equipe produtiva da semana"
+        resumo={`· ${resumo.produtivos} de ${resumo.total} selecionado${resumo.total === 1 ? "" : "s"}`}
+      >
       <p className="stx-panel-sub">
         Quem realmente atua na produção nesta semana. Não altera o cadastro, o salário nem o Custo/hora de ninguém.
       </p>
@@ -108,6 +112,8 @@ export default function DiasEEquipeSemana({
           )}
         </>
       )}
+      </Recolhivel>
+      </div>
     </div>
   );
 }
