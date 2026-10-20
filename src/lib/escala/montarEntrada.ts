@@ -53,6 +53,7 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
     etapasPorProduto.get(e.produtoId)!.push(e);
   });
   const pools = new Map<string, PoolEscala>();
+  const semMaquina = new Map<string, PoolEscala>(); // só diagnóstico: etapas sem máquina selecionada
   [...estado.itens]
     .sort((a, b) => (a.produtoId < b.produtoId ? -1 : 1))
     .forEach((item) => {
@@ -61,6 +62,15 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
         const chave = `${item.produtoId}|${etapa.id}`;
         if (maquinas.length === 0 && !pools.has(chave)) {
           avisos.push({ tipo: "etapa_sem_maquina", produtoId: item.produtoId, etapaId: etapa.id });
+          const ja = semMaquina.get(chave);
+          if (ja) ja.quantidade += item.quantidade;
+          else {
+            semMaquina.set(chave, {
+              produtoId: item.produtoId, etapaId: etapa.id, operacaoId: etapa.operacaoId, ordemEtapa: etapa.ordem,
+              quantidade: item.quantidade, maquinasIds: [], metas: { ...etapa.metas }, valorUnitario: item.valorUnitario,
+              ...(etapa.maquinasCompativeis ? { maquinasCompativeisIds: [...etapa.maquinasCompativeis].sort() } : {}),
+            });
+          }
           return;
         }
         const atual = pools.get(chave);
@@ -74,9 +84,12 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
             maquinasIds: [...new Set(maquinas)].sort(),
             metas: { ...etapa.metas },
             valorUnitario: item.valorUnitario,
+            ...(item.quantidadeAdicional ? { adicionalMax: item.quantidadeAdicional } : {}),
+            ...(etapa.maquinasCompativeis ? { maquinasCompativeisIds: [...etapa.maquinasCompativeis].sort() } : {}),
           });
         } else {
           atual.quantidade += item.quantidade;
+          if (item.quantidadeAdicional) atual.adicionalMax = (atual.adicionalMax ?? 0) + item.quantidadeAdicional;
           atual.maquinasIds = [...new Set([...atual.maquinasIds, ...maquinas])].sort();
           atual.valorUnitario = Math.max(atual.valorUnitario, item.valorUnitario);
         }
@@ -122,6 +135,7 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
       alocacoesAtuais,
       nomesOperacao: estado.nomesOperacao,
       historicoEquidade: estado.historicoEquidade,
+      poolsSemMaquina: [...semMaquina.entries()].filter(([k]) => !pools.has(k)).map(([, p]) => p),
     },
     periodosPorDia,
     diasExistentesPorData: new Map(estado.diasExistentes.map((d) => [d.data, { versao: d.versao }])),

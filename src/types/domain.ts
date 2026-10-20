@@ -110,6 +110,12 @@ export interface PrevisaoItem {
   // controle — nunca inferir a data de created_at, que é reescrito a cada save.
   registradoEm?: string | null;
   registradoPorNome?: string | null;
+  // CARGA ADICIONAL (só em itens previstos): produção de produto acabado ACIMA do previsto, para
+  // ocupar capacidade ociosa da equipe. Camada SEPARADA: `quantidade` (o previsto) nunca é alterado
+  // por ela e todos os indicadores existentes (atingimento, faturamento previsto, capacidade…)
+  // continuam usando só `quantidade`. Total programado = quantidade + quantidadeAdicional.
+  quantidadeAdicional?: number;
+  adicionalAtualizadoEm?: string | null;
 }
 
 export interface MembroEquipeSemana {

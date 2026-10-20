@@ -35,6 +35,9 @@ export interface PoolEscala {
   // CARGA ADICIONAL (2ª camada): peças de produto acabado ACIMA do previsto, só para
   // ocupar quem ficaria sem posto. Padrão 0 (= comportamento anterior, idêntico).
   adicionalMax?: number;
+  // Máquinas do roteiro compatíveis com a etapa (roteiro_etapa_maquinas). O motor NUNCA usa
+  // máquina fora de `maquinasIds`; isto é só para o diagnóstico de cobertura sugerir recursos.
+  maquinasCompativeisIds?: string[];
 }
 
 export interface FuncionarioEscala {
@@ -101,6 +104,9 @@ export interface EntradaEscala {
   // Equidade histórica (opcional). Sem histórico, só a exposição acumulada
   // na própria escala em geração (congeladas + períodos já decididos) conta.
   historicoEquidade?: HistoricoEquidadeFuncionario[];
+  // Etapas da Previsão SEM nenhuma máquina selecionada: o motor as ignora (nunca usa máquina fora da
+  // Previsão), mas o diagnóstico de cobertura precisa delas para dizer "falta selecionar máquina".
+  poolsSemMaquina?: PoolEscala[];
 }
 
 export type TipoAlerta =

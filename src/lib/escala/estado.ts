@@ -18,6 +18,7 @@ export interface DiaExistente {
 export interface ItemPrevistoBruto {
   produtoId: string;
   quantidade: number;
+  quantidadeAdicional?: number; // carga adicional (produto acabado) acima do previsto; padrão 0
   valorUnitario: number; // snapshot do item
   maquinasPorEtapa: Record<string, string[]>; // etapaId -> máquinas selecionadas
 }
@@ -28,6 +29,7 @@ export interface EtapaBruta {
   operacaoId: string;
   ordem: number;
   metas: Record<string, number>; // periodoId -> meta
+  maquinasCompativeis?: string[]; // roteiro_etapa_maquinas (só para diagnóstico de cobertura)
 }
 
 export interface AusenciaBruta {
@@ -58,6 +60,8 @@ export interface EstadoBruto {
   indisponibilidades: IndisponibilidadeBruta[];
   alocacoes: AlocacaoEscala[]; // todas as existentes nos dias da escala
   nomesOperacao: Record<string, string>;
+  nomesMaquinas?: Record<string, string>; // para rótulos do diagnóstico de cobertura
+  nomesProdutos?: Record<string, string>;
   // Equidade: histórico agregado da janela (escala realmente gravada, semanas ANTERIORES a esta).
   historicoEquidade?: HistoricoEquidadeFuncionario[];
 }

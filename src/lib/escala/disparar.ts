@@ -39,3 +39,21 @@ export async function reprocessarEventosEsgotados(): Promise<{ ok: boolean; erro
   if (!resp.ok) return { ok: false, erro: json?.erro || "Falha ao reprocessar a Escala." };
   return { ok: true, esgotados: json.esgotados };
 }
+
+// Cobertura da equipe na Previsão (simulação SOMENTE LEITURA, mesmo motor da Escala).
+export async function analisarCoberturaNoServidor(
+  semanaInicio: string,
+  opcoes: { sugerir?: boolean; itens?: { produto_id: string; quantidade?: number; quantidade_adicional?: number; valor_unitario?: number; maquinas_por_etapa?: Record<string, string[]> }[] } = {}
+): Promise<{ ok: true; dados: import("./simularCobertura").SimulacaoCobertura } | { ok: false; erro: string }> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return { ok: false, erro: "Sessão expirada." };
+  const resp = await fetch("/api/escala/simular-cobertura", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ semana_inicio: semanaInicio, sugerir: opcoes.sugerir === true, itens: opcoes.itens }),
+  });
+  const json = await resp.json().catch(() => ({}));
+  if (!resp.ok) return { ok: false, erro: json?.erro || "Falha ao analisar a cobertura." };
+  return { ok: true, dados: json };
+}

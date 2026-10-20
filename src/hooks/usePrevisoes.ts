@@ -37,6 +37,8 @@ interface PrevisaoItemRow {
   produto_nome: string;
   valor_unitario: number;
   quantidade: number;
+  quantidade_adicional: number | null;
+  adicional_atualizado_em: string | null;
   registrado_em: string | null;
   registrado_por_nome: string | null;
   previsao_item_maquinas: { etapa_id: string; maquina_id: string }[] | null;
@@ -54,7 +56,7 @@ interface PrevisaoRow {
 const PREVISAO_SELECT = `
   id, semana_inicio,
   previsao_itens(
-    id, tipo, produto_id, produto_nome, valor_unitario, quantidade, registrado_em, registrado_por_nome,
+    id, tipo, produto_id, produto_nome, valor_unitario, quantidade, quantidade_adicional, adicional_atualizado_em, registrado_em, registrado_por_nome,
     previsao_item_maquinas(etapa_id, maquina_id)
   ),
   previsao_maquinas_indisponiveis(maquina_id),
@@ -78,6 +80,8 @@ function linhaParaItem(i: PrevisaoItemRow): PrevisaoItem {
     maquinasPorEtapa: agruparMaquinasPorEtapa(i.previsao_item_maquinas),
     registradoEm: i.registrado_em,
     registradoPorNome: i.registrado_por_nome,
+    quantidadeAdicional: Number(i.quantidade_adicional ?? 0),
+    adicionalAtualizadoEm: i.adicional_atualizado_em,
   };
 }
 
@@ -111,6 +115,8 @@ function itemParaPayloadRPC(it: PrevisaoItem) {
     produto_nome: it.produtoNome,
     valor_unitario: it.valorUnitario,
     quantidade: it.quantidade,
+    // só manda o adicional quando o chamador o define; sem o campo o servidor PRESERVA o que já existe
+    ...(it.quantidadeAdicional !== undefined ? { quantidade_adicional: it.quantidadeAdicional } : {}),
     maquinas_por_etapa: it.maquinasPorEtapa || {},
   };
 }

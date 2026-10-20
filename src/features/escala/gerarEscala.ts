@@ -20,6 +20,7 @@
 import { atribuicaoMinima } from "./matching";
 import { calcularFolgas, EPS, metaNoSlot, type FolgaPool } from "./folga";
 import { ContadoresEquidade } from "./equidade";
+import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { sobrepoe } from "./tempo";
 import {
   chavePool, MOTIVO_DEMANDA_ESGOTADA, MOTIVO_JA_COBERTA, MOTIVO_POSTOS_OCUPADOS, MOTIVO_RECURSOS_INDISPONIVEIS,
@@ -114,20 +115,10 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     }
   });
 
-  // ---- disponibilidade de máquina por slot ----
-  const inativas = new Set(entrada.maquinasInativas ?? []);
-  const indispPrevisao = new Set(entrada.maquinasIndisponiveisPrevisao);
+  // ---- disponibilidade de máquina por slot (regra única em disponibilidade.ts) ----
   const todasMaquinas = [...new Set(pools.flatMap((p) => p.maquinasIds))].sort();
   const dispMatriz = new Map<string, boolean[]>();
-  todasMaquinas.forEach((m) => {
-    dispMatriz.set(
-      m,
-      slots.map((s) => {
-        if (inativas.has(m) || indispPrevisao.has(m)) return false;
-        return !entrada.indisponibilidades.some((i) => i.maquinaId === m && i.desdeMs <= s.inicioMs && (i.liberadaEmMs === null || s.inicioMs < i.liberadaEmMs));
-      })
-    );
-  });
+  todasMaquinas.forEach((m) => dispMatriz.set(m, slots.map((s) => maquinaDisponivelNoSlot(entrada, m, s))));
   const maquinaDisponivel = (m: string, u: number) => dispMatriz.get(m)?.[u] ?? false;
 
   // ---- ausências por (dia, funcionário) ----

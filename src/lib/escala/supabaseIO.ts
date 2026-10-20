@@ -84,7 +84,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
       const [dias, equipe, itens, indispPrev, inativas, periodos, existentes, ausencias, indisp, operacoes] = await Promise.all([
         admin.from("previsao_dias_produtivos").select("dia, ativo").eq("previsao_id", previsaoId),
         admin.from("previsao_equipe_semana").select("funcionario_id, produtivo").eq("previsao_id", previsaoId),
-        admin.from("previsao_itens").select("produto_id, valor_unitario, quantidade, previsao_item_maquinas(etapa_id, maquina_id)").eq("previsao_id", previsaoId).eq("tipo", "previsto"),
+        admin.from("previsao_itens").select("produto_id, valor_unitario, quantidade, quantidade_adicional, previsao_item_maquinas(etapa_id, maquina_id)").eq("previsao_id", previsaoId).eq("tipo", "previsto"),
         admin.from("previsao_maquinas_indisponiveis").select("maquina_id").eq("previsao_id", previsaoId),
         admin.from("maquinas").select("id").eq("ativo", false),
         admin.from("periodos").select("id, nome, inicio, fim").order("id"),
@@ -96,7 +96,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
 
       const diasRows = ok(dias, "previsao_dias_produtivos") as { dia: string; ativo: boolean }[];
       const equipeRows = (ok(equipe, "previsao_equipe_semana") as { funcionario_id: string; produtivo: boolean }[]).filter((r) => r.produtivo);
-      const itensRows = ok(itens, "previsao_itens") as { produto_id: string; valor_unitario: number; quantidade: number; previsao_item_maquinas: { etapa_id: string; maquina_id: string }[] | null }[];
+      const itensRows = ok(itens, "previsao_itens") as { produto_id: string; valor_unitario: number; quantidade: number; quantidade_adicional: number | null; previsao_item_maquinas: { etapa_id: string; maquina_id: string }[] | null }[];
       const existentesRows = ok(existentes, "escala_producao_dias") as { data: string; versao: number; periodos_snapshot: PeriodoEscala[] }[];
 
       const funcIds = equipeRows.map((r) => r.funcionario_id);
@@ -107,6 +107,13 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
       const etapaRows = produtoIds.length
         ? (ok(await admin.from("roteiro_etapas").select(`id, produto_id, operacao_id, ordem, ${META_COLS}`).in("produto_id", produtoIds), "roteiro_etapas") as unknown as Record<string, string | number>[])
         : [];
+      const etapaIds = etapaRows.map((e) => String(e.id));
+      const compatRows = etapaIds.length
+        ? (ok(await admin.from("roteiro_etapa_maquinas").select("etapa_id, maquina_id").in("etapa_id", etapaIds), "roteiro_etapa_maquinas") as { etapa_id: string; maquina_id: string }[])
+        : [];
+      const compatPorEtapa = new Map<string, string[]>();
+      compatRows.forEach((r) => compatPorEtapa.set(r.etapa_id, [...(compatPorEtapa.get(r.etapa_id) ?? []), r.maquina_id]));
+      const [maquinasNomes, produtosNomes] = await Promise.all([admin.from("maquinas").select("id, nome"), admin.from("produtos").select("id, nome")]);
       const datasExistentes = existentesRows.map((d) => d.data);
       const alocRows = datasExistentes.length
         ? (ok(await admin.from("escala_producao_alocacoes").select("*").in("data", datasExistentes), "escala_producao_alocacoes") as Record<string, unknown>[])
@@ -120,7 +127,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         (i.previsao_item_maquinas ?? []).forEach((r) => {
           (porEtapa[r.etapa_id] ||= []).push(r.maquina_id);
         });
-        return { produtoId: i.produto_id, quantidade: Number(i.quantidade), valorUnitario: Number(i.valor_unitario), maquinasPorEtapa: porEtapa };
+        return { produtoId: i.produto_id, quantidade: Number(i.quantidade), quantidadeAdicional: Number(i.quantidade_adicional ?? 0), valorUnitario: Number(i.valor_unitario), maquinasPorEtapa: porEtapa };
       });
 
       return {
@@ -140,6 +147,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
           operacaoId: String(e.operacao_id),
           ordem: Number(e.ordem),
           metas: Object.fromEntries(PERIODOS_META.map((p) => [p, Number(e[`meta_${p}`] ?? 0)])),
+          maquinasCompativeis: compatPorEtapa.get(String(e.id)) ?? [],
         })),
         maquinasIndisponiveisPrevisao: (ok(indispPrev, "previsao_maquinas_indisponiveis") as { maquina_id: string }[]).map((r) => r.maquina_id),
         maquinasInativas: (ok(inativas, "maquinas") as { id: string }[]).map((r) => r.id),
@@ -152,10 +160,12 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         alocacoes: alocRows.map((r) => ({
           data: String(r.data), periodoId: String(r.periodo_id), funcionarioId: String(r.funcionario_id),
           maquinaId: (r.maquina_id as string | null) ?? null, produtoId: (r.produto_id as string | null) ?? null, etapaId: (r.etapa_id as string | null) ?? null,
-          operacaoId: (r.operacao_id as string | null) ?? null, pecas: Number(r.pecas ?? 0), motivoSemPosto: (r.motivo_sem_posto as string | null) ?? null,
+          operacaoId: (r.operacao_id as string | null) ?? null, pecas: Number(r.pecas ?? 0), ...(Number(r.pecas_adicional ?? 0) > 0 ? { pecasAdicional: Number(r.pecas_adicional) } : {}), motivoSemPosto: (r.motivo_sem_posto as string | null) ?? null,
           excecaoRevezamento: Boolean(r.excecao_revezamento), motivoExcecao: (r.motivo_excecao as string | null) ?? null,
         })) as AlocacaoEscala[],
         nomesOperacao: Object.fromEntries((ok(operacoes, "operacoes") as { id: string; nome: string }[]).map((o) => [o.id, o.nome])),
+        nomesMaquinas: Object.fromEntries((ok(maquinasNomes, "maquinas (nomes)") as { id: string; nome: string }[]).map((m) => [m.id, m.nome])),
+        nomesProdutos: Object.fromEntries((ok(produtosNomes, "produtos (nomes)") as { id: string; nome: string }[]).map((x) => [x.id, x.nome])),
         historicoEquidade,
       };
     },
@@ -168,7 +178,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         p_a_partir_periodo: p.aPartirDePeriodo,
         p_alocacoes: p.alocacoes.map((a) => ({
           data: a.data, periodo_id: a.periodoId, funcionario_id: a.funcionarioId, maquina_id: a.maquinaId, produto_id: a.produtoId,
-          etapa_id: a.etapaId, operacao_id: a.operacaoId, pecas: a.pecas, origem: "auto",
+          etapa_id: a.etapaId, operacao_id: a.operacaoId, pecas: a.pecas, pecas_adicional: a.pecasAdicional ?? 0, origem: "auto",
           excecao_revezamento: a.excecaoRevezamento, motivo_excecao: a.motivoExcecao, motivo_sem_posto: a.motivoSemPosto,
         })),
         p_usuario_id: p.usuarioId,

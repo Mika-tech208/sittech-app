@@ -1,0 +1,144 @@
+// Simulação de cobertura da equipe para a Previsão Semanal — SOMENTE LEITURA.
+//
+// Usa EXATAMENTE as mesmas funções que geram a Escala (montarEntradaEscala + gerarEscala);
+// não existe fórmula paralela. O diagnóstico (cobertura.ts) só conta o que o motor produziu
+// e a sugestão (sugestaoAdicional.ts) roda o motor de novo. Nada é gravado.
+
+import { analisarCobertura, recursosCompativeisVerificados, type CoberturaSemana, type RecursoSugerido, type RecursosVerificados } from "@/features/escala/cobertura";
+import { gerarEscala } from "@/features/escala/gerarEscala";
+import { sugerirAdicional, type SugestaoProduto } from "@/features/escala/sugestaoAdicional";
+import { chavePool, type EntradaEscala } from "@/features/escala/types";
+import type { EstadoBruto } from "./estado";
+import { montarEntradaEscala } from "./montarEntrada";
+
+export interface EtapaSemMaquina {
+  produtoId: string;
+  etapaId: string;
+  compativeis: string[]; // recursos do roteiro que poderiam ser selecionados para fechar a etapa
+}
+
+export interface AdicionalProduto {
+  produtoId: string;
+  previsto: number;
+  adicionalProgramado: number; // o que está gravado/informado
+  adicionalAbsorvido: number; // o que a capacidade ociosa realmente absorve (mínimo entre as etapas = produto acabado)
+  porEtapa: { etapaId: string; absorvido: number }[];
+}
+
+export type SugestaoProdutoDetalhada = SugestaoProduto & {
+  // recursos do roteiro compatíveis com a etapa LIMITANTE e ainda não selecionados: é o que destrava mais adicional
+  recursosEtapaLimitante: string[];
+};
+
+export interface SimulacaoCobertura {
+  semanaInicio: string;
+  primeiroPeriodoAnalisado: { data: string; periodoId: string } | null;
+  periodosAnalisados: number;
+  /** como está programado (previsto + adicional atual) */
+  atual: CoberturaSemana;
+  /** só o previsto, sem nenhum adicional — a referência para "antes" */
+  somentePrevisto: CoberturaSemana;
+  recursosCompativeis: RecursoSugerido[];
+  recursosCombinado: RecursosVerificados["combinado"];
+  etapasSemMaquina: EtapaSemMaquina[];
+  adicional: AdicionalProduto[];
+  sugestao: null | {
+    porProduto: SugestaoProdutoDetalhada[];
+    totalPecas: number;
+    valorPotencial: number; // indicador separado
+    iteracoes: number;
+    coberturaApos: CoberturaSemana;
+    recursosRestantes: RecursoSugerido[];
+    recursosRestantesCombinado: RecursosVerificados["combinado"];
+  };
+  nomes: { maquinas: Record<string, string>; produtos: Record<string, string>; etapas: Record<string, string> };
+}
+
+function semAdicional(e: EntradaEscala): EntradaEscala {
+  return { ...e, pools: e.pools.map((p) => ({ ...p, adicionalMax: 0 })) };
+}
+
+// O MESMO caminho que gera a Escala: estado -> entrada do motor -> motor. Sem gravar nada.
+export function simularSemana(estado: EstadoBruto, agoraMs: number) {
+  const montada = montarEntradaEscala(estado, agoraMs);
+  return { montada, entrada: montada.entrada, resultado: gerarEscala(montada.entrada) };
+}
+
+export function simularCobertura(estado: EstadoBruto, agoraMs: number, opcoes: { sugerir: boolean } = { sugerir: false }): SimulacaoCobertura {
+  const { montada, entrada, resultado } = simularSemana(estado, agoraMs);
+  const analisados = entrada.slots.slice(entrada.aPartirDe);
+
+  const { cobertura: atual, candidatos } = analisarCobertura(entrada, resultado);
+
+  const haAdicional = entrada.pools.some((p) => (p.adicionalMax ?? 0) > 0);
+  const baseEntrada = semAdicional(entrada);
+  const somentePrevisto = haAdicional ? analisarCobertura(baseEntrada, gerarEscala(baseEntrada)).cobertura : atual;
+
+  const verificados = recursosCompativeisVerificados(entrada, atual, candidatos);
+
+  const incompletos = new Set<string>();
+  const etapasSemMaquina: EtapaSemMaquina[] = [];
+  montada.avisos.forEach((a) => {
+    if (a.tipo !== "etapa_sem_maquina" || !a.produtoId || !a.etapaId) return;
+    incompletos.add(a.produtoId);
+    etapasSemMaquina.push({ produtoId: a.produtoId, etapaId: a.etapaId, compativeis: [...(estado.etapas.find((e) => e.id === a.etapaId)?.maquinasCompativeis ?? [])].sort() });
+  });
+
+  const adicional: AdicionalProduto[] = [];
+  const porProduto = new Map<string, typeof entrada.pools>();
+  entrada.pools.forEach((p) => {
+    if (!porProduto.has(p.produtoId)) porProduto.set(p.produtoId, []);
+    porProduto.get(p.produtoId)!.push(p);
+  });
+  [...porProduto.keys()].sort().forEach((produtoId) => {
+    const pools = porProduto.get(produtoId)!;
+    const porEtapa = pools.map((p) => ({ etapaId: p.etapaId, absorvido: resultado.adicionalProduzido[chavePool(p.produtoId, p.etapaId)] ?? 0 }));
+    adicional.push({
+      produtoId,
+      previsto: Math.max(...pools.map((p) => p.quantidade)),
+      adicionalProgramado: Math.max(...pools.map((p) => p.adicionalMax ?? 0)),
+      adicionalAbsorvido: Math.min(...porEtapa.map((e) => e.absorvido)),
+      porEtapa,
+    });
+  });
+
+  let sugestao: SimulacaoCobertura["sugestao"] = null;
+  if (opcoes.sugerir) {
+    const s = sugerirAdicional(baseEntrada, { produtosIncompletos: incompletos });
+    const rS = gerarEscala(s.entradaComSugestao);
+    const { cobertura: coberturaApos, candidatos: candidatosApos } = analisarCobertura(s.entradaComSugestao, rS);
+    const restantes = recursosCompativeisVerificados(s.entradaComSugestao, coberturaApos, candidatosApos);
+    const detalhadas: SugestaoProdutoDetalhada[] = s.porProduto.map((p) => {
+      const pool = baseEntrada.pools.find((x) => x.produtoId === p.produtoId && x.etapaId === p.etapaLimitanteId);
+      return { ...p, recursosEtapaLimitante: pool ? (pool.maquinasCompativeisIds ?? []).filter((m) => !pool.maquinasIds.includes(m)) : [] };
+    });
+    sugestao = {
+      porProduto: detalhadas,
+      totalPecas: s.totalPecas,
+      valorPotencial: s.valorPotencial,
+      iteracoes: s.iteracoes,
+      coberturaApos,
+      recursosRestantes: restantes.itens,
+      recursosRestantesCombinado: restantes.combinado,
+    };
+  }
+
+  const etapas: Record<string, string> = {};
+  estado.etapas.forEach((e) => {
+    etapas[e.id] = `${estado.nomesOperacao[e.operacaoId] ?? "Etapa"} (etapa ${e.ordem})`;
+  });
+
+  return {
+    semanaInicio: estado.semanaInicio,
+    primeiroPeriodoAnalisado: analisados[0] ? { data: analisados[0].data, periodoId: analisados[0].periodoId } : null,
+    periodosAnalisados: analisados.length,
+    atual,
+    somentePrevisto,
+    recursosCompativeis: verificados.itens,
+    recursosCombinado: verificados.combinado,
+    etapasSemMaquina,
+    adicional,
+    sugestao,
+    nomes: { maquinas: estado.nomesMaquinas ?? {}, produtos: estado.nomesProdutos ?? {}, etapas },
+  };
+}
