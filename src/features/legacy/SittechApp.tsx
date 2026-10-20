@@ -56,6 +56,8 @@ import Sidebar from "@/components/shell/Sidebar";
 import LoginScreen from "@/components/shell/LoginScreen";
 import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import TopBarActions from "@/components/shell/TopBarActions";
+import ExcluirFuncionarioModal from "@/features/funcionarios/ExcluirFuncionarioModal";
+import { formatarData } from "@/features/funcionarios/exclusao";
 import AccountModal from "@/components/shell/AccountModal";
 import {
   calcularPeriodosComDuracao, filtrarPeriodosValidos, calcularHorasPorDia,
@@ -545,9 +547,20 @@ export default function SittechApp() {
   function toggleFuncAtivo(id) {
     funcionariosHook.alternarFuncionarioAtivo(id);
   }
+  // Excluir funcionário: somente administrador, por fluxo controlado no backend (resumo -> simulação ->
+  // confirmação). O navegador NUNCA faz DELETE direto em `funcionarios`.
+  const [funcExcluindoId, setFuncExcluindoId] = useState(null);
+  const ehAdmin = usuarioLogado?.papel === "admin";
   function deleteFunc(id) {
-    funcionariosHook.removerFuncionario(id);
+    if (!ehAdmin) return;
+    setFuncExcluindoId(id);
   }
+  // nomes repetidos: o card mostra a data de cadastro para diferenciar os cadastros
+  const nomesRepetidos = (() => {
+    const cont = new Map();
+    funcionariosHook.funcionarios.forEach((f) => { const k = f.nome.trim().toLowerCase(); cont.set(k, (cont.get(k) || 0) + 1); });
+    return new Set([...cont].filter(([, n]) => n > 1).map(([k]) => k));
+  })();
   function duplicateFunc(f) {
     funcionariosHook.duplicarFuncionario(f);
   }
@@ -1032,6 +1045,13 @@ export default function SittechApp() {
       />
       {cadastrosBase.erro && <p className="stx-save-error">{cadastrosBase.erro}</p>}
       {funcionariosHook.erro && <p className="stx-save-error">{funcionariosHook.erro}</p>}
+      {funcExcluindoId && ehAdmin && (
+        <ExcluirFuncionarioModal
+          funcionarioId={funcExcluindoId}
+          onFechar={() => setFuncExcluindoId(null)}
+          onConcluido={() => { void funcionariosHook.recarregarFuncionarios(); }}
+        />
+      )}
       {maquinasHook.erro && <p className="stx-save-error">{maquinasHook.erro}</p>}
       {produtosHook.erro && <p className="stx-save-error">{produtosHook.erro}</p>}
       {previsoesHook.erro && <p className="stx-save-error">{previsoesHook.erro}</p>}
@@ -1312,6 +1332,9 @@ export default function SittechApp() {
                         {f.descricao}
                         {!f.ativo && <span className="stx-badge">pausado</span>}
                       </p>
+                      {nomesRepetidos.has(f.nome.trim().toLowerCase()) && f.criadoEm && (
+                        <p className="stx-func-itens">Nome repetido — cadastrado em {formatarData(f.criadoEm)}</p>
+                      )}
                       <p className="stx-entry-meta">{f.categoria}</p>
                     </div>
                     <div className="stx-entry-right">
@@ -1565,7 +1588,7 @@ export default function SittechApp() {
                       </button>
                       <button className="stx-icon-btn" title="Duplicar" onClick={() => duplicateFunc(f)}>⧉</button>
                       <button className="stx-icon-btn" title="Editar" onClick={() => editFunc(f)}>✎</button>
-                      <button className="stx-icon-btn danger" title="Excluir" onClick={() => deleteFunc(f.id)}>✕</button>
+                      {ehAdmin && <button className="stx-icon-btn danger" title="Excluir ou unificar funcionário (somente administrador)" onClick={() => deleteFunc(f.id)}>✕</button>}
                     </div>
                   </div>
                   <div className="stx-func-rates">

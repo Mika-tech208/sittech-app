@@ -29,6 +29,7 @@ export interface FuncionarioCusto {
 export interface Funcionario {
   id: string;
   nome: string;
+  criadoEm?: string; // created_at do cadastro (diferencia dois funcionários de mesmo nome)
   operacao: string;
   salarioBase: number;
   ativo: boolean;

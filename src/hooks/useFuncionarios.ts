@@ -35,6 +35,7 @@ interface FuncionarioPayload {
 interface FuncionarioRow {
   id: string;
   nome: string;
+  created_at: string;
   salario_base: number;
   ativo: boolean;
   operacoes: { nome: string } | null;
@@ -47,6 +48,25 @@ async function resolverOperacaoId(nome: string): Promise<string | null> {
   return data.id;
 }
 
+async function buscarFuncionarios(): Promise<{ lista: Funcionario[] | null }> {
+  const { data, error } = await supabase
+    .from("funcionarios")
+    .select("id, nome, created_at, salario_base, ativo, operacoes(nome), funcionario_custos(id, descricao, valor)")
+    .order("created_at");
+  if (error) return { lista: null };
+  return {
+    lista: ((data || []) as unknown as FuncionarioRow[]).map((f) => ({
+      id: f.id,
+      nome: f.nome,
+      criadoEm: f.created_at,
+      operacao: f.operacoes?.nome || "",
+      salarioBase: Number(f.salario_base),
+      ativo: f.ativo,
+      custos: (f.funcionario_custos || []).map((c) => ({ id: c.id, descricao: c.descricao, valor: Number(c.valor) })),
+    })),
+  };
+}
+
 export function useFuncionarios(pronto: boolean) {
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,30 +76,21 @@ export function useFuncionarios(pronto: boolean) {
     if (!pronto) return;
     let montado = true;
     (async () => {
-      const { data, error } = await supabase
-        .from("funcionarios")
-        .select("id, nome, salario_base, ativo, operacoes(nome), funcionario_custos(id, descricao, valor)")
-        .order("created_at");
+      const r = await buscarFuncionarios();
       if (!montado) return;
-      if (error) {
-        setErro("Não foi possível carregar os funcionários.");
-        setLoading(false);
-        return;
-      }
-      setFuncionarios(
-        ((data || []) as unknown as FuncionarioRow[]).map((f) => ({
-          id: f.id,
-          nome: f.nome,
-          operacao: f.operacoes?.nome || "",
-          salarioBase: Number(f.salario_base),
-          ativo: f.ativo,
-          custos: (f.funcionario_custos || []).map((c) => ({ id: c.id, descricao: c.descricao, valor: Number(c.valor) })),
-        }))
-      );
+      if (!r.lista) setErro("Não foi possível carregar os funcionários.");
+      else setFuncionarios(r.lista);
       setLoading(false);
     })();
     return () => { montado = false; };
   }, [pronto]);
+
+  // depois de excluir/unificar no backend: relê a lista (a exclusão nunca é feita pelo navegador)
+  const recarregarFuncionarios = useCallback(async () => {
+    const r = await buscarFuncionarios();
+    if (!r.lista) setErro("Não foi possível recarregar os funcionários.");
+    else setFuncionarios(r.lista);
+  }, []);
 
   const criarFuncionario = useCallback(async (payload: FuncionarioPayload): Promise<Funcionario | null> => {
     const operacaoId = await resolverOperacaoId(payload.operacao);
@@ -90,7 +101,7 @@ export function useFuncionarios(pronto: boolean) {
     const { data: funcRow, error } = await supabase
       .from("funcionarios")
       .insert({ nome: payload.nome, operacao_id: operacaoId, salario_base: payload.salarioBase, ativo: payload.ativo ?? true })
-      .select("id, nome, salario_base, ativo")
+      .select("id, nome, salario_base, ativo, created_at")
       .single();
     if (error || !funcRow) {
       setErro("Não foi possível criar o funcionário.");
@@ -106,7 +117,7 @@ export function useFuncionarios(pronto: boolean) {
       else custosSalvos = (custosRows || []).map((c) => ({ id: c.id, descricao: c.descricao, valor: Number(c.valor) }));
     }
     const novo: Funcionario = {
-      id: funcRow.id, nome: funcRow.nome, operacao: payload.operacao,
+      id: funcRow.id, nome: funcRow.nome, criadoEm: funcRow.created_at, operacao: payload.operacao,
       salarioBase: Number(funcRow.salario_base), ativo: funcRow.ativo, custos: custosSalvos,
     };
     setFuncionarios((prev) => [...prev, novo]);
@@ -163,15 +174,9 @@ export function useFuncionarios(pronto: boolean) {
     if (error) setErro("Não foi possível atualizar o funcionário.");
   }, [funcionarios]);
 
-  const removerFuncionario = useCallback(async (id: string) => {
-    setFuncionarios((prev) => prev.filter((f) => f.id !== id));
-    const { error } = await supabase.from("funcionarios").delete().eq("id", id);
-    if (error) setErro("Não foi possível excluir o funcionário.");
-  }, []);
-
   return {
     funcionarios, loading, erro,
-    criarFuncionario, atualizarFuncionario, duplicarFuncionario, alternarFuncionarioAtivo, removerFuncionario,
+    criarFuncionario, atualizarFuncionario, duplicarFuncionario, alternarFuncionarioAtivo, recarregarFuncionarios,
   };
 }
 
