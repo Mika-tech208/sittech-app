@@ -459,6 +459,11 @@ begin
 end;
 $$;
 
+-- a simulação de cobertura (servidor, service_role) lê o roteiro (máquinas compatíveis) e os nomes
+grant select on public.roteiro_etapa_maquinas to service_role;
+grant select on public.produtos to service_role;
+grant select on public.maquinas to service_role;
+
 grant execute on function public.upsert_previsao_semana(date, jsonb, jsonb, jsonb, jsonb, jsonb) to authenticated;
 grant execute on function public.escala_aplicar_recalculo(uuid, jsonb, date, text, jsonb, uuid, uuid[], jsonb, date[]) to service_role;
 revoke all on function public.escala_trocar_alocacoes(date, text, uuid, uuid, text) from public, anon;

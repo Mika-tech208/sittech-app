@@ -12,19 +12,10 @@ import { criarClienteAdmin } from "@/lib/supabase-admin";
 import { autenticarRequisicaoIntelligence } from "@/features/intelligence/auth";
 import { temPermissao } from "@/lib/permissoes";
 import { criarEscalaIO, resolverPrevisaoPorSemana } from "@/lib/escala/supabaseIO";
-import { simularCobertura } from "@/lib/escala/simularCobertura";
-import type { ItemPrevistoBruto } from "@/lib/escala/estado";
+import { aplicarRascunhoItens, RascunhoInvalidoError, simularCobertura } from "@/lib/escala/simularCobertura";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
-
-interface ItemRascunho {
-  produto_id?: string;
-  quantidade?: number;
-  quantidade_adicional?: number;
-  valor_unitario?: number;
-  maquinas_por_etapa?: Record<string, string[]>;
-}
 
 export async function POST(request: Request) {
   const auth = await autenticarRequisicaoIntelligence(request);
@@ -40,25 +31,15 @@ export async function POST(request: Request) {
     const previsaoId = await resolverPrevisaoPorSemana(admin, semana);
     if (!previsaoId) return NextResponse.json({ erro: "Salve a Previsão desta semana antes de analisar a cobertura." }, { status: 404 });
 
-    const estado = await criarEscalaIO(admin, previsaoId).carregarEstado();
-
+    const estadoBase = await criarEscalaIO(admin, previsaoId).carregarEstado();
+    let estado = estadoBase;
     if (Array.isArray(body.itens)) {
-      const salvos = new Map(estado.itens.map((i) => [i.produtoId, i]));
-      const itens: ItemPrevistoBruto[] = [];
-      for (const it of body.itens as ItemRascunho[]) {
-        if (typeof it.produto_id !== "string") continue;
-        const salvo = salvos.get(it.produto_id);
-        const adicional = Number(it.quantidade_adicional ?? 0);
-        if (!Number.isFinite(adicional) || adicional < 0) return NextResponse.json({ erro: "Quantidade adicional inválida." }, { status: 400 });
-        itens.push({
-          produtoId: it.produto_id,
-          quantidade: Number(it.quantidade ?? salvo?.quantidade ?? 0),
-          quantidadeAdicional: adicional,
-          valorUnitario: Number(it.valor_unitario ?? salvo?.valorUnitario ?? 0),
-          maquinasPorEtapa: it.maquinas_por_etapa ?? salvo?.maquinasPorEtapa ?? {},
-        });
+      try {
+        estado = aplicarRascunhoItens(estadoBase, body.itens);
+      } catch (e) {
+        if (e instanceof RascunhoInvalidoError) return NextResponse.json({ erro: e.message }, { status: 400 });
+        throw e;
       }
-      estado.itens = itens;
     }
 
     const resultado = simularCobertura(estado, Date.now(), { sugerir: body.sugerir === true });

@@ -58,6 +58,39 @@ function semAdicional(e: EntradaEscala): EntradaEscala {
   return { ...e, pools: e.pools.map((p) => ({ ...p, adicionalMax: 0 })) };
 }
 
+export interface ItemRascunho {
+  produto_id?: string;
+  quantidade?: number;
+  quantidade_adicional?: number;
+  valor_unitario?: number;
+  maquinas_por_etapa?: Record<string, string[]>;
+}
+
+export class RascunhoInvalidoError extends Error {}
+
+// Itens da Previsão EM EDIÇÃO (modo simulação ou carga adicional digitada e ainda não salva) no lugar
+// dos itens salvos — só para simular; nunca grava. Campo ausente cai no valor salvo do produto.
+export function aplicarRascunhoItens(estado: EstadoBruto, itens: ItemRascunho[]): EstadoBruto {
+  const salvos = new Map(estado.itens.map((i) => [i.produtoId, i]));
+  const novos: EstadoBruto["itens"] = [];
+  for (const it of itens) {
+    if (typeof it.produto_id !== "string") continue;
+    const salvo = salvos.get(it.produto_id);
+    const adicional = Number(it.quantidade_adicional ?? 0);
+    const quantidade = Number(it.quantidade ?? salvo?.quantidade ?? 0);
+    if (!Number.isFinite(adicional) || adicional < 0) throw new RascunhoInvalidoError("Quantidade adicional inválida.");
+    if (!Number.isFinite(quantidade) || quantidade < 0) throw new RascunhoInvalidoError("Quantidade inválida.");
+    novos.push({
+      produtoId: it.produto_id,
+      quantidade,
+      quantidadeAdicional: adicional,
+      valorUnitario: Number(it.valor_unitario ?? salvo?.valorUnitario ?? 0),
+      maquinasPorEtapa: it.maquinas_por_etapa ?? salvo?.maquinasPorEtapa ?? {},
+    });
+  }
+  return { ...estado, itens: novos };
+}
+
 // O MESMO caminho que gera a Escala: estado -> entrada do motor -> motor. Sem gravar nada.
 export function simularSemana(estado: EstadoBruto, agoraMs: number) {
   const montada = montarEntradaEscala(estado, agoraMs);
@@ -125,7 +158,7 @@ export function simularCobertura(estado: EstadoBruto, agoraMs: number, opcoes: {
 
   const etapas: Record<string, string> = {};
   estado.etapas.forEach((e) => {
-    etapas[e.id] = `${estado.nomesOperacao[e.operacaoId] ?? "Etapa"} (etapa ${e.ordem})`;
+    etapas[e.id] = estado.nomesOperacao[e.operacaoId] ?? "Etapa";
   });
 
   return {

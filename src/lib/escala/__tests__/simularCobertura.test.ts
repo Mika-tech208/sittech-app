@@ -3,7 +3,7 @@ import { PERIODOS_REAIS } from "@/features/escala/__tests__/helpers";
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import type { EstadoBruto, PayloadAplicacao } from "../estado";
 import { processarSemana, type EscalaIO } from "../processar";
-import { simularCobertura, simularSemana } from "../simularCobertura";
+import { aplicarRascunhoItens, RascunhoInvalidoError, simularCobertura, simularSemana } from "../simularCobertura";
 
 const D1 = "2026-10-26";
 const D2 = "2026-10-27";
@@ -127,5 +127,40 @@ describe("simularCobertura — resultado para a tela", () => {
     const r = simularCobertura(estado(), epochMsNoFuso("2026-11-10", "10:00"));
     expect(r.periodosAnalisados).toBe(0);
     expect(r.atual.percentual).toBe(100);
+  });
+});
+
+describe("itens em edição (modo simulação / adicional digitado e ainda não salvo)", () => {
+  it("substitui os itens só para simular: adicional e quantidade novos entram; o estado original não é alterado", () => {
+    const base = estado();
+    const antes = JSON.stringify(base);
+    const e2 = aplicarRascunhoItens(base, [{ produto_id: "p1", quantidade: 600, quantidade_adicional: 1500 }]);
+    expect(JSON.stringify(base)).toBe(antes);
+    expect(e2.itens).toHaveLength(1);
+    expect(e2.itens[0]).toMatchObject({ produtoId: "p1", quantidade: 600, quantidadeAdicional: 1500 });
+    // campo ausente cai no valor salvo do produto (máquinas, valor)
+    expect(e2.itens[0].maquinasPorEtapa).toEqual({ e1: ["m1"], e2: ["m3"] });
+    expect(e2.itens[0].valorUnitario).toBe(2);
+  });
+
+  it("a consequência muda ao editar: mais adicional digitado => menos horas sem posto", () => {
+    const base = estado();
+    const zero = simularCobertura(aplicarRascunhoItens(base, [{ produto_id: "p1", quantidade: 600, quantidade_adicional: 0 }]), AGORA);
+    const mil = simularCobertura(aplicarRascunhoItens(base, [{ produto_id: "p1", quantidade: 600, quantidade_adicional: 1000 }]), AGORA);
+    expect(mil.atual.minutosSemPosto).toBeLessThan(zero.atual.minutosSemPosto);
+  });
+
+  it("valores inválidos são recusados (negativo / não numérico)", () => {
+    expect(() => aplicarRascunhoItens(estado(), [{ produto_id: "p1", quantidade_adicional: -1 }])).toThrow();
+    expect(() => aplicarRascunhoItens(estado(), [{ produto_id: "p1", quantidade_adicional: Number.NaN }])).toThrow();
+    try {
+      aplicarRascunhoItens(estado(), [{ produto_id: "p1", quantidade: -5 }]);
+    } catch (e) {
+      expect(e instanceof RascunhoInvalidoError).toBe(true);
+    }
+  });
+
+  it("produto sem produto_id é ignorado", () => {
+    expect(aplicarRascunhoItens(estado(), [{ quantidade: 10 }]).itens).toHaveLength(0);
   });
 });

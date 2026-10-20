@@ -39,6 +39,7 @@ import StatusProgramacao from "@/features/previsao/components/StatusProgramacao"
 import ProdutosProgramados from "@/features/previsao/components/ProdutosProgramados";
 import AjustarCapacidadeModal from "@/features/previsao/components/AjustarCapacidadeModal";
 import DiasEEquipeSemana from "@/features/previsao/components/DiasEEquipeSemana";
+import CoberturaEquipe from "@/features/previsao/components/CoberturaEquipe";
 import {
   diasDaSemana, resolverDiasProdutivos, alternarDia, resolverEquipeProdutiva, alternarMembro, marcarTodos, definirOperacao,
 } from "@/features/capacidade/diasEEquipe";
@@ -258,6 +259,13 @@ export default function PrevisaoSemanalPage() {
   }
   async function deletePrevItem(id: string) {
     await upsertSemana({ itens: semanaAtualRec.itens.filter((it) => it.id !== id) });
+  }
+
+  // ---- carga adicional (camada separada do previsto) ----
+  // Só grava `quantidadeAdicional`; o previsto (`quantidade`) segue exatamente como estava.
+  async function salvarAdicional(porItemId: Record<string, number>): Promise<boolean> {
+    const itens = semanaAtualRec.itens.map((it) => ({ ...it, quantidadeAdicional: porItemId[it.id] ?? it.quantidadeAdicional ?? 0 }));
+    return upsertSemana({ itens });
   }
 
   // ---- ajuste automático pra capacidade ----
@@ -523,6 +531,16 @@ export default function PrevisaoSemanalPage() {
                   horasPorDia={horasPorDiaCalc}
                   horasPorMaquinaSemana={horasPorMaquinaSemana}
                 />
+
+                {semanaAtualRec.itens.length > 0 && (
+                  <CoberturaEquipe
+                    semanaInicio={semanaAtual}
+                    itens={itensParaAnalise}
+                    modoSimulacao={modoSimulacao}
+                    salvando={salvandoConfigSemana}
+                    onSalvarAdicional={salvarAdicional}
+                  />
+                )}
 
                 <ItensPrevistos
                   loading={previsoesHook.loading}

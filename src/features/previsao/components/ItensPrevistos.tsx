@@ -211,6 +211,11 @@ export default function ItensPrevistos({
                   {it.quantidade} × {formatBRL(it.valorUnitario)}
                   {viab.funcionariosNecessarios > 0 && ` · usa ${viab.funcionariosNecessarios} máquina${viab.funcionariosNecessarios > 1 ? "s" : ""} → precisa de ${viab.funcionariosNecessarios} funcionário${viab.funcionariosNecessarios > 1 ? "s" : ""}`}
                 </p>
+                {(it.quantidadeAdicional ?? 0) > 0 && (
+                  <p className="stx-entry-meta">
+                    Adicional (camada separada): +{(it.quantidadeAdicional ?? 0).toLocaleString("pt-BR")} · Total programado: {(it.quantidade + (it.quantidadeAdicional ?? 0)).toLocaleString("pt-BR")} — o previsto acima não muda.
+                  </p>
+                )}
               </div>
               <div className="stx-entry-right">
                 <span className="stx-entry-value">{formatBRL(it.quantidade * it.valorUnitario)}</span>
