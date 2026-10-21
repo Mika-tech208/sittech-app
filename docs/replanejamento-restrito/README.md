@@ -114,3 +114,9 @@ Desfazer uma aplicação: `select escala_replanejamento_reverter('<id da aplica�
 
 ## 12. Registro: Previsão alterada às 10:08
 Conector 1.1/4": 12.150 → 10.200 pç. Explica a linha de base com 31 ociosos (não é erro do motor): o plano foi gerado com a Previsão anterior e a versão temporal do plano (`escala_plano_versoes`) preserva qual Previsão valia em cada instante. Com o WIP flexível programado, a base de 26/10 ficou em 2 ociosos.
+
+## 13. Publicação em PROD (21/10, em modo sombra)
+- Backup fresco: `backups/prod/sittech-prod-20261021-123841.sql` (pg_dump pelo pooler, 93 tabelas). Migration `20261027100000` ensaiada em PROD dentro de `BEGIN…ROLLBACK` e depois aplicada **antes** do código.
+- Guard após a migration e após o deploy: hash de todas as alocações `5052679643427ec9907d95aa31261ea3` (803 linhas, 0 exceções) idêntico antes/depois; `replanejamento_modo="sombra"`, `revezamento_modo="duro"`, `wip_modo="ativo"`, `replanejamento_semanas_ativas=[]`; `escala_replanejamentos` vazia (nenhuma escrita do novo serviço).
+- Código: `main` = `6a9830b` (deploy Vercel `sittech-ij1r6n1c7`). Observação operacional: deploys pela CLI saem **Blocked** neste projeto; só o deploy pela integração Git funciona e chega com ~15 min de atraso.
+- Achados do aquecimento com as 2 decisões reais de PROD (21/10 M2 e M3, gravadas antes do código novo): (1) o validador de revezamento conferia o histórico executado inteiro e recusava toda proposta por repetições antigas — agora só confere os pares que a proposta cria; (2) a ociosidade usava uma heurística própria e dava `outro` em ~60 % — agora usa o motivo exato registrado pelo motor (nas 2 decisões: 100 % `nenhuma_maquina_compativel`). Com isso, “se estivesse em ativo_restrito”: APLICAR nas duas (reparo obrigatório do comprometido; falta −19.380 e −24.212 pç; ~200 linhas), sem violações.
