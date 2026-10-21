@@ -12,7 +12,7 @@
 //    (o período em andamento e os concluídos ficam congelados).
 
 import { construirSlotsDeDias, epochMsNoFuso, primeiroSlotFuturo } from "@/features/escala/tempo";
-import { janelaDaAusencia } from "./ausenciaAberta";
+import { fimDaJornadaMin, janelaDaAusencia } from "./ausenciaAberta";
 import type { EntradaEscala, PeriodoEscala, PoolEscala } from "@/features/escala/types";
 import { wipDiasLimiteDaSemana } from "@/features/escala/parametros";
 import { calcularLimitesWip } from "@/features/escala/wip";
@@ -148,7 +148,7 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
   const ausencias = estado.ausencias.map((a) => ({
     funcionarioId: a.funcionarioId,
     data: a.data,
-    ...janelaDaAusencia(a),
+    ...janelaDaAusencia(a, fimDaJornadaMin(existentes.get(a.data)?.periodosSnapshot ?? estado.periodosAtuais)),
   }));
 
   // ---- indisponibilidades de recurso (ISO -> ms) ----

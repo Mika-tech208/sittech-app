@@ -3,7 +3,15 @@
 import { minutosDoHorario } from "@/features/escala/tempo";
 import type { AusenciaBruta, AusenciaHistorico } from "./estado";
 
+// Fallback conservador quando o dia não tem períodos conhecidos (não ocorre na Escala: todo dia tem snapshot ou períodos atuais).
 export const FIM_DO_DIA_MIN = 24 * 60;
+
+// Fim da jornada do dia = o fim do último período do snapshot daquele dia (hoje 17:00). É o limite OPERACIONAL do atraso em aberto no motor;
+// o banco continua com horario_fim = NULL enquanto estiver aberto (17:00 só é gravado no fechamento).
+export function fimDaJornadaMin(periodos: { fim: string }[]): number {
+  if (periodos.length === 0) return FIM_DO_DIA_MIN;
+  return Math.max(...periodos.map((p) => minutosDoHorario(p.fim)));
+}
 
 interface LinhaHistoricoBruta {
   alterado_em: string;
@@ -41,9 +49,10 @@ export function ausenciaNoCorte(a: AusenciaBruta, corteMs: number): AusenciaBrut
   return atual;
 }
 
-// Janela [inicio, fim) em minutos do dia; null/null = dia inteiro. Em aberto: do início até o fim do dia — NUNCA dia inteiro, NUNCA 07:12–24:00 gravado.
-export function janelaDaAusencia(a: Pick<AusenciaBruta, "horarioInicio" | "horarioFim" | "emAberto">): { inicioMin: number | null; fimMin: number | null } {
-  if (a.emAberto && a.horarioInicio) return { inicioMin: minutosDoHorario(a.horarioInicio), fimMin: FIM_DO_DIA_MIN };
+// Janela [inicio, fim) em minutos do dia; null/null = dia inteiro. Em aberto: do início até o FIM DA JORNADA do dia (`fimJornadaMin`) — NUNCA dia inteiro,
+// nunca 07:12–24:00 e nada gravado no banco (horario_fim segue NULL).
+export function janelaDaAusencia(a: Pick<AusenciaBruta, "horarioInicio" | "horarioFim" | "emAberto">, fimJornadaMin: number = FIM_DO_DIA_MIN): { inicioMin: number | null; fimMin: number | null } {
+  if (a.emAberto && a.horarioInicio) return { inicioMin: minutosDoHorario(a.horarioInicio), fimMin: fimJornadaMin };
   if (a.horarioInicio && a.horarioFim) return { inicioMin: minutosDoHorario(a.horarioInicio), fimMin: minutosDoHorario(a.horarioFim) };
   return { inicioMin: null, fimMin: null };
 }

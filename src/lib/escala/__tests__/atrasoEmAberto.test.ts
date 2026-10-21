@@ -3,7 +3,8 @@
 import { describe, it, expect } from "vitest";
 import { gerarEscala } from "@/features/escala/gerarEscala";
 import { epochMsNoFuso } from "@/features/escala/tempo";
-import { ausenciaNoCorte, FIM_DO_DIA_MIN, historicoDaAusencia, janelaDaAusencia } from "../ausenciaAberta";
+import { ausenciaNoCorte, fimDaJornadaMin, FIM_DO_DIA_MIN, historicoDaAusencia, janelaDaAusencia } from "../ausenciaAberta";
+import { PERIODOS_REAIS } from "@/features/escala/__tests__/helpers";
 import type { AusenciaBruta } from "../estado";
 import { montarEntradaEscala } from "../montarEntrada";
 import { estadoNoCorte } from "../sombraServico";
@@ -25,13 +26,22 @@ function periodosDe(aus: AusenciaBruta[], agoraMs = epochMsNoFuso("2026-10-30", 
 }
 
 describe("janela da ausência (montarEntrada)", () => {
-  it("em aberto: [início, 24:00) — nunca dia inteiro e nunca 07:12–24:00 gravado (o banco guarda horario_fim NULL)", () => {
-    expect(janelaDaAusencia({ horarioInicio: "07:12:00", horarioFim: null, emAberto: true })).toEqual({ inicioMin: 432, fimMin: FIM_DO_DIA_MIN });
-    expect(janelaDaAusencia({ horarioInicio: "13:00:00", horarioFim: null, emAberto: true })).toEqual({ inicioMin: 780, fimMin: FIM_DO_DIA_MIN });
+  it("em aberto: [início, FIM DA JORNADA) — nunca dia inteiro, nunca 24:00 e nada gravado (o banco guarda horario_fim NULL)", () => {
+    expect(janelaDaAusencia({ horarioInicio: "07:12:00", horarioFim: null, emAberto: true }, 17 * 60)).toEqual({ inicioMin: 432, fimMin: 1020 });
+    expect(janelaDaAusencia({ horarioInicio: "13:00:00", horarioFim: null, emAberto: true }, 17 * 60)).toEqual({ inicioMin: 780, fimMin: 1020 });
     const e = estadoDeTeste(SEMANA, DIAS);
     e.ausencias = [aberto("07:12:00")];
     const a = montarEntradaEscala(e, epochMsNoFuso("2026-10-30", "10:00")).entrada.ausencias;
-    expect(a).toEqual([{ funcionarioId: F, data: SEMANA, inicioMin: 432, fimMin: 1440 }]);
+    expect(a).toEqual([{ funcionarioId: F, data: SEMANA, inicioMin: 432, fimMin: 1020 }]);
+  });
+  it("o fim da jornada vem do snapshot do DIA (jornada diferente => limite diferente); sem períodos, cai no fim do dia", () => {
+    expect(fimDaJornadaMin(PERIODOS_REAIS)).toBe(1020);
+    expect(fimDaJornadaMin([{ fim: "12:00" }, { fim: "16:30" }])).toBe(990);
+    expect(fimDaJornadaMin([])).toBe(FIM_DO_DIA_MIN);
+    const e = estadoDeTeste(SEMANA, DIAS);
+    e.ausencias = [aberto("07:12:00")];
+    e.diasExistentes = [{ data: SEMANA, versao: 0, periodosSnapshot: PERIODOS_REAIS.map((p) => (p.id === "t3" ? { ...p, fim: "16:30" } : p)) }];
+    expect(montarEntradaEscala(e, epochMsNoFuso("2026-10-30", "10:00")).entrada.ausencias[0].fimMin).toBe(990);
   });
   it("fechado: janela exata [início, chegada); null/null segue sendo dia inteiro (falta)", () => {
     expect(janelaDaAusencia({ horarioInicio: "07:12:00", horarioFim: "08:03:00" })).toEqual({ inicioMin: 432, fimMin: 483 });
@@ -111,6 +121,21 @@ describe("como era no corte (sombra / hindsight)", () => {
     expect(x.emAberto).toBe(false);
     expect(x.horarioFim).toBe("08:03:00");
     expect(janelaDaAusencia(x)).toEqual({ inicioMin: 450, fimMin: 483 });
+  });
+  it("sem hindsight: snapshot das 08:30 vê o funcionário INDISPONÍVEL (aberto até o fim da jornada); a chegada das 08:40 não o altera; o corte posterior vê o atraso encerrado às 08:40", () => {
+    const h = historicoDaAusencia([
+      { alterado_em: T("07:20"), dados_anteriores: {} },
+      { alterado_em: T("08:40"), dados_anteriores: { horario_inicio: "07:12:00", horario_fim: null, em_aberto: true } },
+    ]);
+    const a: AusenciaBruta = { funcionarioId: F, data: SEMANA, horarioInicio: "07:12:00", horarioFim: "08:40:00", emAberto: false, registradaEm: T("07:20"), historico: h };
+    const e = estadoDeTeste(SEMANA, DIAS);
+    e.ausencias = [a];
+    const janela = (corte: string) => montarEntradaEscala(estadoNoCorte(e, ms(corte)), ms(corte)).entrada.ausencias.find((x) => x.funcionarioId === F);
+    expect(janela("08:30")).toEqual({ funcionarioId: F, data: SEMANA, inicioMin: 432, fimMin: 1020 }); // aberto: [07:12, 17:00)
+    expect(janela("08:30")).toEqual(janela("08:39")); // nada muda até a chegada
+    expect(janela("08:45")).toEqual({ funcionarioId: F, data: SEMANA, inicioMin: 432, fimMin: 520 }); // encerrado às 08:40: [07:12, 08:40)
+    // a decisão do corte 08:30 é reproduzível depois da chegada (mesma entrada canônica)
+    expect(JSON.stringify(janela("08:30"))).toBe(JSON.stringify(montarEntradaEscala(estadoNoCorte(e, ms("08:30")), ms("08:30")).entrada.ausencias.find((x) => x.funcionarioId === F)));
   });
   it("fechamento automático: snapshot das 16:00 vê aberto; o das 17:30 vê fechado até 17:00", () => {
     const h = historicoDaAusencia([

@@ -4,7 +4,7 @@ Status: **implementado em DEV/Preview. Nada em PROD.** Migration `20261028100000
 
 ## 1. Regra
 - Atraso em aberto = `funcionário + data + horário inicial`, `horario_fim = NULL`, `em_aberto = true`. Nunca é gravado/mostrado como "07:12–24:00".
-- Para conflito de ausências e para a Escala: indisponível de `horario_inicio` **até o fim da jornada daquele dia** (`[início, 17:00)` no banco; `[início, 24:00)` no motor, o que é equivalente porque não há período depois de 17:00).
+- Para conflito de ausências e para a Escala: indisponível de `horario_inicio` **até o fim da jornada daquele dia** (`[início, 17:00)` no banco e no motor; o motor usa o fim do último período do snapshot do dia como limite operacional — nada é gravado enquanto aberto, `horario_fim` segue NULL).
 - **Cada dia é independente.** Um atraso nunca é carregado para o dia seguinte: ao fim da jornada (17:00) ele é fechado automaticamente.
 - No máximo **um** atraso em aberto por funcionário+data (índice único parcial). Vários funcionários podem estar em aberto ao mesmo tempo.
 - Atraso após o almoço é permitido (início 13:00): sem chegada, vale 13:00–17:00 — **não** é falta do dia inteiro.
@@ -32,7 +32,7 @@ RPCs (security invoker, mesma permissão `ausencias_funcionarios`):
 - O fim efetivo é sempre o fim da jornada (17:00), o `encerrada_em` registra quando o sistema realmente processou, e o histórico mostra que começou aberto e que nenhuma chegada foi registrada.
 
 ## 4. Escala
-- `montarEntrada`: aberto → janela `[início, 24:00)` (nunca "dia inteiro"); fechado → janela exata `[início, chegada)`; `null/null` segue sendo falta (dia inteiro). Regra do motor inalterada: sobreposição com qualquer parte do período = indisponível no período inteiro.
+- `montarEntrada`: aberto → janela `[início, fim da jornada do dia)` (17:00 hoje; nunca "dia inteiro" e nunca gravada); fechado → janela exata `[início, chegada)`; `null/null` segue sendo falta (dia inteiro). Regra do motor inalterada: sobreposição com qualquer parte do período = indisponível no período inteiro.
 - Eventos: abrir, encerrar, corrigir e fechamento automático são INSERT/UPDATE em `ausencias_funcionarios` ⇒ o trigger existente `trg_escala_evento_ausencia` gera o evento canônico `ausencia` ⇒ recálculo (a fila deduplica pendentes por previsão). Nenhum subsistema paralelo.
 - Passado e período em andamento não mudam; o recálculo oficial só altera períodos que ainda não começaram; em sombra/`ativo_restrito` o próximo período é comprometido (reparo mínimo) e a reotimização normal começa em c+2; revezamento duro, versão/hash e concorrência são os do fluxo existente.
 - Sombra/hindsight temporalmente correto: `ausencia_funcionario_historico` guarda o estado anterior de cada mudança; `estadoNoCorte` reconstrói a ausência **como era no corte** (snapshot das 08:30 vê o atraso aberto; snapshots posteriores à chegada o veem fechado; idem fechamento automático e correções).
@@ -69,6 +69,6 @@ Cada dia começa limpo. Nada em aberto é herdado: um atraso aberto de ontem é 
 1. **PROD**: a migration precisa ser aplicada **antes** do código (o código lê colunas novas). A leitura da Escala (`supabaseIO`) seleciona `em_aberto` e o histórico; sem a migration a semana não processa. Ordem obrigatória: backup → migration → deploy.
 2. **Cadência do fechamento**: depende do cron do `/api/escala/drenar` (~5 min). Até rodar, o fim já é calculado como 17:00 (não a hora real), mas a linha pode ficar "em aberto" por alguns minutos; as telas e RPCs fecham sob demanda, então o risco é só cosmético.
 3. **Duração provisória 0** enquanto aberto: o resumo mensal conta o atraso, mas soma 0 min até encerrar (a tela mostra "até agora" só para exibição).
-4. **Motor conservador**: o atraso aberto é indisponibilidade até 24:00; se a pessoa chegar, o recálculo devolve os períodos futuros (regra do período inteiro; um atraso que cruza o início de um período o exclui).
+4. **Motor conservador**: o atraso aberto é indisponibilidade até o fim da jornada; se a pessoa chegar, o recálculo devolve os períodos futuros (regra do período inteiro; um atraso que cruza o início de um período o exclui).
 5. **`ativo_restrito` (26/10)**: nada nesta mudança altera parâmetros, K, tolerâncias, horizonte ou critérios; mas um atraso aberto durante a semana ativa provoca reavaliação por mudança de hash (comportamento esperado de qualquer ausência).
 6. `_agora()` só existe para teste; em produção devolve `now()`.
