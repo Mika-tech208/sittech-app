@@ -37,10 +37,20 @@ async function drenar(request: Request) {
 
   try {
     const admin = criarClienteAdmin();
+    // Atrasos em aberto que passaram do fim da jornada (17:00) ou de um dia anterior: fecha ANTES de drenar, para o evento `ausencia`
+    // gerado pelo fechamento ser processado nesta mesma execução. Nunca impede a drenagem (o fechamento tem retentativa no próximo ciclo).
+    let atrasosFechados = 0;
+    try {
+      const { data, error } = await admin.rpc("fechar_atrasos_vencidos");
+      if (error) console.error("escala/drenar: fechamento de atrasos em aberto falhou:", error.message);
+      else atrasosFechados = Number(data ?? 0);
+    } catch (e) {
+      console.error("escala/drenar: fechamento de atrasos em aberto falhou:", e instanceof Error ? e.message : e);
+    }
     const resumo = await drenarOutbox(admin, Date.now());
     if (resumo.esgotados > 0) console.error(`escala/drenar: ${resumo.esgotados} evento(s) esgotaram as tentativas`);
     const sombra = await processarSombraDoServidor(admin, Date.now()); // fechamento de períodos (modo sombra); nunca lança
-    return NextResponse.json({ ok: true, ...resumo, sombra });
+    return NextResponse.json({ ok: true, ...resumo, atrasosFechados, sombra });
   } catch (e) {
     console.error("escala/drenar:", e instanceof Error ? e.message : e);
     return NextResponse.json({ erro: "Falha ao drenar a fila da Escala." }, { status: 500 });

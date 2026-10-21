@@ -41,6 +41,11 @@ export interface AusenciaFuncionario {
   criadoPor: string;
   criadoEm: string;
   atualizadoEm: string;
+  // Atraso em aberto: o funcionário ainda não chegou (horarioFim = null, duração provisória 0 no banco).
+  emAberto: boolean;
+  encerradaEm: string | null;
+  chegadaManual: boolean | null; // true = horário informado à mão; false = "chegou agora"; null = aberto ou fechamento automático
+  encerramentoAutomatico: boolean; // fechado às 17:00 do dia porque ninguém registrou a chegada
 }
 
 interface AusenciaRow {
@@ -56,11 +61,16 @@ interface AusenciaRow {
   criado_por: string;
   criado_em: string;
   atualizado_em: string;
+  em_aberto: boolean;
+  encerrada_em: string | null;
+  chegada_manual: boolean | null;
+  encerramento_automatico: boolean;
 }
 
 const SELECT = `
   id, funcionario_id, data, tipo, horario_inicio, horario_fim, duracao_minutos,
-  periodos_snapshot, observacao, criado_por, criado_em, atualizado_em
+  periodos_snapshot, observacao, criado_por, criado_em, atualizado_em,
+  em_aberto, encerrada_em, chegada_manual, encerramento_automatico
 `;
 
 function linhaParaAusencia(r: AusenciaRow): AusenciaFuncionario {
@@ -78,6 +88,10 @@ function linhaParaAusencia(r: AusenciaRow): AusenciaFuncionario {
     criadoPor: r.criado_por,
     criadoEm: r.criado_em,
     atualizadoEm: r.atualizado_em,
+    emAberto: Boolean(r.em_aberto),
+    encerradaEm: r.encerrada_em ?? null,
+    chegadaManual: r.chegada_manual ?? null,
+    encerramentoAutomatico: Boolean(r.encerramento_automatico),
   };
 }
 
@@ -115,6 +129,14 @@ export interface EditarAusenciaPayload {
   motivo: string;
 }
 
+export interface AbrirAtrasoPayload {
+  funcionarioId: string;
+  data: string; // hoje (America/Sao_Paulo); o banco recusa outro dia
+  horarioInicio: string | null; // null = início da manhã da jornada oficial (07:12); "13:00" para atraso após o almoço
+  observacao: string;
+  idempotencyKey: string;
+}
+
 export function useAusenciasFuncionarios(pronto: boolean) {
   const [ausencias, setAusencias] = useState<AusenciaFuncionario[]>([]);
   const [loading, setLoading] = useState(false);
@@ -126,6 +148,9 @@ export function useAusenciasFuncionarios(pronto: boolean) {
     ultimosFiltros.current = filtros;
     setLoading(true);
     setErro(null);
+    // Fecha (fim da jornada) os atrasos em aberto que já venceram — dia anterior esquecido ou depois das 17:00 —, antes de listar.
+    // Best-effort: o fechamento oficial é o do servidor (/api/escala/drenar), isto só evita mostrar "em aberto" velho.
+    await supabase.rpc("fechar_atrasos_vencidos");
     let query = supabase
       .from("ausencias_funcionarios")
       .select(SELECT)
@@ -224,7 +249,54 @@ export function useAusenciasFuncionarios(pronto: boolean) {
     return null;
   }, []);
 
-  return { ausencias, loading, erro, limite: LIMITE_RESULTADOS, buscar, registrar, registrarLote, editar };
+  // Atraso em aberto: "Funcionário ainda não chegou". Retorna null em sucesso ou a mensagem da RPC.
+  const abrirAtraso = useCallback(async (payload: AbrirAtrasoPayload): Promise<string | null> => {
+    const { data, error } = await supabase.rpc("abrir_atraso_funcionario", {
+      p_funcionario_id: payload.funcionarioId,
+      p_data: payload.data,
+      p_horario_inicio: payload.horarioInicio,
+      p_observacao: payload.observacao.trim() || null,
+      p_idempotency_key: payload.idempotencyKey,
+    });
+    if (error || !data) {
+      const msg = error?.message || "Não foi possível registrar o atraso.";
+      setErro(msg);
+      return msg;
+    }
+    setAusencias((prev) => [linhaParaAusencia(data as AusenciaRow), ...prev.filter((a) => a.id !== (data as AusenciaRow).id)]);
+    void dispararProcessamentoEscala();
+    return null;
+  }, []);
+
+  // "FUNCIONÁRIO CHEGOU" (horarioChegada = null: hora do SERVIDOR em America/Sao_Paulo) ou "INFORMAR HORÁRIO DE CHEGADA" (HH:MM, mesmo dia).
+  const encerrarAtraso = useCallback(async (id: string, horarioChegada: string | null): Promise<string | null> => {
+    const { data, error } = await supabase.rpc("encerrar_atraso_funcionario", { p_ausencia_id: id, p_horario_chegada: horarioChegada });
+    if (error || !data) {
+      const msg = error?.message || "Não foi possível registrar a chegada.";
+      setErro(msg);
+      return msg;
+    }
+    const atualizada = linhaParaAusencia(data as AusenciaRow);
+    setAusencias((prev) => prev.map((a) => (a.id === atualizada.id ? { ...atualizada, funcionarioNome: a.funcionarioNome } : a)));
+    void dispararProcessamentoEscala();
+    return null;
+  }, []);
+
+  // Correção do horário INICIAL de um atraso ainda em aberto (motivo obrigatório; antes/depois ficam no histórico).
+  const corrigirInicioAberto = useCallback(async (id: string, horarioInicio: string, motivo: string): Promise<string | null> => {
+    const { data, error } = await supabase.rpc("corrigir_inicio_atraso_aberto", { p_ausencia_id: id, p_horario_inicio: horarioInicio, p_motivo: motivo.trim() });
+    if (error || !data) {
+      const msg = error?.message || "Não foi possível corrigir o horário inicial.";
+      setErro(msg);
+      return msg;
+    }
+    const atualizada = linhaParaAusencia(data as AusenciaRow);
+    setAusencias((prev) => prev.map((a) => (a.id === atualizada.id ? { ...atualizada, funcionarioNome: a.funcionarioNome } : a)));
+    void dispararProcessamentoEscala();
+    return null;
+  }, []);
+
+  return { ausencias, loading, erro, limite: LIMITE_RESULTADOS, buscar, registrar, registrarLote, editar, abrirAtraso, encerrarAtraso, corrigirInicioAberto };
 }
 
 export type AusenciasFuncionariosHook = ReturnType<typeof useAusenciasFuncionarios>;

@@ -14,7 +14,8 @@ import { useState } from "react";
 import DatePicker from "@/components/shared/DatePicker";
 import { calcularAusencia, formatarDuracao, TIPOS_AUSENCIA, TIPOS_COM_HORARIO, type TipoAusencia } from "./calculations";
 import type { PeriodoSimples } from "./calculations";
-import type { RegistrarAusenciaPayload, RegistrarLotePayload } from "@/hooks/useAusenciasFuncionarios";
+import type { AbrirAtrasoPayload, RegistrarAusenciaPayload, RegistrarLotePayload } from "@/hooks/useAusenciasFuncionarios";
+import { hojeEmSaoPaulo, opcoesInicioAtraso } from "./atrasoAberto";
 import { diaSemanaCurto, gerarDiasDoIntervalo, resumirResultadoLote, type ResultadoDiaLote, type ResumoLote } from "./lote";
 import { isoParaBR } from "@/lib/date";
 
@@ -30,9 +31,10 @@ export interface RegistrarAusenciaModalProps {
   onFechar: () => void;
   onRegistrar: (payload: RegistrarAusenciaPayload) => Promise<string | null>;
   onRegistrarLote: (payload: RegistrarLotePayload) => Promise<{ erro: string | null; resultados: ResultadoDiaLote[] }>;
+  onAbrirAtraso: (payload: AbrirAtrasoPayload) => Promise<string | null>;
 }
 
-export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, dataInicial, onFechar, onRegistrar, onRegistrarLote }: RegistrarAusenciaModalProps) {
+export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, dataInicial, onFechar, onRegistrar, onRegistrarLote, onAbrirAtraso }: RegistrarAusenciaModalProps) {
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -46,6 +48,12 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
   const [horarioJanelaFim, setHorarioJanelaFim] = useState("");
   const [observacao, setObservacao] = useState("");
 
+  // ---- atraso EM ABERTO: o funcionário ainda não chegou; não se informa chegada, só de onde conta (07:12 ou 13:00) ----
+  const [aindaNaoChegou, setAindaNaoChegou] = useState(false);
+  const opcoesInicio = opcoesInicioAtraso(periodos);
+  const [inicioAberto, setInicioAberto] = useState("");
+  const hoje = hojeEmSaoPaulo();
+
   // ---- vários dias: um registro por dia, a supervisora confirma cada dia ----
   const [variosDias, setVariosDias] = useState(false);
   const [dataFim, setDataFim] = useState(dataInicial);
@@ -54,7 +62,8 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
   const intervalo = variosDias ? gerarDiasDoIntervalo(data, dataFim) : { dias: [] as string[], erro: null };
   const diasSelecionados = intervalo.dias.filter((d) => !desmarcados.includes(d));
 
-  const precisaHorario = TIPOS_COM_HORARIO.includes(tipo);
+  const atrasoAberto = tipo === "atraso" && aindaNaoChegou && !variosDias;
+  const precisaHorario = TIPOS_COM_HORARIO.includes(tipo) && !atrasoAberto;
   const resultado = calcularAusencia({
     tipo, periodos,
     horarioReal: horarioReal || undefined,
@@ -69,6 +78,8 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
     setHorarioJanelaInicio("");
     setHorarioJanelaFim("");
     setObservacao("");
+    setAindaNaoChegou(false);
+    setInicioAberto("");
     setVariosDias(false);
     setDataFim(data);
     setDesmarcados([]);
@@ -80,12 +91,21 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
   }
 
   const podeSalvar = !salvando && !!funcionarioId && !!data && !!tipo && (!precisaHorario || resultado !== null)
-    && (!variosDias || (!!dataFim && !intervalo.erro && diasSelecionados.length > 0));
+    && (!variosDias || (!!dataFim && !intervalo.erro && diasSelecionados.length > 0))
+    && (!atrasoAberto || data === hoje);
 
   async function salvar() {
-    if (!podeSalvar || !resultado) return;
+    if (!podeSalvar || (!resultado && !atrasoAberto)) return;
     setSalvando(true);
     setErro(null);
+    if (atrasoAberto) {
+      const erroAbrir = await onAbrirAtraso({ funcionarioId, data, horarioInicio: inicioAberto || null, observacao, idempotencyKey });
+      setSalvando(false);
+      if (erroAbrir) { setErro(erroAbrir); return; }
+      setSucesso(true);
+      return;
+    }
+    if (!resultado) return;
     if (variosDias) {
       const { erro: erroLote, resultados } = await onRegistrarLote({
         funcionarioId, datas: diasSelecionados, tipo,
@@ -162,7 +182,7 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
       <div className="stx-modal-backdrop" onClick={onFechar}>
         <div className="stx-ap-modal-card" onClick={(e) => e.stopPropagation()}>
           <div className="stx-ap-confirm">
-            <p className="stx-ap-confirm-check">✓ Ausência registrada</p>
+            <p className="stx-ap-confirm-check">{atrasoAberto ? "✓ Atraso registrado — EM ABERTO" : "✓ Ausência registrada"}</p>
             <div className="stx-ap-confirm-actions">
               <button type="button" className="stx-ap-btn-primary" onClick={onFechar}>Fechar</button>
             </div>
@@ -255,7 +275,30 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
           </select>
         </div>
 
-        {tipo === "atraso" && (
+        {tipo === "atraso" && !variosDias && (
+          <label className="stx-maquina-chip" style={{ marginBottom: 8 }}>
+            <input type="checkbox" checked={aindaNaoChegou} disabled={salvando} onChange={(e) => setAindaNaoChegou(e.target.checked)} />
+            Funcionário ainda não chegou
+          </label>
+        )}
+        {atrasoAberto && (
+          <>
+            {opcoesInicio.length > 1 && (
+              <div className="stx-ap-field">
+                <label className="stx-ap-field-label">Atraso desde</label>
+                <select className="stx-ap-select" value={inicioAberto} onChange={(e) => setInicioAberto(e.target.value)}>
+                  <option value="">{opcoesInicio[0].label}</option>
+                  {opcoesInicio.slice(1).map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+                </select>
+              </div>
+            )}
+            <p className="stx-apr-ref" style={{ margin: "0 0 8px" }}>
+              O atraso fica EM ABERTO: o funcionário conta como indisponível até a chegada ser registrada ou até o fim da jornada (17:00). Não vale para outro dia.
+            </p>
+            {data !== hoje && <p className="stx-ap-error">Atraso em aberto só pode ser registrado para hoje.</p>}
+          </>
+        )}
+        {tipo === "atraso" && !atrasoAberto && (
           <div className="stx-ap-field">
             <label className="stx-ap-field-label">Chegada</label>
             <input type="time" className="stx-ap-input" value={horarioReal} onChange={(e) => setHorarioReal(e.target.value)} />
@@ -294,7 +337,7 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
 
         <div className="stx-ausencia-preview">
           <span>{variosDias ? "Duração por dia" : "Duração calculada"}</span>
-          <b>{resultado ? formatarDuracao(resultado.duracaoMinutos) : "—"}</b>
+          <b>{atrasoAberto ? "Em aberto" : resultado ? formatarDuracao(resultado.duracaoMinutos) : "—"}</b>
         </div>
         {variosDias && resultado && diasSelecionados.length > 0 && (
           <div className="stx-ausencia-preview">
@@ -312,7 +355,7 @@ export default function RegistrarAusenciaModal({ funcionariosAtivos, periodos, d
 
         <div className="stx-ap-actions">
           <button type="button" className="stx-ap-btn-primary" disabled={!podeSalvar} onClick={salvar}>
-            {salvando ? "Salvando…" : variosDias ? `Registrar ${diasSelecionados.length} dia${diasSelecionados.length === 1 ? "" : "s"}` : "Registrar ausência"}
+            {salvando ? "Salvando…" : atrasoAberto ? "Registrar atraso em aberto" : variosDias ? `Registrar ${diasSelecionados.length} dia${diasSelecionados.length === 1 ? "" : "s"}` : "Registrar ausência"}
           </button>
           <button type="button" className="stx-ap-btn-secondary" onClick={cancelar} disabled={salvando}>Cancelar</button>
         </div>

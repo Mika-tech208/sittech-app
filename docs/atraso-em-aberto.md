@@ -1,88 +1,74 @@
-# Atraso em aberto (Faltas e Ausências) — desenho para aprovação
+# Atraso em aberto (Faltas e Ausências) — implementação em DEV/Preview
 
-Status: **só desenho**. Nada foi implementado, nenhuma migration aplicada, nada em PROD. O SQL abaixo é rascunho (não está em `supabase/migrations/`).
+Status: **implementado em DEV/Preview. Nada em PROD.** Migration `20261028100000_atraso_em_aberto.sql` aplicada só no DEV (`zjwcomwjmhsloyxfypax`); PROD aguarda autorização.
 
-## 1. Situação hoje (o que foi lido no código)
-- `ausencias_funcionarios`: `atraso` guarda `horario_inicio` = início da jornada (snapshot) e `horario_fim` = chegada real; os dois são obrigatórios na prática (a duração é calculada no frontend e a RPC só valida `>= 0`).
-- `existe_conflito_ausencia` compara janelas `[inicio, fim)`; com `horario_fim` nulo a comparação vira `NULL` ⇒ **não detecta conflito**.
-- Escala (`montarEntrada.ts`): ausência **sem** horário completo vira **dia inteiro**. Um atraso gravado só com início (fim nulo) seria lido como **falta do dia inteiro** — exatamente o que o pedido proíbe (§5). Esta é a principal armadilha do desenho.
-- Evento canônico já existe: `trg_escala_evento_ausencia` dispara `ausencia` em INSERT/UPDATE/DELETE → fila `escala_producao_eventos` → recálculo oficial (+ sombra/`ativo_restrito`). Nenhum sistema paralelo é necessário.
-- Auditoria já existe: `ausencia_funcionario_historico` (antes/depois, quem, quando, motivo obrigatório), populada em edição.
-- A sombra lê a ausência **atual** (filtra por `criado_em ≤ corte`); uma ausência encerrada depois do corte apareceria já fechada no passado — precisa de tratamento (§4).
+## 1. Regra
+- Atraso em aberto = `funcionário + data + horário inicial`, `horario_fim = NULL`, `em_aberto = true`. Nunca é gravado/mostrado como "07:12–24:00".
+- Para conflito de ausências e para a Escala: indisponível de `horario_inicio` **até o fim da jornada daquele dia** (`[início, 17:00)` no banco; `[início, 24:00)` no motor, o que é equivalente porque não há período depois de 17:00).
+- **Cada dia é independente.** Um atraso nunca é carregado para o dia seguinte: ao fim da jornada (17:00) ele é fechado automaticamente.
+- No máximo **um** atraso em aberto por funcionário+data (índice único parcial). Vários funcionários podem estar em aberto ao mesmo tempo.
+- Atraso após o almoço é permitido (início 13:00): sem chegada, vale 13:00–17:00 — **não** é falta do dia inteiro.
 
-## 2. Modelo proposto
-Atraso em aberto = indisponibilidade **contínua** de `horario_inicio` até o encerramento. Fica explícito por coluna (nunca inferido de `null`):
+## 2. Banco (migration aditiva, sem tabela nova, linhas antigas intocadas)
+Colunas em `ausencias_funcionarios`: `em_aberto`, `encerrada_por`, `encerrada_em`, `chegada_manual`, `encerramento_automatico`.
+Constraints: `ausencia_em_aberto_forma` (em aberto só para `atraso`, com início e sem fim), `ausencia_encerramento_forma`, `ausencia_janela_completa` (NOT VALID: não toca as linhas antigas). Índice `uq_ausencia_atraso_aberto`.
+Histórico (`ausencia_funcionario_historico`, append-only): `alterado_por` agora aceita NULL e há `origem` (`usuario`/`sistema`) — o fechamento automático grava como `sistema`.
+Funções: `existe_conflito_ausencia` (aberto = `[início, fim da jornada)`), `minutos_produtivos_janela` (duração calculada no banco com a jornada oficial 07:12–12:00 + 13:00–17:00, almoço fora), `jornada_fim_ausencias`, `_agora()` (relógio injetável só para teste: GUC `app.agora_teste`; em produção = `now()`).
 
-```sql
--- RASCUNHO (migration futura, aditiva)
-alter table public.ausencias_funcionarios
-  add column em_aberto boolean not null default false,
-  add column encerrada_por uuid references public.usuarios(id) on delete restrict,
-  add column encerrada_em timestamptz,
-  add column chegada_manual boolean;            -- true = horário informado à mão; false = "chegou agora"; null = não é atraso encerrado
+RPCs (security invoker, mesma permissão `ausencias_funcionarios`):
+| RPC | O que faz |
+|---|---|
+| `abrir_atraso_funcionario(func, data, início?, obs, chave)` | só hoje (America/Sao_Paulo); início padrão = começo da manhã, ou 13:00; dentro da jornada e ≤ agora; recusa 2º aberto e conflitos; idempotente; histórico "Abertura" |
+| `encerrar_atraso_funcionario(id, chegada?)` | `null` = **"Funcionário chegou"**: hora do **servidor** em America/Sao_Paulo (`chegada_manual=false`); informado = `chegada_manual=true`; mesmo dia, > início, ≤ agora, ≤ fim da jornada; duração calculada no banco; `encerrada_por/em`; histórico "Encerramento por chegada" |
+| `corrigir_inicio_atraso_aberto(id, início, motivo)` | corrige o horário **inicial** do atraso ainda aberto; motivo obrigatório; usuário, data/hora, antes/depois no histórico; revalida conflito |
+| `fechar_atrasos_vencidos()` (público) / `_fechar_atrasos_vencidos(ts)` (interno) | fecha atrasos de dia anterior ou depois do fim da jornada: `horario_fim = 17:00` (não a hora do processamento), `encerrada_em = hora real do processamento` (mesmo que tarde), `encerramento_automatico=true`, sem usuário, histórico `sistema` com "nenhuma chegada foi registrada" |
+| `editar_ausencia_funcionario` | recusa atraso em aberto (encerrar/corrigir têm RPC própria) |
+| lote | segue recusando atraso |
+| `_funcionario_exclusao` | unificação e exclusão de funcionário **bloqueadas** (`ATRASO_EM_ABERTO`) enquanto houver atraso em aberto |
 
-alter table public.ausencias_funcionarios add constraint ausencia_em_aberto_forma check (
-  (em_aberto and tipo = 'atraso' and horario_inicio is not null and horario_fim is null and encerrada_em is null)
-  or (not em_aberto and (encerrada_em is null or (tipo = 'atraso' and horario_fim is not null))));
+## 3. Fechamento automático (mecanismo)
+- Servidor: `/api/escala/drenar` (cron/GitHub Actions a cada ~5 min) chama `fechar_atrasos_vencidos()` **antes** de drenar a outbox, então o evento gerado pelo fechamento é processado na mesma execução. Falha no fechamento nunca impede a drenagem.
+- Defesa em profundidade: as RPCs `abrir/encerrar/corrigir` e a listagem de Faltas e Ausências também chamam o fechamento — nenhum atraso vencido aparece como "em aberto".
+- O fim efetivo é sempre o fim da jornada (17:00), o `encerrada_em` registra quando o sistema realmente processou, e o histórico mostra que começou aberto e que nenhuma chegada foi registrada.
 
--- no máximo UM atraso em aberto por funcionário e dia
-create unique index uq_ausencia_atraso_aberto on public.ausencias_funcionarios (funcionario_id, data) where em_aberto;
+## 4. Escala
+- `montarEntrada`: aberto → janela `[início, 24:00)` (nunca "dia inteiro"); fechado → janela exata `[início, chegada)`; `null/null` segue sendo falta (dia inteiro). Regra do motor inalterada: sobreposição com qualquer parte do período = indisponível no período inteiro.
+- Eventos: abrir, encerrar, corrigir e fechamento automático são INSERT/UPDATE em `ausencias_funcionarios` ⇒ o trigger existente `trg_escala_evento_ausencia` gera o evento canônico `ausencia` ⇒ recálculo (a fila deduplica pendentes por previsão). Nenhum subsistema paralelo.
+- Passado e período em andamento não mudam; o recálculo oficial só altera períodos que ainda não começaram; em sombra/`ativo_restrito` o próximo período é comprometido (reparo mínimo) e a reotimização normal começa em c+2; revezamento duro, versão/hash e concorrência são os do fluxo existente.
+- Sombra/hindsight temporalmente correto: `ausencia_funcionario_historico` guarda o estado anterior de cada mudança; `estadoNoCorte` reconstrói a ausência **como era no corte** (snapshot das 08:30 vê o atraso aberto; snapshots posteriores à chegada o veem fechado; idem fechamento automático e correções).
 
--- conflito: o fim em aberto vale "até o fim do dia"
-create or replace function public.existe_conflito_ausencia(p_funcionario_id uuid, p_data date, p_tipo text, p_horario_inicio time, p_horario_fim time, p_ignorar_id uuid default null)
-returns boolean language sql stable security invoker set search_path = public, pg_temp as $$
-  select exists (select 1 from public.ausencias_funcionarios a
-    where a.funcionario_id = p_funcionario_id and a.data = p_data and (p_ignorar_id is null or a.id <> p_ignorar_id)
-      and (p_tipo in ('falta_dia_inteiro','atestado','falta_justificada','falta_nao_justificada')
-        or a.tipo in ('falta_dia_inteiro','atestado','falta_justificada','falta_nao_justificada')
-        or (a.horario_inicio < coalesce(p_horario_fim, time '23:59:59') and coalesce(a.horario_fim, time '23:59:59') > p_horario_inicio)));
-$$;
-```
+## 5. UX
+- Registrar ausência → Tipo **Atraso** → checkbox **"Funcionário ainda não chegou"** (início: manhã 07:12 ou após o almoço 13:00; só hoje).
+- Lista: em aberto no topo, em destaque: `João da Silva · Atraso · Desde 07:12 · EM ABERTO · Xh XXmin até agora`, botões **FUNCIONÁRIO CHEGOU** e **INFORMAR HORÁRIO DE CHEGADA**; o detalhe permite **Corrigir horário inicial** (motivo obrigatório).
+- Atraso em aberto de dia anterior aparece como inconsistência operacional ("verificar") e continua corrigível — não é o fluxo normal (o fechamento automático o encerra).
+- Encerrado automaticamente: a lista/detalhe mostram "encerrado automaticamente no fim da jornada".
 
-RPCs novas (security invoker, mesma permissão `ausencias_funcionarios`, mesmo padrão de idempotência):
-- `abrir_atraso_funcionario(p_funcionario_id, p_data, p_horario_inicio default null, p_observacao, p_idempotency_key)`: início padrão = `manha_inicio` da jornada oficial (07:12); aceita `tarde_inicio` (13:00) para atraso após o almoço; exige `data ≤ hoje (SP)` e `agora ≥ início`; checa conflito (falta dia inteiro, atestado, outra janela, outro atraso aberto); grava `em_aberto = true`, `duracao_minutos = 0` (provisória), snapshot da jornada.
-- `encerrar_atraso_funcionario(p_ausencia_id, p_horario_chegada default null)`: `null` ⇒ "chegou agora" (hora de São Paulo); informado ⇒ `chegada_manual = true`. Valida `chegada > início` e `chegada ≤ agora` (se a data é hoje). **Duração calculada no banco** (minutos produtivos entre início e chegada dentro do snapshot, sem almoço). Preenche `horario_fim`, `em_aberto = false`, `encerrada_por/em`; grava linha em `ausencia_funcionario_historico` (antes/depois, motivo "Encerramento do atraso em aberto"). Reaplica a regra normal de sobreposição.
-- `editar_ausencia_funcionario` (existente): corrige horário de atraso **já encerrado** (motivo obrigatório, histórico, evento). Em atraso aberto só permite observação; encerrar é pela RPC própria.
-- `registrar_ausencias_funcionario_lote`: continua recusando atraso (não faz sentido em lote).
-- Funcionários (unificação/exclusão): `existe_conflito_ausencia` já cobre o aberto; um atraso aberto bloqueia unificação até ser encerrado (mensagem explícita).
+## 6. Resultados dos exemplos (testes automatizados; motor real, plano de 10 pessoas)
+Linhas presentes do funcionário no dia (ausente = indisponível no período):
+| Cenário | Períodos disponíveis |
+|---|---|
+| aberto desde 07:12 | nenhum (e o dia seguinte intacto) |
+| 07:12 → 08:03 | M2, M3, T1, T2, T3 |
+| 07:12 → 09:10 | M3, T1, T2, T3 |
+| 07:12 → 11:00 | T1, T2, T3 |
+| 13:00 → 13:37 | M1, M2, M3, T2, T3 |
+| 13:00 aberto (sem chegada) | M1, M2, M3 (não é falta do dia) |
+| 07:12 → 17:00 (fechamento automático) | nenhum |
+| 13:00 → 17:00 (fechamento automático) | M1, M2, M3 |
+Sequência dinâmica (Mundo): abrir às 07:20 → M1 (em andamento) preservado, M2–T3 sem a pessoa; chegou 08:03 → volta a partir de M2; chegou 09:10 → volta a partir de M3; tarde: aberto 13:10 → T1 preservado, T2/T3 sem a pessoa; chegou 13:37 → volta em T2.
+SQL: 07:12→08:03 = 51 min; 07:12→08:40 manual = 88 min; 07:12→13:30 = 318 min (almoço excluído); 13:00→13:37 = 37 min; fechamento 17:12 → fim 17:00, `encerrada_em` 17:12; manhã sem chegada = 528 min (jornada toda), tarde sem chegada = 240 min.
 
-## 3. Eventos e Escala
-- **A) abrir, B) encerrar, C) corrigir horário**: são INSERT/UPDATE em `ausencias_funcionarios` ⇒ o trigger atual já gera `ausencia`. Sem tabela, tipo de evento ou worker novos. O hook do frontend já chama `dispararProcessamentoEscala()` após registrar/editar; passa a chamá-lo também em abrir/encerrar.
-- Motor (`montarEntrada`): `AusenciaBruta` ganha `emAberto` e `encerradaEm`. Mapeamento: `emAberto` ⇒ janela `[início, 24:00)`; fechado ⇒ janela exata `[início, chegada)`; `null/null` continua sendo dia inteiro (nunca por engano). Qualquer sobreposição com um período torna o funcionário indisponível **naquele período inteiro** (regra atual do motor).
-- Regras do horizonte (inalteradas): passado e período em andamento não mudam; recálculo oficial só afeta períodos que ainda não começaram; na sombra/`ativo_restrito` o próximo período é comprometido (reparo mínimo se ficou inviável) e a reotimização começa em c+2.
-- Sombra (hindsight): `estadoNoCorte` passa a tratar ausência com `encerradaEm > corte` como **ainda em aberto no corte** (`fim = 24:00`). Correção de horário depois do corte continua só registrada como incerteza (a linha guarda apenas a versão atual; o histórico guarda as anteriores).
-- Atraso aberto de **dia anterior**: afeta só a própria data. Nunca é fechado sozinho; a lista mostra "EM ABERTO (dia anterior)" para a Clarice informar a chegada ou trocar o tipo (decisão a confirmar, §7).
+## 7. Dia seguinte
+Cada dia começa limpo. Nada em aberto é herdado: um atraso aberto de ontem é fechado em 17:00 de ontem (ou na próxima execução do fechamento) e vira registro encerrado de ontem. Hoje o mesmo funcionário pode ter um **novo** atraso (teste "novo atraso no dia seguinte").
 
-## 4. UX (Faltas e Ausências)
-- Tipo **Atraso** ⇒ duas opções: "Funcionário ainda não chegou" (cria em aberto, sem campo de horário) e "Informar horário de chegada" (fluxo atual).
-- Lista: `Fulano · Atraso · Desde 07:12 · EM ABERTO` + botão **Funcionário chegou** (chegada = agora) e link **Informar horário de chegada**. Sem editar a ocorrência inteira.
-- Em aberto aparece no topo e com destaque; duração mostrada como "em andamento (X min até agora)"; resumo mensal conta o atraso em aberto como atraso e soma minutos provisórios só na tela (o banco grava 0 até encerrar).
-- Mensagens de conflito reaproveitam as das RPCs (segundo atraso aberto, falta dia inteiro, atestado, janela sobreposta).
+## 8. Testes
+- SQL: `supabase/tests/escala_adicional_etapa/t15_atraso_em_aberto.sql` (abrir, segundo aberto/índice único, conflito com falta/atestado/saída/janela nos dois sentidos, "chegou agora" com fuso, horário manual, chegada inválida, duração com almoço, histórico, correção do início + motivo obrigatório, edição recusada, lote recusa, unificação/exclusão bloqueadas, eventos `ausencia` (abrir/corrigir/encerrar), fechamento automático 17:00 (16:59 não fecha; 17:12 fecha com fim 17:00), idempotência, dia seguinte, permissões anon/authenticated/service_role). Regressão: `funcionarios_unificacao/t1..t7` e `t14` continuam OK no DEV.
+- TS: `src/lib/escala/__tests__/atrasoEmAberto.test.ts` (22) e `src/features/ausencias/__tests__/atrasoAberto.test.ts` (11). Suíte completa: 800 passando; `tsc` limpo.
 
-## 5. Auditoria
-Aberto por/quando: `criado_por/criado_em` + início. Encerrado por/quando/horário real: `encerrada_por/em`, `horario_fim`, `chegada_manual`. Alteração manual posterior: linha em `ausencia_funcionario_historico` (append-only, como hoje). Nenhuma linha é apagada.
-
-## 6. Comportamento nos exemplos (simulação com o motor real; nada gravado)
-Funcionário com postos planejados em M1, M3, T1, T3 (plano de 05:00). "Aberto" = janela `[07:12, 24:00)`.
-
-| Cenário | Depois de abrir (07:20) | Depois de encerrar |
-|---|---|---|
-| Pedido: chega 08:03 (antes de M2) | M1 mantém (período em andamento), M2–T3 sem posto | **volta a ficar disponível a partir de M2**; neste plano o motor o aloca em M3, T1 e T3 (31 linhas futuras recalculadas) |
-| Chega 09:10 (depois do início de M2) | idem | indisponível em M2 (a janela sobrepõe 08:48–09:10); **disponível a partir de M3**; neste plano o motor o aloca em T2 e T3 |
-| Atravessa vários períodos (chega 11:00) | idem | indisponível em M1–M3 (a janela sobrepõe M3 até 11:00); disponível a partir de T1; o motor o aloca em T2/T3 |
-| Correção 08:03 → 09:10 (às 08:20) | — | M2 volta a ficar indisponível; plano com posto só em T2/T3 (42 linhas realocadas) |
-| Nunca encerrado | indisponível o dia todo | segue indisponível; nenhum novo evento |
-Cada abertura/encerramento/correção realoca dezenas de linhas futuras pelo recálculo oficial (comportamento atual de qualquer ausência, dívida técnica já registrada); com `ativo_restrito` a reavaliação corrige em seguida o que for alterável.
-
-## 7. Casos de teste (a implementar após aprovação)
-SQL (`t15_atraso_em_aberto.sql`, em transação desfeita): abre sem fim; segundo aberto recusado; conflito com falta dia inteiro/atestado/janela; encerra "agora"; encerra com horário manual; chegada ≤ início e chegada futura recusadas; duração calculada sem almoço; histórico e `encerrada_*`; lote recusa; unificação bloqueada; evento `ausencia` em abrir/encerrar/corrigir; grants.
-TypeScript: mapeamento em aberto ⇒ `[início, 24:00)` e **nunca** dia inteiro; fechado ⇒ janela exata; chegada antes/depois do próximo período; atraso atravessando períodos; correção de horário; Escala sem posto enquanto aberto e com posto após encerrar; replanejamento após abrir e após encerrar; sombra trata encerrada-depois-do-corte como aberta no corte; resumo mensal com atraso aberto; UI (estado, botões, mensagens).
-
-## 8. Migrations necessárias
-Uma, aditiva e reversível: colunas + constraint + índice único parcial + `existe_conflito_ausencia` + 2 RPCs + ajuste de `editar_ausencia_funcionario` e do lote. Nenhuma tabela nova, nenhum dado existente alterado (linhas atuais ficam `em_aberto = false`).
-
-## 9. Decisões que preciso de você
-1. Atraso aberto **de dia anterior**: manter aberto até alguém resolver (proposto) ou virar falta do dia automaticamente?
-2. "Funcionário chegou" sempre usa a hora de São Paulo do servidor; informar horário passado só até o fim da jornada daquele dia — ok?
-3. Atraso após o almoço (início 13:00): permitir (proposto) ou só o início da manhã?
-4. Pode haver mais de uma pessoa com atraso aberto ao mesmo tempo (sim, uma por funcionário/dia)?
+## 9. Riscos / pontos de atenção
+1. **PROD**: a migration precisa ser aplicada **antes** do código (o código lê colunas novas). A leitura da Escala (`supabaseIO`) seleciona `em_aberto` e o histórico; sem a migration a semana não processa. Ordem obrigatória: backup → migration → deploy.
+2. **Cadência do fechamento**: depende do cron do `/api/escala/drenar` (~5 min). Até rodar, o fim já é calculado como 17:00 (não a hora real), mas a linha pode ficar "em aberto" por alguns minutos; as telas e RPCs fecham sob demanda, então o risco é só cosmético.
+3. **Duração provisória 0** enquanto aberto: o resumo mensal conta o atraso, mas soma 0 min até encerrar (a tela mostra "até agora" só para exibição).
+4. **Motor conservador**: o atraso aberto é indisponibilidade até 24:00; se a pessoa chegar, o recálculo devolve os períodos futuros (regra do período inteiro; um atraso que cruza o início de um período o exclui).
+5. **`ativo_restrito` (26/10)**: nada nesta mudança altera parâmetros, K, tolerâncias, horizonte ou critérios; mas um atraso aberto durante a semana ativa provoca reavaliação por mudança de hash (comportamento esperado de qualquer ausência).
+6. `_agora()` só existe para teste; em produção devolve `now()`.

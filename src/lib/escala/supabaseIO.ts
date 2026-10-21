@@ -7,6 +7,7 @@ import { agregarHistoricoEquidade, JANELA_EQUIDADE_DIAS } from "@/features/escal
 import { lerParametros } from "@/features/escala/parametros";
 import type { AlocacaoEscala, PeriodoEscala } from "@/features/escala/types";
 import { linhasConsolidadas, type LinhaHistoricoBruta } from "./historicoConsolidado";
+import { historicoDaAusencia } from "./ausenciaAberta";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "./estado";
 import { processarSemana, type EscalaIO, type OpcoesProcessamento } from "./processar";
 import { carregarWipControle, gravarSnapshotsWip } from "./wipIO";
@@ -19,6 +20,11 @@ const PERIODOS_META = ["m1", "m2", "m3", "t1", "t2", "t3"] as const;
 function ok<T>(resp: { data: T | null; error: { message: string } | null }, onde: string): T {
   if (resp.error) throw new Error(`${onde}: ${resp.error.message}`);
   return (resp.data ?? ([] as unknown)) as T;
+}
+
+interface AusenciaRow {
+  funcionario_id: string; data: string; horario_inicio: string | null; horario_fim: string | null; criado_em?: string; em_aberto?: boolean;
+  ausencia_funcionario_historico?: { alterado_em: string; dados_anteriores: Record<string, unknown> | null }[] | null;
 }
 
 function hhmm(t: string): string {
@@ -90,7 +96,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         admin.from("maquinas").select("id").eq("ativo", false),
         admin.from("periodos").select("id, nome, inicio, fim").order("id"),
         admin.from("escala_producao_dias").select("data, versao, periodos_snapshot").eq("previsao_id", previsaoId),
-        admin.from("ausencias_funcionarios").select("funcionario_id, data, horario_inicio, horario_fim, criado_em").gte("data", prev.semana_inicio).lte("data", semanaFim),
+        admin.from("ausencias_funcionarios").select("funcionario_id, data, horario_inicio, horario_fim, criado_em, em_aberto, ausencia_funcionario_historico(alterado_em, dados_anteriores)").gte("data", prev.semana_inicio).lte("data", semanaFim),
         admin.from("escala_recurso_indisponivel").select("maquina_id, desde, liberada_em").or(`liberada_em.is.null,liberada_em.gte.${prev.semana_inicio}T00:00:00-03:00`),
         admin.from("operacoes").select("id, nome"),
         admin.from("escala_parametros").select("chave, valor"),
@@ -162,8 +168,10 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         })),
         maquinasIndisponiveisPrevisao: (ok(indispPrev, "previsao_maquinas_indisponiveis") as { maquina_id: string }[]).map((r) => r.maquina_id),
         maquinasInativas: (ok(inativas, "maquinas") as { id: string }[]).map((r) => r.id),
-        ausencias: (ok(ausencias, "ausencias_funcionarios") as { funcionario_id: string; data: string; horario_inicio: string | null; horario_fim: string | null; criado_em?: string }[]).map((a) => ({
+        ausencias: (ok(ausencias, "ausencias_funcionarios") as AusenciaRow[]).map((a) => ({
           funcionarioId: a.funcionario_id, data: a.data, horarioInicio: a.horario_inicio, horarioFim: a.horario_fim, ...(a.criado_em ? { registradaEm: a.criado_em } : {}),
+          ...(a.em_aberto ? { emAberto: true } : {}),
+          ...(a.ausencia_funcionario_historico?.length ? { historico: historicoDaAusencia(a.ausencia_funcionario_historico) } : {}),
         })),
         indisponibilidades: (ok(indisp, "escala_recurso_indisponivel") as { maquina_id: string; desde: string; liberada_em: string | null }[]).map((i) => ({
           maquinaId: i.maquina_id, desde: i.desde, liberadaEm: i.liberada_em,

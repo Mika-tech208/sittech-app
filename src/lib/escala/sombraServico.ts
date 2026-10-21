@@ -19,7 +19,8 @@ import { completudeDe, construirSnapshot, empacotarApontamento, empacotarLinha, 
 import { executarCorteSombra, type DecisaoCorte, type ParametrosCorte } from "@/features/escala/sombraCorte";
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import type { AlocacaoEscala, EntradaEscala } from "@/features/escala/types";
-import { ConflitoDeVersaoError, type EstadoBruto } from "./estado";
+import { ausenciaNoCorte } from "./ausenciaAberta";
+import { ConflitoDeVersaoError, type AusenciaBruta, type EstadoBruto } from "./estado";
 import { montarEntradaEscala } from "./montarEntrada";
 import { estadoComVersao, type VersaoPlanoOficial } from "./planoVersionado";
 
@@ -114,7 +115,7 @@ const paraReal = (a: ApontamentoBanco): ApontamentoReal => ({
 export function estadoNoCorte(estado: EstadoBruto, corteMs: number): EstadoBruto {
   return {
     ...estado,
-    ausencias: estado.ausencias.filter((a) => !a.registradaEm || Date.parse(a.registradaEm) <= corteMs),
+    ausencias: estado.ausencias.map((a) => ausenciaNoCorte(a, corteMs)).filter((a): a is AusenciaBruta => a !== null),
     indisponibilidades: estado.indisponibilidades.filter((i) => Date.parse(i.desde) <= corteMs).map((i) => (i.liberadaEm && Date.parse(i.liberadaEm) > corteMs ? { ...i, liberadaEm: null } : i)),
     // WIP: confirmações e ajustes criados depois do corte não existiam (append-only, com carimbo); a Produção Real é lida só até a data do corte
     ...(estado.wipControle

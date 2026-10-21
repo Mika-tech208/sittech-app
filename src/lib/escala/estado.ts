@@ -47,6 +47,17 @@ export interface AusenciaBruta {
   horarioInicio: string | null; // "HH:MM:SS" ou null (dia inteiro)
   horarioFim: string | null;
   registradaEm?: string; // ISO (criado_em): permite enxergar só o que existia em um corte (modo sombra)
+  // Atraso em aberto: o funcionário ainda não chegou; horarioFim é NULL e a indisponibilidade vai de horarioInicio até o fim do dia
+  // (nunca é lido como "dia inteiro"). Fechado = janela exata [horarioInicio, horarioFim).
+  emAberto?: boolean;
+  // Mudanças posteriores (append-only, ausencia_funcionario_historico): permitem reconstruir o que a ausência era em um corte.
+  historico?: AusenciaHistorico[];
+}
+
+export interface AusenciaHistorico {
+  alteradoEm: string; // ISO
+  // estado ANTES desta mudança; null quando a linha é a abertura (a ausência ainda não existia)
+  anterior: { horarioInicio: string | null; horarioFim: string | null; emAberto: boolean } | null;
 }
 
 export interface IndisponibilidadeBruta {

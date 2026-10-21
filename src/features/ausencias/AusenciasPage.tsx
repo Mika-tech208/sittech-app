@@ -19,6 +19,7 @@ import { useJornadaOficialAusencias } from "@/hooks/useJornadaOficialAusencias";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import RegistrarAusenciaModal from "./RegistrarAusenciaModal";
 import AusenciaDetalheModal from "./AusenciaDetalheModal";
+import { hojeEmSaoPaulo, horaEmSaoPaulo, hhmm, minutosEmAndamento, visaoAtrasoAberto } from "./atrasoAberto";
 import {
   LABEL_TIPO_AUSENCIA, TIPOS_AUSENCIA, minutosJornadaCompleta, formatarDuracao,
   calcularResumoPorFuncionario, calcularTotalEquipe, calcularDisponibilidadePct, type TipoAusencia,
@@ -99,8 +100,11 @@ export default function AusenciasPage() {
     () => new Map(funcionariosElegibilidadeHook.funcionarios.map((f) => [f.id, f.nome])),
     [funcionariosElegibilidadeHook.funcionarios]
   );
+  // atrasos EM ABERTO sempre no topo (a Clarice precisa resolver esses primeiro); o resto segue a ordem do banco
   const ausenciasComFuncionario = useMemo(
-    () => ausenciasHook.ausencias.map((a) => ({ ...a, funcionarioNome: funcionarioNomePorId.get(a.funcionarioId) || a.funcionarioNome })),
+    () => ausenciasHook.ausencias
+      .map((a) => ({ ...a, funcionarioNome: funcionarioNomePorId.get(a.funcionarioId) || a.funcionarioNome }))
+      .sort((x, y) => Number(y.emAberto) - Number(x.emAberto)),
     [ausenciasHook.ausencias, funcionarioNomePorId]
   );
 
@@ -119,6 +123,19 @@ export default function AusenciasPage() {
 
   const [ausenciaSelecionada, setAusenciaSelecionada] = useState<AusenciaFuncionario | null>(null);
   const [mostrarRegistrar, setMostrarRegistrar] = useState(false);
+  const [abrirEmChegada, setAbrirEmChegada] = useState(false);
+  const [chegandoId, setChegandoId] = useState<string | null>(null);
+  const [erroChegada, setErroChegada] = useState<string | null>(null);
+  const hoje = hojeEmSaoPaulo();
+
+  async function funcionarioChegou(id: string) {
+    if (chegandoId) return;
+    setChegandoId(id);
+    setErroChegada(null);
+    const e = await ausenciasHook.encerrarAtraso(id, null);
+    setChegandoId(null);
+    if (e) setErroChegada(e);
+  }
 
   // ---- resumo mensal — reflete o MESMO filtro ativo acima (V1 simples:
   // não existe um segundo seletor de mês independente) ----
@@ -304,19 +321,46 @@ export default function AusenciasPage() {
                 <p className="stx-apr-ref">Mostrando as {ausenciasHook.limite} mais recentes — refine os filtros para ver outras.</p>
               )}
               <div className="stx-apr-list">
-                {ausenciasComFuncionario.map((a) => (
-                  <div key={a.id} className="stx-apr-row" onClick={() => setAusenciaSelecionada(a)}>
-                    <div className="stx-apr-row-top">
-                      <span className="stx-apr-row-data">{a.data.split("-").reverse().join("/")} · {a.funcionarioNome || "—"}</span>
-                      <span className="stx-apr-pill">{formatarDuracao(a.duracaoMinutos)}</span>
+                {erroChegada && <p className="stx-save-error">{erroChegada}</p>}
+                {ausenciasComFuncionario.map((a) => {
+                  if (a.emAberto) {
+                    const v = visaoAtrasoAberto(a, hoje);
+                    return (
+                      <div key={a.id} className="stx-apr-row" style={{ borderLeft: "3px solid var(--danger)" }} onClick={() => { setAbrirEmChegada(false); setAusenciaSelecionada(a); }}>
+                        <div className="stx-apr-row-top">
+                          <span className="stx-apr-row-data">{a.data.split("-").reverse().join("/")} · {a.funcionarioNome || "—"}</span>
+                          <span className="stx-apr-pill" style={{ color: "var(--danger)" }}>EM ABERTO</span>
+                        </div>
+                        <p className="stx-apr-row-detalhe">
+                          {LABEL_TIPO_AUSENCIA[a.tipo]} · {v.texto}
+                          {a.data === hoje && ` · ${formatarDuracao(minutosEmAndamento(jornadaOficialHook.jornada, a.horarioInicio ?? "", horaEmSaoPaulo()))} até agora`}
+                          {v.inconsistente && " · atraso de dia anterior: verificar"}
+                          {a.observacao && ` · ${a.observacao}`}
+                        </p>
+                        <div className="stx-ap-actions" style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
+                          <button type="button" className="stx-ap-btn-primary" disabled={chegandoId === a.id || a.data !== hoje} onClick={() => funcionarioChegou(a.id)}>
+                            {chegandoId === a.id ? "Salvando…" : "FUNCIONÁRIO CHEGOU"}
+                          </button>
+                          <button type="button" className="stx-ap-btn-secondary" onClick={() => { setAbrirEmChegada(true); setAusenciaSelecionada(a); }}>INFORMAR HORÁRIO DE CHEGADA</button>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={a.id} className="stx-apr-row" onClick={() => { setAbrirEmChegada(false); setAusenciaSelecionada(a); }}>
+                      <div className="stx-apr-row-top">
+                        <span className="stx-apr-row-data">{a.data.split("-").reverse().join("/")} · {a.funcionarioNome || "—"}</span>
+                        <span className="stx-apr-pill">{formatarDuracao(a.duracaoMinutos)}</span>
+                      </div>
+                      <p className="stx-apr-row-detalhe">
+                        {LABEL_TIPO_AUSENCIA[a.tipo]}
+                        {a.horarioInicio && ` · ${hhmm(a.horarioInicio)}–${hhmm(a.horarioFim)}`}
+                        {a.encerramentoAutomatico && " · encerrado automaticamente no fim da jornada"}
+                        {a.observacao && ` · ${a.observacao}`}
+                      </p>
                     </div>
-                    <p className="stx-apr-row-detalhe">
-                      {LABEL_TIPO_AUSENCIA[a.tipo]}
-                      {a.horarioInicio && ` · ${a.horarioInicio}–${a.horarioFim}`}
-                      {a.observacao && ` · ${a.observacao}`}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}
@@ -386,6 +430,7 @@ export default function AusenciasPage() {
           onFechar={() => setMostrarRegistrar(false)}
           onRegistrar={ausenciasHook.registrar}
           onRegistrarLote={ausenciasHook.registrarLote}
+          onAbrirAtraso={ausenciasHook.abrirAtraso}
         />
       )}
 
@@ -394,6 +439,9 @@ export default function AusenciasPage() {
           ausencia={ausenciaSelecionada}
           onFechar={() => setAusenciaSelecionada(null)}
           onEditar={ausenciasHook.editar}
+          onEncerrarAtraso={ausenciasHook.encerrarAtraso}
+          onCorrigirInicioAberto={ausenciasHook.corrigirInicioAberto}
+          modoInicial={abrirEmChegada ? "chegada" : undefined}
         />
       )}
     </div>
