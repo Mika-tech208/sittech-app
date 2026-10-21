@@ -155,15 +155,16 @@ describe("compromisso — reparo mínimo", () => {
     expect(repete(e, exec, r.reparado)).toBe(0);
   });
 
-  it("colega ausente nunca é usado como substituto", () => {
+  it("colega ausente nunca é usado como substituto (e a linha dele deixa de ser posto)", () => {
     const base = amb(3);
     const exec = rows(base, 0, [["f01", "m1"], ["f02", "m5"], ["f03", "m3"]]);
     const comp = rows(base, 1, [["f01", "m2"], ["f02", "m3"], ["f03", "m5"]]);
     const e = { ...base, ausencias: [{ funcionarioId: "f02", data: "2026-10-19", inicioMin: null, fimMin: null }] };
     const r = avaliarCompromisso(e, [...exec, ...comp], 1);
-    expect(r.reparado.find((a) => a.funcionarioId === "f02")).toEqual(comp.find((a) => a.funcionarioId === "f02")); // linha do ausente fica como está (inviável é outro alerta)
     expect(r.conflitos[0].alternativas.find((a) => a.com === "f02")?.motivo).toBe("ausente no período");
-    expect(repete(e, exec, r.reparado.filter((a) => a.funcionarioId !== "f02"))).toBe(0);
+    expect(maq(r.reparado, "f02")).toBeNull(); // ausente não pode manter posto
+    expect(r.reparado.filter((a) => a.maquinaId).every((a) => a.funcionarioId !== "f02")).toBe(true);
+    expect(repete(e, exec, r.reparado)).toBe(0);
   });
 
   it("linha manual só muda em último caso (equivalentes: altera a automática)", () => {
@@ -212,9 +213,9 @@ describe("compromisso — reparo mínimo", () => {
       const exec = rows(e, 0, execL);
       const comp = rows(e, 1, compL);
       const r = avaliarCompromisso(e, [...exec, ...comp], 1);
-      // força bruta sobre pessoas utilizáveis × postos dessas pessoas
+      // força bruta sobre pessoas utilizáveis × TODOS os postos (inclui os órfãos de ausentes)
       const uso = comp.filter((a) => !ausentes.includes(a.funcionarioId));
-      const postos = uso.filter((a) => a.maquinaId);
+      const postos = comp.filter((a) => a.maquinaId);
       let melhor: [number, number] | null = null;
       const usado = new Set<number>();
       const rec = (i: number, vazios: number, mud: number) => {
@@ -236,17 +237,17 @@ describe("compromisso — reparo mínimo", () => {
         });
       };
       rec(0, 0, 0);
-      const comConflito = uso.some((a) => a.maquinaId && prev[a.funcionarioId] === a.operacaoId);
+      const comConflito = uso.some((a) => a.maquinaId && prev[a.funcionarioId] === a.operacaoId) || comp.some((a) => a.maquinaId && ausentes.includes(a.funcionarioId));
       if (!comConflito) {
         expect(r.status).toBe("compromisso_valido");
         continue;
       }
       const vaziosAlg = r.postosVazios.length;
-      const mudAlg = r.reparado.filter((a, i) => (a.maquinaId ?? "") !== (comp[i].maquinaId ?? "")).length;
+      const mudAlg = r.reparado.filter((a, i) => !ausentes.includes(a.funcionarioId) && (a.maquinaId ?? "") !== (comp[i].maquinaId ?? "")).length;
       expect([vaziosAlg, mudAlg]).toEqual(melhor);
       // nunca repete, ausentes intactos
       expect(r.reparado.filter((a) => a.maquinaId && prev[a.funcionarioId] && prev[a.funcionarioId] === a.operacaoId && !ausentes.includes(a.funcionarioId))).toEqual([]);
-      ausentes.forEach((f) => expect(r.reparado.find((a) => a.funcionarioId === f)).toEqual(comp.find((a) => a.funcionarioId === f)));
+      ausentes.forEach((f) => expect(r.reparado.find((a) => a.funcionarioId === f)?.maquinaId).toBeNull());
       // sem posto duplicado
       const ms = r.reparado.filter((a) => a.maquinaId).map((a) => a.maquinaId);
       expect(new Set(ms).size).toBe(ms.length);

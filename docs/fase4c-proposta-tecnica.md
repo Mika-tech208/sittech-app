@@ -93,3 +93,18 @@ Trigger/fechamento de período/worker/tabelas (4d), oportunidade teórica de red
 3. Linha `sem_producao` (pessoa estava no posto, máquina/sem material) conta como operação exercida para o revezamento?
 4. Aprovar `compromisso_inviavel_*` como status separados dos 4 já definidos.
 5. Autorizar a sequência: 4c (módulos puros) → parar → 4d.
+
+---
+
+## 12. IMPLEMENTAÇÃO DA 4c (módulos puros, sem banco) — atualização
+
+Aprovado: reparo mínimo por ergonomia **e** por impossibilidade física (máquina equivalente → cobertura de ausente → posto vazio), status físicos separados, `sem_producao` conservador.
+
+Módulos: `compromisso.ts` (reparo unificado), `producaoReal.ts` (corte sem futuro, restante, exposição ergonômica), `desempenho.ts` (f), `execucao.ts` (A/B→C/B→D/OK, falta, recuperação), `sombraCorte.ts` (um corte), `horizonte.ts` (usa o reparo). Testes: `compromisso*.test.ts`, `producaoReal.test.ts`, `sombraCorte.test.ts`, `horizonte.test.ts`.
+
+Regras de implementação que merecem atenção:
+- **Máquina equivalente**: só dentro das máquinas selecionadas na Previsão para a mesma etapa (mesmo produto, etapa e operacao_id), disponível e **livre no período** (nunca uma máquina de outro posto). O motor continua sem usar máquina fora da Previsão; ampliar para "compatíveis" é decisão pendente.
+- **Pessoas**: um único problema de atribuição (Hungarian) por período: 1º postos vazios, 2º pessoas trocadas (mesmo funcionário no posto sempre que válido), 3º linha manual, 4º ocioso, 5º equidade. Ocioso e rearranjo entram na mesma busca; nada tira alguém de outro posto só para abrir um buraco equivalente.
+- **sem_producao**: com funcionário + máquina + alocação oficial inequívoca → usa a operação oficial; com funcionário e sem vínculo → operação desconhecida, proíbe **todas** as operações que a máquina executa nos pools da semana e registra a incerteza; sem funcionário (único caso nos dados reais) → `falta_operador` não expõe ninguém; `falta_material`/`outro` presume exposição só se houver UMA alocação oficial naquela máquina/período e a pessoa não tiver apontamento próprio (marcada `presumida`).
+- **Classificação**: `A` (impossível na origem), `OK`, `B→C` (entrou em risco e a melhor escala válida de c+2 em diante fecha), `B→D` (não fecha).
+- **Sem futuro**: `visaoNoCorte` filtra apontamentos (período ≤ c e lançamento ≤ corte), ausências (registradas ≤ corte) e indisponibilidades (início ≤ corte; liberação posterior ao corte é desconhecida).

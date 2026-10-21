@@ -20,6 +20,7 @@ import { gerarEscala } from "./gerarEscala";
 import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { sobrepoe } from "./tempo";
 import { avaliarCompromisso, type AvaliacaoCompromisso, type StatusCompromisso } from "./compromisso";
+import type { ExposicaoPessoa } from "./producaoReal";
 import type { AlertaEscala, AlocacaoEscala, EntradaEscala, ResultadoEscala, SlotEscala } from "./types";
 
 export type ModoHorizonte = "comprometido" | "antigo"; // antigo = o próximo período já pode mudar (só para comparar nas simulações)
@@ -168,7 +169,7 @@ export function replanejarComHorizonte(
   entrada: EntradaEscala,
   planoVigente: AlocacaoEscala[],
   referencia: number,
-  opcoes: { modo?: ModoHorizonte; agoraMs?: number; repararRotacao?: boolean } = {}
+  opcoes: { modo?: ModoHorizonte; agoraMs?: number; repararRotacao?: boolean; exposicaoAnterior?: ExposicaoPessoa[] } = {}
 ): ResultadoSombraHorizonte {
   const modo = opcoes.modo ?? "comprometido";
   const slots = entrada.slots;
@@ -177,8 +178,9 @@ export function replanejarComHorizonte(
   const congeladas = planoVigente.filter((a) => indiceDe(slots, a) <= h.congeladoAte);
   const comprometidasOriginais = h.comprometido === null ? [] : doSlot(slots, planoVigente, h.comprometido);
   // REVEZAMENTO duro > comprometido: se a execução real de c criou repetição em c+1, aplica-se o REPARO MÍNIMO (nunca reotimização)
-  const avaliacao = avaliarCompromisso(entrada, planoVigente, h.comprometido, { reparar: opcoes.repararRotacao !== false });
-  const comprometidas = avaliacao.status === "compromisso_reparavel" || avaliacao.status === "compromisso_nao_reparavel" ? avaliacao.reparado : comprometidasOriginais;
+  const avaliacao = avaliarCompromisso(entrada, planoVigente, h.comprometido, { reparar: opcoes.repararRotacao !== false, exposicaoAnterior: opcoes.exposicaoAnterior });
+  const reparou = opcoes.repararRotacao !== false && (avaliacao.conflitos.length > 0 || avaliacao.impedimentos.length > 0);
+  const comprometidas = reparou ? avaliacao.reparado : comprometidasOriginais;
   let resultado: ResultadoEscala | null = null;
   let alteravel: AlocacaoEscala[] = [];
   if (h.primeiroAlteravel !== null) {
@@ -186,7 +188,7 @@ export function replanejarComHorizonte(
     alteravel = resultado.alocacoes.filter((a) => indiceDe(slots, a) >= limite); // garantia estrutural: nada antes do alterável
   }
   const inviavel = h.comprometido === null ? null : detectarCompromissoInviavel(entrada, comprometidasOriginais, slots[h.comprometido]);
-  const alertas: AlertaEscala[] = [...(resultado?.alertas ?? []), ...(inviavel ? [alertaCompromissoInviavel(inviavel)] : []), ...avaliacao.alertas];
+  const alertas: AlertaEscala[] = [...(resultado?.alertas ?? []), ...(inviavel && !reparou ? [alertaCompromissoInviavel(inviavel)] : []), ...avaliacao.alertas];
   return {
     horizonte: h,
     congeladas,

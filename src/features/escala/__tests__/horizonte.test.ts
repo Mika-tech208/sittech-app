@@ -157,7 +157,7 @@ describe("replanejarComHorizonte — só o alterável muda; o comprometido é en
   });
 });
 
-describe("compromisso inviável — detecta, marca e alerta; NÃO recalcula em silêncio", () => {
+describe("compromisso inviável — detecta, marca e aplica SÓ o reparo mínimo (original preservado, período não reotimizado)", () => {
   const e = cenario(DIAS2);
   const vigente = gerarEscala(e).alocacoes;
   const c = 1; // M2 fechado => M3 comprometido (slot 2)
@@ -168,9 +168,12 @@ describe("compromisso inviável — detecta, marca e alerta; NÃO recalcula em s
     const e2 = { ...e, ausencias: [{ funcionarioId: alvo.funcionarioId, data: alvo.data, inicioMin: null, fimMin: null }] };
     const r = replanejarComHorizonte(e2, vigente, c);
     expect(r.compromissoInviavel?.itens).toEqual([{ tipo: "funcionario_ausente", funcionarioId: alvo.funcionarioId }]);
-    expect(r.alertas.some((a) => a.tipo === "compromisso_inviavel" && a.periodoId === "m3")).toBe(true);
-    // linha preservada exatamente como estava (nada de substituição silenciosa)
-    expect(hashAlocacoes(r.comprometidas)).toBe(hashAlocacoes(vigente.filter((a) => idxDe(e.slots, a) === 2)));
+    expect(r.alertas.some((a) => (a.tipo === "compromisso_inviavel_reparavel" || a.tipo === "compromisso_inviavel_nao_reparavel") && a.periodoId === "m3")).toBe(true);
+    expect(r.avaliacaoCompromisso.statusFisico).not.toBeNull();
+    // o compromisso ORIGINAL fica intacto e auditável; o reparo é mínimo (a linha do ausente + quem a cobre)
+    expect(hashAlocacoes(r.comprometidasOriginais)).toBe(hashAlocacoes(vigente.filter((a) => idxDe(e.slots, a) === 2)));
+    expect(r.avaliacaoCompromisso.linhasAlteradas).toBeLessThanOrEqual(3);
+    expect(r.comprometidas.find((a) => a.funcionarioId === alvo.funcionarioId)?.maquinaId).toBeNull();
     expect(r.alteravel.some((a) => idxDe(e.slots, a) <= 2)).toBe(false);
   });
 
@@ -192,7 +195,8 @@ describe("compromisso inviável — detecta, marca e alerta; NÃO recalcula em s
     const e2 = { ...e, indisponibilidades: [{ maquinaId: alvo.maquinaId as string, desdeMs: e.slots[1].inicioMs, liberadaEmMs: null }] };
     const r = replanejarComHorizonte(e2, vigente, c);
     expect(r.compromissoInviavel?.itens.some((i) => i.tipo === "maquina_indisponivel" && i.maquinaId === alvo.maquinaId)).toBe(true);
-    expect(hashAlocacoes(r.comprometidas)).toBe(hashAlocacoes(vigente.filter((a) => idxDe(e.slots, a) === 2)));
+    expect(hashAlocacoes(r.comprometidasOriginais)).toBe(hashAlocacoes(vigente.filter((a) => idxDe(e.slots, a) === 2)));
+    expect(r.avaliacaoCompromisso.statusFisico).not.toBeNull();
     // o alterável (≥ T1) segue sendo replanejado sabendo da máquina parada
     expect(r.alteravel.filter((a) => a.maquinaId === alvo.maquinaId)).toEqual([]);
   });
@@ -211,7 +215,7 @@ describe("compromisso inviável — detecta, marca e alerta; NÃO recalcula em s
     expect(detectarCompromissoInviavel(e2, vigente.filter((a) => idxDe(e.slots, a) === 2 && !a.maquinaId), e.slots[2])).toBeNull();
   });
 
-  it("alerta descreve o período e não promete recálculo", () => {
+  it("alerta de detecção descreve o período e diz que não houve recálculo", () => {
     const al = alertaCompromissoInviavel({ slot: 2, data: "2026-10-19", periodoId: "m3", itens: [{ tipo: "funcionario_ausente", funcionarioId: "f01" }] });
     expect(al.tipo).toBe("compromisso_inviavel");
     expect(al.motivo).toContain("M3");
