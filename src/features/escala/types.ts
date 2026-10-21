@@ -136,6 +136,7 @@ export type TipoAlerta =
   | "risco_falta_material"
   | "wip_acima_do_limite"
   | "rotacao_sem_solucao"
+  | "compromisso_inviavel"
   | "sem_funcionarios";
 
 export interface AlertaEscala {
