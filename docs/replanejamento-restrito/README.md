@@ -67,6 +67,7 @@ Por etapa: meta original, produtividade observada (Σ boas/Σ meta), n, f, resta
 Meta 100 pç/h × real 120 ⇒ com 6 amostras f = 1,10 (capacidade 110): acima da meta, abaixo do observado, e não presa em 100. A regra de f (n<3 ⇒ 1; clamp 0,30–1,30; peso n/(n+6)) **não mudou**.
 
 ## 7. Ociosidade futura com causa exata
+A causa vem do **motivo registrado pelo próprio motor** em cada posto vazio (revezamento, postos ocupados, recursos indisponíveis, demanda esgotada/coberta); só quando o previsto está esgotado/coberto é que se refina para `limite_wip`, `material` ou `sem_trabalho_valido`. `outro` só aparece para motivos desconhecidos (com o texto original).
 Cada pessoa-período ocioso no futuro recebe uma causa: `sem_trabalho_valido | revezamento_duro | maquina_indisponivel | limite_wip | material | nenhuma_maquina_compativel | outro`.
 Semana 26/10 hoje: os dois ociosos (29/10 T2 e 30/10 M2) = **`revezamento_duro`** (único posto livre repetiria a operação do período anterior). São recalculados a cada período/evento e podem receber outro trabalho válido.
 

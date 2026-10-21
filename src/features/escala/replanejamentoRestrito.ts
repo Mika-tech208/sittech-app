@@ -13,7 +13,7 @@ import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { EPS } from "./folga";
 import { hashAlocacoes } from "./horizonte";
 import { visaoNoCorte, type DecisaoCorte, type ParametrosCorte } from "./sombraCorte";
-import { chavePool, MOTIVO_REVEZAMENTO, type AlocacaoEscala, type EntradaEscala, type SlotEscala } from "./types";
+import { chavePool, MOTIVO_DEMANDA_ESGOTADA, MOTIVO_JA_COBERTA, MOTIVO_POSTOS_OCUPADOS, MOTIVO_RECURSOS_INDISPONIVEIS, MOTIVO_REVEZAMENTO, type AlocacaoEscala, type EntradaEscala, type SlotEscala } from "./types";
 import { restanteAcabado } from "./execucao";
 import type { DinamicaCorte } from "./gargaloDinamico";
 import { classificarMudancas, estabilizarPessoas } from "./estabilidade";
@@ -261,6 +261,7 @@ export function validarProposta(par: ParametrosCorte, dec: DecisaoCorte, prop: P
   const porPessoa = new Map<string, Map<number, AlocacaoEscala>>();
   efetivo.forEach((a) => { const i = idx(a); if (!Number.isFinite(i)) return; if (!porPessoa.has(a.funcionarioId)) porPessoa.set(a.funcionarioId, new Map()); porPessoa.get(a.funcionarioId)!.set(i, a); });
   porPessoa.forEach((m, f) => m.forEach((a, i) => {
+    if (i < (prop.aPartirSlot as number)) return; // só pares que a PROPOSTA cria (o histórico executado, mesmo com repetição antiga, não é culpa dela)
     const ant = m.get(i - 1);
     if (!ant || slots[i]?.primeiroDoDia || !a.maquinaId || !ant.maquinaId || !a.operacaoId) return;
     if (ant.operacaoId === a.operacaoId) v.push(`repetição de operação (${f.slice(0, 6)} ${a.data} ${a.periodoId})`);
@@ -329,10 +330,6 @@ export function diagnosticarOciosidade(par: ParametrosCorte, dec: DecisaoCorte, 
     const a = linhas.find((x) => x.funcionarioId === f && idx(x) === i - 1);
     return a?.maquinaId ? a.operacaoId : null;
   };
-  // previsto ainda necessário ANTES de cada período = restante real − o que o plano efetivo produz de c+1 até o período anterior (× f)
-  const fator = (k: string) => dec.desempenho[k]?.f ?? 1;
-  const produzidoAte = (k: string, i: number) => linhas.filter((a) => a.maquinaId && a.produtoId && a.etapaId && chavePool(a.produtoId, a.etapaId) === k && idx(a) > par.c && idx(a) < i).reduce((s, a) => s + a.pecas * fator(k), 0);
-  const precisaPrevisto = (k: string, i: number) => (dec.restantePorPool[k] ?? 0) - produzidoAte(k, i) > 1;
   const wipPares = new Map((dec.wip?.pares ?? []).map((p) => [chavePool(p.produtoId, p.etapaId), p]));
   const flexivel = new Set(par.base.pools.filter((p) => (p.adicionalMax ?? 0) > 0).map((p) => p.produtoId));
   const adicAte = (k: string, i: number) => (wipPares.get(k)?.realizado ?? 0) + linhas.filter((a) => a.maquinaId && a.produtoId && a.etapaId && chavePool(a.produtoId, a.etapaId) === k && idx(a) > par.c && idx(a) <= i).reduce((s, a) => s + (a.pecasAdicional ?? 0), 0);
@@ -345,14 +342,21 @@ export function diagnosticarOciosidade(par: ParametrosCorte, dec: DecisaoCorte, 
     if (!s) return;
     if (ent.ausencias.some((x) => x.funcionarioId === a.funcionarioId && x.data === a.data && (x.inicioMin === null || x.fimMin === null || (x.inicioMin < s.fimMin && s.inicioMin < x.fimMin)))) return; // ausente não é ocioso
     const base = { data: a.data, periodoId: a.periodoId, funcionarioId: a.funcionarioId };
+    // O motor registra o motivo EXATO de cada posto vazio; ele manda. Só ESGOTADA/JA_COBERTA deixam espaço para o WIP — aí refinamos (limite, material, rotação).
     if (a.motivoSemPosto === MOTIVO_REVEZAMENTO) { r.push({ ...base, causa: "revezamento_duro", detalhe: "todo trabalho válido repetiria a operação do período anterior" }); return; }
+    if (a.motivoSemPosto === MOTIVO_POSTOS_OCUPADOS) { r.push({ ...base, causa: "nenhuma_maquina_compativel", detalhe: "todas as máquinas da Previsão com demanda já têm operador neste período" }); return; }
+    if (a.motivoSemPosto === MOTIVO_RECURSOS_INDISPONIVEIS) { r.push({ ...base, causa: "maquina_indisponivel", detalhe: "as máquinas com demanda restante estão indisponíveis" }); return; }
+    const semPrevisto = a.motivoSemPosto === MOTIVO_DEMANDA_ESGOTADA || a.motivoSemPosto === MOTIVO_JA_COBERTA;
+    if (!semPrevisto) { r.push({ ...base, causa: "outro", detalhe: a.motivoSemPosto ?? "sem motivo registrado" }); return; }
+    const detalheSemPrevisto = a.motivoSemPosto === MOTIVO_DEMANDA_ESGOTADA ? "o previsto restante da semana está esgotado" : "o previsto restante já está coberto neste período (mais postos não produziriam mais)";
     const op = opAnterior(a.funcionarioId, s.indice);
     let bloqRot = 0, bloqLimite = 0, bloqMaterial = 0, indisp = 0, ocup = 0, valido = 0;
+    const exemplos: string[] = [];
     ent.pools.forEach((pl) => {
       const k = chavePool(pl.produtoId, pl.etapaId);
       const mu = pl.metas[s.periodoId] ?? 0;
       if (mu <= 0 || pl.maquinasIds.length === 0) return;
-      const previsto = precisaPrevisto(k, s.indice);
+      const previsto = false; // o motor já disse que não há previsto a mais para esta pessoa; só o WIP pode ocupá-la
       let wipOk = false, motivoWip: "limite" | "material" | null = null;
       if (!previsto && dec.wip && flexivel.has(pl.produtoId)) {
         const etapas = [...ent.pools].filter((x) => x.produtoId === pl.produtoId).sort((x, y) => x.ordemEtapa - y.ordemEtapa);
@@ -373,19 +377,19 @@ export function diagnosticarOciosidade(par: ParametrosCorte, dec: DecisaoCorte, 
         if (!maquinaDisponivelNoSlot(ent, m, s)) { indisp++; return; }
         if (ocupadas.get(s.indice)?.has(m)) { ocup++; return; }
         if (op !== null && pl.operacaoId === op) { bloqRot++; return; }
-        if (previsto || wipOk) valido++;
+        if (previsto || wipOk) { valido++; if (exemplos.length < 2) exemplos.push(`${m.slice(0, 6)} em ${pl.produtoId.slice(0, 6)}/${pl.etapaId.slice(0, 6)} (${previsto ? "previsto" : "WIP"})`); }
         else if (motivoWip === "limite") bloqLimite++;
         else if (motivoWip === "material") bloqMaterial++;
       });
     });
     let causa: CausaOciosidade, detalhe: string;
-    if (valido > 0) { causa = "outro"; detalhe = `${valido} posto(s) livre(s) com trabalho válido existiam (decisão do motor por equilíbrio/ordem)`; }
+    if (valido > 0) { causa = "outro"; detalhe = `${valido} posto(s) livre(s) com trabalho válido existiam (decisão do motor por equilíbrio/ordem): ${exemplos.join("; ")}`; }
     else if (bloqRot > 0) { causa = "revezamento_duro"; detalhe = "o único posto livre com trabalho repetiria a operação do período anterior"; }
     else if (bloqLimite > 0) { causa = "limite_wip"; detalhe = "WIP possível, mas o estoque entre etapas já está no limite"; }
     else if (bloqMaterial > 0) { causa = "material"; detalhe = "etapa seguinte sem estoque da anterior para consumir"; }
     else if (indisp > 0 && ocup === 0) { causa = "maquina_indisponivel"; detalhe = "as máquinas com trabalho estão indisponíveis"; }
     else if (ocup > 0) { causa = "nenhuma_maquina_compativel"; detalhe = "todas as máquinas da Previsão com trabalho já têm operador no período"; }
-    else { causa = "sem_trabalho_valido"; detalhe = "não há previsto restante nem WIP elegível para a pessoa neste período"; }
+    else { causa = "sem_trabalho_valido"; detalhe = `${detalheSemPrevisto}; não há WIP elegível para a pessoa` ; }
     r.push({ ...base, causa, detalhe });
   });
   return r.sort((x, y) => (x.data + x.periodoId + x.funcionarioId < y.data + y.periodoId + y.funcionarioId ? -1 : 1));
