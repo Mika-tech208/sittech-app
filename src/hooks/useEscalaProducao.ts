@@ -101,7 +101,7 @@ export function useEscalaProducao(pronto: boolean, semanaInicio: string) {
       id: r.id, maquinaId: r.maquina_id, motivo: r.motivo, observacao: r.observacao, desde: r.desde, liberadaEm: r.liberada_em,
     }));
 
-    const esg = await supabase.from("escala_producao_eventos").select("id", { count: "exact", head: true }).eq("status", "erro").gte("tentativas", 3);
+    const esg = await supabase.from("escala_producao_eventos").select("id", { count: "exact", head: true }).eq("status", "erro").gte("tentativas", 3).neq("tipo", "apontamento_periodo");
     const eventosEsgotados = esg.error ? 0 : (esg.count ?? 0);
 
     if (!prev) {
@@ -114,7 +114,7 @@ export function useEscalaProducao(pronto: boolean, semanaInicio: string) {
     const [diasR, itensR, eventosR] = await Promise.all([
       supabase.from("escala_producao_dias").select("data, versao, atualizado_em, periodos_snapshot").eq("previsao_id", previsaoId).order("data"),
       supabase.from("previsao_itens").select("previsao_item_maquinas(maquina_id)").eq("previsao_id", previsaoId).eq("tipo", "previsto"),
-      supabase.from("escala_producao_eventos").select("tipo, status, tentativas, criado_em, payload").eq("previsao_id", previsaoId).order("criado_em"),
+      supabase.from("escala_producao_eventos").select("tipo, status, tentativas, criado_em, payload").eq("previsao_id", previsaoId).neq("tipo", "apontamento_periodo").order("criado_em"),
     ]);
     if (diasR.error) return falha("Não foi possível carregar a Escala.");
 

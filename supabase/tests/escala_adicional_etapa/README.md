@@ -8,3 +8,7 @@ Cobre: RPC `upsert_previsao_semana` com `adicional_etapas`, preservação por it
 
 `t9_wip_controle.sql` (Fase 3): controle de estoque intermediário — criação/validações, ajuste, confirmação (motivo na divergência, idempotência),
 histórico imutável, foto semanal idempotente (a 1ª vale), grants (o navegador não escreve nem executa as RPCs) e eventos (só com WIP ativo).
+
+`t11_sombra.sql` (Fase 4d): modo sombra — evento lógico único por (semana, data, período) a partir do trigger de `apontamentos_producao`, aguardar não consome tentativa,
+reivindicação atômica, snapshot idempotente e append-only (`escala_sombra_decisoes`), lançamento tardio só contado, resultado posterior separado, grants (navegador só lê),
+parâmetro `replanejamento_modo` (sem recalcular o oficial) e Escala oficial intacta.

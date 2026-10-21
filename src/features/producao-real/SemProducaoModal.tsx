@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { supabase } from "@/services/supabase-client";
+import { agendarFechamentoEscala } from "@/lib/escala/disparar";
 import { mensagemErroRegistrarLancamento } from "./calculations";
 
 export const MOTIVOS: { valor: string; label: string }[] = [
@@ -78,6 +79,7 @@ export default function SemProducaoModal({
       return;
     }
 
+    agendarFechamentoEscala(); // Escala (modo sombra): avalia o fechamento do período; best-effort
     setMotivoSalvo(motivo);
     setEtapa("confirmado");
     onRegistrado({ maquinaId, motivo });

@@ -17,6 +17,7 @@
 // MARCADO como "compromisso inviável" e gera alerta — NÃO é recalculado em silêncio (a contingência é decidida à parte).
 
 import { gerarEscala } from "./gerarEscala";
+import { hashCanonico } from "./hashCanonico";
 import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { sobrepoe } from "./tempo";
 import { avaliarCompromisso, type AvaliacaoCompromisso, type StatusCompromisso } from "./compromisso";
@@ -64,26 +65,12 @@ export function horizonteNoInstante(slots: SlotEscala[], agoraMs: number, fechad
 
 export const rotuloPeriodo = (slots: SlotEscala[], i: number | null): string => (i === null || !slots[i] ? "—" : `${slots[i].data.slice(8)}/${slots[i].data.slice(5, 7)} ${slots[i].periodoId.toUpperCase()}`);
 
-// ---------- hash canônico (prova de qual escala estava vigente; determinístico, sem relógio) ----------
-// cyrb53: suficiente para comparar/auditar nesta fase; o snapshot definitivo (4d) pode trocar por SHA-256 no servidor.
-function cyrb53(str: string): string {
-  let h1 = 0xdeadbeef;
-  let h2 = 0x41c6ce57;
-  for (let i = 0; i < str.length; i++) {
-    const ch = str.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, "0");
-}
-
+// ---------- hash canônico (prova de qual escala estava vigente; determinístico, sem relógio): SHA-256 sobre JSON canônico ----------
 export function hashAlocacoes(linhas: AlocacaoEscala[]): string {
   const canonico = [...linhas]
     .sort((a, b) => (a.data + a.periodoId + a.funcionarioId < b.data + b.periodoId + b.funcionarioId ? -1 : 1))
     .map((a) => [a.data, a.periodoId, a.funcionarioId, a.maquinaId, a.produtoId, a.etapaId, a.operacaoId, a.pecas, a.pecasAdicional ?? 0, a.origem ?? "auto"]);
-  return cyrb53(JSON.stringify(canonico));
+  return hashCanonico(canonico);
 }
 
 // ---------- compromisso inviável ----------

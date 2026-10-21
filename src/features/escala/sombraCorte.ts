@@ -6,6 +6,7 @@
 
 import { desempenhoPorEtapa, type DesempenhoEtapa } from "./desempenho";
 import { classificarSituacao, coberturaFutura, faltaProjetada, postosVaziosPorRevezamento, projetarProducao, resumirRecuperacao, restanteAcabado, somarProducao, toleranciaFalta, type FaltaProjetada, type ResumoRecuperacao, type Situacao } from "./execucao";
+import { hashCanonico } from "./hashCanonico";
 import { hashAlocacoes, horizonteAposPeriodo, replanejarComHorizonte, type ResultadoSombraHorizonte } from "./horizonte";
 import { boasPorPool, linhasExecutadas, restantePorPool, visivelNoCorte, type ApontamentoReal, type ExposicaoPessoa, type IncertezaExposicao } from "./producaoReal";
 import { chavePool, type AlocacaoEscala, type EntradaEscala, type IndisponibilidadeRecursoEscala, type JanelaAusenciaEscala } from "./types";
@@ -62,7 +63,7 @@ export function executarCorteSombra(p: ParametrosCorte): DecisaoCorte {
   const idx = (a: { data: string; periodoId: string }) => slots.find((s) => s.data === a.data && s.periodoId === a.periodoId)?.indice ?? Number.POSITIVE_INFINITY;
 
   // passado executado (Produção Real) e exposição ergonômica
-  const ex = linhasExecutadas(slots, p.c, ent.funcionarios.map((f) => f.id), v.apontamentos, p.planoOficial, ent.pools);
+  const ex = linhasExecutadas(slots, p.c, ent.funcionarios.map((f) => f.id), v.apontamentos, p.planoOficial, ent.pools, v.ausencias);
   const boas = boasPorPool(v.apontamentos);
   const restante = restantePorPool(ent.pools, boas);
   const desempenho = desempenhoPorEtapa(ent.pools, v.apontamentos);
@@ -97,5 +98,5 @@ export function executarCorteSombra(p: ParametrosCorte): DecisaoCorte {
     cobertura: { oficial: coberturaFutura(oficialFuturo), sombra: coberturaFutura(sombraFuturo) },
     postosVazios: { revezamentoNoAlteravel: Math.max(alertasRot, postosVaziosPorRevezamento(horizonte.alteravel)), revezamentoNoComprometido: av.postosVazios.filter((x) => x.causa === "revezamento").length, inviavelNoComprometido: av.postosVazios.filter((x) => x.causa === "inviavel").length },
   };
-  return { ...decisao, hashDecisao: hashAlocacoes([...horizonte.comprometidas, ...horizonte.alteravel]) + ":" + JSON.stringify([situacao, Math.round(faltaSombra.total), Math.round(faltaOficial.total)]) };
+  return { ...decisao, hashDecisao: hashCanonico({ plano: hashAlocacoes([...horizonte.comprometidas, ...horizonte.alteravel]), situacao, faltaOficial: Math.round(faltaOficial.total), faltaSombra: Math.round(faltaSombra.total) }) };
 }

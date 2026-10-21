@@ -43,6 +43,7 @@ export interface AusenciaBruta {
   data: string;
   horarioInicio: string | null; // "HH:MM:SS" ou null (dia inteiro)
   horarioFim: string | null;
+  registradaEm?: string; // ISO (criado_em): permite enxergar só o que existia em um corte (modo sombra)
 }
 
 export interface IndisponibilidadeBruta {

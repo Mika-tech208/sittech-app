@@ -146,7 +146,7 @@ describe("replanejarComHorizonte — só o alterável muda; o comprometido é en
     expect(r.snapshot.comprometido).toEqual({ slot: 3, data: "2026-10-19", periodoId: "t1" });
     expect(r.snapshot.primeiroAlteravel).toEqual({ slot: 4, data: "2026-10-19", periodoId: "t2" });
     expect(r.snapshot.geradoEm).toBe(999);
-    expect([r.snapshot.hashCongelado, r.snapshot.hashComprometido, r.snapshot.hashAlteravel].every((h) => /^[0-9a-f]{14}$/.test(h))).toBe(true);
+    expect([r.snapshot.hashCongelado, r.snapshot.hashComprometido, r.snapshot.hashAlteravel].every((h) => /^[0-9a-f]{64}$/.test(h))).toBe(true);
     expect(new Set([r.snapshot.hashCongelado, r.snapshot.hashComprometido, r.snapshot.hashAlteravel]).size).toBe(3);
   });
 

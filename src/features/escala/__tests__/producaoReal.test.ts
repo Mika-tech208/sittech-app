@@ -82,9 +82,9 @@ describe("exposição ergonômica — sem_producao CONSERVADOR", () => {
     const op = ap(0, null, "m1", null, null, { motivo: "falta_operador" });
     const mat = ap(0, null, "m2", null, null, { motivo: "falta_material" });
     const r = exposicoesDoPeriodo(S[0], [op, mat], [oficial(0, "f01", "m1", "A", "opX"), oficial(0, "f02", "m2", "A", "opX")], e.pools);
-    expect(r.exposicoes.map((x) => x.funcionarioId)).toEqual(["f02"]);
+    expect(r.exposicoes.map((x) => x.funcionarioId)).toEqual(["f02"]); // f01: o lançamento diz que não havia operador
     expect(r.exposicoes[0]).toMatchObject({ origem: "sem_producao_presumida", incerta: true });
-    expect(r.incertezas.some((i) => i.tipo === "sem_apontamento" && i.funcionarioId === "f01")).toBe(true);
+    expect(r.incertezas.some((i) => i.funcionarioId === "f01")).toBe(false);
   });
   it("incerteza nunca LIBERA repetição: com operação desconhecida, o posto compatível com qualquer candidata é conflito", () => {
     const sp = ap(0, "f01", "m3", null, null);
@@ -103,5 +103,46 @@ describe("exposição ergonômica — sem_producao CONSERVADOR", () => {
     expect(r.linhas.find((a) => a.funcionarioId === "f02")).toMatchObject({ maquinaId: "m3", operacaoId: null, produtoId: null, etapaId: null });
     expect(r.linhas.find((a) => a.funcionarioId === "f03")?.maquinaId).toBeNull();
     expect(r.linhas.every((a) => a.pecas === 0)).toBe(true);
+  });
+});
+
+describe("pessoa SEM apontamento — abordagem conservadora (4d)", () => {
+  const of = [oficial(0, "f01", "m1", "A", "opX"), oficial(0, "f02", "m2", "A", "opX"), oficial(0, "f03", "m3", "B", "opY")];
+  it("alocação oficial inequívoca e nenhuma evidência de que não operou => EXPOSTA à operação oficial (sem apontamento ≠ sem exposição)", () => {
+    const r = exposicoesDoPeriodo(S[0], [ap(0, "f02", "m2", "A", "opX")], of, e.pools, { funcionarios: ["f01", "f02", "f03", "f04"] });
+    expect(r.exposicoes.map((x) => [x.funcionarioId, x.operacoes[0], x.origem, x.incerta])).toEqual([["f01", "opX", "alocacao_oficial_sem_apontamento", true], ["f02", "opX", "apontamento", false], ["f03", "opY", "alocacao_oficial_sem_apontamento", true]]);
+    expect(r.incertezas.filter((i) => i.tipo === "sem_apontamento_presumida").map((i) => i.funcionarioId)).toEqual(["f01", "f03"]);
+  });
+  it("ausência CONHECIDA não conta como exposição", () => {
+    const aus = [{ funcionarioId: "f01", data: S[0].data, inicioMin: null, fimMin: null }];
+    const r = exposicoesDoPeriodo(S[0], [], of, e.pools, { ausencias: aus, funcionarios: ["f01", "f02", "f03"] });
+    expect(r.exposicoes.map((x) => x.funcionarioId)).toEqual(["f02", "f03"]);
+    // ausência parcial que NÃO cobre o período também não conta como evidência
+    const fora = [{ funcionarioId: "f01", data: S[0].data, inicioMin: S[0].fimMin, fimMin: S[0].fimMin + 30 }];
+    expect(exposicoesDoPeriodo(S[0], [], of, e.pools, { ausencias: fora }).exposicoes.map((x) => x.funcionarioId)).toContain("f01");
+  });
+  it("evidência de que não operou: falta_operador na máquina dela, ou outro operador produzindo nela", () => {
+    const faltaOp = ap(0, null, "m1", null, null, { motivo: "falta_operador" });
+    const outro = ap(0, "f09", "m3", "B", "opY");
+    const r = exposicoesDoPeriodo(S[0], [faltaOp, outro], of, e.pools, {});
+    expect(r.exposicoes.map((x) => x.funcionarioId).sort()).toEqual(["f02", "f09"]); // f01 e f03 têm evidência; f02 sem apontamento: exposta
+  });
+  it("sem NENHUMA linha oficial e sem apontamento: operação DESCONHECIDA registrada — nada inventado, nenhuma restrição fabricada", () => {
+    const r = exposicoesDoPeriodo(S[0], [], [oficial(0, "f01", "m1", "A", "opX")], e.pools, { funcionarios: ["f01", "f07"] });
+    expect(r.incertezas.find((i) => i.funcionarioId === "f07")).toMatchObject({ tipo: "operacao_desconhecida", candidatas: [] });
+    expect(r.exposicoes.find((x) => x.funcionarioId === "f07")).toBeUndefined();
+  });
+  it("a exposição presumida PROÍBE a repetição no período seguinte (conflito marcado como incerto)", () => {
+    const ex = exposicoesDoPeriodo(S[0], [], of, e.pools, {});
+    const comp = [{ ...oficial(1, "f01", "m1", "A", "opX") }];
+    const r = avaliarCompromisso(e, comp, 1, { exposicaoAnterior: ex.exposicoes });
+    expect(r.conflitos).toHaveLength(1);
+    expect(r.conflitos[0].exposicaoIncerta).toBe(true);
+  });
+  it("linhasExecutadas: quem tem oficial e não apontou vira linha COM posto (conservador); ausente/evidência vira sem posto", () => {
+    const aus = [{ funcionarioId: "f03", data: S[0].data, inicioMin: null, fimMin: null }];
+    const r = linhasExecutadas(S, 0, ["f01", "f02", "f03"], [ap(0, "f02", "m2", "A", "opX")], of, e.pools, aus);
+    expect(r.linhas.find((a) => a.funcionarioId === "f01")).toMatchObject({ maquinaId: "m1", operacaoId: "opX", produtoId: "A" });
+    expect(r.linhas.find((a) => a.funcionarioId === "f03")?.maquinaId).toBeNull();
   });
 });

@@ -141,6 +141,7 @@ export type TipoAlerta =
   | "compromisso_nao_reparavel"
   | "compromisso_inviavel_reparavel"
   | "compromisso_inviavel_nao_reparavel"
+  | "contingencia_possivel"
   | "sem_funcionarios";
 
 export interface AlertaEscala {

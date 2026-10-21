@@ -90,7 +90,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         admin.from("maquinas").select("id").eq("ativo", false),
         admin.from("periodos").select("id, nome, inicio, fim").order("id"),
         admin.from("escala_producao_dias").select("data, versao, periodos_snapshot").eq("previsao_id", previsaoId),
-        admin.from("ausencias_funcionarios").select("funcionario_id, data, horario_inicio, horario_fim").gte("data", prev.semana_inicio).lte("data", semanaFim),
+        admin.from("ausencias_funcionarios").select("funcionario_id, data, horario_inicio, horario_fim, criado_em").gte("data", prev.semana_inicio).lte("data", semanaFim),
         admin.from("escala_recurso_indisponivel").select("maquina_id, desde, liberada_em").or(`liberada_em.is.null,liberada_em.gte.${prev.semana_inicio}T00:00:00-03:00`),
         admin.from("operacoes").select("id, nome"),
         admin.from("escala_parametros").select("chave, valor"),
@@ -162,8 +162,8 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         })),
         maquinasIndisponiveisPrevisao: (ok(indispPrev, "previsao_maquinas_indisponiveis") as { maquina_id: string }[]).map((r) => r.maquina_id),
         maquinasInativas: (ok(inativas, "maquinas") as { id: string }[]).map((r) => r.id),
-        ausencias: (ok(ausencias, "ausencias_funcionarios") as { funcionario_id: string; data: string; horario_inicio: string | null; horario_fim: string | null }[]).map((a) => ({
-          funcionarioId: a.funcionario_id, data: a.data, horarioInicio: a.horario_inicio, horarioFim: a.horario_fim,
+        ausencias: (ok(ausencias, "ausencias_funcionarios") as { funcionario_id: string; data: string; horario_inicio: string | null; horario_fim: string | null; criado_em?: string }[]).map((a) => ({
+          funcionarioId: a.funcionario_id, data: a.data, horarioInicio: a.horario_inicio, horarioFim: a.horario_fim, ...(a.criado_em ? { registradaEm: a.criado_em } : {}),
         })),
         indisponibilidades: (ok(indisp, "escala_recurso_indisponivel") as { maquina_id: string; desde: string; liberada_em: string | null }[]).map((i) => ({
           maquinaId: i.maquina_id, desde: i.desde, liberadaEm: i.liberada_em,
@@ -333,9 +333,9 @@ export async function drenarOutbox(admin: SupabaseClient, agoraMs: number): Prom
     resumo.erros += r.erros;
     if (r.erros > 0 || tratados < TAMANHO_LOTE) break;
   }
-  const pend = await admin.from("escala_producao_eventos").select("id", { count: "exact", head: true }).in("status", ["pendente", "processando"]);
+  const pend = await admin.from("escala_producao_eventos").select("id", { count: "exact", head: true }).in("status", ["pendente", "processando"]).neq("tipo", "apontamento_periodo");
   if (pend.error) throw new Error(`escala_producao_eventos (pendentes): ${pend.error.message}`);
-  const esg = await admin.from("escala_producao_eventos").select("id", { count: "exact", head: true }).eq("status", "erro").gte("tentativas", 3);
+  const esg = await admin.from("escala_producao_eventos").select("id", { count: "exact", head: true }).eq("status", "erro").gte("tentativas", 3).neq("tipo", "apontamento_periodo");
   if (esg.error) throw new Error(`escala_producao_eventos (esgotados): ${esg.error.message}`);
   resumo.pendentesRestantes = pend.count ?? 0;
   resumo.esgotados = esg.count ?? 0;

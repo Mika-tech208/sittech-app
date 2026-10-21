@@ -15,6 +15,7 @@
 
 import { useState } from "react";
 import { supabase } from "@/services/supabase-client";
+import { agendarFechamentoEscala } from "@/lib/escala/disparar";
 import { useProdutosElegiveisPorMaquina } from "@/hooks/useProdutosElegiveisPorMaquina";
 import { useMotivosParada } from "@/hooks/useMotivosParada";
 import { calcularPerformance, mensagemErroRegistrarLancamento } from "./calculations";
@@ -119,6 +120,7 @@ export default function ApontamentoModal({
     }
 
     const apontamento = (Array.isArray(data) ? data[0] : data) as ApontamentoRpcResult;
+    agendarFechamentoEscala(); // Escala (modo sombra): avalia o fechamento do período; best-effort
 
     const { data: paradasData } = await supabase
       .from("apontamento_paradas")

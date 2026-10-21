@@ -13,9 +13,13 @@
 //         lançamento diz que não havia operador); `falta_material`/`outro` ⇒ quem tem a ÚNICA alocação oficial naquela máquina/período
 //         e nenhum apontamento próprio é tratado como EXPOSTO àquela operação (presunção conservadora, marcada `presumida`).
 //       Nunca se inventa produto/etapa/operação; incerteza sempre fica registrada.
-//  3. Pessoa sem nenhum apontamento no período: sem exposição conhecida (registrado como incerteza `sem_apontamento` só para diagnóstico).
+//  3. PESSOA SEM APONTAMENTO (conservador, 4d): se tinha alocação oficial inequívoca naquele período e NÃO há evidência de ausência nem de que
+//     não operou (`falta_operador` na máquina dela, ou outro operador produzindo nela), considera-se EXPOSTA à operação oficial — "sem
+//     apontamento" NÃO é "sem exposição". Sem alocação oficial alguma e sem apontamento => operação desconhecida (incerteza registrada;
+//     nada é inventado e nada autoriza uma repetição insegura).
 
-import { chavePool, type AlocacaoEscala, type PoolEscala, type SlotEscala } from "./types";
+import { sobrepoe } from "./tempo";
+import { chavePool, type AlocacaoEscala, type JanelaAusenciaEscala, type PoolEscala, type SlotEscala } from "./types";
 
 export type StatusApontamento = "produzindo" | "sem_producao";
 
@@ -66,7 +70,7 @@ export function restantePorPool(pools: PoolEscala[], boas: Record<string, number
   return r;
 }
 
-export type OrigemExposicao = "apontamento" | "sem_producao_vinculada" | "sem_producao_desconhecida" | "sem_producao_presumida";
+export type OrigemExposicao = "apontamento" | "sem_producao_vinculada" | "sem_producao_desconhecida" | "sem_producao_presumida" | "alocacao_oficial_sem_apontamento";
 export interface ExposicaoPessoa {
   funcionarioId: string;
   slot: number;
@@ -76,7 +80,7 @@ export interface ExposicaoPessoa {
   incerta: boolean; // true quando a operação NÃO é inequívoca
 }
 export interface IncertezaExposicao {
-  tipo: "sem_producao_sem_vinculo" | "sem_producao_sem_funcionario_presumida" | "sem_apontamento";
+  tipo: "sem_producao_sem_vinculo" | "sem_producao_sem_funcionario_presumida" | "sem_apontamento_presumida" | "operacao_desconhecida";
   funcionarioId: string | null;
   slot: number;
   maquinaId: string | null;
@@ -85,10 +89,18 @@ export interface IncertezaExposicao {
 
 const operacoesDaMaquina = (pools: PoolEscala[], maquinaId: string) => [...new Set(pools.filter((p) => p.maquinasIds.includes(maquinaId)).map((p) => p.operacaoId))].sort();
 
+export interface ContextoExposicao {
+  ausencias?: JanelaAusenciaEscala[]; // ausências CONHECIDAS no corte
+  funcionarios?: string[]; // equipe do período (para detectar "operação desconhecida")
+}
+const ausenteNaJanela = (ausencias: JanelaAusenciaEscala[], f: string, slot: SlotEscala) =>
+  ausencias.some((x) => x.funcionarioId === f && x.data === slot.data && (x.inicioMin === null || x.fimMin === null || sobrepoe(x.inicioMin, x.fimMin, slot.inicioMin, slot.fimMin)));
+
 // Exposição de cada pessoa no período `slot`, a partir do que foi apontado e da alocação oficial daquele período.
-export function exposicoesDoPeriodo(slot: SlotEscala, apontamentos: ApontamentoReal[], oficial: AlocacaoEscala[], pools: PoolEscala[]): { exposicoes: ExposicaoPessoa[]; incertezas: IncertezaExposicao[] } {
+export function exposicoesDoPeriodo(slot: SlotEscala, apontamentos: ApontamentoReal[], oficial: AlocacaoEscala[], pools: PoolEscala[], ctx: ContextoExposicao = {}): { exposicoes: ExposicaoPessoa[]; incertezas: IncertezaExposicao[] } {
   const doPeriodo = apontamentos.filter((a) => a.data === slot.data && a.periodoId === slot.periodoId);
-  const oficiais = oficial.filter((a) => a.data === slot.data && a.periodoId === slot.periodoId && a.maquinaId);
+  const doSlotOficial = oficial.filter((a) => a.data === slot.data && a.periodoId === slot.periodoId);
+  const oficiais = doSlotOficial.filter((a) => a.maquinaId);
   const exposicoes = new Map<string, ExposicaoPessoa>();
   const incertezas: IncertezaExposicao[] = [];
   const comLinhaPropria = new Set(doPeriodo.filter((a) => a.funcionarioId).map((a) => a.funcionarioId as string));
@@ -110,30 +122,36 @@ export function exposicoesDoPeriodo(slot: SlotEscala, apontamentos: ApontamentoR
     incertezas.push({ tipo: "sem_producao_sem_vinculo", funcionarioId: f, slot: slot.indice, maquinaId: a.maquinaId, candidatas: ops });
   });
 
-  // linhas sem funcionário (caso real de sem_producao): não identificam pessoa
-  doPeriodo.filter((a) => !a.funcionarioId && a.status === "sem_producao" && a.maquinaId && a.motivo !== "falta_operador").forEach((a) => {
-    const naMaquina = oficiais.filter((o) => o.maquinaId === a.maquinaId);
-    if (naMaquina.length !== 1) return;
-    const o = naMaquina[0];
-    if (comLinhaPropria.has(o.funcionarioId) || exposicoes.has(o.funcionarioId)) return;
-    exposicoes.set(o.funcionarioId, { funcionarioId: o.funcionarioId, slot: slot.indice, maquinaId: a.maquinaId, operacoes: [o.operacaoId as string], origem: "sem_producao_presumida", incerta: true });
-    incertezas.push({ tipo: "sem_producao_sem_funcionario_presumida", funcionarioId: o.funcionarioId, slot: slot.indice, maquinaId: a.maquinaId, candidatas: [o.operacaoId as string] });
+  // pessoas com alocação oficial inequívoca e SEM apontamento próprio: expostas, salvo evidência de que não operaram
+  oficiais.forEach((o) => {
+    const f = o.funcionarioId;
+    if (exposicoes.has(f) || comLinhaPropria.has(f)) return;
+    if (ctx.ausencias && ausenteNaJanela(ctx.ausencias, f, slot)) return; // ausência conhecida: não conta
+    const naMaquina = doPeriodo.filter((a) => a.maquinaId === o.maquinaId);
+    if (naMaquina.some((a) => a.status === "sem_producao" && a.motivo === "falta_operador")) return; // o lançamento diz que não havia operador
+    if (naMaquina.some((a) => a.status === "produzindo" && a.funcionarioId && a.funcionarioId !== f)) return; // outro operou a máquina
+    const semProd = naMaquina.some((a) => a.status === "sem_producao");
+    exposicoes.set(f, { funcionarioId: f, slot: slot.indice, maquinaId: o.maquinaId, operacoes: [o.operacaoId as string], origem: semProd ? "sem_producao_presumida" : "alocacao_oficial_sem_apontamento", incerta: true });
+    incertezas.push({ tipo: semProd ? "sem_producao_sem_funcionario_presumida" : "sem_apontamento_presumida", funcionarioId: f, slot: slot.indice, maquinaId: o.maquinaId, candidatas: [o.operacaoId as string] });
   });
 
-  oficiais.forEach((o) => {
-    if (!exposicoes.has(o.funcionarioId)) incertezas.push({ tipo: "sem_apontamento", funcionarioId: o.funcionarioId, slot: slot.indice, maquinaId: o.maquinaId, candidatas: [] });
+  // sem apontamento e sem NENHUMA linha oficial (nem "sem posto"): operação desconhecida — registrada, nunca inventada
+  (ctx.funcionarios ?? []).forEach((f) => {
+    if (exposicoes.has(f) || comLinhaPropria.has(f) || doSlotOficial.some((a) => a.funcionarioId === f)) return;
+    if (ctx.ausencias && ausenteNaJanela(ctx.ausencias, f, slot)) return;
+    incertezas.push({ tipo: "operacao_desconhecida", funcionarioId: f, slot: slot.indice, maquinaId: null, candidatas: [] });
   });
   return { exposicoes: [...exposicoes.values()].sort((x, y) => (x.funcionarioId < y.funcionarioId ? -1 : 1)), incertezas };
 }
 
 // Linhas "executadas" (entrada congelada do motor) para os períodos 0..c. pecas = 0 (o saldo real entra por `restantePorPool`).
-export function linhasExecutadas(slots: SlotEscala[], c: number, funcionarios: string[], apontamentos: ApontamentoReal[], oficial: AlocacaoEscala[], pools: PoolEscala[]): { linhas: AlocacaoEscala[]; exposicoes: ExposicaoPessoa[]; incertezas: IncertezaExposicao[] } {
+export function linhasExecutadas(slots: SlotEscala[], c: number, funcionarios: string[], apontamentos: ApontamentoReal[], oficial: AlocacaoEscala[], pools: PoolEscala[], ausencias: JanelaAusenciaEscala[] = []): { linhas: AlocacaoEscala[]; exposicoes: ExposicaoPessoa[]; incertezas: IncertezaExposicao[] } {
   const linhas: AlocacaoEscala[] = [];
   const exposicoes: ExposicaoPessoa[] = [];
   const incertezas: IncertezaExposicao[] = [];
   for (let s = 0; s <= c && s < slots.length; s++) {
     const slot = slots[s];
-    const ex = exposicoesDoPeriodo(slot, apontamentos, oficial, pools);
+    const ex = exposicoesDoPeriodo(slot, apontamentos, oficial, pools, { ausencias, funcionarios });
     exposicoes.push(...ex.exposicoes);
     incertezas.push(...ex.incertezas);
     const exPor = new Map(ex.exposicoes.map((e) => [e.funcionarioId, e]));
@@ -145,7 +163,7 @@ export function linhasExecutadas(slots: SlotEscala[], c: number, funcionarios: s
       if (e && e.maquinaId) {
         const of = oficial.find((o) => o.data === slot.data && o.periodoId === slot.periodoId && o.funcionarioId === f && o.maquinaId === e.maquinaId);
         const known = ap && ap.status === "produzindo" ? ap : of;
-        linhas.push({ ...base, maquinaId: e.maquinaId, produtoId: known?.produtoId ?? null, etapaId: known?.etapaId ?? null, operacaoId: e.incerta ? null : e.operacoes[0] ?? null, motivoSemPosto: null });
+        linhas.push({ ...base, maquinaId: e.maquinaId, produtoId: known?.produtoId ?? null, etapaId: known?.etapaId ?? null, operacaoId: e.origem === "sem_producao_desconhecida" ? null : e.operacoes[0] ?? null, motivoSemPosto: null });
       } else linhas.push({ ...base, maquinaId: null, produtoId: null, etapaId: null, operacaoId: null, motivoSemPosto: "sem apontamento" });
     });
   }

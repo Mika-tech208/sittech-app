@@ -46,6 +46,16 @@ export interface ImpedimentoFisico { tipo: TipoImpedimento; funcionarioId?: stri
 export interface TrocaReparo { funcionarioId: string; de: PostoRef | null; para: PostoRef | null }
 export interface TrocaMaquina { funcionarioId: string; de: string; para: string; produtoId: string | null; etapaId: string | null }
 export interface PostoVazio extends PostoRef { causa: "revezamento" | "inviavel"; detalhe: string }
+// "Contingência possível": máquina COMPATÍVEL com a etapa, disponível e livre, mas FORA da Previsão — nunca usada automaticamente
+// (setup, ferramental, regulagem, material ou restrição local que o sistema não conhece). Só diagnóstico para decisão da supervisão.
+export interface ContingenciaMaquina {
+  maquinaId: string;
+  produtoId: string | null;
+  etapaId: string | null;
+  operacaoId: string | null;
+  postoAfetado: { maquinaId: string; funcionarioId: string };
+  motivoNaoUsada: "fora da Previsão";
+}
 
 export interface AvaliacaoCompromisso {
   status: StatusCompromisso; // físico tem precedência (statusFisico ?? statusErgonomico)
@@ -61,6 +71,7 @@ export interface AvaliacaoCompromisso {
   linhasAlteradas: number;
   postosPreservados: boolean;
   postosVazios: PostoVazio[];
+  contingencias: ContingenciaMaquina[]; // alternativas fora da Previsão (somente registro)
   alertas: AlertaEscala[];
 }
 
@@ -140,7 +151,7 @@ export function avaliarCompromisso(entrada: EntradaEscala, planoVigente: Alocaca
   const slot = slotComprometido === null ? undefined : entrada.slots[slotComprometido];
   const vazio: AvaliacaoCompromisso = {
     status: "compromisso_valido", statusErgonomico: "compromisso_valido", statusFisico: null, slot: slot ? slot.indice : null, conflitos: [], impedimentos: [],
-    original: [], reparado: [], trocas: [], trocasMaquina: [], linhasAlteradas: 0, postosPreservados: true, postosVazios: [], alertas: [],
+    original: [], reparado: [], trocas: [], trocasMaquina: [], linhasAlteradas: 0, postosPreservados: true, postosVazios: [], contingencias: [], alertas: [],
   };
   if (!slot) return vazio;
   const original = doSlot(planoVigente, slot);
@@ -253,6 +264,14 @@ export function avaliarCompromisso(entrada: EntradaEscala, planoVigente: Alocaca
     return a.maquinaId ? { ...a, maquinaId: null, produtoId: null, etapaId: null, operacaoId: null, pecas: 0, pecasAdicional: 0, tipoAdicional: undefined, motivoSemPosto: MOTIVO_AUSENTE_COMPROMISSO, origem: "auto" as const } : a;
   });
 
+  // contingências: posto de máquina parada SEM equivalente na Previsão, mas com máquina compatível livre fora dela (só registro)
+  const contingencias: ContingenciaMaquina[] = [];
+  quebrados.filter((q) => !substituta.has(q)).forEach((q) => {
+    const pool = entrada.pools.find((p) => p.produtoId === q.produtoId && p.etapaId === q.etapaId && p.operacaoId === q.operacaoId);
+    [...new Set(pool?.maquinasCompativeisIds ?? [])].sort()
+      .filter((m) => !(pool?.maquinasIds ?? []).includes(m) && !usadas.has(m) && maquinaDisponivelNoSlot(entrada, m, slot))
+      .forEach((m) => contingencias.push({ maquinaId: m, produtoId: q.produtoId, etapaId: q.etapaId, operacaoId: q.operacaoId, postoAfetado: { maquinaId: q.maquinaId as string, funcionarioId: q.funcionarioId }, motivoNaoUsada: "fora da Previsão" }));
+  });
   const trocas: TrocaReparo[] = [];
   original.forEach((a, i) => { if (chaveLinha(a) !== chaveLinha(reparado[i])) trocas.push({ funcionarioId: a.funcionarioId, de: a.maquinaId ? postoDe(a) : null, para: reparado[i].maquinaId ? postoDe(reparado[i]) : null }); });
 
@@ -275,5 +294,6 @@ export function avaliarCompromisso(entrada: EntradaEscala, planoVigente: Alocaca
   } else if (statusFisico === "compromisso_inviavel_reparavel") {
     alertas.push({ tipo: "compromisso_inviavel_reparavel", data: slot.data, periodoId: slot.periodoId, quantidade: impedimentos.length, motivo: `Compromisso inviável no período ${rot}: ${texto}. Reparo mínimo possível: ${trocas.length} linha(s) alterada(s), todos os postos mantidos.` });
   }
-  return { status: statusFisico ?? statusErgonomico, statusErgonomico, statusFisico, slot: slot.indice, conflitos, impedimentos, original, reparado, trocas, trocasMaquina, linhasAlteradas: trocas.length, postosPreservados: vazios.length === 0, postosVazios: vazios, alertas };
+  contingencias.forEach((c) => alertas.push({ tipo: "contingencia_possivel", data: slot.data, periodoId: slot.periodoId, motivo: `Contingência possível: a máquina ${c.postoAfetado.maquinaId} está indisponível; a máquina ${c.maquinaId} é compatível com esta etapa, mas não está selecionada na Previsão — não foi usada automaticamente.` }));
+  return { status: statusFisico ?? statusErgonomico, statusErgonomico, statusFisico, slot: slot.indice, conflitos, impedimentos, original, reparado, trocas, trocasMaquina, linhasAlteradas: trocas.length, postosPreservados: vazios.length === 0, postosVazios: vazios, contingencias, alertas };
 }

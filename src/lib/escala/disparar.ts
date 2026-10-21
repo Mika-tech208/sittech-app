@@ -15,6 +15,16 @@ export function dispararProcessamentoEscala(): Promise<void> {
   })();
 }
 
+// Modo sombra (Fase 4d): depois de um lançamento de Produção Real, pede ao servidor que avalie o fechamento do período agora e de novo em
+// ~10 e ~20 min (se a aba continuar aberta). Best-effort e idempotente: com o modo desligado o servidor não faz nada; a garantia de
+// processamento vem do worker /api/escala/drenar e das próximas chamadas — o CORTE da decisão é calculado pelos carimbos dos lançamentos,
+// então rodar mais tarde não muda o resultado.
+export function agendarFechamentoEscala(): void {
+  void dispararProcessamentoEscala();
+  if (typeof window === "undefined") return;
+  [10 * 60_000 + 15_000, 20 * 60_000 + 15_000].forEach((ms) => window.setTimeout(() => void dispararProcessamentoEscala(), ms));
+}
+
 export async function gerarEscalaNoServidor(semanaInicio: string): Promise<{ ok: boolean; erro?: string; aviso?: string; status?: string; alocacoesGravadas?: number; motivoIgnorado?: string }> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;

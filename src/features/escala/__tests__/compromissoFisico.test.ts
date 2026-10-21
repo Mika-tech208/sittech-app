@@ -183,3 +183,37 @@ describe("equipe reduzida (estresse com o motor)", () => {
     else expect(["compromisso_inviavel_nao_reparavel", "compromisso_nao_reparavel"]).toContain(av.status);
   });
 });
+
+describe("contingência: máquina compatível FORA da Previsão (4d) — só registro, nunca uso automático", () => {
+  const comCompat = (compat: string[]): EntradaEscala => {
+    const e = amb(3, {}, ["m1"]);
+    return { ...e, pools: e.pools.map((p) => (p.produtoId === "A" ? { ...p, maquinasCompativeisIds: compat } : p)) };
+  };
+  const exec = (e: EntradaEscala) => rows(e, 0, [["f01", "m3"], ["f02", "m5"], ["f03", "m4"]]);
+  const comp = (e: EntradaEscala) => rows(e, 1, [["f01", "m1"], ["f02", "m3"], ["f03", "m5"]]);
+  it("máquina parada sem equivalente na Previsão, mas com compatível livre fora dela: posto vazio + contingência registrada, plano NÃO usa a máquina", () => {
+    const base = comCompat(["m1", "m2", "m6"]);
+    const e = { ...base, indisponibilidades: [parado(base, "m1")] };
+    const r = avaliarCompromisso(e, [...exec(e), ...comp(e)], 1);
+    expect(r.statusFisico).toBe("compromisso_inviavel_nao_reparavel");
+    expect(r.trocasMaquina).toEqual([]);
+    expect(r.reparado.every((a) => a.maquinaId !== "m2" && a.maquinaId !== "m6")).toBe(true); // nunca usada automaticamente
+    expect(r.contingencias.map((c) => c.maquinaId)).toEqual(["m2", "m6"]);
+    expect(r.contingencias[0]).toMatchObject({ postoAfetado: { maquinaId: "m1", funcionarioId: "f01" }, produtoId: "A", etapaId: "A-e1", operacaoId: "opX", motivoNaoUsada: "fora da Previsão" });
+    expect(r.alertas.some((a) => a.tipo === "contingencia_possivel" && a.motivo?.includes("não está selecionada na Previsão"))).toBe(true);
+  });
+  it("compatível indisponível ou já usada no período NÃO é contingência", () => {
+    const base = comCompat(["m1", "m2", "m6"]);
+    const e = { ...base, indisponibilidades: [parado(base, "m1"), parado(base, "m2")] };
+    const comp2 = rows(e, 1, [["f01", "m1"], ["f02", "m3"], ["f03", "m6"]]); // m6 já está no posto de f03
+    const r = avaliarCompromisso(e, [...exec(e), ...comp2], 1);
+    expect(r.contingencias).toEqual([]);
+  });
+  it("com equivalente DENTRO da Previsão, usa-a automaticamente e não há contingência", () => {
+    const base = amb(3, {}, ["m1", "m2"]);
+    const e = { ...base, indisponibilidades: [parado(base, "m1")], pools: base.pools.map((p) => (p.produtoId === "A" ? { ...p, maquinasCompativeisIds: ["m1", "m2", "m6"] } : p)) };
+    const r = avaliarCompromisso(e, [...exec(e), ...comp(e)], 1);
+    expect(r.trocasMaquina[0]).toMatchObject({ de: "m1", para: "m2" });
+    expect(r.contingencias).toEqual([]);
+  });
+});

@@ -15,6 +15,7 @@ import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { criarClienteAdmin } from "@/lib/supabase-admin";
 import { drenarOutbox } from "@/lib/escala/supabaseIO";
+import { processarSombraDoServidor } from "@/lib/escala/sombraSupabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,9 +36,11 @@ async function drenar(request: Request) {
   if (!ok) return NextResponse.json({ erro: "Não autorizado." }, { status: 401 });
 
   try {
-    const resumo = await drenarOutbox(criarClienteAdmin(), Date.now());
+    const admin = criarClienteAdmin();
+    const resumo = await drenarOutbox(admin, Date.now());
     if (resumo.esgotados > 0) console.error(`escala/drenar: ${resumo.esgotados} evento(s) esgotaram as tentativas`);
-    return NextResponse.json({ ok: true, ...resumo });
+    const sombra = await processarSombraDoServidor(admin, Date.now()); // fechamento de períodos (modo sombra); nunca lança
+    return NextResponse.json({ ok: true, ...resumo, sombra });
   } catch (e) {
     console.error("escala/drenar:", e instanceof Error ? e.message : e);
     return NextResponse.json({ erro: "Falha ao drenar a fila da Escala." }, { status: 500 });

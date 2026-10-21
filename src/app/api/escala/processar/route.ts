@@ -17,6 +17,7 @@ import { NextResponse } from "next/server";
 import { criarClienteAdmin } from "@/lib/supabase-admin";
 import { autenticarRequisicaoIntelligence } from "@/features/intelligence/auth";
 import { processarEventosPendentes } from "@/lib/escala/supabaseIO";
+import { processarSombraDoServidor } from "@/lib/escala/sombraSupabase";
 
 export const runtime = "nodejs";
 
@@ -25,8 +26,10 @@ export async function POST(request: Request) {
   if (!auth) return NextResponse.json({ erro: "Não autorizado." }, { status: 401 });
 
   try {
-    const resumo = await processarEventosPendentes(criarClienteAdmin(), Date.now());
-    return NextResponse.json({ ok: true, ...resumo });
+    const admin = criarClienteAdmin();
+    const resumo = await processarEventosPendentes(admin, Date.now());
+    const sombra = await processarSombraDoServidor(admin, Date.now()); // modo sombra: nunca altera a Escala oficial; nunca lança
+    return NextResponse.json({ ok: true, ...resumo, sombra });
   } catch (e) {
     console.error("escala/processar:", e instanceof Error ? e.message : e);
     return NextResponse.json({ erro: "Falha ao processar a Escala." }, { status: 500 });
