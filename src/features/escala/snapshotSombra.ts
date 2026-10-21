@@ -73,10 +73,27 @@ export const completudeDe = (a: AvaliacaoFechamento, tardios = 0): CompletudeSna
   postosFaltantes: a.faltantes, ultimoLancamentoMs: a.ultimoLancamentoMs, lancamentosTardiosNaLeitura: tardios,
 });
 
+// Referência ao plano oficial VIGENTE NO CORTE (versão append-only do banco) — prova de que a decisão não usou a Escala de depois.
+export interface PlanoOficialRef {
+  versaoId: string;
+  origem: "trigger" | "baseline";
+  validoDesdeMs: number; // timestamp de validade da versão usada
+  corteMs: number;
+  hashPlanoBanco: string; // SHA-256 da versão (banco)
+  hashPlanoEscala: string; // SHA-256 das alocações da versão (mesma função da decisão)
+  versoesDias: Record<string, number>; // versão da Escala de cada dia, vigente no corte
+  versaoNoFimDoPeriodo: string; // versão usada para os postos esperados (vigente ao fim do período)
+  comprometido: { slot: number; data: string; periodoId: string } | null;
+  futuroRelevante: { periodo: string; linhas: [string, string | null, string | null, string | null, number][] }[]; // oficial dos próximos 6 períodos NAQUELE instante
+}
+
+export interface AlertaSnapshot { tipo: string; data?: string; periodoId?: string; produtoId?: string; etapaId?: string; quantidade?: number; pecas?: number }
+
 export interface SnapshotSombra {
   versaoMotor: string;
   identificacao: { semanaInicio: string; data: string; periodoId: string; slot: number; corteMs: number };
   completude: CompletudeSnapshot;
+  planoOficialRef?: PlanoOficialRef;
   horizonte: { congeladoAte: number; atual: number | null; comprometido: { slot: number; data: string; periodoId: string } | null; primeiroAlteravel: { slot: number; data: string; periodoId: string } | null };
   compromisso: {
     statusOriginal: "compromisso_valido" | "conflito_rotacao_comprometido" | "impossibilidade_fisica_detectada" | "conflito_e_impossibilidade";
@@ -107,7 +124,8 @@ export interface SnapshotSombra {
     cobertura: { oficial: number; sombra: number };
     postosVazios: DecisaoCorte["postosVazios"];
     incertezas: Record<string, number>;
-    alertas: { tipo: string; periodoId?: string; quantidade?: number }[];
+    alertas: AlertaSnapshot[];
+    avisos: string[]; // ressalvas legíveis (ex.: apontamento editado depois do corte)
   };
   hashes: { entrada: string; planoOficial: string; planoSombra: string; decisao: string };
   entrada: EntradaCanonicaCorte;
@@ -116,7 +134,7 @@ export interface SnapshotSombra {
 const periodoLabel = (s: { data: string; periodoId: string }) => `${s.data} ${s.periodoId}`;
 const postoTxt = (p: { maquinaId: string; produtoId: string | null; etapaId: string | null }) => `${p.maquinaId}|${p.produtoId ?? ""}|${p.etapaId ?? ""}`;
 
-export function construirSnapshot(p: { semanaInicio: string; entrada: EntradaCanonicaCorte; decisao: DecisaoCorte; completude: CompletudeSnapshot; nomesMaquinas?: Record<string, string>; extraIncertezas?: Record<string, number> }): SnapshotSombra {
+export function construirSnapshot(p: { semanaInicio: string; entrada: EntradaCanonicaCorte; decisao: DecisaoCorte; completude: CompletudeSnapshot; nomesMaquinas?: Record<string, string>; extraIncertezas?: Record<string, number>; planoOficialRef?: PlanoOficialRef }): SnapshotSombra {
   const { entrada: e, decisao: d } = p;
   const par = paraParametrosCorte(e);
   const slots = par.base.slots;
@@ -144,11 +162,17 @@ export function construirSnapshot(p: { semanaInicio: string; entrada: EntradaCan
   const boas: Record<string, number> = {};
   e.pools.forEach((pl) => { const k = `${pl.produtoId}|${pl.etapaId}`; boas[k] = Math.max(0, pl.quantidade - (rest[k] ?? 0)); });
   const alertas = [...(hz.resultado?.alertas ?? []), ...hz.alertas.filter((a) => !(hz.resultado?.alertas ?? []).includes(a))];
-  const alertasResumo = alertas.map((a) => ({ tipo: a.tipo, periodoId: a.periodoId, quantidade: a.quantidade }));
+  const alertasResumo: AlertaSnapshot[] = alertas.map((a) => ({ tipo: a.tipo, data: a.data, periodoId: a.periodoId, produtoId: a.produtoId, etapaId: a.etapaId, quantidade: a.quantidade, pecas: a.pecas === undefined ? undefined : Math.round(a.pecas) }));
+  const AVISOS: Record<string, string> = {
+    apontamento_editado_apos_corte: "apontamento(s) editado(s) depois do corte: foi usada a versão atual da linha, que pode diferir do que existia no corte",
+    wip_ativo_adicional_nao_considerado: "WIP ativo: o adicional/estoque intermediário não entra na sombra",
+  };
+  const avisos = Object.entries(inc).filter(([k]) => AVISOS[k]).map(([k, v]) => `${k}: ${v} — ${AVISOS[k]}`);
   return {
     versaoMotor: VERSAO_MOTOR_SOMBRA,
     identificacao: { semanaInicio: p.semanaInicio, data: slots[e.c].data, periodoId: slots[e.c].periodoId, slot: e.c, corteMs: e.corteMs },
     completude: p.completude,
+    ...(p.planoOficialRef ? { planoOficialRef: p.planoOficialRef } : {}),
     horizonte: {
       congeladoAte: hz.horizonte.congeladoAte, atual: hz.horizonte.atual,
       comprometido: hz.horizonte.comprometido === null ? null : { slot: hz.horizonte.comprometido, data: slots[hz.horizonte.comprometido].data, periodoId: slots[hz.horizonte.comprometido].periodoId },
@@ -171,7 +195,7 @@ export function construirSnapshot(p: { semanaInicio: string; entrada: EntradaCan
     planos: { hashOficial, hashSombra, diferencas: dif, proximosPeriodos: prox },
     diagnostico: {
       situacao: d.situacao, faltaOficial: Math.round(d.faltaOficial.total), faltaSombra: Math.round(d.faltaSombra.total), recuperado: Math.round(d.recuperacao.recuperado), gargalo: d.faltaSombra.gargalo ? { poolKey: d.faltaSombra.gargalo.poolKey, falta: Math.round(d.faltaSombra.gargalo.falta) } : null,
-      cobertura: { oficial: Math.round(d.cobertura.oficial * 10) / 10, sombra: Math.round(d.cobertura.sombra * 10) / 10 }, postosVazios: d.postosVazios, incertezas: inc, alertas: alertasResumo,
+      cobertura: { oficial: Math.round(d.cobertura.oficial * 10) / 10, sombra: Math.round(d.cobertura.sombra * 10) / 10 }, postosVazios: d.postosVazios, incertezas: inc, alertas: alertasResumo, avisos,
     },
     hashes: { entrada: hashCanonico(e), planoOficial: hashOficial, planoSombra: hashSombra, decisao: d.hashDecisao },
     entrada: e,

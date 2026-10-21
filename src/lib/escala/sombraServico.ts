@@ -8,17 +8,19 @@
 // O CORTE é o instante em que o período fechou (calculado pelos carimbos dos lançamentos), não o instante em que o worker roda.
 
 import { analisarAtingibilidade } from "@/features/escala/atingibilidade";
+import { hashAlocacoes } from "@/features/escala/horizonte";
 import { instanteDeFechamento, lancamentosTardios, type AvaliacaoFechamento, type LancamentoCarimbado } from "@/features/escala/fechamento";
 import { gerarEscala } from "@/features/escala/gerarEscala";
 import { jsonCanonico } from "@/features/escala/hashCanonico";
 import { modoEfetivoReplanejamento, type ModoReplanejamento } from "@/features/escala/parametros";
 import type { ApontamentoReal } from "@/features/escala/producaoReal";
-import { completudeDe, construirSnapshot, empacotarApontamento, empacotarLinha, paraParametrosCorte, type EntradaCanonicaCorte, type SnapshotSombra } from "@/features/escala/snapshotSombra";
+import { completudeDe, construirSnapshot, empacotarApontamento, empacotarLinha, paraParametrosCorte, type EntradaCanonicaCorte, type PlanoOficialRef, type SnapshotSombra } from "@/features/escala/snapshotSombra";
 import { executarCorteSombra } from "@/features/escala/sombraCorte";
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import type { EntradaEscala } from "@/features/escala/types";
 import type { EstadoBruto } from "./estado";
 import { montarEntradaEscala } from "./montarEntrada";
+import { estadoComVersao, type VersaoPlanoOficial } from "./planoVersionado";
 
 export interface ApontamentoBanco {
   data: string;
@@ -44,7 +46,8 @@ export interface DecisaoParaGravar { eventoId: string; previsaoId: string; snaps
 export interface SombraIO {
   lerModo(): Promise<ModoReplanejamento>;
   listarEventos(): Promise<EventoSombra[]>; // não concluídos (pendentes, erro < 3 tentativas, processando travado)
-  carregar(previsaoId: string): Promise<{ estado: EstadoBruto; apontamentos: ApontamentoBanco[] }>;
+  carregar(previsaoId: string): Promise<{ estado: EstadoBruto; apontamentos: ApontamentoBanco[] }>; // estado ATUAL (catálogos); o plano/Previsão do passado vêm das versões
+  versaoDoPlano(previsaoId: string, emMs: number): Promise<VersaoPlanoOficial | null>; // a versão VIGENTE no instante (nunca "a Escala de agora")
   reivindicar(eventoId: string): Promise<boolean>; // atômico; só aqui uma tentativa é consumida
   gravarDecisao(d: DecisaoParaGravar): Promise<{ inserida: boolean; id: string }>; // idempotente: (previsão, data, período)
   concluir(eventoId: string, status: "processado" | "ignorado" | "erro", erro?: string | null): Promise<void>;
@@ -82,14 +85,28 @@ export type PreparoDecisao =
   | { pronto: false; avaliacao?: undefined; motivoIgnorado: string }
   | { pronto: true; snapshot: SnapshotSombra; corteMs: number; tardios: number };
 
-// Núcleo puro: dado o estado/apontamentos lidos e o evento lógico, decide se fechou e (se sim) monta o snapshot.
-export function prepararDecisao(estado: EstadoBruto, apontamentos: ApontamentoBanco[], ev: { data: string; periodoId: string }, agoraMs: number): PreparoDecisao {
-  const base = montarEntradaEscala(estado, agoraMs).entrada;
-  const slot = base.slots.find((s) => s.data === ev.data && s.periodoId === ev.periodoId);
-  if (!slot) return { pronto: false, motivoIgnorado: "período fora da escala da semana" };
-  const oficialDoSlot = estado.alocacoes.filter((a) => a.data === ev.data && a.periodoId === ev.periodoId);
+// Núcleo: dado o estado ATUAL (só catálogos), os apontamentos e as VERSÕES do plano, decide se o período fechou e (se sim) monta o snapshot com a
+// Escala e a Previsão que valiam no corte. Informação posterior ao corte (plano recalculado, troca manual, ausência, indisponibilidade) não entra.
+export async function prepararDecisao(
+  estadoAtual: EstadoBruto,
+  apontamentos: ApontamentoBanco[],
+  ev: { data: string; periodoId: string },
+  agoraMs: number,
+  obterVersao: (emMs: number) => Promise<VersaoPlanoOficial | null>
+): Promise<PreparoDecisao> {
+  // 1) geometria do período (horários) e plano vigente ao FIM do período => postos esperados (período encerrado = linhas congeladas)
+  const geometria = montarEntradaEscala(estadoAtual, agoraMs).entrada.slots.find((s) => s.data === ev.data && s.periodoId === ev.periodoId);
+  if (!geometria) return { pronto: false, motivoIgnorado: "período fora da escala da semana" };
+  const v0 = await obterVersao(geometria.fimMs);
+  if (!v0) return { pronto: false, motivoIgnorado: "sem versão do plano oficial anterior ao fim do período" };
+  const estado0 = estadoComVersao(estadoAtual, v0);
+  const base0 = montarEntradaEscala(estado0, agoraMs).entrada;
+  const slot = base0.slots.find((s) => s.data === ev.data && s.periodoId === ev.periodoId);
+  if (!slot) return { pronto: false, motivoIgnorado: "período fora da escala vigente ao fim do período" };
+  const oficialDoSlot = estado0.alocacoes.filter((a) => a.data === ev.data && a.periodoId === ev.periodoId);
   if (oficialDoSlot.length === 0) return { pronto: false, motivoIgnorado: "período sem escala oficial" };
 
+  // 2) fechamento (só carimbos dos lançamentos)
   const doPeriodo = apontamentos.filter((a) => a.data === ev.data && a.periodoId === ev.periodoId);
   const lanc: LancamentoCarimbado[] = doPeriodo.map((a) => ({ maquinaId: a.maquinaId, ms: a.criadoEmMs }));
   const esperados = oficialDoSlot.filter((a) => a.maquinaId).map((a) => a.maquinaId as string);
@@ -97,7 +114,10 @@ export function prepararDecisao(estado: EstadoBruto, apontamentos: ApontamentoBa
   if (f.corteMs === null) return { pronto: false, avaliacao: f.avaliacao };
   const corteMs = f.corteMs;
 
-  // entrada canônica no corte
+  // 3) Escala + Previsão VIGENTES NO CORTE, e só o que existia no corte (ausências, indisponibilidades, apontamentos)
+  const v1 = corteMs === geometria.fimMs ? v0 : await obterVersao(corteMs);
+  if (!v1) return { pronto: false, motivoIgnorado: "sem versão do plano oficial anterior ao corte" };
+  const estado = estadoComVersao(estadoAtual, v1);
   const est = estadoNoCorte(estado, corteMs);
   const ent: EntradaEscala = montarEntradaEscala(est, corteMs).entrada;
   const chaveAp = (a: ApontamentoReal) => [a.data, a.periodoId, a.maquinaId ?? "", a.funcionarioId ?? "", a.lancadoEmMs.toString().padStart(15, "0"), a.status].join("|");
@@ -118,12 +138,25 @@ export function prepararDecisao(estado: EstadoBruto, apontamentos: ApontamentoBa
   };
   const decisao = executarCorteSombra(paraParametrosCorte(canonica));
   const tardios = lancamentosTardios(lanc, corteMs);
-  const snapshot = construirSnapshot({ semanaInicio: estado.semanaInicio, entrada: canonica, decisao, completude: completudeDe(f.avaliacao, tardios), nomesMaquinas: estado.nomesMaquinas,
+  const comp = decisao.horizonte.horizonte.comprometido;
+  const slotsC = ent.slots;
+  const futuroRelevante = slotsC.filter((s) => s.indice > slot.indice && s.indice <= slot.indice + 6).map((s) => ({
+    periodo: `${s.data} ${s.periodoId}`,
+    linhas: estado.alocacoes.filter((a) => a.data === s.data && a.periodoId === s.periodoId).map((a) => [a.funcionarioId, a.maquinaId, a.produtoId, a.etapaId, Math.round(a.pecas)] as [string, string | null, string | null, string | null, number]),
+  }));
+  const planoRef: PlanoOficialRef = {
+    versaoId: v1.id, origem: v1.origem, validoDesdeMs: v1.validoDesdeMs, corteMs, hashPlanoBanco: v1.hashPlano, hashPlanoEscala: hashAlocacoes(estado.alocacoes),
+    versoesDias: Object.fromEntries(v1.dias.map((d) => [d.data, d.versao])), versaoNoFimDoPeriodo: v0.id,
+    comprometido: comp === null ? null : { slot: comp, data: slotsC[comp].data, periodoId: slotsC[comp].periodoId }, futuroRelevante,
+  };
+  const snapshot = construirSnapshot({
+    semanaInicio: estado.semanaInicio, entrada: canonica, decisao, completude: completudeDe(f.avaliacao, tardios), nomesMaquinas: estado.nomesMaquinas, planoOficialRef: planoRef,
     extraIncertezas: {
       // o banco só guarda a versão ATUAL da linha: se foi editada depois do corte, o valor visto aqui pode não ser o que existia no corte
       apontamento_editado_apos_corte: apontamentos.filter((a) => a.criadoEmMs <= corteMs && a.atualizadoEmMs !== null && a.atualizadoEmMs > corteMs + 1000).length,
       wip_ativo_adicional_nao_considerado: estado.parametros?.wipModo === "ativo" ? 1 : 0,
-    } });
+    },
+  });
   return { pronto: true, snapshot, corteMs, tardios };
 }
 
@@ -139,7 +172,7 @@ export async function processarSombra(io: SombraIO, agoraMs: number): Promise<Re
     try {
       if (!cache.has(ev.previsaoId)) cache.set(ev.previsaoId, await io.carregar(ev.previsaoId));
       const ctx = cache.get(ev.previsaoId)!;
-      const r = prepararDecisao(ctx.estado, ctx.apontamentos, ev, agoraMs);
+      const r = await prepararDecisao(ctx.estado, ctx.apontamentos, ev, agoraMs, (ms) => io.versaoDoPlano(ev.previsaoId, ms));
       if (!r.pronto) {
         if (r.motivoIgnorado) {
           if (await io.reivindicar(ev.id)) { await io.concluir(ev.id, "ignorado", r.motivoIgnorado); resumo.ignoradas++; } else resumo.concorrencia++;

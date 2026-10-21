@@ -4,6 +4,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { lerParametros } from "@/features/escala/parametros";
 import type { SnapshotSombra } from "@/features/escala/snapshotSombra";
+import { versaoDeLinhaBanco } from "./planoVersionado";
 import { criarEscalaIO } from "./supabaseIO";
 import { processarSombra, type ApontamentoBanco, type DecisaoParaGravar, type EventoSombra, type ResumoSombra, type SombraIO } from "./sombraServico";
 
@@ -68,6 +69,12 @@ export function criarSombraIO(admin: SupabaseClient): SombraIO {
         motivo: (r.motivo as string | null) ?? null, criadoEmMs: ms(r.criado_em as string) as number, atualizadoEmMs: ms(r.atualizado_em as string | null),
       }));
       return { estado, apontamentos };
+    },
+    async versaoDoPlano(previsaoId: string, emMs: number) {
+      const { data, error } = await admin.rpc("escala_plano_versao_em", { p_previsao: previsaoId, p_em: new Date(emMs).toISOString() });
+      if (error) throw new Error(`escala_plano_versao_em: ${error.message}`);
+      const linha = ((data ?? []) as Record<string, unknown>[])[0];
+      return linha ? versaoDeLinhaBanco(linha) : null;
     },
     async reivindicar(eventoId: string) {
       const { data, error } = await admin.rpc("escala_sombra_reivindicar", { p_evento_id: eventoId });
