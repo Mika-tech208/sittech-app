@@ -19,6 +19,7 @@
 import { gerarEscala } from "./gerarEscala";
 import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { sobrepoe } from "./tempo";
+import { avaliarCompromisso, type AvaliacaoCompromisso, type StatusCompromisso } from "./compromisso";
 import type { AlertaEscala, AlocacaoEscala, EntradaEscala, ResultadoEscala, SlotEscala } from "./types";
 
 export type ModoHorizonte = "comprometido" | "antigo"; // antigo = o próximo período já pode mudar (só para comparar nas simulações)
@@ -139,6 +140,9 @@ export interface SnapshotHorizonte {
   hashComprometido: string; // o próximo período
   hashAlteravel: string; // o que a sombra propôs para o futuro alterável
   compromissoInviavel: CompromissoInviavel | null;
+  statusCompromisso: StatusCompromisso;
+  hashComprometidoReparado: string; // = hashComprometido quando não há conflito de rotação
+  reparo: { conflitos: number; linhasAlteradas: number; postosPreservados: boolean; postosVazios: number };
 }
 
 const ref = (slots: SlotEscala[], i: number | null) => (i === null || i < 0 || !slots[i] ? null : { slot: i, data: slots[i].data, periodoId: slots[i].periodoId });
@@ -148,7 +152,9 @@ const indiceDe = (slots: SlotEscala[], a: { data: string; periodoId: string }) =
 export interface ResultadoSombraHorizonte {
   horizonte: HorizonteOperacional;
   congeladas: AlocacaoEscala[]; // ≤ referência (entrada)
-  comprometidas: AlocacaoEscala[]; // próximo período (entrada congelada, intacta)
+  comprometidas: AlocacaoEscala[]; // próximo período como a sombra o trata (ORIGINAL; ou REPARADO se a execução real criou conflito de rotação)
+  comprometidasOriginais: AlocacaoEscala[]; // compromisso original, intacto
+  avaliacaoCompromisso: AvaliacaoCompromisso;
   alteravel: AlocacaoEscala[]; // o que a sombra propõe (só ≥ primeiro alterável)
   resultado: ResultadoEscala | null;
   compromissoInviavel: CompromissoInviavel | null;
@@ -162,26 +168,31 @@ export function replanejarComHorizonte(
   entrada: EntradaEscala,
   planoVigente: AlocacaoEscala[],
   referencia: number,
-  opcoes: { modo?: ModoHorizonte; agoraMs?: number } = {}
+  opcoes: { modo?: ModoHorizonte; agoraMs?: number; repararRotacao?: boolean } = {}
 ): ResultadoSombraHorizonte {
   const modo = opcoes.modo ?? "comprometido";
   const slots = entrada.slots;
   const h = horizonteAposPeriodo(slots, referencia, modo, null);
   const limite = h.primeiroAlteravel ?? slots.length; // tudo < limite é congelado/comprometido
   const congeladas = planoVigente.filter((a) => indiceDe(slots, a) <= h.congeladoAte);
-  const comprometidas = h.comprometido === null ? [] : doSlot(slots, planoVigente, h.comprometido);
+  const comprometidasOriginais = h.comprometido === null ? [] : doSlot(slots, planoVigente, h.comprometido);
+  // REVEZAMENTO duro > comprometido: se a execução real de c criou repetição em c+1, aplica-se o REPARO MÍNIMO (nunca reotimização)
+  const avaliacao = avaliarCompromisso(entrada, planoVigente, h.comprometido, { reparar: opcoes.repararRotacao !== false });
+  const comprometidas = avaliacao.status === "compromisso_reparavel" || avaliacao.status === "compromisso_nao_reparavel" ? avaliacao.reparado : comprometidasOriginais;
   let resultado: ResultadoEscala | null = null;
   let alteravel: AlocacaoEscala[] = [];
   if (h.primeiroAlteravel !== null) {
     resultado = gerarEscala({ ...entrada, aPartirDe: h.primeiroAlteravel, congeladas: [...congeladas, ...comprometidas] });
     alteravel = resultado.alocacoes.filter((a) => indiceDe(slots, a) >= limite); // garantia estrutural: nada antes do alterável
   }
-  const inviavel = h.comprometido === null ? null : detectarCompromissoInviavel(entrada, comprometidas, slots[h.comprometido]);
-  const alertas: AlertaEscala[] = [...(resultado?.alertas ?? []), ...(inviavel ? [alertaCompromissoInviavel(inviavel)] : [])];
+  const inviavel = h.comprometido === null ? null : detectarCompromissoInviavel(entrada, comprometidasOriginais, slots[h.comprometido]);
+  const alertas: AlertaEscala[] = [...(resultado?.alertas ?? []), ...(inviavel ? [alertaCompromissoInviavel(inviavel)] : []), ...avaliacao.alertas];
   return {
     horizonte: h,
     congeladas,
     comprometidas,
+    comprometidasOriginais,
+    avaliacaoCompromisso: avaliacao,
     alteravel,
     resultado,
     compromissoInviavel: inviavel,
@@ -194,9 +205,12 @@ export function replanejarComHorizonte(
       comprometido: ref(slots, h.comprometido),
       primeiroAlteravel: ref(slots, h.primeiroAlteravel),
       hashCongelado: hashAlocacoes(congeladas),
-      hashComprometido: hashAlocacoes(comprometidas),
+      hashComprometido: hashAlocacoes(comprometidasOriginais),
+      hashComprometidoReparado: hashAlocacoes(comprometidas),
       hashAlteravel: hashAlocacoes(alteravel),
       compromissoInviavel: inviavel,
+      statusCompromisso: avaliacao.status,
+      reparo: { conflitos: avaliacao.conflitos.length, linhasAlteradas: avaliacao.linhasAlteradas, postosPreservados: avaliacao.postosPreservados, postosVazios: avaliacao.postosVazios.length },
     },
   };
 }

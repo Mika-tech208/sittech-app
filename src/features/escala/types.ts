@@ -137,6 +137,8 @@ export type TipoAlerta =
   | "wip_acima_do_limite"
   | "rotacao_sem_solucao"
   | "compromisso_inviavel"
+  | "conflito_rotacao_comprometido"
+  | "compromisso_nao_reparavel"
   | "sem_funcionarios";
 
 export interface AlertaEscala {
