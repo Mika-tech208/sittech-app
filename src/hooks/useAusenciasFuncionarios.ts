@@ -273,6 +273,9 @@ export function useAusenciasFuncionarios(pronto: boolean) {
     const { data, error } = await supabase.rpc("encerrar_atraso_funcionario", { p_ausencia_id: id, p_horario_chegada: horarioChegada });
     if (error || !data) {
       const msg = error?.message || "Não foi possível registrar a chegada.";
+      // Uma RPC que recusa desfaz tudo o que fez, inclusive o fechamento automático de atrasos vencidos: recarregar a lista (que fecha os vencidos
+      // em uma chamada própria) devolve a tela ao estado real — ex.: o atraso já foi encerrado às 17:00 pelo sistema.
+      await buscar(ultimosFiltros.current);
       setErro(msg);
       return msg;
     }
@@ -280,13 +283,14 @@ export function useAusenciasFuncionarios(pronto: boolean) {
     setAusencias((prev) => prev.map((a) => (a.id === atualizada.id ? { ...atualizada, funcionarioNome: a.funcionarioNome } : a)));
     void dispararProcessamentoEscala();
     return null;
-  }, []);
+  }, [buscar]);
 
   // Correção do horário INICIAL de um atraso ainda em aberto (motivo obrigatório; antes/depois ficam no histórico).
   const corrigirInicioAberto = useCallback(async (id: string, horarioInicio: string, motivo: string): Promise<string | null> => {
     const { data, error } = await supabase.rpc("corrigir_inicio_atraso_aberto", { p_ausencia_id: id, p_horario_inicio: horarioInicio, p_motivo: motivo.trim() });
     if (error || !data) {
       const msg = error?.message || "Não foi possível corrigir o horário inicial.";
+      await buscar(ultimosFiltros.current); // ver encerrarAtraso: a recusa desfaz o fechamento automático feito na mesma chamada
       setErro(msg);
       return msg;
     }
@@ -294,7 +298,7 @@ export function useAusenciasFuncionarios(pronto: boolean) {
     setAusencias((prev) => prev.map((a) => (a.id === atualizada.id ? { ...atualizada, funcionarioNome: a.funcionarioNome } : a)));
     void dispararProcessamentoEscala();
     return null;
-  }, []);
+  }, [buscar]);
 
   return { ausencias, loading, erro, limite: LIMITE_RESULTADOS, buscar, registrar, registrarLote, editar, abrirAtraso, encerrarAtraso, corrigirInicioAberto };
 }
