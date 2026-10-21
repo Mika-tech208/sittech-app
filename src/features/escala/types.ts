@@ -146,6 +146,7 @@ export type TipoAlerta =
   | "compromisso_inviavel_reparavel"
   | "compromisso_inviavel_nao_reparavel"
   | "contingencia_possivel"
+  | "selecao_maquina_invalida" // Previsão com máquina que o roteiro ATUAL não torna elegível para a etapa (ignorada pelo motor; a Previsão NÃO é corrigida em silêncio)
   | "sem_funcionarios";
 
 export interface AlertaEscala {
@@ -155,6 +156,8 @@ export interface AlertaEscala {
   produtoId?: string;
   etapaId?: string;
   etapaAnteriorId?: string;
+  maquinaId?: string; // selecao_maquina_invalida
+  operacaoId?: string; // idem: operação da etapa no roteiro atual
   pecas?: number;
   quantidade?: number; // ex.: nº de funcionários sem posto
   motivo?: string;

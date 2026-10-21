@@ -172,7 +172,9 @@ export async function prepararDecisao(
   if (!v1) return { pronto: false, motivoIgnorado: "sem versão do plano oficial anterior ao corte" };
   const estado = estadoComVersao(estadoAtual, v1);
   const est = estadoNoCorte(estado, corteMs);
-  const ent: EntradaEscala = montarEntradaEscala(est, corteMs).entrada;
+  const montadaCorte = montarEntradaEscala(est, corteMs);
+  const ent: EntradaEscala = montadaCorte.entrada;
+  const selecoesInvalidas = montadaCorte.avisos.filter((a) => a.tipo === "selecao_maquina_invalida").length;
   const chaveAp = (a: ApontamentoReal) => [a.data, a.periodoId, a.maquinaId ?? "", a.funcionarioId ?? "", a.lancadoEmMs.toString().padStart(15, "0"), a.status].join("|");
   const visiveis = apontamentos.filter((a) => a.criadoEmMs <= corteMs).map(paraReal).sort((x, y) => (chaveAp(x) < chaveAp(y) ? -1 : 1)); // ordem canônica: mesmo conteúdo => mesmo hash
   const origemMs = epochMsNoFuso(estado.semanaInicio, "05:00");
@@ -209,6 +211,8 @@ export async function prepararDecisao(
     semanaInicio: estado.semanaInicio, entrada: canonica, decisao, completude: completudeDe(f.avaliacao, tardios), nomesMaquinas: estado.nomesMaquinas, planoOficialRef: planoRef,
     extraIncertezas: {
       // o banco só guarda a versão ATUAL da linha: se foi editada depois do corte, o valor visto aqui pode não ser o que existia no corte
+      // a Previsão do corte tinha máquina que o roteiro atual não torna elegível: o motor a ignorou, mas a decisão NÃO serve de evidência de qualidade produtiva
+      entrada_com_roteiro_inconsistente: selecoesInvalidas,
       apontamento_editado_apos_corte: apontamentos.filter((a) => a.criadoEmMs <= corteMs && a.atualizadoEmMs !== null && a.atualizadoEmMs > corteMs + 1000).length,
     },
     ...(proposta ? { restrito: resumoRestrito(par, decisao, proposta) } : {}),

@@ -67,7 +67,16 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
     .sort((a, b) => (a.produtoId < b.produtoId ? -1 : 1))
     .forEach((item) => {
       (etapasPorProduto.get(item.produtoId) ?? []).forEach((etapa) => {
-        const maquinas = item.maquinasPorEtapa[etapa.id] ?? [];
+        // DEFESA: máquina que o roteiro ATUAL não torna elegível para esta etapa NÃO entra como máquina válida dela (a Previsão não é alterada; o aviso
+        // explícito `selecao_maquina_invalida` é gerado). Elegível = lista da etapa (roteiro_etapa_maquinas) ou, sem lista, máquinas da mesma operação.
+        // Só se descarta o que é PROVADAMENTE inválido; sem informação para provar, a máquina é mantida.
+        const maquinas = (item.maquinasPorEtapa[etapa.id] ?? []).filter((m) => {
+          const lista = etapa.maquinasCompativeis;
+          const operacaoMaq = estado.operacaoDaMaquina?.[m];
+          const elegivel = lista && lista.length > 0 ? lista.includes(m) : operacaoMaq ? operacaoMaq === etapa.operacaoId : true;
+          if (!elegivel) avisos.push({ tipo: "selecao_maquina_invalida", produtoId: item.produtoId, etapaId: etapa.id, operacaoId: etapa.operacaoId, maquinaId: m, semanaInicio: estado.semanaInicio });
+          return elegivel;
+        });
         const chave = `${item.produtoId}|${etapa.id}`;
         if (maquinas.length === 0 && !pools.has(chave)) {
           avisos.push({ tipo: "etapa_sem_maquina", produtoId: item.produtoId, etapaId: etapa.id });

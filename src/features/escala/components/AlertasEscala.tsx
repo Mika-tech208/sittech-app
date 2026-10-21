@@ -21,6 +21,7 @@ export default function AlertasEscala({ alocacoes, alertas, nomes }: { alocacoes
   const semFunc = alertas.filter((a) => a.tipo === "sem_funcionarios");
   const acimaLimite = alertas.filter((a) => a.tipo === "wip_acima_do_limite");
   const rotacao = alertas.filter((a) => a.tipo === "rotacao_sem_solucao");
+  const invalidas = alertas.filter((a) => a.tipo === "selecao_maquina_invalida");
 
   const vazio = semPosto.length === 0 && excecoes.length === 0 && alertas.length === 0;
   return (
@@ -60,6 +61,15 @@ export default function AlertasEscala({ alocacoes, alertas, nomes }: { alocacoes
               <b>Sem escala válida sem repetir operação consecutiva:</b> {rotacao.length} período(s) com posto sem operador por causa do revezamento obrigatório (regra ergonômica, sem exceção).
               <div className="stx-esc-muted">{rotacao.slice(0, 5).map((a) => `${rotuloSlot(a.data, a.periodoId)}: ${a.motivo ?? ""}`).join(" | ")}{rotacao.length > 5 ? ` … e mais ${rotacao.length - 5}` : ""}</div>
               <div className="stx-esc-muted">Alternativas: habilitar mais pessoas nessa operação; selecionar máquina de outra operação; reduzir ou redistribuir os postos dessa operação; ou aceitar o posto vazio.</div>
+            </span>
+          </div>
+        )}
+        {invalidas.length > 0 && (
+          <div className="stx-esc-linha">
+            <span>
+              <b>Previsão com máquina que o roteiro atual não permite:</b> {invalidas.length} seleção(ões) ignorada(s) pela Escala (nenhum posto é gerado com máquina de outra operação).
+              <div className="stx-esc-muted">{[...new Set(invalidas.map((a) => `${nomes.produtos.get(a.produtoId || "") || "Produto"} — ${nomes.maquinas.get(a.maquinaId || "") || a.maquinaId?.slice(0, 8) || "máquina"}`))].slice(0, 8).join(" · ")}</div>
+              <div className="stx-esc-muted">Revise a Previsão (editar o item) — a Escala não corrige a Previsão sozinha.</div>
             </span>
           </div>
         )}

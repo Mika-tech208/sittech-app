@@ -116,7 +116,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         : [];
       const compatPorEtapa = new Map<string, string[]>();
       compatRows.forEach((r) => compatPorEtapa.set(r.etapa_id, [...(compatPorEtapa.get(r.etapa_id) ?? []), r.maquina_id]));
-      const [maquinasNomes, produtosNomes] = await Promise.all([admin.from("maquinas").select("id, nome"), admin.from("produtos").select("id, nome")]);
+      const [maquinasNomes, produtosNomes] = await Promise.all([admin.from("maquinas").select("id, nome, operacao_id"), admin.from("produtos").select("id, nome")]);
       const datasExistentes = existentesRows.map((d) => d.data);
       const alocRows = datasExistentes.length
         ? (ok(await admin.from("escala_producao_alocacoes").select("*").in("data", datasExistentes), "escala_producao_alocacoes") as Record<string, unknown>[])
@@ -177,6 +177,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         })) as AlocacaoEscala[],
         nomesOperacao: Object.fromEntries((ok(operacoes, "operacoes") as { id: string; nome: string }[]).map((o) => [o.id, o.nome])),
         nomesMaquinas: Object.fromEntries((ok(maquinasNomes, "maquinas (nomes)") as { id: string; nome: string }[]).map((m) => [m.id, m.nome])),
+        operacaoDaMaquina: Object.fromEntries((ok(maquinasNomes, "maquinas (operação)") as { id: string; operacao_id: string | null }[]).filter((m) => m.operacao_id).map((m) => [m.id, m.operacao_id as string])),
         nomesProdutos: Object.fromEntries((ok(produtosNomes, "produtos (nomes)") as { id: string; nome: string }[]).map((x) => [x.id, x.nome])),
         historicoEquidade,
         parametros,

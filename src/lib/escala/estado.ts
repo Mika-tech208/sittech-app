@@ -7,9 +7,12 @@ import type { ProximaSemana } from "@/features/escala/wip";
 import type { EntradaWip } from "@/features/escala/wipSaldo";
 
 export interface AvisoMontagem {
-  tipo: "etapa_sem_maquina" | "sem_pools" | "sem_funcionarios_produtivos";
+  tipo: "etapa_sem_maquina" | "sem_pools" | "sem_funcionarios_produtivos" | "selecao_maquina_invalida";
   produtoId?: string;
   etapaId?: string;
+  operacaoId?: string; // selecao_maquina_invalida: operação da etapa no roteiro atual
+  maquinaId?: string; // selecao_maquina_invalida: máquina selecionada na Previsão que NÃO é elegível nessa etapa
+  semanaInicio?: string;
 }
 
 export interface DiaExistente {
@@ -68,6 +71,7 @@ export interface EstadoBruto {
   alocacoes: AlocacaoEscala[]; // todas as existentes nos dias da escala
   nomesOperacao: Record<string, string>;
   nomesMaquinas?: Record<string, string>; // para rótulos do diagnóstico de cobertura
+  operacaoDaMaquina?: Record<string, string>; // maquinas.operacao_id: elegibilidade por operação quando a etapa não lista máquinas (regra de calcularMaquinasDaEtapa)
   nomesProdutos?: Record<string, string>;
   // Equidade: histórico agregado da janela (escala realmente gravada, semanas ANTERIORES a esta).
   historicoEquidade?: HistoricoEquidadeFuncionario[];

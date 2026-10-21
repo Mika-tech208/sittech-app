@@ -129,6 +129,7 @@ export interface SnapshotSombra {
     incertezas: Record<string, number>;
     alertas: AlertaSnapshot[];
     avisos: string[]; // ressalvas legíveis (ex.: apontamento editado depois do corte)
+    entradaComRoteiroInconsistente?: boolean; // Previsão do corte com seleção de máquina inválida para o roteiro (ver avisos)
     preenchimento: DecisaoCorte["preenchimento"]; // "se pudesse escrever agora": o que preencheria/esvaziaria no futuro alterável
     restrito?: SnapshotRestrito; // replanejamento restrito: proposta, gargalo dinâmico, capacidade ajustada e ociosidade explicada
   };
@@ -170,6 +171,7 @@ export function construirSnapshot(p: { semanaInicio: string; entrada: EntradaCan
   const alertasResumo: AlertaSnapshot[] = alertas.map((a) => ({ tipo: a.tipo, data: a.data, periodoId: a.periodoId, produtoId: a.produtoId, etapaId: a.etapaId, quantidade: a.quantidade, pecas: a.pecas === undefined ? undefined : Math.round(a.pecas) }));
   const AVISOS: Record<string, string> = {
     apontamento_editado_apos_corte: "apontamento(s) editado(s) depois do corte: foi usada a versão atual da linha, que pode diferir do que existia no corte",
+    entrada_com_roteiro_inconsistente: "Previsão com máquina(s) que o roteiro atual não torna elegível(is): entrada inconsistente, não usar como evidência de qualidade produtiva do motor",
   };
   const avisos = Object.entries(inc).filter(([k]) => AVISOS[k]).map(([k, v]) => `${k}: ${v} — ${AVISOS[k]}`);
   return {
@@ -200,7 +202,7 @@ export function construirSnapshot(p: { semanaInicio: string; entrada: EntradaCan
     planos: { hashOficial, hashSombra, diferencas: dif, proximosPeriodos: prox },
     diagnostico: {
       situacao: d.situacao, faltaOficial: Math.round(d.faltaOficial.total), faltaSombra: Math.round(d.faltaSombra.total), recuperado: Math.round(d.recuperacao.recuperado), gargalo: d.faltaSombra.gargalo ? { poolKey: d.faltaSombra.gargalo.poolKey, falta: Math.round(d.faltaSombra.gargalo.falta) } : null,
-      cobertura: { oficial: Math.round(d.cobertura.oficial * 10) / 10, sombra: Math.round(d.cobertura.sombra * 10) / 10 }, postosVazios: d.postosVazios, incertezas: inc, alertas: alertasResumo, avisos, preenchimento: d.preenchimento, ...(p.restrito ? { restrito: p.restrito } : {}),
+      cobertura: { oficial: Math.round(d.cobertura.oficial * 10) / 10, sombra: Math.round(d.cobertura.sombra * 10) / 10 }, postosVazios: d.postosVazios, incertezas: inc, alertas: alertasResumo, avisos, ...(( inc.entrada_com_roteiro_inconsistente ?? 0) > 0 ? { entradaComRoteiroInconsistente: true } : {}), preenchimento: d.preenchimento, ...(p.restrito ? { restrito: p.restrito } : {}),
     },
     hashes: { entrada: hashCanonico(e), planoOficial: hashOficial, planoSombra: hashSombra, decisao: d.hashDecisao },
     entrada: e,

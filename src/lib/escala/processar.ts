@@ -7,7 +7,7 @@
 // em ESCALA_VERSAO_CONFLITO o estado é relido e tudo é recalculado.
 
 import { gerarEscala } from "@/features/escala/gerarEscala";
-import { AVISO_PRIMEIRA_GERACAO } from "@/features/escala/types";
+import { AVISO_PRIMEIRA_GERACAO, type AlertaEscala } from "@/features/escala/types";
 import { montarEntradaEscala } from "./montarEntrada";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento, type SnapshotWipParaGravar } from "./estado";
 
@@ -66,6 +66,11 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
     const aPartirDeData = slotCorte?.data ?? montada.removerDias.slice().sort()[0];
     const aPartirDePeriodo = slotCorte?.periodoId ?? (montada.periodosPorDia.get(aPartirDeData) ?? [])[0]?.id ?? "m1";
 
+    // seleções da Previsão que o roteiro atual não torna elegíveis: ignoradas pelo motor e SEMPRE registradas no resumo do recálculo (a Previsão não é corrigida em silêncio)
+    const invalidas: AlertaEscala[] = montada.avisos
+      .filter((a) => a.tipo === "selecao_maquina_invalida")
+      .map((a) => ({ tipo: "selecao_maquina_invalida" as const, produtoId: a.produtoId, etapaId: a.etapaId, operacaoId: a.operacaoId, maquinaId: a.maquinaId, motivo: `Semana ${a.semanaInicio}: a máquina selecionada não é elegível para esta etapa no roteiro atual e foi ignorada.` }));
+
     const diasAplicar = [...new Set(entrada.slots.map((s) => s.data))]
       .filter((data) => !montada.removerDias.includes(data) || data === aPartirDeData)
       .map((data) => ({
@@ -87,8 +92,9 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
         alocacoes: resultado.alocacoes.length,
         semPosto: resultado.alocacoes.filter((a) => !a.maquinaId).length,
         excecoesRevezamento: resultado.alocacoes.filter((a) => a.excecaoRevezamento).length,
-        alertas: resultado.alertas.length,
-        alertasDetalhe: resultado.alertas.slice(0, 300), // histórico do módulo: a tela mostra os alertas do último recálculo
+        alertas: resultado.alertas.length + invalidas.length,
+        alertasDetalhe: [...invalidas, ...resultado.alertas].slice(0, 300),
+        selecoesInvalidas: invalidas.length, // histórico do módulo: a tela mostra os alertas do último recálculo
         primeiraGeracaoComSemanaEmAndamento: resultado.primeiraGeracaoComSemanaEmAndamento,
       },
     };
