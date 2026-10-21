@@ -13,12 +13,13 @@ import { instanteDeFechamento, lancamentosTardios, type AvaliacaoFechamento, typ
 import { gerarEscala } from "@/features/escala/gerarEscala";
 import { jsonCanonico } from "@/features/escala/hashCanonico";
 import { modoEfetivoReplanejamento, type ModoReplanejamento } from "@/features/escala/parametros";
+import { construirProposta, resumoRestrito, type MudancaLinha, type PropostaRestrita } from "@/features/escala/replanejamentoRestrito";
 import type { ApontamentoReal } from "@/features/escala/producaoReal";
 import { completudeDe, construirSnapshot, empacotarApontamento, empacotarLinha, paraParametrosCorte, type EntradaCanonicaCorte, type PlanoOficialRef, type SnapshotSombra } from "@/features/escala/snapshotSombra";
-import { executarCorteSombra } from "@/features/escala/sombraCorte";
+import { executarCorteSombra, type DecisaoCorte, type ParametrosCorte } from "@/features/escala/sombraCorte";
 import { epochMsNoFuso } from "@/features/escala/tempo";
-import type { EntradaEscala } from "@/features/escala/types";
-import type { EstadoBruto } from "./estado";
+import type { AlocacaoEscala, EntradaEscala } from "@/features/escala/types";
+import { ConflitoDeVersaoError, type EstadoBruto } from "./estado";
 import { montarEntradaEscala } from "./montarEntrada";
 import { estadoComVersao, type VersaoPlanoOficial } from "./planoVersionado";
 
@@ -41,7 +42,34 @@ export interface ApontamentoBanco {
 
 export interface EventoSombra { id: string; previsaoId: string; data: string; periodoId: string; status: string; tentativas: number }
 
-export interface DecisaoParaGravar { eventoId: string; previsaoId: string; snapshot: SnapshotSombra; tardios: number; latenciaMs: number }
+export interface DecisaoParaGravar { eventoId: string | null; previsaoId: string; snapshot: SnapshotSombra; tardios: number; latenciaMs: number; revisao?: number; motivo?: string; modo?: "sombra" | "ativo_restrito" }
+
+export type ResultadoAvaliacao = "aplicado" | "sem_mudanca" | "conflito" | "invalida" | "recusado" | "erro";
+export interface CorteAplicacao { semanaInicio: string; data: string; periodoId: string; slot: number; revisao: number; motivo: string }
+export interface AplicacaoRestrita {
+  previsaoId: string;
+  decisaoId: string;
+  corte: CorteAplicacao;
+  dias: { data: string; versao_base: number | null; periodos_snapshot: unknown }[];
+  aPartirDeData: string;
+  aPartirDePeriodo: string;
+  alocacoes: AlocacaoEscala[];
+  hashProposta: string;
+  mudancas: { total: number; resumo: PropostaRestrita["resumo"]; churn: PropostaRestrita["churn"]; wip: PropostaRestrita["wip"]; ganho: PropostaRestrita["ganho"]; amostra: MudancaLinha[]; reparoDoComprometido: boolean };
+  resumo: Record<string, unknown>;
+}
+export interface RegistroAvaliacao {
+  previsaoId: string;
+  decisaoId: string | null;
+  corte: CorteAplicacao;
+  resultado: Exclude<ResultadoAvaliacao, "aplicado">;
+  motivo: string;
+  aPartir?: { data: string; periodoId: string } | null;
+  hashProposta?: string | null;
+  mudancas?: unknown;
+  resumo?: unknown;
+  erro?: string | null;
+}
 
 export interface SombraIO {
   lerModo(): Promise<ModoReplanejamento>;
@@ -51,12 +79,23 @@ export interface SombraIO {
   reivindicar(eventoId: string): Promise<boolean>; // atômico; só aqui uma tentativa é consumida
   gravarDecisao(d: DecisaoParaGravar): Promise<{ inserida: boolean; id: string }>; // idempotente: (previsão, data, período)
   concluir(eventoId: string, status: "processado" | "ignorado" | "erro", erro?: string | null): Promise<void>;
+  // ---- replanejamento restrito (só chamados com ativo_restrito + semana autorizada) ----
+  lerSemanasAtivas?(): Promise<string[]>; // semanas (segunda ISO) em que o modo restrito PODE escrever
+  proximaRevisao?(previsaoId: string, data: string, periodoId: string): Promise<number>; // 1 + a maior revisão da decisão do período (0 = decisão do corte)
+  aplicarRestrito?(a: AplicacaoRestrita): Promise<{ id: string; hashAntes: string; hashDepois: string; versoesAntes: Record<string, number>; versoesDepois: Record<string, number> }>; // lança ConflitoDeVersaoError
+  registrarAvaliacao?(r: RegistroAvaliacao): Promise<void>; // append-only: sem_mudanca / recusado / conflito / invalida / erro
+  reavaliacoesPendentes?(semanas: string[]): Promise<{ previsaoId: string; data: string; periodoId: string }[]>; // Escala mudou depois da última avaliação (evento: ausência, Previsão...)
 }
 
 export interface ResumoSombra {
   modo: ModoReplanejamento;
-  modoEfetivo: "desligado" | "sombra";
+  modoEfetivo: "desligado" | "sombra" | "ativo_restrito";
   avisoAtivoNaoImplementado: boolean;
+  aplicadas: number;
+  semMudanca: number;
+  recusadas: number;
+  conflitos: number;
+  reavaliacoes: number;
   eventos: number;
   aguardando: number;
   processadas: number;
@@ -87,7 +126,14 @@ export function estadoNoCorte(estado: EstadoBruto, corteMs: number): EstadoBruto
 export type PreparoDecisao =
   | { pronto: false; avaliacao: AvaliacaoFechamento; motivoIgnorado?: undefined }
   | { pronto: false; avaliacao?: undefined; motivoIgnorado: string }
-  | { pronto: true; snapshot: SnapshotSombra; corteMs: number; tardios: number };
+  | { pronto: true; snapshot: SnapshotSombra; corteMs: number; tardios: number; par: ParametrosCorte; decisao: DecisaoCorte; proposta: PropostaRestrita | null };
+
+export interface OpcoesPreparo {
+  // replanejamento restrito: WIP flexível sem teto fixo, trocas manuais como preferência, proposta + gargalo dinâmico + ociosidade no snapshot
+  restrito?: boolean;
+  // leitura FRESCA (imediatamente antes de gravar): Escala, ausências, indisponibilidades e Previsão do INSTANTE ATUAL, não do corte. Nunca usada no modo sombra.
+  fresco?: boolean;
+}
 
 // Núcleo: dado o estado ATUAL (só catálogos), os apontamentos e as VERSÕES do plano, decide se o período fechou e (se sim) monta o snapshot com a
 // Escala e a Previsão que valiam no corte. Informação posterior ao corte (plano recalculado, troca manual, ausência, indisponibilidade) não entra.
@@ -96,7 +142,8 @@ export async function prepararDecisao(
   apontamentos: ApontamentoBanco[],
   ev: { data: string; periodoId: string },
   agoraMs: number,
-  obterVersao: (emMs: number) => Promise<VersaoPlanoOficial | null>
+  obterVersao: (emMs: number) => Promise<VersaoPlanoOficial | null>,
+  opcoes: OpcoesPreparo = {}
 ): Promise<PreparoDecisao> {
   // 1) geometria do período (horários) e plano vigente ao FIM do período => postos esperados (período encerrado = linhas congeladas)
   const geometria = montarEntradaEscala(estadoAtual, agoraMs).entrada.slots.find((s) => s.data === ev.data && s.periodoId === ev.periodoId);
@@ -116,7 +163,9 @@ export async function prepararDecisao(
   const esperados = oficialDoSlot.filter((a) => a.maquinaId).map((a) => a.maquinaId as string);
   const f = instanteDeFechamento({ fimMs: slot.fimMs, agoraMs, postosEsperados: esperados, lancamentos: lanc });
   if (f.corteMs === null) return { pronto: false, avaliacao: f.avaliacao };
-  const corteMs = f.corteMs;
+  const corteHonesto = f.corteMs;
+  // leitura fresca: o que vale AGORA (a decisão será gravada agora); caso contrário, o que valia no corte
+  const corteMs = opcoes.fresco ? Math.max(corteHonesto, agoraMs) : corteHonesto;
 
   // 3) Escala + Previsão VIGENTES NO CORTE, e só o que existia no corte (ausências, indisponibilidades, apontamentos)
   const v1 = corteMs === geometria.fimMs ? v0 : await obterVersao(corteMs);
@@ -139,10 +188,12 @@ export async function prepararDecisao(
     ausencias: [...ent.ausencias].sort((x, y) => (jsonCanonico(x) < jsonCanonico(y) ? -1 : 1)), indisponibilidades: [...ent.indisponibilidades].sort((x, y) => (jsonCanonico(x) < jsonCanonico(y) ? -1 : 1)),
     maquinasIndisponiveisPrevisao: ent.maquinasIndisponiveisPrevisao, maquinasInativas: ent.maquinasInativas ?? [], historicoEquidade: ent.historicoEquidade ?? [],
     apontamentos: visiveis.map(empacotarApontamento),
-    planoOficial: [...estado.alocacoes].sort((x, y) => (x.data + x.periodoId + x.funcionarioId < y.data + y.periodoId + y.funcionarioId ? -1 : 1)).map(empacotarLinha), impossivelNaOrigem, modoHorizonte: "comprometido",
+    planoOficial: [...estado.alocacoes].sort((x, y) => (x.data + x.periodoId + x.funcionarioId < y.data + y.periodoId + y.funcionarioId ? -1 : 1)).map(empacotarLinha), impossivelNaOrigem, modoHorizonte: "comprometido", ...(opcoes.restrito ? { restrito: true } : {}),
   };
-  const decisao = executarCorteSombra(paraParametrosCorte(canonica));
-  const tardios = lancamentosTardios(lanc, corteMs);
+  const par = paraParametrosCorte(canonica);
+  const decisao = executarCorteSombra(par);
+  const proposta = opcoes.restrito ? construirProposta(par, decisao) : null;
+  const tardios = lancamentosTardios(lanc, corteHonesto);
   const comp = decisao.horizonte.horizonte.comprometido;
   const slotsC = ent.slots;
   const futuroRelevante = slotsC.filter((s) => s.indice > slot.indice && s.indice <= slot.indice + 6).map((s) => ({
@@ -160,23 +211,110 @@ export async function prepararDecisao(
       // o banco só guarda a versão ATUAL da linha: se foi editada depois do corte, o valor visto aqui pode não ser o que existia no corte
       apontamento_editado_apos_corte: apontamentos.filter((a) => a.criadoEmMs <= corteMs && a.atualizadoEmMs !== null && a.atualizadoEmMs > corteMs + 1000).length,
     },
+    ...(proposta ? { restrito: resumoRestrito(par, decisao, proposta) } : {}),
   });
-  return { pronto: true, snapshot, corteMs, tardios };
+  return { pronto: true, snapshot, corteMs, tardios, par, decisao, proposta };
+}
+
+const MAX_TENTATIVAS_APLICACAO = 3;
+
+type Contexto = { estado: EstadoBruto; apontamentos: ApontamentoBanco[] };
+type CarregarFn = (previsaoId: string) => Promise<Contexto>;
+
+// (A) calcula a decisão com o estado do INSTANTE e a proposta; (B) grava o snapshot (revisão ≥ 1, append-only); (C) aplica SÓ a região autorizada, com
+// concorrência otimista; (D) registra exatamente o que mudou. Se a Escala mudou entre a leitura e a gravação, NADA é gravado: relê e recalcula.
+export async function avaliarEAplicar(
+  io: SombraIO,
+  ev: { id: string | null; previsaoId: string; data: string; periodoId: string },
+  inicial: Contexto,
+  carregar: CarregarFn,
+  agoraMs: number,
+  motivo: "fechamento" | "reavaliacao"
+): Promise<ResultadoAvaliacao> {
+  if (!io.aplicarRestrito || !io.registrarAvaliacao || !io.proximaRevisao) return "erro";
+  let ctx = inicial;
+  let ultimo: ResultadoAvaliacao = "erro";
+  for (let tentativa = 1; tentativa <= MAX_TENTATIVAS_APLICACAO; tentativa++) {
+    if (tentativa > 1) ctx = await carregar(ev.previsaoId); // a Escala mudou: descarta a leitura anterior
+    const r = await prepararDecisao(ctx.estado, ctx.apontamentos, ev, agoraMs, (ms) => io.versaoDoPlano(ev.previsaoId, ms), { restrito: true, fresco: true });
+    const base = { previsaoId: ev.previsaoId };
+    const idCorte = (revisao: number, slot: number, semanaInicio: string): CorteAplicacao => ({ semanaInicio, data: ev.data, periodoId: ev.periodoId, slot, revisao, motivo });
+    if (!r.pronto) {
+      // sem o período fechado/versão: nada a avaliar agora (não é erro)
+      return "invalida";
+    }
+    const snap = r.snapshot;
+    const corte0 = idCorte(0, snap.identificacao.slot, snap.identificacao.semanaInicio);
+    const prop = r.proposta as PropostaRestrita;
+    const revisao = await io.proximaRevisao(ev.previsaoId, ev.data, ev.periodoId);
+    const g = await io.gravarDecisao({ eventoId: ev.id, previsaoId: ev.previsaoId, snapshot: snap, tardios: r.tardios, latenciaMs: agoraMs - r.corteMs, revisao, motivo, modo: "ativo_restrito" });
+    if (!g.inserida) return "conflito"; // outro worker avaliou a mesma revisão: não aplica duas vezes
+    const corte = { ...corte0, revisao };
+    const comum = { ...base, decisaoId: g.id, corte, aPartir: prop.aPartir, hashProposta: prop.hashProposta, resumo: prop.resumo };
+    if (prop.veredito === "sem_mudanca") { await io.registrarAvaliacao({ ...comum, resultado: "sem_mudanca", motivo: prop.motivoVeredito }); return "sem_mudanca"; }
+    if (prop.veredito === "recusar" || !prop.aPartir || prop.aPartirSlot === null) {
+      await io.registrarAvaliacao({ ...comum, resultado: "recusado", motivo: prop.motivoVeredito || "proposta inválida", mudancas: { total: prop.mudancas.length, amostra: prop.mudancas.slice(0, 20) } });
+      return "recusado";
+    }
+    // região já iniciada (worker atrasado): nunca regrava período em andamento
+    const slotAlvo = r.par.base.slots[prop.aPartirSlot];
+    if (slotAlvo.inicioMs <= agoraMs) {
+      await io.registrarAvaliacao({ ...comum, resultado: "recusado", motivo: `região já iniciada (${slotAlvo.data} ${slotAlvo.periodoId}): decisão defasada` });
+      return "recusado";
+    }
+    const versoes = snap.planoOficialRef?.versoesDias ?? {};
+    const dias = snap.entrada.dias.map((d) => ({ data: d.data, versao_base: versoes[d.data] ?? null, periodos_snapshot: d.periodos }));
+    if (dias.some((d) => d.versao_base === null)) {
+      await io.registrarAvaliacao({ ...comum, resultado: "invalida", motivo: "versão da Escala de algum dia ausente na versão do plano" });
+      return "invalida";
+    }
+    const decisaoWip = r.decisao.horizonte.resultado;
+    try {
+      await io.aplicarRestrito({
+        previsaoId: ev.previsaoId, decisaoId: g.id, corte, dias, aPartirDeData: prop.aPartir.data, aPartirDePeriodo: prop.aPartir.periodoId, alocacoes: prop.linhas, hashProposta: prop.hashProposta,
+        mudancas: { total: prop.mudancas.length, resumo: prop.resumo, churn: prop.churn, wip: prop.wip, ganho: prop.ganho, amostra: prop.mudancas.slice(0, 200), reparoDoComprometido: prop.reparoDoComprometido },
+        resumo: {
+          alocacoes: prop.linhas.length, semPosto: prop.linhas.filter((a) => !a.maquinaId).length, excecoesRevezamento: 0, alertas: decisaoWip?.alertas.length ?? 0, alertasDetalhe: (decisaoWip?.alertas ?? []).slice(0, 300),
+          primeiraGeracaoComSemanaEmAndamento: false, decisaoRevisao: revisao, motivo,
+        },
+      });
+      return "aplicado";
+    } catch (e) {
+      if (e instanceof ConflitoDeVersaoError) {
+        ultimo = "conflito";
+        await io.registrarAvaliacao({ ...comum, resultado: "conflito", motivo: `a Escala mudou entre a decisão e a gravação (tentativa ${tentativa}/${MAX_TENTATIVAS_APLICACAO}); nada foi gravado`, erro: e.message });
+        continue;
+      }
+      await io.registrarAvaliacao({ ...comum, resultado: "erro", motivo: "falha ao aplicar", erro: e instanceof Error ? e.message : String(e) });
+      return "erro";
+    }
+  }
+  return ultimo;
 }
 
 export async function processarSombra(io: SombraIO, agoraMs: number): Promise<ResumoSombra> {
   const modo = await io.lerModo();
-  const resumo: ResumoSombra = { modo, modoEfetivo: modoEfetivoReplanejamento(modo), avisoAtivoNaoImplementado: modo === "ativo", eventos: 0, aguardando: 0, processadas: 0, duplicadas: 0, ignoradas: 0, concorrencia: 0, erros: 0 };
+  const efetivo = modoEfetivoReplanejamento(modo);
+  const resumo: ResumoSombra = { modo, modoEfetivo: efetivo, avisoAtivoNaoImplementado: modo === "ativo", aplicadas: 0, semMudanca: 0, recusadas: 0, conflitos: 0, reavaliacoes: 0, eventos: 0, aguardando: 0, processadas: 0, duplicadas: 0, ignoradas: 0, concorrencia: 0, erros: 0 };
   if (resumo.modoEfetivo === "desligado") return resumo;
+  const semanasAtivas = efetivo === "ativo_restrito" && io.lerSemanasAtivas ? await io.lerSemanasAtivas() : [];
+  const contabilizar = (r: ResultadoAvaliacao) => {
+    if (r === "aplicado") resumo.aplicadas++;
+    else if (r === "sem_mudanca") resumo.semMudanca++;
+    else if (r === "recusado" || r === "invalida") resumo.recusadas++;
+    else if (r === "conflito") resumo.conflitos++;
+    else resumo.erros++;
+  };
 
   const eventos = await io.listarEventos();
   resumo.eventos = eventos.length;
-  const cache = new Map<string, { estado: EstadoBruto; apontamentos: ApontamentoBanco[] }>();
+  const cache = new Map<string, Contexto>();
+  const carregar: CarregarFn = async (previsaoId) => { const c = await io.carregar(previsaoId); cache.set(previsaoId, c); return c; };
   for (const ev of [...eventos].sort((a, b) => (a.data + a.periodoId < b.data + b.periodoId ? -1 : 1))) {
     try {
       if (!cache.has(ev.previsaoId)) cache.set(ev.previsaoId, await io.carregar(ev.previsaoId));
       const ctx = cache.get(ev.previsaoId)!;
-      const r = await prepararDecisao(ctx.estado, ctx.apontamentos, ev, agoraMs, (ms) => io.versaoDoPlano(ev.previsaoId, ms));
+      const r = await prepararDecisao(ctx.estado, ctx.apontamentos, ev, agoraMs, (ms) => io.versaoDoPlano(ev.previsaoId, ms), { restrito: efetivo !== "desligado" });
       if (!r.pronto) {
         if (r.motivoIgnorado) {
           if (await io.reivindicar(ev.id)) { await io.concluir(ev.id, "ignorado", r.motivoIgnorado); resumo.ignoradas++; } else resumo.concorrencia++;
@@ -185,7 +323,12 @@ export async function processarSombra(io: SombraIO, agoraMs: number): Promise<Re
       }
       if (!(await io.reivindicar(ev.id))) { resumo.concorrencia++; continue; }
       try {
-        const g = await io.gravarDecisao({ eventoId: ev.id, previsaoId: ev.previsaoId, snapshot: r.snapshot, tardios: r.tardios, latenciaMs: agoraMs - r.corteMs });
+        // (A)+(B) decisão no corte (revisão 0, modo sombra): sempre gravada, mesmo no modo restrito
+        const g = await io.gravarDecisao({ eventoId: ev.id, previsaoId: ev.previsaoId, snapshot: r.snapshot, tardios: r.tardios, latenciaMs: agoraMs - r.corteMs, revisao: 0, motivo: "fechamento", modo: "sombra" });
+        // (C)+(D) só com o modo restrito E semana autorizada E algo a mudar
+        if (g.inserida && efetivo === "ativo_restrito" && semanasAtivas.includes(r.snapshot.identificacao.semanaInicio) && r.proposta && r.proposta.veredito !== "sem_mudanca") {
+          contabilizar(await avaliarEAplicar(io, ev, ctx, carregar, agoraMs, "fechamento"));
+        }
         await io.concluir(ev.id, "processado", g.inserida ? null : "decisão já existia");
         if (g.inserida) resumo.processadas++; else resumo.duplicadas++;
       } catch (e) {
@@ -194,6 +337,20 @@ export async function processarSombra(io: SombraIO, agoraMs: number): Promise<Re
       }
     } catch (e) {
       console.error("escala/sombra:", e instanceof Error ? e.message : e);
+      resumo.erros++;
+    }
+  }
+
+  // reavaliação por EVENTO (ausência, indisponibilidade, Previsão...): a Escala oficial mudou depois da última avaliação do período mais recente
+  if (efetivo === "ativo_restrito" && semanasAtivas.length > 0 && io.reavaliacoesPendentes) {
+    try {
+      for (const p of await io.reavaliacoesPendentes(semanasAtivas)) {
+        const ctx = await carregar(p.previsaoId);
+        resumo.reavaliacoes++;
+        contabilizar(await avaliarEAplicar(io, { id: null, ...p }, ctx, carregar, agoraMs, "reavaliacao"));
+      }
+    } catch (e) {
+      console.error("escala/sombra reavaliação:", e instanceof Error ? e.message : e);
       resumo.erros++;
     }
   }

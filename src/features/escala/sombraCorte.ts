@@ -5,6 +5,8 @@
 // indisponibilidades iniciadas até o corte (uma liberação posterior ao corte é desconhecida => continua indisponível).
 
 import { desempenhoPorEtapa, type DesempenhoEtapa } from "./desempenho";
+import { calcularDinamica, type DinamicaCorte } from "./gargaloDinamico";
+import { aplicarTetosDinamicos } from "./tetosWip";
 import { classificarSituacao, compararPreenchimento, coberturaFutura, faltaProjetada, postosVaziosPorRevezamento, projetarProducao, resumirRecuperacao, restanteAcabado, somarProducao, toleranciaFalta, type FaltaProjetada, type ResumoPreenchimento, type ResumoRecuperacao, type Situacao } from "./execucao";
 import { hashCanonico } from "./hashCanonico";
 import { hashAlocacoes, horizonteAposPeriodo, replanejarComHorizonte, type ResultadoSombraHorizonte } from "./horizonte";
@@ -23,6 +25,9 @@ export interface ParametrosCorte {
   impossivelNaOrigem?: boolean; // situação A (atingibilidade de planejamento, calculada uma vez no início da semana)
   toleranciaRelativa?: number;
   modoHorizonte?: "comprometido" | "antigo";
+  // REPLANEJAMENTO RESTRITO: (a) o WIP flexível deixa de ter teto fixo em peças — o limite é o estoque entre etapas (tetosWip.ts);
+  // (b) as trocas manuais vigentes no alterável entram como preferência suave, como na Escala oficial
+  restrito?: boolean;
   // só para MEDIR o custo de cada regra (padrão: ambos ligados, que é a regra definitiva)
   revezamentoDuro?: boolean;
   repararCompromisso?: boolean;
@@ -46,8 +51,14 @@ export interface DecisaoCorte {
   postosVazios: { revezamentoNoAlteravel: number; revezamentoNoComprometido: number; inviavelNoComprometido: number };
   preenchimento: ResumoPreenchimento; // "se pudesse escrever agora": o que preencheria/esvaziaria no futuro alterável
   wip: DecisaoWip | null; // null = WIP desligado
+  wipPreenchimento: WipPreenchimento | null; // restrito + WIP: por período, quantos postos de WIP ocupam pessoas que ficariam OCIOSAS sem o WIP
+  faltaSemWip: FaltaProjetada | null; // restrito + WIP: o MESMO replanejamento sem nenhum adicional — prova causal de que o WIP não tirou capacidade do previsto
+  dinamica: DinamicaCorte; // meta × produtividade real × capacidade futura ajustada, e o gargalo dinâmico (não entra no hash da decisão)
   hashDecisao: string;
 }
+
+export interface WipPreenchimentoPeriodo { indice: number; data: string; periodoId: string; minutos: number; wipPostos: number; wipPecas: number; ociososSemWip: number; ociososComWip: number }
+export interface WipPreenchimento { periodos: WipPreenchimentoPeriodo[] }
 
 export interface PareWip {
   produtoId: string;
@@ -90,14 +101,22 @@ export function executarCorteSombra(p: ParametrosCorte): DecisaoCorte {
   // O realizado acima do previsto da etapa já consumiu teto e já ocupa o limite (como o adicional congelado).
   const adicionalRealizado: Record<string, number> = {};
   if (ent.wip) ent.pools.forEach((pool) => { const k = chavePool(pool.produtoId, pool.etapaId); const extra = Math.max(0, (boas[k] ?? 0) - pool.quantidade); if (extra > 0) adicionalRealizado[k] = extra; });
-  const poolsSom = ent.pools.map((pool) => {
+  const poolsBase = p.restrito && ent.wip ? aplicarTetosDinamicos(ent.pools) : ent.pools;
+  const poolsSom = poolsBase.map((pool) => {
     const k = chavePool(pool.produtoId, pool.etapaId);
     return { ...pool, quantidade: restante[k] ?? 0, metas: Object.fromEntries(Object.entries(pool.metas).map(([pid, m]) => [pid, m * (fator[k] ?? 1)])) };
   });
-  const entSom: EntradaEscala = { ...ent, pools: poolsSom, ...(ent.wip ? { adicionalRealizado } : {}) };
   const h0 = horizonteAposPeriodo(slots, p.c, p.modoHorizonte ?? "comprometido");
+  const manuais = p.restrito && h0.primeiroAlteravel !== null ? p.planoOficial.filter((a) => a.origem === "manual" && idx(a) >= (h0.primeiroAlteravel as number)) : [];
+  const entSom: EntradaEscala = { ...ent, pools: poolsSom, ...(ent.wip ? { adicionalRealizado } : {}), ...(manuais.length > 0 ? { trocasManuais: manuais } : {}) };
   const comprometidoOficial = h0.comprometido === null ? [] : p.planoOficial.filter((a) => idx(a) === h0.comprometido);
   const horizonte = replanejarComHorizonte(entSom, [...ex.linhas, ...comprometidoOficial], p.c, { modo: p.modoHorizonte ?? "comprometido", exposicaoAnterior: ex.exposicoes, repararRotacao: p.repararCompromisso !== false });
+  // prova causal (restrito): o mesmo corte SEM nenhum adicional/WIP. Se o previsto com WIP for pior que sem WIP, o WIP está tirando capacidade dele.
+  let semWip: ReturnType<typeof replanejarComHorizonte> | null = null;
+  if (p.restrito && ent.wip) {
+    const entSem: EntradaEscala = { ...entSom, pools: entSom.pools.map((pl) => ({ ...pl, adicionalMax: 0 })) };
+    semWip = replanejarComHorizonte(entSem, [...ex.linhas, ...comprometidoOficial], p.c, { modo: p.modoHorizonte ?? "comprometido", exposicaoAnterior: ex.exposicoes, repararRotacao: p.repararCompromisso !== false });
+  }
 
   // projeções: oficial (plano oficial futuro, original) × sombra (comprometido efetivo + alterável)
   const oficialFuturo = p.planoOficial.filter((a) => idx(a) >= p.c + 1);
@@ -105,6 +124,16 @@ export function executarCorteSombra(p: ParametrosCorte): DecisaoCorte {
   const predSombra = somarProducao(projetarProducao(horizonte.comprometidas, fator), projetarProducao(horizonte.alteravel, null));
   const faltaOficial = faltaProjetada(ent.pools, restante, predOficial);
   const faltaSombra = faltaProjetada(ent.pools, restante, predSombra);
+  // WIP só ocupa quem ficaria ocioso: por período do futuro, postos de WIP × pessoas sem trabalho no MESMO replanejamento sem WIP
+  const wipPreenchimento: WipPreenchimento | null = semWip
+    ? { periodos: slots.filter((sl) => sl.indice > p.c).map((sl) => {
+        const comRows = [...horizonte.comprometidas, ...horizonte.alteravel].filter((a) => a.data === sl.data && a.periodoId === sl.periodoId);
+        const semRows = [...semWip!.comprometidas, ...semWip!.alteravel].filter((a) => a.data === sl.data && a.periodoId === sl.periodoId);
+        const wip = comRows.filter((a) => a.maquinaId && (a.pecasAdicional ?? 0) > 0);
+        return { indice: sl.indice, data: sl.data, periodoId: sl.periodoId, minutos: sl.fimMin - sl.inicioMin, wipPostos: wip.length, wipPecas: Math.round(wip.reduce((x, a) => x + (a.pecasAdicional ?? 0), 0)), ociososSemWip: semRows.filter((a) => !a.maquinaId).length, ociososComWip: comRows.filter((a) => !a.maquinaId).length };
+      }).filter((x) => x.wipPostos > 0 || x.ociososSemWip > 0) }
+    : null;
+  const faltaSemWip = semWip ? faltaProjetada(ent.pools, restante, somarProducao(projetarProducao(semWip.comprometidas, fator), projetarProducao(semWip.alteravel, null))) : null;
   const situacao = classificarSituacao({ impossivelNaOrigem: !!p.impossivelNaOrigem, faltaOficial: faltaOficial.total, faltaSombra: faltaSombra.total, tolerancia: tol });
   const sombraFuturo = [...horizonte.comprometidas, ...horizonte.alteravel];
   const av = horizonte.avaliacaoCompromisso;
@@ -131,9 +160,9 @@ export function executarCorteSombra(p: ParametrosCorte): DecisaoCorte {
   const decisao: Omit<DecisaoCorte, "hashDecisao"> = {
     c: p.c, corteMs: p.corteMs, situacao, restantePorPool: restante, restanteAcabado: resAcab, desempenho, exposicoes: ex.exposicoes, incertezas: ex.incertezas,
     visao: { apontamentosUsados: v.apontamentos.length, ausenciasUsadas: v.ausencias.length, indisponibilidadesUsadas: v.indisponibilidades.length },
-    horizonte, faltaOficial, faltaSombra, recuperacao: resumirRecuperacao(faltaOficial.total, faltaSombra.total, oficialFuturo, sombraFuturo),
+    horizonte, faltaOficial, faltaSombra, faltaSemWip, wipPreenchimento, recuperacao: resumirRecuperacao(faltaOficial.total, faltaSombra.total, oficialFuturo, sombraFuturo),
     cobertura: { oficial: coberturaFutura(oficialFuturo), sombra: coberturaFutura(sombraFuturo) },
-    preenchimento, wip: wipDec,
+    preenchimento, wip: wipDec, dinamica: calcularDinamica({ entrada: ent, originais: ent.pools, restante, desempenho, c: p.c }),
     postosVazios: { revezamentoNoAlteravel: Math.max(alertasRot, postosVaziosPorRevezamento(horizonte.alteravel)), revezamentoNoComprometido: av.postosVazios.filter((x) => x.causa === "revezamento").length, inviavelNoComprometido: av.postosVazios.filter((x) => x.causa === "inviavel").length },
   };
   return { ...decisao, hashDecisao: hashCanonico({ plano: hashAlocacoes([...horizonte.comprometidas, ...horizonte.alteravel]), situacao, faltaOficial: Math.round(faltaOficial.total), faltaSombra: Math.round(faltaSombra.total) }) };

@@ -8,6 +8,7 @@ import { hashAlocacoes } from "./horizonte";
 import { hashCanonico } from "./hashCanonico";
 import { executarCorteSombra, type DecisaoCorte, type ParametrosCorte } from "./sombraCorte";
 import type { AvaliacaoFechamento } from "./fechamento";
+import type { SnapshotRestrito } from "./replanejamentoRestrito";
 import type { ApontamentoReal } from "./producaoReal";
 import { construirSlotsDeDias } from "./tempo";
 import type { AlocacaoEscala, EntradaEscala, HistoricoEquidadeFuncionario, IndisponibilidadeRecursoEscala, JanelaAusenciaEscala, PeriodoEscala, PoolEscala } from "./types";
@@ -33,6 +34,7 @@ export interface EntradaCanonicaCorte {
   planoOficial: LinhaPacote[]; // plano oficial vigente da semana no momento da leitura
   impossivelNaOrigem: boolean;
   modoHorizonte: "comprometido" | "antigo";
+  restrito?: boolean; // replanejamento restrito: WIP flexível sem teto fixo + trocas manuais como preferência (ausente = regra da 4d original)
 }
 
 export type ApontamentoPacote = [string, string, string | null, string | null, string | null, string | null, string | null, number, number, number, "p" | "s", string | null, number];
@@ -54,7 +56,7 @@ export function paraParametrosCorte(e: EntradaCanonicaCorte): ParametrosCorte {
   };
   return {
     base, ausencias: e.ausencias, indisponibilidades: e.indisponibilidades, apontamentos: e.apontamentos.map(desempacotarApontamento), planoOficial: e.planoOficial.map(desempacotarLinha),
-    c: e.c, corteMs: e.corteMs, impossivelNaOrigem: e.impossivelNaOrigem, modoHorizonte: e.modoHorizonte,
+    c: e.c, corteMs: e.corteMs, impossivelNaOrigem: e.impossivelNaOrigem, modoHorizonte: e.modoHorizonte, ...(e.restrito ? { restrito: true } : {}),
   };
 }
 
@@ -128,6 +130,7 @@ export interface SnapshotSombra {
     alertas: AlertaSnapshot[];
     avisos: string[]; // ressalvas legíveis (ex.: apontamento editado depois do corte)
     preenchimento: DecisaoCorte["preenchimento"]; // "se pudesse escrever agora": o que preencheria/esvaziaria no futuro alterável
+    restrito?: SnapshotRestrito; // replanejamento restrito: proposta, gargalo dinâmico, capacidade ajustada e ociosidade explicada
   };
   hashes: { entrada: string; planoOficial: string; planoSombra: string; decisao: string };
   entrada: EntradaCanonicaCorte;
@@ -136,7 +139,7 @@ export interface SnapshotSombra {
 const periodoLabel = (s: { data: string; periodoId: string }) => `${s.data} ${s.periodoId}`;
 const postoTxt = (p: { maquinaId: string; produtoId: string | null; etapaId: string | null }) => `${p.maquinaId}|${p.produtoId ?? ""}|${p.etapaId ?? ""}`;
 
-export function construirSnapshot(p: { semanaInicio: string; entrada: EntradaCanonicaCorte; decisao: DecisaoCorte; completude: CompletudeSnapshot; nomesMaquinas?: Record<string, string>; extraIncertezas?: Record<string, number>; planoOficialRef?: PlanoOficialRef }): SnapshotSombra {
+export function construirSnapshot(p: { semanaInicio: string; entrada: EntradaCanonicaCorte; decisao: DecisaoCorte; completude: CompletudeSnapshot; nomesMaquinas?: Record<string, string>; extraIncertezas?: Record<string, number>; planoOficialRef?: PlanoOficialRef; restrito?: SnapshotRestrito }): SnapshotSombra {
   const { entrada: e, decisao: d } = p;
   const par = paraParametrosCorte(e);
   const slots = par.base.slots;
@@ -197,7 +200,7 @@ export function construirSnapshot(p: { semanaInicio: string; entrada: EntradaCan
     planos: { hashOficial, hashSombra, diferencas: dif, proximosPeriodos: prox },
     diagnostico: {
       situacao: d.situacao, faltaOficial: Math.round(d.faltaOficial.total), faltaSombra: Math.round(d.faltaSombra.total), recuperado: Math.round(d.recuperacao.recuperado), gargalo: d.faltaSombra.gargalo ? { poolKey: d.faltaSombra.gargalo.poolKey, falta: Math.round(d.faltaSombra.gargalo.falta) } : null,
-      cobertura: { oficial: Math.round(d.cobertura.oficial * 10) / 10, sombra: Math.round(d.cobertura.sombra * 10) / 10 }, postosVazios: d.postosVazios, incertezas: inc, alertas: alertasResumo, avisos, preenchimento: d.preenchimento,
+      cobertura: { oficial: Math.round(d.cobertura.oficial * 10) / 10, sombra: Math.round(d.cobertura.sombra * 10) / 10 }, postosVazios: d.postosVazios, incertezas: inc, alertas: alertasResumo, avisos, preenchimento: d.preenchimento, ...(p.restrito ? { restrito: p.restrito } : {}),
     },
     hashes: { entrada: hashCanonico(e), planoOficial: hashOficial, planoSombra: hashSombra, decisao: d.hashDecisao },
     entrada: e,

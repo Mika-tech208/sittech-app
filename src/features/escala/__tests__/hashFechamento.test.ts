@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import { hashCanonico, jsonCanonico, sha256Hex } from "../hashCanonico";
-import { lerParametros, modoEfetivoReplanejamento } from "../parametros";
+import { lerParametros, modoEfetivoReplanejamento, replanejamentoPodeEscrever } from "../parametros";
 import { avaliarFechamento, instanteDeFechamento, lancamentosTardios, type LancamentoCarimbado } from "../fechamento";
 
 const MIN = 60_000;
@@ -84,5 +84,16 @@ describe("replanejamento_modo", () => {
     expect(modoEfetivoReplanejamento("ativo")).toBe("sombra");
     expect(modoEfetivoReplanejamento("sombra")).toBe("sombra");
     expect(modoEfetivoReplanejamento("desligado")).toBe("desligado");
+  });
+  it("ativo_restrito: único modo que escreve, e só em semana autorizada; ativo (completo) continua sem efeito", () => {
+    const p = lerParametros([{ chave: "replanejamento_modo", valor: "ativo_restrito" }, { chave: "replanejamento_semanas_ativas", valor: ["2026-10-26", "lixo", 3, "2026-10-26"] }]);
+    expect(p.replanejamentoModo).toBe("ativo_restrito");
+    expect(p.replanejamentoSemanasAtivas).toEqual(["2026-10-26"]);
+    expect(modoEfetivoReplanejamento("ativo_restrito")).toBe("ativo_restrito");
+    expect(replanejamentoPodeEscrever(p, "2026-10-26")).toBe(true);
+    expect(replanejamentoPodeEscrever(p, "2026-10-19")).toBe(false);
+    expect(replanejamentoPodeEscrever(lerParametros([{ chave: "replanejamento_modo", valor: "sombra" }, { chave: "replanejamento_semanas_ativas", valor: ["2026-10-26"] }]), "2026-10-26")).toBe(false);
+    expect(replanejamentoPodeEscrever(lerParametros([{ chave: "replanejamento_modo", valor: "ativo" }, { chave: "replanejamento_semanas_ativas", valor: ["2026-10-26"] }]), "2026-10-26")).toBe(false);
+    expect(lerParametros([]).replanejamentoSemanasAtivas).toEqual([]);
   });
 });

@@ -3,10 +3,11 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { lerParametros } from "@/features/escala/parametros";
+import { ConflitoDeVersaoError } from "./estado";
 import type { SnapshotSombra } from "@/features/escala/snapshotSombra";
 import { versaoDeLinhaBanco } from "./planoVersionado";
 import { criarEscalaIO } from "./supabaseIO";
-import { processarSombra, type ApontamentoBanco, type DecisaoParaGravar, type EventoSombra, type ResumoSombra, type SombraIO } from "./sombraServico";
+import { processarSombra, type AplicacaoRestrita, type ApontamentoBanco, type DecisaoParaGravar, type EventoSombra, type RegistroAvaliacao, type ResumoSombra, type SombraIO } from "./sombraServico";
 
 const ms = (v: string | null | undefined) => (v ? Date.parse(v) : null);
 
@@ -40,7 +41,9 @@ function linhaDecisao(d: DecisaoParaGravar) {
     hash_decisao: s.hashes.decisao,
     situacao: s.diagnostico.situacao,
     versao_motor: s.versaoMotor,
-    replanejamento_modo: "sombra",
+    replanejamento_modo: d.modo ?? "sombra",
+    revisao: d.revisao ?? 0,
+    motivo: d.motivo ?? "fechamento",
   };
 }
 
@@ -50,6 +53,53 @@ export function criarSombraIO(admin: SupabaseClient): SombraIO {
       const { data, error } = await admin.from("escala_parametros").select("chave, valor").eq("chave", "replanejamento_modo");
       if (error) throw new Error(`escala_parametros: ${error.message}`);
       return lerParametros(data as { chave: string; valor: unknown }[]).replanejamentoModo;
+    },
+    async lerSemanasAtivas() {
+      const { data, error } = await admin.from("escala_parametros").select("chave, valor").eq("chave", "replanejamento_semanas_ativas");
+      if (error) throw new Error(`escala_parametros: ${error.message}`);
+      return lerParametros(data as { chave: string; valor: unknown }[]).replanejamentoSemanasAtivas;
+    },
+    async proximaRevisao(previsaoId, data, periodoId) {
+      const { data: rows, error } = await admin.from("escala_sombra_decisoes").select("revisao").eq("previsao_id", previsaoId).eq("data", data).eq("periodo_id", periodoId).order("revisao", { ascending: false }).limit(1);
+      if (error) throw new Error(`escala_sombra_decisoes: ${error.message}`);
+      return ((rows as { revisao: number }[] | null)?.[0]?.revisao ?? -1) + 1;
+    },
+    async aplicarRestrito(a: AplicacaoRestrita) {
+      const { data, error } = await admin.rpc("escala_replanejamento_aplicar", {
+        p_previsao: a.previsaoId,
+        p_decisao_id: a.decisaoId,
+        p_corte: { semana_inicio: a.corte.semanaInicio, data: a.corte.data, periodo_id: a.corte.periodoId, slot: a.corte.slot, revisao: a.corte.revisao, motivo: a.corte.motivo },
+        p_dias: a.dias,
+        p_a_partir_data: a.aPartirDeData,
+        p_a_partir_periodo: a.aPartirDePeriodo,
+        p_alocacoes: a.alocacoes.map((x) => ({
+          data: x.data, periodo_id: x.periodoId, funcionario_id: x.funcionarioId, maquina_id: x.maquinaId, produto_id: x.produtoId, etapa_id: x.etapaId, operacao_id: x.operacaoId, pecas: x.pecas,
+          pecas_adicional: x.pecasAdicional ?? 0, tipo_adicional: x.tipoAdicional ?? null, origem: x.origem ?? "auto", excecao_revezamento: false, motivo_excecao: null, motivo_sem_posto: x.motivoSemPosto,
+        })),
+        p_hash_proposta: a.hashProposta,
+        p_mudancas: a.mudancas,
+        p_resumo: a.resumo,
+      });
+      if (error) {
+        if (error.message.includes("ESCALA_VERSAO_CONFLITO")) throw new ConflitoDeVersaoError(error.message);
+        throw new Error(`escala_replanejamento_aplicar: ${error.message}`);
+      }
+      const r = data as { id: string; hash_antes: string; hash_depois: string; versoes_antes: Record<string, number>; versoes_depois: Record<string, number> };
+      return { id: r.id, hashAntes: r.hash_antes, hashDepois: r.hash_depois, versoesAntes: r.versoes_antes, versoesDepois: r.versoes_depois };
+    },
+    async registrarAvaliacao(r: RegistroAvaliacao) {
+      const { error } = await admin.rpc("escala_replanejamento_registrar", {
+        p_dados: {
+          decisao_id: r.decisaoId, previsao_id: r.previsaoId, semana_inicio: r.corte.semanaInicio, data: r.corte.data, periodo_id: r.corte.periodoId, slot: r.corte.slot, revisao: r.corte.revisao, tipo: "aplicacao",
+          resultado: r.resultado, motivo: r.motivo, gatilho: r.corte.motivo, a_partir_data: r.aPartir?.data ?? null, a_partir_periodo: r.aPartir?.periodoId ?? null, hash_proposta: r.hashProposta ?? null, mudancas: r.mudancas ?? null, resumo: r.resumo ?? null, erro: r.erro ?? null,
+        },
+      });
+      if (error) throw new Error(`escala_replanejamento_registrar: ${error.message}`);
+    },
+    async reavaliacoesPendentes(semanas: string[]) {
+      const { data, error } = await admin.rpc("escala_replanejamento_pendentes", { p_semanas: semanas });
+      if (error) throw new Error(`escala_replanejamento_pendentes: ${error.message}`);
+      return ((data ?? []) as { previsao_id: string; data: string; periodo_id: string }[]).map((x) => ({ previsaoId: x.previsao_id, data: x.data, periodoId: x.periodo_id }));
     },
     async listarEventos(): Promise<EventoSombra[]> {
       const { data, error } = await admin.rpc("escala_sombra_listar_eventos");
