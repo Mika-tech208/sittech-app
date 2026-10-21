@@ -23,23 +23,41 @@ export interface ParametrosEscala {
   wipModo: ModoWip;
   /** Limite padrão de estoque intermediário entre etapas: dias produtivos de consumo da etapa seguinte. */
   wipDiasLimite: number;
+  /** Limite de WIP (em dias) específico de UMA semana (chave = segunda-feira ISO). Quando existe, vale só para aquela semana; o padrão global não muda. */
+  wipDiasLimitePorSemana: Record<string, number>;
   /** Margem de folga (fração) abaixo da qual um previsto que fecha passa a "Em risco" (atingibilidade). Só análise: não muda a escala. */
   atingibilidadeMargem: number;
   revezamentoModo: ModoRevezamento;
   replanejamentoModo: ModoReplanejamento;
 }
 
-export const PARAMETROS_PADRAO: ParametrosEscala = { wipModo: "desligado", wipDiasLimite: 1, atingibilidadeMargem: 0.1, revezamentoModo: "duro", replanejamentoModo: "desligado" };
+export const PARAMETROS_PADRAO: ParametrosEscala = { wipModo: "desligado", wipDiasLimite: 1, wipDiasLimitePorSemana: {}, atingibilidadeMargem: 0.1, revezamentoModo: "duro", replanejamentoModo: "desligado" };
 
 // Chaves da tabela escala_parametros.
 export const CHAVE_WIP_MODO = "wip_modo";
 export const CHAVE_WIP_DIAS_LIMITE = "wip_dias_limite";
+export const CHAVE_WIP_DIAS_LIMITE_SEMANAS = "wip_dias_limite_semanas";
 export const CHAVE_ATINGIBILIDADE_MARGEM = "atingibilidade_margem";
 export const CHAVE_REVEZAMENTO_MODO = "revezamento_modo";
 export const CHAVE_REPLANEJAMENTO_MODO = "replanejamento_modo";
 
 /** Modo que REALMENTE se executa: "ativo" ainda não existe e cai em "sombra" (falha segura). */
 export const modoEfetivoReplanejamento = (m: ModoReplanejamento): "desligado" | "sombra" => (m === "desligado" ? "desligado" : "sombra");
+
+// {"2026-10-26": 2}: só entradas válidas (data ISO de segunda-feira → número ≥ 0); o resto é ignorado (seguro).
+function lerLimitesPorSemana(v: unknown): Record<string, number> {
+  const r: Record<string, number> = {};
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    Object.entries(v as Record<string, unknown>).forEach(([semana, dias]) => {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(semana) && typeof dias === "number" && Number.isFinite(dias) && dias >= 0) r[semana] = dias;
+    });
+  }
+  return r;
+}
+
+/** Limite de WIP (dias) que vale para a semana: o específico dela, senão o padrão global. */
+export const wipDiasLimiteDaSemana = (p: { wipDiasLimite: number; wipDiasLimitePorSemana?: Record<string, number> } | undefined, semanaInicio: string): number =>
+  p?.wipDiasLimitePorSemana?.[semanaInicio] ?? p?.wipDiasLimite ?? 1;
 
 export function lerParametros(linhas: { chave: string; valor: unknown }[] | null | undefined): ParametrosEscala {
   const mapa = new Map((linhas ?? []).map((l) => [l.chave, l.valor]));
@@ -50,6 +68,7 @@ export function lerParametros(linhas: { chave: string; valor: unknown }[] | null
     wipModo: modo === "ativo" ? "ativo" : "desligado", // qualquer outro valor = desligado (seguro)
     revezamentoModo: mapa.get(CHAVE_REVEZAMENTO_MODO) === "mole" ? "mole" : "duro", // ausente/desconhecido = duro (regra definitiva)
     replanejamentoModo: ((v) => (v === "sombra" || v === "ativo" ? v : "desligado"))(mapa.get(CHAVE_REPLANEJAMENTO_MODO)), // ausente/desconhecido = desligado
+    wipDiasLimitePorSemana: lerLimitesPorSemana(mapa.get(CHAVE_WIP_DIAS_LIMITE_SEMANAS)),
     wipDiasLimite: Number.isFinite(dias) && dias >= 0 ? dias : PARAMETROS_PADRAO.wipDiasLimite,
     atingibilidadeMargem: mapa.has(CHAVE_ATINGIBILIDADE_MARGEM) && Number.isFinite(margem) && margem >= 0 && margem <= 1 ? margem : PARAMETROS_PADRAO.atingibilidadeMargem,
   };

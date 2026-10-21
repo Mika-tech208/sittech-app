@@ -28,6 +28,7 @@ export interface AjusteWip {
   data: string;
   quantidade: number; // + soma / − tira
   motivo: string;
+  criadoEm?: string; // ISO — permite enxergar só o que existia em um corte (modo sombra)
 }
 export interface ConfirmacaoWip {
   id: string;

@@ -34,7 +34,7 @@ export async function carregarWipControle(admin: SupabaseClient, semanaInicio: s
   const minInicio = controlesRows.map((c) => String(c.data_inicio)).sort()[0];
 
   const [ajustes, confs, snaps, previsoes, etapas, produtos, producao] = await Promise.all([
-    admin.from("wip_ajustes").select("controle_id, data, quantidade, motivo").in("controle_id", ids),
+    admin.from("wip_ajustes").select("controle_id, data, quantidade, motivo, criado_em").in("controle_id", ids),
     admin.from("wip_confirmacoes").select("id, controle_id, data_referencia, quantidade_confirmada, saldo_estimado, motivo, criado_em").in("controle_id", ids),
     admin.from("wip_saldo_semanal").select("semana_inicio, controle_id, saldo_estimado, saldo_confirmado_disponivel, saldo_alocado").in("controle_id", ids),
     admin.from("previsoes").select("semana_inicio, previsao_itens(produto_id, quantidade, tipo)").gte("semana_inicio", somarDias(minInicio, -7)).lte("semana_inicio", semanaInicio),
@@ -50,7 +50,7 @@ export async function carregarWipControle(admin: SupabaseClient, semanaInicio: s
 
   return {
     controles: controlesRows.map((c) => ({ id: c.id, produtoId: c.produto_id, etapaOrigemId: c.etapa_origem_id, etapaSeguinteId: c.etapa_seguinte_id, dataInicio: String(c.data_inicio), saldoInicial: Number(c.saldo_inicial), ativo: c.ativo })),
-    ajustes: (ok(ajustes, "wip_ajustes") as { controle_id: string; data: string; quantidade: number; motivo: string }[]).map((a) => ({ controleId: a.controle_id, data: String(a.data), quantidade: Number(a.quantidade), motivo: a.motivo })),
+    ajustes: (ok(ajustes, "wip_ajustes") as { controle_id: string; data: string; quantidade: number; motivo: string; criado_em?: string }[]).map((a) => ({ controleId: a.controle_id, data: String(a.data), quantidade: Number(a.quantidade), motivo: a.motivo, ...(a.criado_em ? { criadoEm: a.criado_em } : {}) })),
     confirmacoes: (ok(confs, "wip_confirmacoes") as { id: string; controle_id: string; data_referencia: string; quantidade_confirmada: number; saldo_estimado: number; motivo: string | null; criado_em: string }[]).map((c) => ({
       id: c.id, controleId: c.controle_id, dataReferencia: String(c.data_referencia), quantidade: Number(c.quantidade_confirmada), saldoEstimado: Number(c.saldo_estimado), motivo: c.motivo, criadoEm: c.criado_em,
     })),

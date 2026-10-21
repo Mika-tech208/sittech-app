@@ -10,6 +10,8 @@ export interface EntradaPrevisaoVersionada {
   equipe: string[]; // funcionários produtivos da semana
   maquinasIndisponiveisPrevisao: string[];
   itens: ItemPrevistoBruto[];
+  // Configuração de WIP vigente quando a versão nasceu (versões antigas não têm: nesse caso vale a atual)
+  parametros?: { wipModo: string; wipDiasLimite: number; wipDiasLimitePorSemana: number | null };
 }
 
 export interface VersaoPlanoOficial {
@@ -34,6 +36,16 @@ export function estadoComVersao(estado: EstadoBruto, v: VersaoPlanoOficial): Est
     itens: v.entrada.itens,
     maquinasIndisponiveisPrevisao: v.entrada.maquinasIndisponiveisPrevisao,
     alocacoes: v.linhas.map(desempacotarLinha),
+    ...(v.entrada.parametros
+      ? {
+          parametros: {
+            ...(estado.parametros ?? { wipModo: "desligado", wipDiasLimite: 1 }),
+            wipModo: v.entrada.parametros.wipModo === "ativo" ? "ativo" : "desligado",
+            wipDiasLimite: v.entrada.parametros.wipDiasLimite,
+            wipDiasLimitePorSemana: v.entrada.parametros.wipDiasLimitePorSemana === null ? {} : { [estado.semanaInicio]: v.entrada.parametros.wipDiasLimitePorSemana },
+          },
+        }
+      : {}),
   };
 }
 

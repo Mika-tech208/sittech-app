@@ -77,6 +77,10 @@ export function estadoNoCorte(estado: EstadoBruto, corteMs: number): EstadoBruto
     ...estado,
     ausencias: estado.ausencias.filter((a) => !a.registradaEm || Date.parse(a.registradaEm) <= corteMs),
     indisponibilidades: estado.indisponibilidades.filter((i) => Date.parse(i.desde) <= corteMs).map((i) => (i.liberadaEm && Date.parse(i.liberadaEm) > corteMs ? { ...i, liberadaEm: null } : i)),
+    // WIP: confirmações e ajustes criados depois do corte não existiam (append-only, com carimbo); a Produção Real é lida só até a data do corte
+    ...(estado.wipControle
+      ? { wipControle: { ...estado.wipControle, confirmacoes: estado.wipControle.confirmacoes.filter((c) => Date.parse(c.criadoEm) <= corteMs), ajustes: estado.wipControle.ajustes.filter((a) => !a.criadoEm || Date.parse(a.criadoEm) <= corteMs) } }
+      : {}),
   };
 }
 
@@ -128,13 +132,14 @@ export async function prepararDecisao(
   const impossivelNaOrigem = analisarAtingibilidade(zero, gerarEscala(zero)).status === "impossivel";
 
   const canonica: EntradaCanonicaCorte = {
-    versao: 1, c: slot.indice, corteMs,
+    versao: 2, c: slot.indice, corteMs,
     dias: [...new Set(ent.slots.map((s) => s.data))].map((data) => ({ data, periodos: (estado.diasExistentes.find((d) => d.data === data)?.periodosSnapshot ?? estado.periodosAtuais) })),
-    funcionarios: ent.funcionarios.map((x) => x.id).sort(), pools: ent.pools.map((p) => ({ ...p, adicionalMax: 0 })),
+    funcionarios: ent.funcionarios.map((x) => x.id).sort(), pools: ent.pools, ...(ent.wip ? { wip: ent.wip } : {}),
+    parametrosWip: { wipModo: estado.parametros?.wipModo ?? "desligado", wipDiasLimite: estado.parametros?.wipDiasLimite ?? 1, wipDiasLimitePorSemana: estado.parametros?.wipDiasLimitePorSemana?.[estado.semanaInicio] ?? null },
     ausencias: [...ent.ausencias].sort((x, y) => (jsonCanonico(x) < jsonCanonico(y) ? -1 : 1)), indisponibilidades: [...ent.indisponibilidades].sort((x, y) => (jsonCanonico(x) < jsonCanonico(y) ? -1 : 1)),
     maquinasIndisponiveisPrevisao: ent.maquinasIndisponiveisPrevisao, maquinasInativas: ent.maquinasInativas ?? [], historicoEquidade: ent.historicoEquidade ?? [],
     apontamentos: visiveis.map(empacotarApontamento),
-    planoOficial: [...estado.alocacoes].sort((x, y) => (x.data + x.periodoId + x.funcionarioId < y.data + y.periodoId + y.funcionarioId ? -1 : 1)).map(empacotarLinha), impossivelNaOrigem, adicionalRestante: {}, modoHorizonte: "comprometido",
+    planoOficial: [...estado.alocacoes].sort((x, y) => (x.data + x.periodoId + x.funcionarioId < y.data + y.periodoId + y.funcionarioId ? -1 : 1)).map(empacotarLinha), impossivelNaOrigem, modoHorizonte: "comprometido",
   };
   const decisao = executarCorteSombra(paraParametrosCorte(canonica));
   const tardios = lancamentosTardios(lanc, corteMs);
@@ -154,7 +159,6 @@ export async function prepararDecisao(
     extraIncertezas: {
       // o banco só guarda a versão ATUAL da linha: se foi editada depois do corte, o valor visto aqui pode não ser o que existia no corte
       apontamento_editado_apos_corte: apontamentos.filter((a) => a.criadoEmMs <= corteMs && a.atualizadoEmMs !== null && a.atualizadoEmMs > corteMs + 1000).length,
-      wip_ativo_adicional_nao_considerado: estado.parametros?.wipModo === "ativo" ? 1 : 0,
     },
   });
   return { pronto: true, snapshot, corteMs, tardios };

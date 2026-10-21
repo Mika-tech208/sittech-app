@@ -86,7 +86,7 @@ begin
 
   -- (6) gatilhos adiados presentes nas 8 tabelas
   select count(*) into v_n from pg_trigger where tgname = 'trg_escala_plano_versao' and tgdeferrable and tginitdeferred;
-  if v_n <> 8 then raise exception 'FALHOU (6) esperado 8 gatilhos adiados, veio %', v_n; end if;
+  if v_n <> 9 then raise exception 'FALHOU (6) esperado 9 gatilhos adiados (8 tabelas + parâmetros), veio %', v_n; end if;
 
   -- (7) append-only e grants
   begin update escala_plano_versoes set origem = 'baseline'; v_ok := false; exception when others then v_ok := position('ESCALA_SOMBRA_IMUTAVEL' in sqlerrm) > 0; end;
@@ -103,5 +103,5 @@ begin
   if not v_ok then raise exception 'FALHOU (7) authenticated não escreve versões'; end if;
   reset role;
 
-  raise exception 'TESTE_OK T12: inerte desligado; uma versão por transação no commit; dedupe por hash; baseline; leitura temporal sem cair no plano atual; Previsão acompanha a versão; 8 gatilhos adiados; append-only e grants';
+  raise exception 'TESTE_OK T12: inerte desligado; uma versão por transação no commit; dedupe por hash; baseline; leitura temporal sem cair no plano atual; Previsão acompanha a versão; 9 gatilhos adiados; append-only e grants';
 end $$;

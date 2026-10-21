@@ -13,6 +13,7 @@
 
 import { construirSlotsDeDias, epochMsNoFuso, minutosDoHorario, primeiroSlotFuturo } from "@/features/escala/tempo";
 import type { EntradaEscala, PeriodoEscala, PoolEscala } from "@/features/escala/types";
+import { wipDiasLimiteDaSemana } from "@/features/escala/parametros";
 import { calcularLimitesWip } from "@/features/escala/wip";
 import { dataNoFusoSP, planejamentoDaSemana, type PlanejamentoWip } from "@/features/escala/wipSaldo";
 import type { AvisoMontagem, EstadoBruto, SnapshotWipParaGravar } from "./estado";
@@ -172,7 +173,7 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
       historicoEquidade: estado.historicoEquidade,
       poolsSemMaquina: [...semMaquina.entries()].filter(([k]) => !pools.has(k)).map(([, p]) => p),
       ...(estado.parametros?.revezamentoModo === "duro" ? { revezamentoDuro: true } : {}),
-      ...(wipAtivo ? { wip: { limites: calcularLimitesWip([...pools.values()], slots, { wipDiasLimite: estado.parametros?.wipDiasLimite ?? 1 }, estado.proximaSemana ?? null), ...(Object.keys(saldo0).length > 0 ? { saldo0 } : {}), ...(Object.keys(estoqueConfirmado).length > 0 ? { estoqueConfirmado } : {}) } } : {}),
+      ...(wipAtivo ? { wip: { limites: calcularLimitesWip([...pools.values()], slots, { wipDiasLimite: wipDiasLimiteDaSemana(estado.parametros, estado.semanaInicio) }, estado.proximaSemana ?? null), ...(Object.keys(saldo0).length > 0 ? { saldo0 } : {}), ...(Object.keys(estoqueConfirmado).length > 0 ? { estoqueConfirmado } : {}) } } : {}),
     },
     periodosPorDia,
     diasExistentesPorData: new Map(estado.diasExistentes.map((d) => [d.data, { versao: d.versao }])),

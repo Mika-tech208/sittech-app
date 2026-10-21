@@ -92,3 +92,59 @@ export function resumirRecuperacao(faltaOficial: number, faltaSombra: number, of
 
 export const postosVaziosPorRevezamento = (rows: AlocacaoEscala[]) => rows.filter((a) => !a.maquinaId && a.motivoSemPosto === MOTIVO_REVEZAMENTO).length;
 export const coberturaFutura = (rows: AlocacaoEscala[]) => (rows.length ? (100 * rows.filter((a) => a.maquinaId).length) / rows.length : 100);
+
+// ---------- "Se a sombra pudesse escrever na Escala agora": o que preencheria / esvaziaria no futuro ALTERÁVEL (especificação do preenchimento) ----------
+export interface ResumoPreenchimento {
+  vaziosOficial: number; // pessoa-períodos sem posto no futuro alterável da Escala oficial
+  vaziosSombra: number;
+  wipOficialPecas: number; // adicional/WIP planejado pela Escala oficial no futuro alterável
+  wipSombraPecas: number;
+  wipOficialPostos: number;
+  wipSombraPostos: number;
+  wipMantido: number; // postos de WIP oficiais que a sombra também teria (mesmo período, máquina, produto e etapa)
+  wipRetirado: number; // postos de WIP oficiais que a sombra NÃO teria
+  wipRetiradoParaPrevisto: number; // ... porque a sombra usa aquela máquina/período para o PREVISTO (recuperação)
+  wipRetiradoOutro: number;
+  novosPostosPrevisto: number; // postos de previsto que a sombra teria e o oficial não
+  novosPostosWip: number; // postos de WIP que a sombra teria e o oficial não
+  preencheria: number; // pessoa-períodos ociosos no oficial que a sombra ocuparia
+  esvaziaria: number; // pessoa-períodos ocupados no oficial que a sombra deixaria ociosos
+  alteracoes: number; // pessoa-períodos cuja máquina/posto muda (oficial → sombra)
+  alteracoesSoPreenchimento: number; // subconjunto: oficial ocioso→ocupado ou WIP→qualquer coisa (o que um preenchimento restrito mexeria)
+}
+
+export function compararPreenchimento(oficialAlteravel: AlocacaoEscala[], sombraAlteravel: AlocacaoEscala[]): ResumoPreenchimento {
+  const ehWip = (a: AlocacaoEscala) => !!a.maquinaId && (a.pecasAdicional ?? 0) > 0;
+  const posto = (a: AlocacaoEscala) => `${a.data}|${a.periodoId}|${a.maquinaId}|${a.produtoId}|${a.etapaId}`;
+  const maqPeriodo = (a: AlocacaoEscala) => `${a.data}|${a.periodoId}|${a.maquinaId}`;
+  const wipO = new Set(oficialAlteravel.filter(ehWip).map(posto));
+  const wipS = new Set(sombraAlteravel.filter(ehWip).map(posto));
+  const prevS = new Set(sombraAlteravel.filter((a) => a.maquinaId && a.pecas > 0).map(maqPeriodo));
+  const prevO = new Set(oficialAlteravel.filter((a) => a.maquinaId && a.pecas > 0).map(posto));
+  const prevSPostos = new Set(sombraAlteravel.filter((a) => a.maquinaId && a.pecas > 0).map(posto));
+  const retirados = [...wipO].filter((k) => !wipS.has(k));
+  const porPessoa = new Map(oficialAlteravel.map((a) => [`${a.data}|${a.periodoId}|${a.funcionarioId}`, a]));
+  let preencheria = 0, esvaziaria = 0, alteracoes = 0, soPreench = 0;
+  sombraAlteravel.forEach((s) => {
+    const o = porPessoa.get(`${s.data}|${s.periodoId}|${s.funcionarioId}`);
+    if (!o) return;
+    const mudou = (o.maquinaId ?? "") !== (s.maquinaId ?? "") || (o.maquinaId && (o.produtoId !== s.produtoId || o.etapaId !== s.etapaId));
+    if (!mudou) return;
+    alteracoes++;
+    if (!o.maquinaId && s.maquinaId) { preencheria++; soPreench++; } else if (o.maquinaId && !s.maquinaId) { esvaziaria++; if (ehWip(o)) soPreench++; } else if (ehWip(o)) soPreench++;
+  });
+  return {
+    vaziosOficial: oficialAlteravel.filter((a) => !a.maquinaId).length,
+    vaziosSombra: sombraAlteravel.filter((a) => !a.maquinaId).length,
+    wipOficialPecas: oficialAlteravel.filter(ehWip).reduce((s, a) => s + (a.pecasAdicional ?? 0), 0),
+    wipSombraPecas: sombraAlteravel.filter(ehWip).reduce((s, a) => s + (a.pecasAdicional ?? 0), 0),
+    wipOficialPostos: wipO.size, wipSombraPostos: wipS.size,
+    wipMantido: [...wipO].filter((k) => wipS.has(k)).length,
+    wipRetirado: retirados.length,
+    wipRetiradoParaPrevisto: retirados.filter((k) => { const [d, p, m] = k.split("|"); return prevS.has(`${d}|${p}|${m}`); }).length,
+    wipRetiradoOutro: retirados.filter((k) => { const [d, p, m] = k.split("|"); return !prevS.has(`${d}|${p}|${m}`); }).length,
+    novosPostosPrevisto: [...prevSPostos].filter((k) => !prevO.has(k)).length,
+    novosPostosWip: [...wipS].filter((k) => !wipO.has(k)).length,
+    preencheria, esvaziaria, alteracoes, alteracoesSoPreenchimento: soPreench,
+  };
+}

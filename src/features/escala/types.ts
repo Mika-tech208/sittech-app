@@ -127,6 +127,10 @@ export interface EntradaEscala {
   // produto ou posto; M3→T1 conta; o primeiro período do dia zera). Solução que repete é eliminada do espaço de busca: sem solução válida o
   // posto fica sem operador e gera `rotacao_sem_solucao`. Ausente/false = comportamento anterior (repetição "inevitável" vira exceção).
   revezamentoDuro?: boolean;
+  // MODO SOMBRA (Fase 4d): adicional/WIP por etapa que a Produção Real JÁ realizou antes de `aPartirDe` e que NÃO está em linhas congeladas
+  // (o realizado vem agregado, não por posto). Consome o teto restante e conta no equilíbrio da cadeia e no limite de estoque, exatamente
+  // como o adicional congelado. Ausente (Escala oficial) = comportamento anterior, idêntico.
+  adicionalRealizado?: Record<string, number>;
 }
 
 export type TipoAlerta =

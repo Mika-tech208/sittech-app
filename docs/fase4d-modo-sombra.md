@@ -21,6 +21,12 @@ A Escala oficial **não é alterada** em nenhum ponto: não existe `aplicar` no 
 - **O que continua fora do versionamento:** catálogos (metas do roteiro, nomes, máquinas inativas, parâmetros), ausências (têm carimbo próprio, mas edição/exclusão posterior não é refletida) e a versão ATUAL da linha de apontamento (edição posterior fica registrada em `diagnostico.avisos`/`incertezas.apontamento_editado_apos_corte`).
 - **Testes:** hindsight explícito (recálculo automático, troca manual, ausência, indisponibilidade e alteração da Previsão depois do corte não alteram a decisão; a leitura ingênua alteraria), `t12_plano_versoes.sql` (DEV) e paridade total do banco com o carregador do servidor numa semana real do DEV.
 
+## WIP/adicional na sombra e limite de WIP por semana
+- **Mesma regra dos dois lados:** a entrada canônica da sombra guarda os pools COM o adicional por etapa (teto) e o `wip` da Escala oficial (limites de estoque, estoque confirmado/reservado). O realizado acima do previsto de uma etapa entra como `adicionalRealizado` (consome teto e ocupa limite, como o adicional congelado). Confirmações/ajustes de WIP criados depois do corte não entram; os parâmetros de WIP vêm da versão do plano.
+- **Previsto sempre primeiro:** o WIP é a 2ª camada (só pessoas sem posto). Atraso real aumenta o restante do previsto e a sombra retira WIP futuro.
+- **Especificação do preenchimento (por corte):** `diagnostico.preenchimento` = vazios do oficial × sombra, WIP oficial futuro, WIP que a sombra manteria/retiraria (para o previsto ou outro motivo), novos postos, o que preencheria/esvaziaria e nº de alterações.
+- **Limite por semana:** `escala_parametros.wip_dias_limite_semanas` ({"2026-10-26": 2}); semana sem entrada usa `wip_dias_limite` (global, não muda). Migration `20261026100000`.
+
 ## Alertas: evento novo × estado que continua (`alertasAgregados.ts`)
 O snapshot técnico mantém os alertas de cada corte. A agregação (para a futura interface) gera: `iniciou_em`, `continua_ativo`, `resolveu_em`/`expirou_em` (período já passou), cortes em que persistiu, pior valor, reaparição. Alertas de EVENTO (conflito de rotação, inviável, não reparável, contingência) nunca são agrupados; mudança de situação (OK → B→C → B→D) e o caminho do compromisso (válido → conflito → reparado) são sempre eventos.
 

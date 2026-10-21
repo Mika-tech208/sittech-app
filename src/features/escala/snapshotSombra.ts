@@ -16,12 +16,14 @@ export const VERSAO_MOTOR_SOMBRA = "4d.1";
 
 // ---------- entrada canônica (JSON, compacta) ----------
 export interface EntradaCanonicaCorte {
-  versao: 1;
+  versao: 2;
   c: number;
   corteMs: number;
   dias: { data: string; periodos: PeriodoEscala[] }[];
   funcionarios: string[];
-  pools: PoolEscala[]; // quantidade PREVISTA da semana (o restante real é derivado dos apontamentos)
+  pools: PoolEscala[]; // quantidade PREVISTA da semana + adicional por etapa (teto) como a Escala oficial os vê (o restante real é derivado dos apontamentos)
+  wip?: EntradaEscala["wip"]; // MESMA regra da Escala oficial: limites de estoque, estoque confirmado e saldo (ausente = WIP desligado)
+  parametrosWip?: { wipModo: string; wipDiasLimite: number; wipDiasLimitePorSemana: number | null }; // configuração vigente no corte (auditoria)
   ausencias: JanelaAusenciaEscala[]; // já filtradas pelo corte
   indisponibilidades: IndisponibilidadeRecursoEscala[]; // idem
   maquinasIndisponiveisPrevisao: string[];
@@ -30,7 +32,6 @@ export interface EntradaCanonicaCorte {
   apontamentos: ApontamentoPacote[]; // só ≤ c e lançados até o corte
   planoOficial: LinhaPacote[]; // plano oficial vigente da semana no momento da leitura
   impossivelNaOrigem: boolean;
-  adicionalRestante: Record<string, number>;
   modoHorizonte: "comprometido" | "antigo";
 }
 
@@ -49,11 +50,11 @@ export function paraParametrosCorte(e: EntradaCanonicaCorte): ParametrosCorte {
   const slots = construirSlotsDeDias(e.dias);
   const base: EntradaEscala = {
     slots, aPartirDe: 0, pools: e.pools, funcionarios: e.funcionarios.map((id) => ({ id })), ausencias: [], maquinasIndisponiveisPrevisao: e.maquinasIndisponiveisPrevisao,
-    maquinasInativas: e.maquinasInativas, indisponibilidades: [], congeladas: [], historicoEquidade: e.historicoEquidade, revezamentoDuro: true,
+    maquinasInativas: e.maquinasInativas, indisponibilidades: [], congeladas: [], historicoEquidade: e.historicoEquidade, revezamentoDuro: true, ...(e.wip ? { wip: e.wip } : {}),
   };
   return {
     base, ausencias: e.ausencias, indisponibilidades: e.indisponibilidades, apontamentos: e.apontamentos.map(desempacotarApontamento), planoOficial: e.planoOficial.map(desempacotarLinha),
-    c: e.c, corteMs: e.corteMs, impossivelNaOrigem: e.impossivelNaOrigem, adicionalRestante: e.adicionalRestante, modoHorizonte: e.modoHorizonte,
+    c: e.c, corteMs: e.corteMs, impossivelNaOrigem: e.impossivelNaOrigem, modoHorizonte: e.modoHorizonte,
   };
 }
 
@@ -108,7 +109,7 @@ export interface SnapshotSombra {
     postosVazios: { maquinaId: string; causa: string }[];
     contingencias: { maquinaId: string; nome?: string; produtoId: string | null; etapaId: string | null; operacaoId: string | null; postoAfetado: { maquinaId: string; nome?: string; funcionarioId: string }; motivoNaoUsada: string; contingencia_maquina_disponivel: true }[];
   };
-  entradas: { restantePorPool: Record<string, number>; realizadoPorPool: Record<string, number>; desempenho: Record<string, { n: number; f: number }>; equipe: number; ausencias: number; indisponibilidades: number; wipConfirmado: number; parametros: { revezamento: "duro"; replanejamento: "sombra" } };
+  entradas: { restantePorPool: Record<string, number>; realizadoPorPool: Record<string, number>; desempenho: Record<string, { n: number; f: number }>; equipe: number; ausencias: number; indisponibilidades: number; wip: DecisaoCorte["wip"]; parametros: { revezamento: "duro"; replanejamento: "sombra"; wipModo: string; wipDiasLimite: number | null; wipDiasLimitePorSemana: number | null } };
   planos: {
     hashOficial: string;
     hashSombra: string;
@@ -126,6 +127,7 @@ export interface SnapshotSombra {
     incertezas: Record<string, number>;
     alertas: AlertaSnapshot[];
     avisos: string[]; // ressalvas legíveis (ex.: apontamento editado depois do corte)
+    preenchimento: DecisaoCorte["preenchimento"]; // "se pudesse escrever agora": o que preencheria/esvaziaria no futuro alterável
   };
   hashes: { entrada: string; planoOficial: string; planoSombra: string; decisao: string };
   entrada: EntradaCanonicaCorte;
@@ -165,7 +167,6 @@ export function construirSnapshot(p: { semanaInicio: string; entrada: EntradaCan
   const alertasResumo: AlertaSnapshot[] = alertas.map((a) => ({ tipo: a.tipo, data: a.data, periodoId: a.periodoId, produtoId: a.produtoId, etapaId: a.etapaId, quantidade: a.quantidade, pecas: a.pecas === undefined ? undefined : Math.round(a.pecas) }));
   const AVISOS: Record<string, string> = {
     apontamento_editado_apos_corte: "apontamento(s) editado(s) depois do corte: foi usada a versão atual da linha, que pode diferir do que existia no corte",
-    wip_ativo_adicional_nao_considerado: "WIP ativo: o adicional/estoque intermediário não entra na sombra",
   };
   const avisos = Object.entries(inc).filter(([k]) => AVISOS[k]).map(([k, v]) => `${k}: ${v} — ${AVISOS[k]}`);
   return {
@@ -190,12 +191,13 @@ export function construirSnapshot(p: { semanaInicio: string; entrada: EntradaCan
     },
     entradas: {
       restantePorPool: rest, realizadoPorPool: boas, desempenho: Object.fromEntries(Object.entries(d.desempenho).map(([k, v]) => [k, { n: v.n, f: Math.round(v.f * 10000) / 10000 }])),
-      equipe: e.funcionarios.length, ausencias: e.ausencias.length, indisponibilidades: e.indisponibilidades.length, wipConfirmado: 0, parametros: { revezamento: "duro", replanejamento: "sombra" },
+      equipe: e.funcionarios.length, ausencias: e.ausencias.length, indisponibilidades: e.indisponibilidades.length, wip: d.wip,
+      parametros: { revezamento: "duro", replanejamento: "sombra", wipModo: e.wip ? "ativo" : "desligado", wipDiasLimite: e.parametrosWip?.wipDiasLimite ?? null, wipDiasLimitePorSemana: e.parametrosWip?.wipDiasLimitePorSemana ?? null },
     },
     planos: { hashOficial, hashSombra, diferencas: dif, proximosPeriodos: prox },
     diagnostico: {
       situacao: d.situacao, faltaOficial: Math.round(d.faltaOficial.total), faltaSombra: Math.round(d.faltaSombra.total), recuperado: Math.round(d.recuperacao.recuperado), gargalo: d.faltaSombra.gargalo ? { poolKey: d.faltaSombra.gargalo.poolKey, falta: Math.round(d.faltaSombra.gargalo.falta) } : null,
-      cobertura: { oficial: Math.round(d.cobertura.oficial * 10) / 10, sombra: Math.round(d.cobertura.sombra * 10) / 10 }, postosVazios: d.postosVazios, incertezas: inc, alertas: alertasResumo, avisos,
+      cobertura: { oficial: Math.round(d.cobertura.oficial * 10) / 10, sombra: Math.round(d.cobertura.sombra * 10) / 10 }, postosVazios: d.postosVazios, incertezas: inc, alertas: alertasResumo, avisos, preenchimento: d.preenchimento,
     },
     hashes: { entrada: hashCanonico(e), planoOficial: hashOficial, planoSombra: hashSombra, decisao: d.hashDecisao },
     entrada: e,

@@ -1,7 +1,7 @@
 // FASE 4c — execução (A/B/C/D), recuperação e orquestração de UM corte, sem informação futura.
 import { describe, it, expect } from "vitest";
 import { gerarEscala } from "../gerarEscala";
-import { classificarSituacao, faltaProjetada, resumirRecuperacao, restanteAcabado, toleranciaFalta } from "../execucao";
+import { classificarSituacao, compararPreenchimento, faltaProjetada, resumirRecuperacao, restanteAcabado, toleranciaFalta } from "../execucao";
 import { executarCorteSombra, visaoNoCorte, type ParametrosCorte } from "../sombraCorte";
 import { hashAlocacoes } from "../horizonte";
 import type { ApontamentoReal } from "../producaoReal";
@@ -164,5 +164,19 @@ describe("corte — compromisso e exposição incerta dentro da decisão", () =>
     expect(r.incertezas.some((i) => i.tipo === "sem_producao_sem_vinculo" && i.funcionarioId === comp.funcionarioId)).toBe(true);
     const conf = r.horizonte.avaliacaoCompromisso.conflitos.find((c) => c.funcionarioId === comp.funcionarioId);
     expect(conf?.exposicaoIncerta).toBe(true);
+  });
+});
+
+describe("especificação do preenchimento: o que a sombra preencheria / esvaziaria / retiraria", () => {
+  const L = (f: string, m: string | null, wip = 0, pecas = 100, per = "t1"): AlocacaoEscala => ({ data: "d", periodoId: per, funcionarioId: f, maquinaId: m, produtoId: m ? "P" : null, etapaId: m ? "E" : null, operacaoId: m ? "o" : null, pecas, pecasAdicional: wip, tipoAdicional: wip > 0 ? "intermediario" : undefined, motivoSemPosto: m ? null : "x", excecaoRevezamento: false, motivoExcecao: null });
+  it("conta preenchimento de vazio, retirada de WIP para o previsto e WIP mantido", () => {
+    const oficial = [L("a", "m1"), L("b", "m2", 50, 0), L("c", null)];
+    const sombra = [L("a", "m1"), L("b", "m2", 0, 100), L("c", "m3", 40, 0)]; // m2 vira previsto (WIP retirado p/ previsto); c ocupa um vazio com WIP
+    const r = compararPreenchimento(oficial, sombra);
+    expect(r).toMatchObject({ vaziosOficial: 1, vaziosSombra: 0, wipOficialPostos: 1, wipSombraPostos: 1, wipRetirado: 1, wipRetiradoParaPrevisto: 1, wipRetiradoOutro: 0, wipMantido: 0, novosPostosWip: 1, preencheria: 1, esvaziaria: 0 });
+  });
+  it("sem diferença: nada a alterar", () => {
+    const x = [L("a", "m1"), L("b", "m2", 50, 0), L("c", null)];
+    expect(compararPreenchimento(x, x)).toMatchObject({ alteracoes: 0, preencheria: 0, esvaziaria: 0, wipRetirado: 0, wipMantido: 1 });
   });
 });

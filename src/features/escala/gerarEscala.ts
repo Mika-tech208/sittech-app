@@ -125,6 +125,10 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     }
   });
 
+  Object.entries(entrada.adicionalRealizado ?? {}).forEach(([k, v]) => {
+    if (adicRem.has(k) && v > 0) adicRem.set(k, Math.max(0, (adicRem.get(k) as number) - v));
+  });
+
   // ---- equilíbrio da cadeia (2ª camada): adicional já alocado por etapa, e etapas de cada produto ----
   const adicAlocado = new Map<string, number>();
   const chavesDoProduto = new Map<string, string[]>();
@@ -139,6 +143,10 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
       const k = chavePool(a.produtoId, a.etapaId);
       if (adicAlocado.has(k)) adicAlocado.set(k, (adicAlocado.get(k) as number) + (a.pecasAdicional as number));
     }
+  });
+
+  Object.entries(entrada.adicionalRealizado ?? {}).forEach(([k, v]) => {
+    if (adicAlocado.has(k) && v > 0) adicAlocado.set(k, (adicAlocado.get(k) as number) + v);
   });
 
   // adicional por etapa (WIP): etapas de cada produto e qual é a ÚLTIMA (produto acabado)
