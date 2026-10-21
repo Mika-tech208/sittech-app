@@ -18,6 +18,7 @@
 
 "use client";
 
+import { useTema } from "@/hooks/useTema";
 import { useState, useMemo, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -132,7 +133,7 @@ export default function SittechApp() {
   // na entrada (lazy initializer), nunca ressincronizado depois; a partir
   // daí a navegação interna volta a ser 100% local state, como sempre foi.
   const [abaAtiva, setAbaAtiva] = useState(() => searchParams.get("aba") || "inicio"); // 'inicio' | 'custos' | 'funcionarios' | 'produtos' | 'previsao' | 'horaEmpresa' | 'faturamento' | 'bi' | 'importar'
-  const [tema, setTema] = useState("dark"); // 'dark' | 'light'
+  const [tema, setTema] = useTema();
   const cores = THEMES[tema];
   const [modoPrivado, setModoPrivado] = useState(false);
   function toggleModoPrivado() {

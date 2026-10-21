@@ -11,6 +11,20 @@ body {
   background: #1A1918;
 }
 
+/* Tema claro salvo (src/lib/tema.ts): o HTML do servidor sai no padrão escuro; até o React aplicar o tema salvo (data-tema-pronto),
+   o conteúdo fica oculto sobre o fundo claro — sem piscar o tema errado. Se o JS falhar, revela sozinho em 3 s. Mesmos tons de THEMES.light.bg. */
+html[data-tema="light"],
+html[data-tema="light"] body {
+  background: #FBFAF8;
+}
+html[data-tema="light"]:not([data-tema-pronto]) body > * {
+  visibility: hidden;
+  animation: stx-tema-revelar 0s 3s forwards;
+}
+@keyframes stx-tema-revelar {
+  to { visibility: visible; }
+}
+
 * {
   box-sizing: border-box;
   padding: 0;

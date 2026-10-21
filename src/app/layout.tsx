@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Schibsted_Grotesk } from "next/font/google";
+import { SCRIPT_TEMA_INICIAL } from "@/lib/tema";
 import "./globals.css";
 
 // Redesign visual "Estúdio" — família única (ver design_handoff_sittech_estudio/README.md
@@ -55,8 +56,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="pt-BR" className={schibstedGrotesk.variable}>
+    // suppressHydrationWarning: o script abaixo grava data-tema em <html> ANTES da hidratação (preferência salva em localStorage).
+    <html lang="pt-BR" className={schibstedGrotesk.variable} suppressHydrationWarning>
       <head>
+        {/* Tema global (src/lib/tema.ts): lê "sittech-theme" antes de pintar, para o CSS (globals.css) não mostrar o tema errado. */}
+        <script dangerouslySetInnerHTML={{ __html: SCRIPT_TEMA_INICIAL }} />
         {/* Next 16 (ver appleWebApp acima) só emite a meta tag padrão
             "mobile-web-app-capable" — não emite mais a legada
             "apple-mobile-web-app-capable", que iOS/Safari mais antigos

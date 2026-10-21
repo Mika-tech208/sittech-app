@@ -17,6 +17,7 @@ import AcessoNegado from "@/components/shell/AcessoNegado";
 import GlobalStyles from "@/components/shell/GlobalStyles";
 import { temPermissao } from "@/lib/permissoes";
 import { THEMES } from "@/lib/constants";
+import { useTema } from "@/hooks/useTema";
 import { formatBRL, toNumber, setModoPrivadoAtivo } from "@/lib/format";
 import { toISODate, mondayOf } from "@/lib/date";
 import {
@@ -31,7 +32,7 @@ import type { Funcionario } from "@/types/domain";
 
 export default function CustoHoraPage() {
   const router = useRouter();
-  const [tema, setTema] = useState<"dark" | "light">("dark");
+  const [tema, setTema] = useTema();
   const cores = THEMES[tema];
   const [modoPrivado, setModoPrivado] = useState(false);
   function toggleModoPrivado() {

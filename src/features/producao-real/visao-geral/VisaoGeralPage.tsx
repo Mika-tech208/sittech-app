@@ -36,6 +36,7 @@ import AccountModal from "@/components/shell/AccountModal";
 import AcessoNegado from "@/components/shell/AcessoNegado";
 import GlobalStyles from "@/components/shell/GlobalStyles";
 import { THEMES } from "@/lib/constants";
+import { useTema } from "@/hooks/useTema";
 import { temPermissao } from "@/lib/permissoes";
 import { formatBRL, setModoPrivadoAtivo, toNumber } from "@/lib/format";
 import { toISODate, mondayOf } from "@/lib/date";
@@ -45,7 +46,7 @@ const JANELA_HISTORICA_BUSCA_DIAS = 28; // superset — cobre semana atual (Saú
 
 export default function VisaoGeralPage() {
   const router = useRouter();
-  const [tema, setTema] = useState<"dark" | "light">("dark");
+  const [tema, setTema] = useTema();
   const cores = THEMES[tema];
   const [modoPrivado, setModoPrivado] = useState(false);
   function toggleModoPrivado() {

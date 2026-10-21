@@ -21,6 +21,7 @@ import AcessoNegado from "@/components/shell/AcessoNegado";
 import GlobalStyles from "@/components/shell/GlobalStyles";
 import { temPermissao } from "@/lib/permissoes";
 import { THEMES } from "@/lib/constants";
+import { useTema } from "@/hooks/useTema";
 import { formatBRL, formatQtd, toNumber, setModoPrivadoAtivo } from "@/lib/format";
 import { weekLabel, shiftWeek, toISODate, mondayOf, formatarDataHoraBR } from "@/lib/date";
 import {
@@ -52,7 +53,7 @@ const emptyPrevItemForm: PrevItemFormState = { produtoId: "", quantidade: "", ma
 
 export default function PrevisaoSemanalPage() {
   const router = useRouter();
-  const [tema, setTema] = useState<"dark" | "light">("dark");
+  const [tema, setTema] = useTema();
   const cores = THEMES[tema];
   const [modoPrivado, setModoPrivado] = useState(false);
   function toggleModoPrivado() {

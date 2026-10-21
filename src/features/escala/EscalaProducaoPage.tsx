@@ -19,6 +19,7 @@ import AccountModal from "@/components/shell/AccountModal";
 import AcessoNegado from "@/components/shell/AcessoNegado";
 import GlobalStyles from "@/components/shell/GlobalStyles";
 import { THEMES } from "@/lib/constants";
+import { useTema } from "@/hooks/useTema";
 import { temPermissao } from "@/lib/permissoes";
 import { formatBRL, setModoPrivadoAtivo } from "@/lib/format";
 import { mondayOf, shiftWeek, toISODate, weekLabel, formatarDataHoraBR } from "@/lib/date";
@@ -35,7 +36,7 @@ function rotuloDia(data: string): string {
 
 export default function EscalaProducaoPage() {
   const router = useRouter();
-  const [tema, setTema] = useState<"dark" | "light">("dark");
+  const [tema, setTema] = useTema();
   const cores = THEMES[tema];
   const [modoPrivado, setModoPrivado] = useState(false);
   function toggleModoPrivado() {
