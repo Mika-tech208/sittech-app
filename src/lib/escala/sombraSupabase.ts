@@ -32,7 +32,7 @@ function linhaDecisao(d: DecisaoParaGravar) {
     horizonte: s.horizonte,
     compromisso: s.compromisso,
     entradas: s.entradas,
-    planos: s.planos,
+    planos: { ...s.planos, ...(s.planoOficialRef ? { planoOficialRef: s.planoOficialRef } : {}) }, // inclui a versão do plano oficial usada no corte (id, hashes, versões dos dias)
     diagnostico: s.diagnostico,
     entrada: s.entrada,
     hash_entrada: s.hashes.entrada,
