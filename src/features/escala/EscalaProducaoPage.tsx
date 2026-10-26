@@ -30,6 +30,7 @@ import { BloquearModal, TrocaModal, MOTIVOS_INDISPONIBILIDADE } from "./componen
 import { ESTILOS_ESCALA } from "./components/estilos";
 import { validarTroca } from "./rotacao";
 import RelatoriosEscalaModal from "./components/RelatoriosEscalaModal";
+import { buscarLista, finalAutomaticoDisponivel } from "./relatoriosApi";
 
 function rotuloDia(data: string): string {
   return new Date(data + "T00:00:00").toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
@@ -53,8 +54,24 @@ export default function EscalaProducaoPage() {
   const podeOperar = temPermissao(auth.usuarioLogado, "escala_producao");
   const podeRelatorios = temPermissao(auth.usuarioLogado, "escala_relatorios");
   const [relatoriosAberto, setRelatoriosAberto] = useState(false);
+  const [relatoriosVersao, setRelatoriosVersao] = useState(0);
+  const [finalDisponivel, setFinalDisponivel] = useState<{ versao: number } | null>(null);
   const escala = useEscalaProducao(auth.autenticado && podeOperar, semana);
   const { estado } = escala;
+
+  // Aviso "FINAL DISPONÍVEL": só consulta a lista (somente leitura) da semana exibida; atualiza ao fechar o modal de relatórios
+  const consultarFinal = podeRelatorios && !!estado.previsaoId;
+  useEffect(() => {
+    if (!consultarFinal) return;
+    let vivo = true;
+    void (async () => {
+      const r = await buscarLista(semana);
+      if (!vivo) return;
+      const f = r.ok ? finalAutomaticoDisponivel(r.dados) : null;
+      setFinalDisponivel(f ? { versao: f.versao } : null);
+    })();
+    return () => { vivo = false; };
+  }, [consultarFinal, semana, relatoriosVersao]);
 
   // Ao abrir a tela, retoma eventos pendentes/falhados (retry simples). O
   // recálculo NÃO depende desta tela: ela só ajuda a drenar a fila.
@@ -219,14 +236,14 @@ export default function EscalaProducaoPage() {
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {podeRelatorios && (
-                <button type="button" className="stx-add-btn" onClick={() => setRelatoriosAberto(true)} disabled={!estado.previsaoId}>GERAR PDF</button>
+                <button type="button" className="stx-add-btn" onClick={() => setRelatoriosAberto(true)} disabled={!estado.previsaoId}>GERAR PDF{finalDisponivel ? ` · FINAL DISPONÍVEL (v${finalDisponivel.versao})` : ""}</button>
               )}
               <button type="button" className="stx-add-btn" onClick={onGerar} disabled={escala.acaoEmAndamento || !estado.previsaoId}>
                 {escala.acaoEmAndamento ? "Processando…" : estado.dias.length === 0 ? "Gerar escala" : "Regerar a partir do próximo período"}
               </button>
             </div>
           </div>
-          {relatoriosAberto && podeRelatorios && <RelatoriosEscalaModal semanaInicio={semana} admin={auth.usuarioLogado?.papel === "admin"} onFechar={() => setRelatoriosAberto(false)} />}
+          {relatoriosAberto && podeRelatorios && <RelatoriosEscalaModal semanaInicio={semana} onFechar={() => { setRelatoriosAberto(false); setRelatoriosVersao((v) => v + 1); }} />}
 
           {mensagem && <div className={`stx-esc-banner ${mensagem.tipo === "erro" ? "erro" : "info"}`}>{mensagem.texto}</div>}
           {escala.erro && <div className="stx-esc-banner erro">{escala.erro}</div>}

@@ -17,7 +17,6 @@ import { criarClienteAdmin } from "@/lib/supabase-admin";
 import { drenarOutbox } from "@/lib/escala/supabaseIO";
 import { processarSombraDoServidor } from "@/lib/escala/sombraSupabase";
 import { executarFechamentoAutomatico, portaSupabase } from "@/lib/escala-relatorio/fechamentoAutomatico";
-import { provedorDoAmbiente } from "@/lib/escala-relatorio/email";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,12 +51,12 @@ async function drenar(request: Request) {
     const resumo = await drenarOutbox(admin, Date.now());
     if (resumo.esgotados > 0) console.error(`escala/drenar: ${resumo.esgotados} evento(s) esgotaram as tentativas`);
     const sombra = await processarSombraDoServidor(admin, Date.now()); // fechamento de períodos (modo sombra); nunca lança
-    // Fechamento automático do relatório semanal (sexta/sábado 18:00 → PDF final → e-mail). Idempotente, nunca impede a drenagem e nunca lança.
+    // Fechamento automático do relatório semanal (sexta/sábado/domingo 18:00 → gera e arquiva o PDF final; sem e-mail). Idempotente, nunca impede a drenagem e nunca lança.
     let relatorios: { semana: string; acao: string; detalhe?: string }[] = [];
     try {
       const base = process.env.RELATORIO_BASE_URL && /^https?:\/\//.test(process.env.RELATORIO_BASE_URL) ? process.env.RELATORIO_BASE_URL : new URL(request.url).origin;
-      relatorios = await executarFechamentoAutomatico(portaSupabase(admin, base), provedorDoAmbiente(), Date.now());
-      relatorios.filter((r) => r.acao === "erro_geracao" || r.acao.endsWith("falhou") || r.acao === "esgotado").forEach((r) => console.error(`escala/drenar: relatório semanal ${r.semana}: ${r.acao} — ${r.detalhe ?? ""}`));
+      relatorios = await executarFechamentoAutomatico(portaSupabase(admin, base), Date.now());
+      relatorios.filter((r) => r.acao === "erro_geracao" || r.acao === "esgotado").forEach((r) => console.error(`escala/drenar: relatório semanal ${r.semana}: ${r.acao} — ${r.detalhe ?? ""}`));
     } catch (e) {
       console.error("escala/drenar: fechamento automático do relatório semanal falhou:", e instanceof Error ? e.message : e);
     }

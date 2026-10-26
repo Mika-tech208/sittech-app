@@ -62,14 +62,13 @@ export async function gerarRelatorio(
   throw ultimoErro ?? new Error("Não foi possível registrar o relatório.");
 }
 
-export interface InfoEmail { status: "pendente" | "enviado" | "falhou"; destinatario: string; enviadoEm: string | null; ultimoEnvioEm: string | null; envios: number; tentativas: number; ultimoErro: string | null }
 export interface LinhaRelatorio {
   id: string; codigo: string; tipo: TipoRelatorio; versao: number; status: StatusRelatorio; geradoEm: string; consolidadoAte: string; geradoPor: string | null; hash: string; pdfBytes: number;
   alteracoesPosteriores: boolean | null; // dados-fonte mudaram depois deste relatório (não invalida o relatório)
-  fechamentoAutomatico: boolean; email: InfoEmail | null;
+  fechamentoAutomatico: boolean;
 }
 export interface InfoFechamentoSemana {
-  ativo: boolean; desdeSemana: string | null; destinatario: string; fechamentoLogicoEm: string | null;
+  ativo: boolean; desdeSemana: string | null; fechamentoLogicoEm: string | null;
   geracaoStatus: "pendente" | "gerado" | "erro" | null; geracaoTentativas: number; geracaoUltimoErro: string | null;
 }
 
@@ -77,21 +76,21 @@ export interface InfoFechamentoSemana {
 export async function listarRelatorios(admin: SupabaseClient, comoUsuario: SupabaseClient, semana: string): Promise<{ relatorios: LinhaRelatorio[]; status: StatusRelatorio | null; elegivelFinalEm: string | null; fechamento: InfoFechamentoSemana }> {
   const { data, error } = await comoUsuario.rpc("escala_relatorio_listar", { p_semana: semana });
   if (error) throw new Error(error.message);
-  const linhas = (data ?? []) as { id: string; codigo: string; tipo: TipoRelatorio; versao: number; status: StatusRelatorio; geradoEm: string; consolidadoAte: string; geradoPor: string | null; hash: string; pdfBytes: number; fonteDigest: string; periodosConsiderados: string[]; fechamentoAutomatico: boolean; email: InfoEmail | null }[];
+  const linhas = (data ?? []) as { id: string; codigo: string; tipo: TipoRelatorio; versao: number; status: StatusRelatorio; geradoEm: string; consolidadoAte: string; geradoPor: string | null; hash: string; pdfBytes: number; fonteDigest: string; periodosConsiderados: string[]; fechamentoAutomatico: boolean }[];
   let fontes: FontesRelatorio | null = null;
   try { fontes = await lerFontes(admin, semana); } catch { fontes = null; }
   const relatorios = linhas.map((r) => ({
     id: r.id, codigo: r.codigo, tipo: r.tipo, versao: r.versao, status: r.status, geradoEm: r.geradoEm, consolidadoAte: r.consolidadoAte, geradoPor: r.geradoPor, hash: r.hash, pdfBytes: r.pdfBytes,
     alteracoesPosteriores: fontes ? digestDasFontes(fontes, r.periodosConsiderados.map((s) => ({ data: s.split("|")[0], periodoId: s.split("|")[1] }))) !== r.fonteDigest : null,
-    fechamentoAutomatico: r.fechamentoAutomatico, email: r.email,
+    fechamentoAutomatico: r.fechamentoAutomatico,
   }));
   const st = fontes ? statusDoRelatorio(fontes, Date.now()) : null;
-  const { data: cfg } = await admin.from("escala_relatorio_config").select("automatico_ativo, desde_semana, destinatario").eq("id", true).maybeSingle();
+  const { data: cfg } = await admin.from("escala_relatorio_config").select("automatico_ativo, desde_semana").eq("id", true).maybeSingle();
   const { data: fech } = await admin.from("escala_relatorio_fechamentos").select("geracao_status, geracao_tentativas, geracao_ultimo_erro").eq("semana_inicio", semana).eq("tipo", "executada").maybeSingle();
   return {
     relatorios, status: st?.status ?? null, elegivelFinalEm: st ? new Date(st.elegivelFinalEmMs).toISOString() : null,
     fechamento: {
-      ativo: cfg?.automatico_ativo === true, desdeSemana: (cfg?.desde_semana as string | null) ?? null, destinatario: (cfg?.destinatario as string | undefined) ?? "tamara@sittech.com.br",
+      ativo: cfg?.automatico_ativo === true, desdeSemana: (cfg?.desde_semana as string | null) ?? null,
       fechamentoLogicoEm: fontes ? new Date(fechamentoLogicoMs(fontes)).toISOString() : null,
       geracaoStatus: (fech?.geracao_status as InfoFechamentoSemana["geracaoStatus"]) ?? null, geracaoTentativas: Number(fech?.geracao_tentativas ?? 0), geracaoUltimoErro: (fech?.geracao_ultimo_erro as string | null) ?? null,
     },

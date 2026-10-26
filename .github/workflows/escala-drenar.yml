@@ -71,9 +71,9 @@ jobs:
           if [ "${erros}" != "0" ]; then
             echo "::warning::${erros} evento(s) da Escala falharam neste ciclo (serão tentados de novo)."
           fi
-          falhas_rel=$(jq -r '[.relatorios[]? | select(.acao == "erro_geracao" or .acao == "gerado_email_falhou" or .acao == "email_falhou" or .acao == "esgotado")] | length' resposta.json)
+          falhas_rel=$(jq -r '[.relatorios[]? | select(.acao == "erro_geracao" or .acao == "esgotado")] | length' resposta.json)
           if [ "${falhas_rel}" != "0" ]; then
-            echo "::warning::Relatório semanal da Escala: ${falhas_rel} semana(s) com falha na geração/envio (nova tentativa automática em ~10 min; ver REENVIAR E-MAIL na tela)."
+            echo "::warning::Relatório semanal da Escala: ${falhas_rel} semana(s) com falha na geração (nova tentativa automática em ~10 min; ver a tela de relatórios)."
           fi
           if [ "${esgotados}" != "0" ]; then
             echo "::error::${esgotados} evento(s) da Escala esgotaram as tentativas — use 'Tentar novamente' na tela Escala de Produção."

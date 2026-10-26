@@ -61,7 +61,6 @@ export async function renderizarPdf(c: ConteudoRelatorio, hash: string): Promise
   const linha = (pg: PDFPage, x1: number, y1: number, x2: number, y2: number, espessura = 0.5, cor = BORDA) => pg.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, thickness: espessura, color: cor });
   const caixa = (pg: PDFPage, x: number, y: number, w: number, h: number, espessura = 0.5, fundo?: ReturnType<typeof rgb>) => pg.drawRectangle({ x, y, width: w, height: h, borderWidth: espessura, borderColor: BORDA, color: fundo });
 
-  const teste = c.codigo.startsWith("TESTE-"); // PDF do botão TESTAR ENVIO: nunca é documento oficial
   const parcial = c.status === "parcial";
   const faixa = parcial ? "RELATÓRIO PARCIAL" : "RELATÓRIO FINAL";
   const paginas: PDFPage[] = [];
@@ -71,7 +70,6 @@ export async function renderizarPdf(c: ConteudoRelatorio, hash: string): Promise
   const cabecalho = (primeira: boolean) => {
     texto(pg, c.empresa, M, H - M - 8, 10, fb);
     direita(pg, faixa, W - M, H - M - 8, 10, fb);
-    if (teste) texto(pg, "TESTE — DADOS FICTÍCIOS — SEM VALOR DOCUMENTAL", M + 280, H - M - 8, 10, fb, rgb(0.75, 0.1, 0.1));
     texto(pg, c.titulo, M, H - M - 21, primeira ? 12 : 9, fb);
     texto(pg, `Semana: ${c.semana.texto}   |   ${c.codigo}   |   Versão ${c.versao}${parcial ? `   |   Dados consolidados até ${c.consolidadoAteTexto}` : ""}`, M, H - M - (primeira ? 36 : 33), 8);
     linha(pg, M, H - M - (primeira ? 42 : 38), W - M, H - M - (primeira ? 42 : 38), 0.8, PRETO);

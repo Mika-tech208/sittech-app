@@ -2,39 +2,16 @@
 
 // "GERAR PDF" da Escala: gera uma NOVA VERSÃO imutável (Escala planejada ou Revezamento executado) e lista as versões da semana. O sistema decide parcial/final;
 // o usuário só escolhe o tipo. O conteúdo vem do banco no servidor — nada digitável aqui. Download = o PDF armazenado, nunca reconstruído.
-import { useCallback, useEffect, useState } from "react";
-import { supabase } from "@/services/supabase-client";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { formatarDataHoraBR, weekLabel } from "@/lib/date";
+import { buscarLista, finalAutomaticoDisponivel, tokenDaSessao as token, type ListaRelatorios as Lista } from "../relatoriosApi";
 
-interface Linha {
-  id: string; codigo: string; tipo: "planejada" | "executada"; versao: number; status: "parcial" | "final"; geradoEm: string; consolidadoAte: string; geradoPor: string | null; hash: string;
-  pdfBytes: number; alteracoesPosteriores: boolean | null;
-  fechamentoAutomatico: boolean; email: { status: "pendente" | "enviado" | "falhou"; destinatario: string; enviadoEm: string | null; ultimoEnvioEm: string | null; envios: number; tentativas: number; ultimoErro: string | null } | null;
-}
-interface Fechamento { ativo: boolean; desdeSemana: string | null; destinatario: string; fechamentoLogicoEm: string | null; geracaoStatus: "pendente" | "gerado" | "erro" | null; geracaoTentativas: number; geracaoUltimoErro: string | null }
-interface Lista { relatorios: Linha[]; status: "parcial" | "final" | null; elegivelFinalEm: string | null; fechamento: Fechamento }
-
-async function token(): Promise<string | null> {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? null;
-}
-
-async function buscarLista(semanaInicio: string): Promise<{ ok: true; dados: Lista } | { ok: false; erro: string }> {
-  const t = await token();
-  if (!t) return { ok: false, erro: "Sessão expirada." };
-  const r = await fetch(`/api/escala/relatorios?semana=${semanaInicio}`, { headers: { Authorization: `Bearer ${t}` } });
-  const j = await r.json().catch(() => ({}));
-  return r.ok ? { ok: true, dados: j as Lista } : { ok: false, erro: j?.erro || "Não foi possível consultar os relatórios." };
-}
-
-interface ResultadoTeste { ok: boolean; destinatario: string; provedor: string; provedorId: string | null; enviadoEm: string; sha256: string; nomeArquivo: string; bytes: number; erro: string | null }
-
-export default function RelatoriosEscalaModal({ semanaInicio, admin, onFechar }: { semanaInicio: string; admin: boolean; onFechar: () => void }) {
+export default function RelatoriosEscalaModal({ semanaInicio, onFechar }: { semanaInicio: string; onFechar: () => void }) {
   const [lista, setLista] = useState<Lista | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [teste, setTeste] = useState<ResultadoTeste | null>(null);
+  const versoesRef = useRef<HTMLDivElement | null>(null);
 
   const aplicarResultado = useCallback((r: { ok: true; dados: Lista } | { ok: false; erro: string }) => {
     if (r.ok) { setErro(null); setLista(r.dados); } else setErro(r.erro);
@@ -72,31 +49,6 @@ export default function RelatoriosEscalaModal({ semanaInicio, admin, onFechar }:
     await baixar(j.id, j.nomeArquivo);
   }
 
-  async function reenviar(id: string, destinatario: string, jaEnviado: boolean) {
-    if (jaEnviado && !window.confirm(`Este relatório já foi enviado. Reenviar o MESMO PDF para ${destinatario}?`)) return;
-    setOcupado(`email-${id}`); setErro(null); setAviso(null);
-    const t = await token();
-    if (!t) { setOcupado(null); setErro("Sessão expirada."); return; }
-    const r = await fetch(`/api/escala/relatorios/${id}/reenviar`, { method: "POST", headers: { Authorization: `Bearer ${t}` } });
-    const j = await r.json().catch(() => ({}));
-    setOcupado(null);
-    if (r.ok) setAviso("E-mail reenviado com o mesmo PDF.");
-    else setErro(j?.erro || "Não foi possível reenviar o e-mail.");
-    aplicarResultado(await buscarLista(semanaInicio));
-  }
-
-  // Somente admin. O servidor decide destinatário (e-mail da própria conta), remetente e conteúdo — nada é enviado daqui além do token.
-  async function testarEnvio() {
-    setOcupado("teste"); setErro(null); setAviso(null); setTeste(null);
-    const t = await token();
-    if (!t) { setOcupado(null); setErro("Sessão expirada."); return; }
-    const r = await fetch("/api/escala/relatorios/email-teste", { method: "POST", headers: { Authorization: `Bearer ${t}` } });
-    const j = await r.json().catch(() => ({}));
-    setOcupado(null);
-    if (j && typeof j.ok === "boolean") setTeste(j as ResultadoTeste);
-    else setErro(j?.erro || "Não foi possível executar o teste de envio.");
-  }
-
   const nomeTipo = (t: string) => (t === "executada" ? "Revezamento executado" : "Escala planejada");
   const proxima = (tipo: "planejada" | "executada") => (lista?.relatorios.filter((r) => r.tipo === tipo).reduce((m, r) => Math.max(m, r.versao), 0) ?? 0) + 1;
   const statusSistema = lista?.status === "final" ? "FINAL" : "PARCIAL";
@@ -114,11 +66,32 @@ export default function RelatoriosEscalaModal({ semanaInicio, admin, onFechar }:
           <p className="stx-panel-sub" style={{ marginTop: 0 }}>
             <b>Fechamento automático:</b>{" "}
             {lista.fechamento.ativo && lista.fechamento.desdeSemana && semanaInicio >= lista.fechamento.desdeSemana
-              ? <>ligado — o Revezamento executado é finalizado{lista.fechamento.fechamentoLogicoEm ? ` em ${formatarDataHoraBR(lista.fechamento.fechamentoLogicoEm)}` : ""} e enviado por e-mail para {lista.fechamento.destinatario}.</>
+              ? <>ligado — o Revezamento executado é finalizado e arquivado{lista.fechamento.fechamentoLogicoEm ? ` em ${formatarDataHoraBR(lista.fechamento.fechamentoLogicoEm)}` : ""}; depois é só baixar e imprimir (sem envio por e-mail).</>
               : <>não se aplica a esta semana (desligado ou anterior à semana inicial).</>}
             {lista.fechamento.geracaoStatus === "erro" && <span style={{ color: "var(--danger)" }}> Falha ao gerar ({lista.fechamento.geracaoTentativas} tentativa(s)): {lista.fechamento.geracaoUltimoErro}. O sistema tenta novamente sozinho.</span>}
           </p>
         )}
+        {(() => {
+          const f = finalAutomaticoDisponivel(lista);
+          if (!f) return null;
+          const fim = new Date(Date.parse(`${semanaInicio}T12:00:00Z`) + 6 * 86400_000).toISOString().slice(0, 10);
+          const br = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+          return (
+            <div style={{ border: "1px solid var(--accent)", borderRadius: 8, padding: "10px 12px", margin: "8px 0", fontSize: 13 }}>
+              <div style={{ fontWeight: 700 }}>RELATÓRIO FINAL DISPONÍVEL</div>
+              <div>Semana: {br(semanaInicio)} a {br(fim)}</div>
+              <div>Gerado: {formatarDataHoraBR(f.geradoEm)}</div>
+              <div>Código: {f.codigo} · Versão: v{f.versao}</div>
+              <div style={{ color: "var(--text-muted)" }}>Disponível para impressão e coleta das assinaturas.</div>
+              {f.alteracoesPosteriores && <div style={{ color: "var(--warning)" }}>Existem alterações posteriores aos dados utilizados neste relatório.</div>}
+              <div style={{ display: "flex", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+                <button type="button" className="stx-btn-primary" onClick={() => void baixar(f.id, `SITTECH_Revezamento_${semanaInicio}_v${f.versao}_executado.pdf`)}>BAIXAR PDF</button>
+                <a href={`/relatorios/escala/verificar/${f.id}`} target="_blank" rel="noreferrer" className="stx-btn-secondary" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}>VERIFICAR</a>
+                <button type="button" className="stx-btn-secondary" onClick={() => versoesRef.current?.scrollIntoView({ behavior: "smooth" })}>VER VERSÕES</button>
+              </div>
+            </div>
+          );
+        })()}
         <div className="stx-form-actions" style={{ justifyContent: "flex-start", gap: 8, flexWrap: "wrap" }}>
           <button type="button" className="stx-btn-primary" disabled={!!ocupado || !lista} onClick={() => void gerar("executada")}>
             {ocupado === "executada" ? "Gerando…" : `Revezamento executado (nova versão v${proxima("executada")})`}
@@ -127,54 +100,23 @@ export default function RelatoriosEscalaModal({ semanaInicio, admin, onFechar }:
             {ocupado === "planejada" ? "Gerando…" : `Escala planejada (nova versão v${proxima("planejada")})`}
           </button>
         </div>
-        {admin && (
-          <div style={{ marginTop: 8 }}>
-            <button type="button" className="stx-btn-secondary" disabled={!!ocupado} onClick={() => void testarEnvio()} title="Envia um PDF fictício marcado TESTE para o e-mail da sua conta. Não cria relatório.">
-              {ocupado === "teste" ? "Enviando teste…" : "TESTAR ENVIO DE RELATÓRIO"}
-            </button>
-            {teste && (
-              <div style={{ fontSize: 13, marginTop: 6, color: teste.ok ? "var(--text)" : "var(--danger)" }}>
-                <b>{teste.ok ? "Enviado" : "Falhou"}</b> — {teste.destinatario} · {formatarDataHoraBR(teste.enviadoEm)} · {teste.provedor}
-                {teste.provedorId && <> · id do provedor: {teste.provedorId}</>}
-                <div style={{ color: "var(--text-muted)" }}>PDF de teste ({teste.nomeArquivo}, {Math.round(teste.bytes / 1024)} KB) · SHA-256 {teste.sha256}</div>
-                {teste.erro && <div>{teste.erro}</div>}
-              </div>
-            )}
-          </div>
-        )}
         {aviso && <p className="stx-panel-sub" style={{ color: "var(--accent)" }}>{aviso}</p>}
         {erro && <p style={{ color: "var(--danger)", fontSize: 13 }}>{erro}</p>}
 
-        <div style={{ marginTop: 14 }}>
+        <div ref={versoesRef} style={{ marginTop: 14 }}>
           <b style={{ fontSize: 13 }}>Versões geradas desta semana</b>
           {!lista && !erro && <p className="stx-panel-sub">Carregando…</p>}
           {lista && lista.relatorios.length === 0 && <p className="stx-panel-sub">Nenhum relatório gerado para esta semana ainda.</p>}
           {lista?.relatorios.map((r) => (
             <div key={r.id} style={{ borderTop: "1px solid var(--border)", padding: "8px 0", fontSize: 13 }}>
               <div><b>{r.codigo}</b> · v{r.versao} · {nomeTipo(r.tipo)} · <b>{r.status === "final" ? "FINAL" : "PARCIAL"}</b>{r.fechamentoAutomatico && <> · <b>Gerado automaticamente</b></>}</div>
-              {r.email && (
-                <div style={{ color: r.email.status === "falhou" ? "var(--danger)" : "var(--text-muted)" }}>
-                  {r.email.status === "enviado" && (
-                    <>
-                      Enviado para {r.email.destinatario} · Enviado em {r.email.enviadoEm ? formatarDataHoraBR(r.email.enviadoEm) : "—"}
-                      {r.email.envios > 1 && <> · Último envio: {r.email.ultimoEnvioEm ? formatarDataHoraBR(r.email.ultimoEnvioEm) : "—"}</>} · Envios realizados: {r.email.envios}
-                      {r.email.ultimoErro && <span style={{ color: "var(--danger)" }}> · Falha no último reenvio: {r.email.ultimoErro}</span>}
-                    </>
-                  )}
-                  {r.email.status === "falhou" && <>Falha no envio para {r.email.destinatario}{r.email.ultimoErro ? ` — ${r.email.ultimoErro}` : ""} ({r.email.tentativas} tentativa(s))</>}
-                  {r.email.status === "pendente" && <>Envio para {r.email.destinatario} pendente</>}
-                </div>
-              )}
               <div style={{ color: "var(--text-muted)" }}>
                 Gerado em {formatarDataHoraBR(r.geradoEm)}{r.geradoPor ? ` por ${r.geradoPor}` : r.fechamentoAutomatico ? " pelo sistema" : ""}{r.status === "parcial" ? ` · dados até ${formatarDataHoraBR(r.consolidadoAte)}` : ""} · SHA-256 {r.hash.slice(0, 12)}…
               </div>
-              {r.alteracoesPosteriores && <div style={{ color: "var(--warning)" }}>Existem alterações posteriores aos dados utilizados neste relatório. A v{r.versao} não é alterada; gere uma nova versão manualmente para incluí-las (nada é reenviado automaticamente).</div>}
+              {r.alteracoesPosteriores && <div style={{ color: "var(--warning)" }}>Existem alterações posteriores aos dados utilizados neste relatório. A v{r.versao} não é alterada; gere uma nova versão manualmente para incluí-las (nenhuma versão nova é gerada automaticamente).</div>}
               <div style={{ display: "flex", gap: 10, marginTop: 4, flexWrap: "wrap" }}>
                 <button type="button" className="stx-btn-secondary" onClick={() => void baixar(r.id, `SITTECH_Revezamento_${semanaInicio}_v${r.versao}_${r.tipo === "executada" ? "executado" : "planejado"}.pdf`)}>Baixar PDF</button>
                 <a href={`/relatorios/escala/verificar/${r.id}`} target="_blank" rel="noreferrer" className="stx-btn-secondary" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}>Página de verificação</a>
-                {r.email && (
-                  <button type="button" className={r.email.status === "enviado" ? "stx-btn-secondary" : "stx-btn-primary"} disabled={!!ocupado} onClick={() => void reenviar(r.id, r.email!.destinatario, r.email!.status === "enviado")}>{ocupado === `email-${r.id}` ? "Enviando…" : "REENVIAR E-MAIL"}</button>
-                )}
               </div>
             </div>
           ))}
