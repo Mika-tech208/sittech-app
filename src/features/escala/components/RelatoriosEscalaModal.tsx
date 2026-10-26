@@ -100,6 +100,7 @@ export default function RelatoriosEscalaModal({ semanaInicio, onFechar }: { sema
             {ocupado === "planejada" ? "Gerando…" : `Escala planejada (nova versão v${proxima("planejada")})`}
           </button>
         </div>
+        <p className="stx-panel-sub"><a href="/relatorios" style={{ color: "var(--accent)" }}>Ver todos os relatórios arquivados →</a></p>
         {aviso && <p className="stx-panel-sub" style={{ color: "var(--accent)" }}>{aviso}</p>}
         {erro && <p style={{ color: "var(--danger)", fontSize: 13 }}>{erro}</p>}
 

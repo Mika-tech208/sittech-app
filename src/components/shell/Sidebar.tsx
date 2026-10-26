@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Home, CalendarClock, Gauge, Package, Cog, Receipt, LineChart as LineChartIcon, Wallet, Clock, Users, Upload,
   ChevronDown, ChevronRight, ChevronLeft, LayoutGrid, BarChart3, PauseCircle, ClipboardCheck, ClipboardList,
-  Database, UserCog, AlertTriangle, UserX, X, CalendarRange, Tv,
+  Database, UserCog, AlertTriangle, UserX, X, CalendarRange, Tv, FileText,
 } from "lucide-react";
 import { temPermissao, temAlgumaPermissaoProducaoReal } from "@/lib/permissoes";
 import { LOGO_DARK, LOGO_LIGHT } from "@/lib/logos";
@@ -241,6 +241,10 @@ export default function Sidebar({
               </>
             )}
           </>
+        )}
+
+        {temPermissao(usuarioLogado, "escala_relatorios") && (
+          <Link href="/relatorios" className={`stx-tab-v ${abaAtiva === "relatorios" ? "active" : ""}`} title="Relatórios"><FileText size={16} />{!recolhida && "Relatórios"}</Link>
         )}
 
         {temAlgumaPermissaoProducaoReal(usuarioLogado) && (

@@ -121,3 +121,33 @@ export async function verificarPublico(admin: SupabaseClient, id: string): Promi
   } catch { digestAtual = null; }
   return paraPublico(r, digestAtual);
 }
+
+// ---------- ARQUIVO HISTÓRICO (aba Relatórios): só leitura de escala_relatorios; nunca gera PDF ----------
+export interface ItemArquivoServidor {
+  id: string; semanaInicio: string; tipo: TipoRelatorio; codigo: string; versao: number; nVersoes: number; status: StatusRelatorio; geradoEm: string; consolidadoAte: string;
+  fechamentoAutomatico: boolean; geradoPor: string | null; pdfBytes: number; hash: string; cobertura: string | null; conformidade: "SIM" | "SIM_COM_RESSALVAS" | "NAO" | null;
+  alteracoesPosteriores: boolean | null;
+}
+export interface ArquivoServidor { total: number; anos: number[]; itens: ItemArquivoServidor[]; limite: number; offset: number }
+export const TAMANHO_PAGINA_ARQUIVO = 20;
+
+export async function listarArquivo(
+  admin: SupabaseClient, comoUsuario: SupabaseClient, f: { ano?: number | null; tipo?: string | null; status?: string | null; busca?: string | null; pagina?: number }
+): Promise<ArquivoServidor> {
+  const pagina = Math.max(1, Math.floor(f.pagina ?? 1));
+  const { data, error } = await comoUsuario.rpc("escala_relatorio_arquivo", {
+    p_ano: f.ano ?? null, p_tipo: f.tipo || null, p_status: f.status || null, p_busca: f.busca || null, p_limite: TAMANHO_PAGINA_ARQUIVO, p_offset: (pagina - 1) * TAMANHO_PAGINA_ARQUIVO,
+  });
+  if (error) throw new Error(error.message);
+  const d = data as { total: number; anos: number[]; limite: number; offset: number; itens: (Omit<ItemArquivoServidor, "alteracoesPosteriores"> & { fonteDigest: string; periodosConsiderados: string[] })[] };
+  // "Existem alterações posteriores": compara o digest GUARDADO (snapshot) com os insumos de agora — uma leitura por semana distinta da página; o PDF antigo nunca muda
+  const semanas = [...new Set(d.itens.map((i) => i.semanaInicio))];
+  const digestAtual = new Map<string, FontesRelatorio | null>();
+  await Promise.all(semanas.map(async (sem) => { try { digestAtual.set(sem, await lerFontes(admin, sem)); } catch { digestAtual.set(sem, null); } }));
+  const itens = d.itens.map(({ fonteDigest, periodosConsiderados, ...resto }) => {
+    const fontes = digestAtual.get(resto.semanaInicio) ?? null;
+    const alteracoesPosteriores = fontes ? digestDasFontes(fontes, periodosConsiderados.map((s) => ({ data: s.split("|")[0], periodoId: s.split("|")[1] }))) !== fonteDigest : null;
+    return { ...resto, alteracoesPosteriores } as ItemArquivoServidor;
+  });
+  return { total: d.total, anos: d.anos, itens, limite: d.limite, offset: d.offset };
+}

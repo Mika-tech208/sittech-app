@@ -146,6 +146,7 @@ export const TRILHA_POR_ABA: Record<string, { grupo?: string; pagina: string }> 
   prParadas: { grupo: "Produção real", pagina: "Paradas" },
   prValidacao: { grupo: "Produção real", pagina: "Validação da previsão" },
   prDadosImportados: { grupo: "Produção real", pagina: "Dados importados" },
+  relatorios: { pagina: "Relatórios" },
   usuarios: { grupo: "Administração", pagina: "Usuários" },
   importar: { grupo: "Administração", pagina: "Importar dados" },
 };
