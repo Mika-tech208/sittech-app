@@ -19,6 +19,7 @@ export type Permissao =
   | "escala_producao"
   | "escala_producao_tv"
   | "escala_wip_confirmar"
+  | "escala_relatorios"
   | "usuarios"
   | "auditoria";
 
@@ -48,6 +49,7 @@ export const GRUPOS_PERMISSOES: GrupoPermissoes[] = [
       { chave: "escala_producao", label: "Escala de Produção" },
       { chave: "escala_producao_tv", label: "Escala de Produção — TV (somente leitura)" },
       { chave: "escala_wip_confirmar", label: "Escala de Produção — Confirmar/ajustar estoque intermediário (WIP)" },
+      { chave: "escala_relatorios", label: "Escala de Produção — Relatórios semanais em PDF (gerar, consultar, baixar)" },
     ],
   },
   {

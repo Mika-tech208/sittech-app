@@ -29,6 +29,7 @@ import AlertasEscala from "./components/AlertasEscala";
 import { BloquearModal, TrocaModal, MOTIVOS_INDISPONIBILIDADE } from "./components/ModaisEscala";
 import { ESTILOS_ESCALA } from "./components/estilos";
 import { validarTroca } from "./rotacao";
+import RelatoriosEscalaModal from "./components/RelatoriosEscalaModal";
 
 function rotuloDia(data: string): string {
   return new Date(data + "T00:00:00").toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
@@ -50,6 +51,8 @@ export default function EscalaProducaoPage() {
 
   const [semana, setSemana] = useState(() => toISODate(mondayOf(new Date())));
   const podeOperar = temPermissao(auth.usuarioLogado, "escala_producao");
+  const podeRelatorios = temPermissao(auth.usuarioLogado, "escala_relatorios");
+  const [relatoriosAberto, setRelatoriosAberto] = useState(false);
   const escala = useEscalaProducao(auth.autenticado && podeOperar, semana);
   const { estado } = escala;
 
@@ -214,10 +217,16 @@ export default function EscalaProducaoPage() {
               </div>
               <h1 className="stx-title">Escala de Produção</h1>
             </div>
-            <button type="button" className="stx-add-btn" onClick={onGerar} disabled={escala.acaoEmAndamento || !estado.previsaoId}>
-              {escala.acaoEmAndamento ? "Processando…" : estado.dias.length === 0 ? "Gerar escala" : "Regerar a partir do próximo período"}
-            </button>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {podeRelatorios && (
+                <button type="button" className="stx-add-btn" onClick={() => setRelatoriosAberto(true)} disabled={!estado.previsaoId}>GERAR PDF</button>
+              )}
+              <button type="button" className="stx-add-btn" onClick={onGerar} disabled={escala.acaoEmAndamento || !estado.previsaoId}>
+                {escala.acaoEmAndamento ? "Processando…" : estado.dias.length === 0 ? "Gerar escala" : "Regerar a partir do próximo período"}
+              </button>
+            </div>
           </div>
+          {relatoriosAberto && podeRelatorios && <RelatoriosEscalaModal semanaInicio={semana} onFechar={() => setRelatoriosAberto(false)} />}
 
           {mensagem && <div className={`stx-esc-banner ${mensagem.tipo === "erro" ? "erro" : "info"}`}>{mensagem.texto}</div>}
           {escala.erro && <div className="stx-esc-banner erro">{escala.erro}</div>}
