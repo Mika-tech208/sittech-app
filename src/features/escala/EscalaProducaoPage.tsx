@@ -226,7 +226,7 @@ export default function EscalaProducaoPage() {
               </button>
             </div>
           </div>
-          {relatoriosAberto && podeRelatorios && <RelatoriosEscalaModal semanaInicio={semana} onFechar={() => setRelatoriosAberto(false)} />}
+          {relatoriosAberto && podeRelatorios && <RelatoriosEscalaModal semanaInicio={semana} admin={auth.usuarioLogado?.papel === "admin"} onFechar={() => setRelatoriosAberto(false)} />}
 
           {mensagem && <div className={`stx-esc-banner ${mensagem.tipo === "erro" ? "erro" : "info"}`}>{mensagem.texto}</div>}
           {escala.erro && <div className="stx-esc-banner erro">{escala.erro}</div>}

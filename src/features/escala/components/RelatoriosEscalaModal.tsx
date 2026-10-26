@@ -27,11 +27,14 @@ async function buscarLista(semanaInicio: string): Promise<{ ok: true; dados: Lis
   return r.ok ? { ok: true, dados: j as Lista } : { ok: false, erro: j?.erro || "Não foi possível consultar os relatórios." };
 }
 
-export default function RelatoriosEscalaModal({ semanaInicio, onFechar }: { semanaInicio: string; onFechar: () => void }) {
+interface ResultadoTeste { ok: boolean; destinatario: string; provedor: string; provedorId: string | null; enviadoEm: string; sha256: string; nomeArquivo: string; bytes: number; erro: string | null }
+
+export default function RelatoriosEscalaModal({ semanaInicio, admin, onFechar }: { semanaInicio: string; admin: boolean; onFechar: () => void }) {
   const [lista, setLista] = useState<Lista | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [teste, setTeste] = useState<ResultadoTeste | null>(null);
 
   const aplicarResultado = useCallback((r: { ok: true; dados: Lista } | { ok: false; erro: string }) => {
     if (r.ok) { setErro(null); setLista(r.dados); } else setErro(r.erro);
@@ -82,6 +85,18 @@ export default function RelatoriosEscalaModal({ semanaInicio, onFechar }: { sema
     aplicarResultado(await buscarLista(semanaInicio));
   }
 
+  // Somente admin. O servidor decide destinatário (e-mail da própria conta), remetente e conteúdo — nada é enviado daqui além do token.
+  async function testarEnvio() {
+    setOcupado("teste"); setErro(null); setAviso(null); setTeste(null);
+    const t = await token();
+    if (!t) { setOcupado(null); setErro("Sessão expirada."); return; }
+    const r = await fetch("/api/escala/relatorios/email-teste", { method: "POST", headers: { Authorization: `Bearer ${t}` } });
+    const j = await r.json().catch(() => ({}));
+    setOcupado(null);
+    if (j && typeof j.ok === "boolean") setTeste(j as ResultadoTeste);
+    else setErro(j?.erro || "Não foi possível executar o teste de envio.");
+  }
+
   const nomeTipo = (t: string) => (t === "executada" ? "Revezamento executado" : "Escala planejada");
   const proxima = (tipo: "planejada" | "executada") => (lista?.relatorios.filter((r) => r.tipo === tipo).reduce((m, r) => Math.max(m, r.versao), 0) ?? 0) + 1;
   const statusSistema = lista?.status === "final" ? "FINAL" : "PARCIAL";
@@ -112,6 +127,21 @@ export default function RelatoriosEscalaModal({ semanaInicio, onFechar }: { sema
             {ocupado === "planejada" ? "Gerando…" : `Escala planejada (nova versão v${proxima("planejada")})`}
           </button>
         </div>
+        {admin && (
+          <div style={{ marginTop: 8 }}>
+            <button type="button" className="stx-btn-secondary" disabled={!!ocupado} onClick={() => void testarEnvio()} title="Envia um PDF fictício marcado TESTE para o e-mail da sua conta. Não cria relatório.">
+              {ocupado === "teste" ? "Enviando teste…" : "TESTAR ENVIO DE RELATÓRIO"}
+            </button>
+            {teste && (
+              <div style={{ fontSize: 13, marginTop: 6, color: teste.ok ? "var(--text)" : "var(--danger)" }}>
+                <b>{teste.ok ? "Enviado" : "Falhou"}</b> — {teste.destinatario} · {formatarDataHoraBR(teste.enviadoEm)} · {teste.provedor}
+                {teste.provedorId && <> · id do provedor: {teste.provedorId}</>}
+                <div style={{ color: "var(--text-muted)" }}>PDF de teste ({teste.nomeArquivo}, {Math.round(teste.bytes / 1024)} KB) · SHA-256 {teste.sha256}</div>
+                {teste.erro && <div>{teste.erro}</div>}
+              </div>
+            )}
+          </div>
+        )}
         {aviso && <p className="stx-panel-sub" style={{ color: "var(--accent)" }}>{aviso}</p>}
         {erro && <p style={{ color: "var(--danger)", fontSize: 13 }}>{erro}</p>}
 
