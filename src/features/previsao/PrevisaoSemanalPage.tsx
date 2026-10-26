@@ -38,6 +38,7 @@ import { uid } from "@/lib/id";
 import ItensPrevistos, { type PrevItemFormState } from "@/features/previsao/components/ItensPrevistos";
 import StatusProgramacao from "@/features/previsao/components/StatusProgramacao";
 import ProdutosProgramados from "@/features/previsao/components/ProdutosProgramados";
+import { useApontadoRealSemana } from "@/hooks/useApontadoRealSemana";
 import AjustarCapacidadeModal from "@/features/previsao/components/AjustarCapacidadeModal";
 import DiasEEquipeSemana from "@/features/previsao/components/DiasEEquipeSemana";
 import EstoqueIntermediario from "@/features/previsao/components/EstoqueIntermediario";
@@ -182,9 +183,11 @@ export default function PrevisaoSemanalPage() {
   // ---- consolidação por produto: Previsto / Possível / Realizado / Falta / % ----
   // NÃO usa o realizado pra recalcular atingibilidade — analiseCapacidadeSemana
   // acima já foi calculada só com itensParaAnalise (planejamento × capacidade).
+  // APONTADO REAL (diagnóstico): apontamentos da Produção Real, última etapa do roteiro; uma chamada por semana. NÃO entra em falta/%/financeiro/atingibilidade.
+  const apontadoRealHook = useApontadoRealSemana(!!auth.autenticado, semanaAtual);
   const produtosProgramados = useMemo(
-    () => calcularProdutosProgramados(itensParaAnalise, capacidadeMaximaSemana.resultadosPorItem, realizadoPorProduto),
-    [itensParaAnalise, capacidadeMaximaSemana, realizadoPorProduto]
+    () => calcularProdutosProgramados(itensParaAnalise, capacidadeMaximaSemana.resultadosPorItem, realizadoPorProduto, apontadoRealHook.mapa),
+    [itensParaAnalise, capacidadeMaximaSemana, realizadoPorProduto, apontadoRealHook.mapa]
   );
   const produtosNaoPrevistos = useMemo(
     () => calcularProdutosNaoPrevistos(itensParaAnalise, semanaAtualRec.itensRealizados || []),

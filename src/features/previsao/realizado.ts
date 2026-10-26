@@ -29,12 +29,16 @@ export interface ProdutoProgramado {
   realizado: number;
   falta: number;
   concluidoPct: number | null;
+  // DIAGNÓSTICO (Produção Real, última etapa do roteiro): NÃO participa de falta, % nem de nenhum cálculo. null = ainda indisponível.
+  apontadoReal: number | null;
+  apontadoAmbiguoPecas: number; // peças de apontamentos com roteiro alterado (não contadas)
 }
 
 export function calcularProdutosProgramados(
   itens: PrevisaoItem[],
   resultadosCapacidade: ResultadoItemCapacidadeMaxima[],
-  realizadoPorProduto: Map<string, number>
+  realizadoPorProduto: Map<string, number>,
+  apontadoPorProduto: Map<string, { apontadoReal: number; ambiguoPecas: number }> | null = null
 ): ProdutoProgramado[] {
   return itens.map((it) => {
     const resultado = resultadosCapacidade.find((r) => r.itemId === it.id);
@@ -42,7 +46,8 @@ export function calcularProdutosProgramados(
     const realizado = realizadoPorProduto.get(it.produtoId) || 0;
     const falta = Math.max(0, it.quantidade - realizado);
     const concluidoPct = it.quantidade > 0 ? (realizado / it.quantidade) * 100 : null;
-    return { itemId: it.id, produtoId: it.produtoId, produtoNome: it.produtoNome, previsto: it.quantidade, possivel, realizado, falta, concluidoPct };
+    const ap = apontadoPorProduto ? (apontadoPorProduto.get(it.produtoId) ?? { apontadoReal: 0, ambiguoPecas: 0 }) : null;
+    return { itemId: it.id, produtoId: it.produtoId, produtoNome: it.produtoNome, previsto: it.quantidade, possivel, realizado, falta, concluidoPct, apontadoReal: ap ? ap.apontadoReal : null, apontadoAmbiguoPecas: ap ? ap.ambiguoPecas : 0 };
   });
 }
 
@@ -52,6 +57,8 @@ export interface ResumoProgramacaoPecas {
   totalRealizado: number;
   totalFalta: number;
   concluidoPct: number | null;
+  totalApontadoReal: number | null; // diagnóstico; produto distinto conta uma vez; null = indisponível
+  totalApontadoAmbiguoPecas: number;
 }
 
 // Soma simples de peças dos produtos PREVISTOS (não inclui produção fora
@@ -68,7 +75,11 @@ export function calcularResumoProgramacaoPecas(produtos: ProdutoProgramado[]): R
   const totalRealizado = produtos.reduce((s, p) => s + p.realizado, 0);
   const totalFalta = produtos.reduce((s, p) => s + p.falta, 0);
   const concluidoPct = totalPrevisto > 0 ? (totalRealizado / totalPrevisto) * 100 : null;
-  return { totalPrevisto, totalPossivel, totalRealizado, totalFalta, concluidoPct };
+  const comApontado = produtos.length > 0 && produtos.every((p) => p.apontadoReal !== null);
+  const unicos = new Map(produtos.map((p) => [p.produtoId, p])); // dois itens previstos do mesmo produto não duplicam o apontado
+  const totalApontadoReal = comApontado ? [...unicos.values()].reduce((s, p) => s + (p.apontadoReal ?? 0), 0) : null;
+  const totalApontadoAmbiguoPecas = [...unicos.values()].reduce((s, p) => s + p.apontadoAmbiguoPecas, 0);
+  return { totalPrevisto, totalPossivel, totalRealizado, totalFalta, concluidoPct, totalApontadoReal, totalApontadoAmbiguoPecas };
 }
 
 export interface ProdutoNaoPrevisto {

@@ -8,6 +8,8 @@
 // agora ao lado do Realizado, sem duplicar a lista de produtos em dois
 // lugares da tela.
 //
+// A coluna "Apontado real" (diagnóstico) vem dos apontamentos da ÚLTIMA etapa do roteiro (ver apontadoReal.ts) e NÃO participa de Falta/%.
+//
 // Realizado vem dos "Itens realizados" da própria Previsão Semanal
 // (previsao_itens, tipo='realizado') — NÃO de apontamentos_producao/
 // Produção Real. Decisão de negócio revertida — ver PrevisaoSemanalPage.tsx
@@ -42,6 +44,7 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
         <span className="num">Previsto</span>
         <span className="num">Possível</span>
         <span className="num">Realizado</span>
+        <span className="num" title="Produção concluída calculada automaticamente pelos apontamentos da última etapa do roteiro (peças boas: produzido − refugo). Só diagnóstico: não entra em Falta, % nem no resultado financeiro.">Apontado real</span>
         <span className="num">Falta</span>
         <span className="num">%</span>
       </div>
@@ -55,6 +58,12 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
             <span className="num">{formatQtd(p.previsto)}</span>
             <span className="num">{formatQtd(p.possivel)}</span>
             <span className="num" style={{ color: "var(--accent)" }}>{formatQtd(p.realizado)}</span>
+            <span className="num" style={{ color: "var(--text-2)" }}>
+              {p.apontadoAmbiguoPecas > 0 && (
+                <span title={`${formatQtd(p.apontadoAmbiguoPecas)} peças de apontamentos feitos antes de uma alteração do roteiro NÃO foram contadas (não dá para saber com segurança se eram da etapa final).`} style={{ color: "var(--warning)", marginRight: 4, cursor: "help" }}>⚠</span>
+              )}
+              {p.apontadoReal === null ? "—" : formatQtd(p.apontadoReal)}
+            </span>
             <span className="num" style={{ color: p.falta > 0 ? "var(--warning)" : "var(--text-3)" }}>{formatQtd(p.falta)}</span>
             <span className="stx-prev-bar-cell">
               <span className="num">{pctTexto}</span>
@@ -72,6 +81,7 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
           <span className="num">{formatQtd(resumoPecas.totalPrevisto)}</span>
           <span className="num">{formatQtd(resumoPecas.totalPossivel)}</span>
           <span className="num">{formatQtd(resumoPecas.totalRealizado)}</span>
+          <span className="num">{resumoPecas.totalApontadoReal === null ? "—" : formatQtd(resumoPecas.totalApontadoReal)}</span>
           <span className="num">{formatQtd(resumoPecas.totalFalta)}</span>
           <span className="num">{resumoPecas.concluidoPct === null ? "N/A" : `${resumoPecas.concluidoPct.toFixed(0)}%`}</span>
         </div>
