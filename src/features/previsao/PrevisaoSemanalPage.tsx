@@ -228,7 +228,8 @@ export default function PrevisaoSemanalPage() {
   function selecionarProdutoPrevItem(produtoId: string) {
     const produto = produtos.find((p) => p.id === produtoId);
     const sugestao: Record<string, string[]> = {};
-    (produto?.roteiro || []).forEach((e) => { sugestao[e.id] = e.maquinasIds || []; });
+    // produto de ROTAS: nada pré-marcado — a pessoa escolhe cada máquina (o sistema nunca marca por ela). Produto linear: comportamento de sempre (elegíveis pré-marcadas).
+    if (!produto?.estruturaRotas) (produto?.roteiro || []).forEach((e) => { sugestao[e.id] = e.maquinasIds || []; });
     setPrevItemForm({ ...prevItemForm, produtoId, maquinasPorEtapa: sugestao });
   }
   function toggleMaquinaPrevItem(etapaId: string, maquinaId: string) {
@@ -578,6 +579,9 @@ export default function PrevisaoSemanalPage() {
                   valorPrevistoSemana={resumoSemana.valorPrevisto}
                   equipeProdutivaCount={equipeProdutivaCount}
                   formatBRL={formatBRL}
+                  diasProdutivosCount={diasProdutivos.length}
+                  custoHoraPorOperacao={custoHoraPorOperacao}
+                  custoHoraEmpresa={custoHoraEmpresa}
                 />
 
                 <ItensRealizados

@@ -229,12 +229,15 @@ describe("M2 — custo, economia, estabilidade e rotas disjuntas", () => {
     expect(s.alvo.AUTO).toBeCloseTo(30000, 6); expect(s.alvo.CONV).toBe(0);
   });
   it("estabilidade: divisão anterior viável a ≤1% do ótimo é mantida; uma bem pior é reotimizada", () => {
-    const perto = plan({ ...E16(1), demanda: 50000, custo: CUSTO, divisaoAnterior: { AUTO: 35000, CONV: 15000 } });
+    const perto = plan({ ...E16(1), demanda: 50000, custo: CUSTO, divisaoAnterior: { AUTO: 35000, CONV: 15000 }, toleranciaEstabilidade: 0.01 });
     expect(perto.estabilidade.divisaoAnteriorMantida).toBe(true); expect(perto.alvo.AUTO).toBeCloseTo(35000, 6); expect(perto.alvo.CONV).toBeCloseTo(15000, 6);
-    const longe = plan({ ...E16(1), demanda: 50000, custo: CUSTO, divisaoAnterior: { AUTO: 20000, CONV: 30000 } });
+    const longe = plan({ ...E16(1), demanda: 50000, custo: CUSTO, divisaoAnterior: { AUTO: 20000, CONV: 30000 }, toleranciaEstabilidade: 0.01 });
     expect(longe.estabilidade.divisaoAnteriorMantida).toBe(false); expect(longe.alvo.AUTO).toBeCloseTo(35625, 6); expect(longe.alvo.CONV).toBeCloseTo(14375, 6);
     // a estabilidade nunca reduz o atendimento
     expect(perto.finalAtingivel).toBeCloseTo(longe.finalAtingivel, 6);
+    // sem tolerância informada a estabilidade NÃO existe (o 1% não é regra de negócio): vale sempre a divisão de menor custo
+    const sem = plan({ ...E16(1), demanda: 50000, custo: CUSTO, divisaoAnterior: { AUTO: 35000, CONV: 15000 } });
+    expect(sem.estabilidade.divisaoAnteriorMantida).toBe(false); expect(sem.alvo.AUTO).toBeCloseTo(35625, 6);
   });
   it("divisão anterior inviável (acima da capacidade atual) é ajustada, nunca excede o realizável", () => {
     const s = plan({ ...E16(1), demanda: 50000, custo: CUSTO, divisaoAnterior: { AUTO: 90000, CONV: 0 } });
@@ -272,7 +275,7 @@ describe("M2 — estrutura explícita (etapa final, percurso) e produtos lineare
   });
   it("produto LINEAR não passa pelo planejador (aplicavel=false) e o caminho legado fica intacto", () => {
     const lin = estruturaLinear("P", [{ id: "a", ordem: 0 }, { id: "b", ordem: 1 }]);
-    const r = planejarRotas({ estrutura: lin, etapas: MAPA, demanda: 1000, ctx: CTX() });
+    const r = planejarRotas({ estrutura: lin, etapas: MAPA, demanda: 1000, ctx: CTX(), selecao: {} });
     expect(r).toMatchObject({ aplicavel: false, motivo: "produto_linear" });
   });
   it("compatibilidade do apontado real/indicadores: linear = etapa de maior ordem; rotas = final explícita (Embalar), nunca max(ordem)", () => {
@@ -283,6 +286,22 @@ describe("M2 — estrutura explícita (etapa final, percurso) e produtos lineare
     const ap = [{ etapaId: "f-rosq", quantidade: 500 }, { etapaId: "f-rp", quantidade: 300 }, { etapaId: "f-etiq", quantidade: 700 }, { etapaId: "f-emb", quantidade: 600 }, { etapaId: "f-tec", quantidade: 9 }];
     expect(apontadoRealProduto(F, tec, ap)).toBe(600);                                  // só Embalar conta como produto acabado
     expect(apontadoRealProduto(F, tec, [])).toBe(0);
+  });
+  it("CONTROLE HUMANO: etapa cadastrada como compatível mas NÃO marcada na Previsão = capacidade 0; o planejador nunca a adiciona", () => {
+    // Etiquetar tem E15 e E16 no cadastro; a Previsão marcou só a E15 ⇒ E16 contribui 0 mesmo livre
+    const so15 = plan({ selecao: { ...SEL, "f-etiq": ["E15"] }, ctx: CTX({ horasComprometidasPorMaquina: { E16: 0 } }) });
+    expect(so15.poolComum.porOperacao.Etiquetar).toBeCloseTo(97500, 6);
+    // nenhuma marcação em Etiquetar ⇒ pool 0 (não cai para as elegíveis do cadastro)
+    const nenhuma = plan({ selecao: { ...SEL, "f-etiq": [] } });
+    expect(nenhuma.poolComum.porOperacao.Etiquetar).toBe(0); expect(nenhuma.finalAtingivel).toBe(0);
+    // chave ausente também ⇒ 0
+    const { ["f-etiq"]: _omitida, ...semChave } = SEL; void _omitida;
+    expect(plan({ selecao: semChave }).poolComum.porOperacao.Etiquetar).toBe(0);
+    // rota sem máquina marcada: AUTO = 0 e a CONV atende sozinha; CONV sem máquina: AUTO sozinha
+    const semAuto = plan({ ...E16(1), selecao: { ...SEL16, "f-rp": [] } });
+    expect(semAuto.capacidadePorRota.AUTO.realizavel).toBe(0); expect(semAuto.alvo.AUTO).toBe(0); expect(semAuto.alvo.CONV).toBeCloseTo(81000, 6);
+    const semConv = plan({ ...E16(1), selecao: { ...SEL16, "f-rosq": [], "f-para": [] } });
+    expect(semConv.capacidadePorRota.CONV.realizavel).toBe(0); expect(semConv.alvo.CONV).toBe(0); expect(semConv.alvo.AUTO).toBeCloseTo(35625, 6);
   });
   it("etapa dos dados: capacidadeEtapa do pool não depende de qual rota alimenta (uma capacidade comum só)", () => {
     const direto = capacidadeEtapa(MAPA.get("f-etiq") as EtapaCadastro, CTX(), ["E15"]).pecas;

@@ -15,6 +15,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import type { Produto, RoteiroEtapa, Prioridade } from "@/types/domain";
+import { estruturaDoBanco } from "@/features/rotas/estrutura";
+import type { EstruturaProduto } from "@/features/rotas/tipos";
 
 interface ProdutoPayload {
   nome: string;
@@ -136,13 +138,26 @@ export function useProdutos(pronto: boolean) {
         setLoading(false);
         return;
       }
-      // Produto de ROTAS (modelo novo) NÃO é lido pelo caminho legado: aqui as etapas viram uma cadeia linear por `ordem` (Rosquear→Parafusar→Rosquear+Parafusar→…, falsa para ele),
-      // com custo somando as duas rotas e demanda duplicada. Enquanto os consumidores do modelo de rotas não existem, ele fica invisível para Produtos/Previsão/Capacidade.
-      // Sem a tabela (ambiente antes do M0) ou sem produtos de rotas, o filtro é vazio — nenhum efeito para os produtos lineares.
+      // Produto de ROTAS (modelo novo): com a trava de suporte FECHADA (`rotas_config.suporte_ativo = false`, padrão) ele NÃO é lido pelo caminho legado — aqui as etapas viriam como uma cadeia linear por `ordem`
+      // (falsa para ele), com custo somando as duas rotas e demanda duplicada; fica invisível para Produtos/Previsão/Capacidade. Com a trava ABERTA (M3, só quando autorizado) entra na Previsão com a
+      // estrutura de rotas anexada (`estruturaRotas`) e a seleção de máquinas por etapa. Sem a tabela (ambiente antes do M0) ou sem produtos de rotas, nada muda para os produtos lineares.
       const rotas = await supabase.from("produto_rota").select("produto_id");
       const comRotas = new Set(rotas.error ? [] : (rotas.data || []).map((r) => r.produto_id as string));
+      let estruturas = new Map<string, EstruturaProduto>();
+      if (comRotas.size > 0) {
+        const cfg = await supabase.from("rotas_config").select("suporte_ativo").maybeSingle();
+        if (!cfg.error && cfg.data?.suporte_ativo === true) {
+          const ents = await Promise.all([...comRotas].map(async (id) => {
+            const r = await supabase.rpc("produto_estrutura_rotas", { p_produto: id });
+            return r.error ? null : ([id, estruturaDoBanco(r.data as Parameters<typeof estruturaDoBanco>[0])] as const);
+          }));
+          estruturas = new Map(ents.filter((x): x is readonly [string, EstruturaProduto] => x !== null));
+        }
+      }
       if (!montado) return;
-      setProdutos(((data || []) as unknown as ProdutoRow[]).filter((p) => !comRotas.has(p.id)).map(linhaParaProduto));
+      setProdutos(((data || []) as unknown as ProdutoRow[])
+        .filter((p) => !comRotas.has(p.id) || estruturas.has(p.id))
+        .map((row) => { const prod = linhaParaProduto(row); const est = estruturas.get(row.id); return est ? { ...prod, estruturaRotas: est } : prod; }));
       setLoading(false);
     })();
     return () => { montado = false; };

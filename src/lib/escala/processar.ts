@@ -8,6 +8,8 @@
 
 import { gerarEscala } from "@/features/escala/gerarEscala";
 import { AVISO_PRIMEIRA_GERACAO, type AlertaEscala } from "@/features/escala/types";
+import { reverterResultado } from "@/features/rotas/adaptador";
+import { registrosDeDivisao, resolverRotas, type RegistroDivisao } from "@/features/rotas/resolucao";
 import { montarEntradaEscala } from "./montarEntrada";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento, type SnapshotWipParaGravar } from "./estado";
 
@@ -18,6 +20,8 @@ export interface EscalaIO {
   aplicar(payload: PayloadAplicacao): Promise<{ versoes: Record<string, number> }>;
   // Foto de abertura da semana (WIP): idempotente, a 1ª gravada vale. Opcional (só o banco real e o banco em memória implementam).
   gravarSnapshotsWip?(semanaInicio: string, snapshots: SnapshotWipParaGravar[]): Promise<void>;
+  // Divisão entre rotas (M3, append-only, idempotente por hash+rodada). Só é chamada quando a semana tem produto de rotas; semanas só com produtos lineares nunca passam por aqui.
+  gravarDivisaoRotas?(registros: RegistroDivisao[]): Promise<void>;
 }
 
 export interface OpcoesProcessamento {
@@ -45,7 +49,9 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
       return { status: "ignorado", motivoIgnorado: "Semana sem escala gerada", tentativas: tentativa, alertas: [], alocacoesGravadas: 0 };
     }
 
-    const montada = montarEntradaEscala(estado, opcoes.agoraMs);
+    // PRODUTO DE ROTAS (M3): divisão AUTO/CONV com feedback da Escala; o motor recebe cadeias virtuais e tudo volta ao produto real. Semana sem produto de rotas: `null` — nada muda.
+    const rotas = resolverRotas(estado, opcoes.agoraMs);
+    const montada = montarEntradaEscala(rotas ? rotas.estadoVirtual : estado, opcoes.agoraMs);
     const { entrada } = montada;
 
     if (entrada.pools.length === 0 && estado.diasExistentes.length === 0) {
@@ -55,7 +61,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
       return { status: "sem_alteracao", tentativas: tentativa, alertas: [], alocacoesGravadas: 0 };
     }
 
-    const resultado = gerarEscala(entrada);
+    const resultado = rotas ? reverterResultado(gerarEscala(entrada)) : gerarEscala(entrada);
     // A troca manual que o motor manteve continua sendo "manual" (decisão de uma pessoa); o resto é
     // saída automática. Sem isso a marca se perderia no 1º recálculo e a troca viraria acaso.
     const chaveTroca = (x: { data: string; periodoId: string; funcionarioId: string; maquinaId: string | null }) => `${x.data}|${x.periodoId}|${x.funcionarioId}|${x.maquinaId ?? ""}`;
@@ -103,6 +109,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
       // a foto da abertura é gravada ANTES da escala: se a escala for aplicada, a foto que a explica já existe
       if (montada.snapshotsWip.length > 0 && io.gravarSnapshotsWip) await io.gravarSnapshotsWip(estado.semanaInicio, montada.snapshotsWip);
       const { versoes } = await io.aplicar(payload);
+      if (rotas && io.gravarDivisaoRotas) await io.gravarDivisaoRotas(registrosDeDivisao(estado, rotas));
       return {
         status: "processado",
         tentativas: tentativa,

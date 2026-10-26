@@ -11,3 +11,6 @@ Nota honesta da 1ª comparação: a primeira execução do "depois" divergiu por
 
 ## Revisão pós M0/M1 (26/10/2026)
 Após a correção do fluxo (trava de suporte, F inativo/invisível ao carregador legado, convergência explícita) o DEV foi recriado (rollback + migrations corrigidas) e o golden master repetido: **TS idêntico** (`golden_ts_depois2_dev.json`) e **SQL idêntico** (`sql*_depois2_dev.txt`; hash de colunas agora exclui também `rotas_config`).
+
+## M3 (26/10/2026)
+Repetido após o M3 (adaptador, resolução com feedback, divisão, UI da Previsão): `golden_ts_depois4_dev.json` e `sql*_depois4_dev.txt` **idênticos** aos de `depois3`. O script TS agora também confere, nas Previsões do DEV, que `processarSemana` produz exatamente as alocações do motor direto e que o estado de semana linear não carrega `rotas`.

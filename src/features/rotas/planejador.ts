@@ -29,7 +29,7 @@ export interface EntradaPlanejador {
   etapas: Map<string, EtapaCadastro>;
   demanda: number;                                // demanda FINAL restante do produto (uma só)
   ctx: ContextoCapacidade;                        // períodos, dias produtivos, máquinas indisponíveis, horas comprometidas por OUTROS produtos (concorrência real, ex.: E16 × Caixa Amarela)
-  selecao?: Record<string, string[]>;             // máquinas marcadas por etapa (Previsão); ausente = todas as elegíveis
+  selecao: Record<string, string[]>;              // máquinas marcadas NA PREVISÃO por etapa (obrigatório). Etapa sem chave/lista vazia = nenhuma máquina = capacidade 0; o cadastro (elegíveis) nunca completa a seleção
   equipe?: EquipeDisponivel;
   capacidadeRealizavelEscala?: Record<string, number>;   // teto por etapa já calculado pela Escala (revezamento duro, mesma operação não consecutiva): vale o MENOR entre ele e o nominal×equipe
   fatorDesempenho?: Record<string, number>;       // desempenho observado ÷ meta, por etapa (1 = meta; 39.000/35.625 = 1,0947)
@@ -37,7 +37,7 @@ export interface EntradaPlanejador {
   limiteWip?: number;                             // teto do saldo do pool ao fim do horizonte
   divisaoAnterior?: Record<string, number>;       // entrega por rota da rodada anterior (estabilidade)
   limiteMaximoPorRota?: Record<string, number>;   // V1: só MÁXIMO por rota (previsao_rota_limite)
-  tolerânciaEstabilidade?: number;                // fração (padrão 0,01 = 1% do custo exclusivo)
+  toleranciaEstabilidade?: number;                // fração do custo exclusivo aceita para manter a divisão anterior. SEM valor = estabilidade desligada (o 1% do M2 era só experimental; não é regra de negócio)
   custo?: ContextoCusto; valorUnitario?: number;
 }
 
@@ -96,7 +96,7 @@ export function fracaoOperavel(maquinas: number, pessoas: number | undefined, pe
 }
 
 function capacidadeOperacional(e: EtapaCadastro, i: EntradaPlanejador): CapacidadeEtapaPlano {
-  const nominalEtapa = capacidadeEtapa(e, i.ctx, i.selecao?.[e.id]);
+  const nominalEtapa = capacidadeEtapa(e, i.ctx, i.selecao[e.id] ?? []);   // SEM seleção na Previsão = lista vazia (nunca "todas as elegíveis")
   const m = Object.keys(nominalEtapa.porMaquina).length;
   const f = fracaoOperavel(m, i.equipe?.pessoasPorOperacao[e.operacaoId], i.ctx.periodos.length, i.equipe?.revezamentoDuro ?? false);
   const desempenho = i.fatorDesempenho?.[e.id] ?? 1;
@@ -148,7 +148,7 @@ export function planejarRotas(i: EntradaPlanejador): SaidaPlanejador | SaidaNaoA
     if (realizavel <= EPS) motivos.push({ codigo: "ROTA_SEM_CAPACIDADE", texto: `A rota ${r.codigo} não tem capacidade (parada, sem máquina/pessoa ou período) — o produto final continua sendo atendido pelas demais.` });
   });
   // rotas que compartilham máquina: a capacidade somada pode estar superestimada (este planejador assume rotas disjuntas)
-  const maqPorRota = rotas.map((r) => new Set(r.etapas.flatMap((id) => i.selecao?.[id] ?? (i.etapas.get(id) as EtapaCadastro).maquinasIds)));
+  const maqPorRota = rotas.map((r) => new Set(r.etapas.flatMap((id) => i.selecao[id] ?? [])));
   if (maqPorRota.some((a, x) => maqPorRota.some((b, y) => y > x && [...a].some((m) => b.has(m))))) { motivos.push({ codigo: "MAQUINAS_COMPARTILHADAS_ENTRE_ROTAS", texto: "Há máquina compartilhada entre rotas: a soma das capacidades pode estar superestimada." }); avisos.push("rotas com máquinas compartilhadas"); }
 
   // capacidade do pool comum: cada etapa comum UMA vez (Etiquetar, Embalar); o mínimo limita o produto final
@@ -182,15 +182,15 @@ export function planejarRotas(i: EntradaPlanejador): SaidaPlanejador | SaidaNaoA
   let alvo = preencher(ordem, E);
   const custoDe = (x: Record<string, number>) => rotas.reduce((s, r) => s + (x[r.codigo] ?? 0) * exclusivo[r.codigo], 0);
   let mantida = false;
-  if (i.divisaoAnterior && E > EPS) {
+  const tol = i.toleranciaEstabilidade;
+  if (i.divisaoAnterior && E > EPS && tol !== undefined && tol >= 0) {
     // divisão anterior ajustada à capacidade e ao necessário de agora (nunca passa do realizável nem do total E)
     const prev: Record<string, number> = {};
     let acumulado = 0;
     [...rotas].sort((a, b) => a.preferencia - b.preferencia).forEach((r) => { const q = Math.min(capRotas[r.codigo].realizavel, i.divisaoAnterior?.[r.codigo] ?? 0, Math.max(0, E - acumulado)); prev[r.codigo] = q; acumulado += q; });
     const completa = preencher(ordem, E, prev);
-    const tol = i.tolerânciaEstabilidade ?? 0.01;
     const iguais = rotas.every((r) => Math.abs((completa[r.codigo] ?? 0) - (alvo[r.codigo] ?? 0)) < 1e-6);
-    if (!iguais && i.custo && custoDe(completa) <= custoDe(alvo) * (1 + tol) + EPS) { alvo = completa; mantida = true; motivos.push({ codigo: "ESTABILIDADE_MANTIDA", texto: "A divisão anterior continua viável e custa no máximo 1% a mais que a ótima: foi mantida." }); }
+    if (!iguais && i.custo && custoDe(completa) <= custoDe(alvo) * (1 + tol) + EPS) { alvo = completa; mantida = true; motivos.push({ codigo: "ESTABILIDADE_MANTIDA", texto: `A divisão anterior continua viável e custa no máximo ${(tol * 100).toLocaleString("pt-BR")}% a mais que a ótima (tolerância configurada): foi mantida.` }); }
   }
   if (E > EPS && !mantida && i.custo && ordem.length > 1 && (alvo[ordem[0].codigo] ?? 0) > EPS) motivos.push({ codigo: "ROTA_PREFERIDA_POR_CUSTO", texto: `A rota ${ordem[0].codigo} tem o menor custo exclusivo e é enchida primeiro, até onde há capacidade útil.` });
 

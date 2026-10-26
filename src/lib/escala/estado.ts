@@ -5,6 +5,7 @@ import type { ParametrosEscala } from "@/features/escala/parametros";
 import type { AlertaEscala, AlocacaoEscala, HistoricoEquidadeFuncionario, PeriodoEscala } from "@/features/escala/types";
 import type { ProximaSemana } from "@/features/escala/wip";
 import type { EntradaWip } from "@/features/escala/wipSaldo";
+import type { EstruturaProduto } from "@/features/rotas/tipos";
 
 export interface AvisoMontagem {
   tipo: "etapa_sem_maquina" | "sem_pools" | "sem_funcionarios_produtivos" | "selecao_maquina_invalida";
@@ -75,6 +76,15 @@ export interface IndisponibilidadeBruta {
   liberadaEm: string | null; // ISO
 }
 
+// Produtos de ROTAS (M3) presentes na semana. Ausente = semana só de produtos lineares (caminho legado, sem nenhuma mudança). Só é preenchido quando a Previsão da semana está no modelo de rotas.
+export interface RotasDoEstado {
+  estruturas: Record<string, EstruturaProduto>;                       // produtoId -> estrutura (rotas, convergência, pool comum, etapa final explícita)
+  custoHoraPorOperacao?: Record<string, number>; custoHoraPadrao?: number;   // opcional: sem custo a divisão desempata pela preferência da rota
+  toleranciaEstabilidade?: number;                                     // opcional (SEM valor = estabilidade desligada)
+  divisaoAnterior?: Record<string, Record<string, number>>;            // produtoId -> rota -> entrega da rodada anterior
+  maxRodadas?: number;                                                 // padrão 3
+}
+
 export interface EstadoBruto {
   previsaoId: string;
   semanaInicio: string;
@@ -104,6 +114,7 @@ export interface EstadoBruto {
   // Controle de estoque intermediário (Fase 3): dados BRUTOS (controles, ajustes, confirmações, Produção Real, fotos, previsões).
   // Só carregado com wip_modo = "ativo". `hoje` é derivado do relógio da execução. Ausente/vazio = nenhum saldo (comportamento anterior).
   wipControle?: Omit<EntradaWip, "hoje">;
+  rotas?: RotasDoEstado;
 }
 
 export interface DiaParaAplicar {

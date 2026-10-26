@@ -6,6 +6,7 @@ import {
 import { toNumber } from "@/lib/format";
 import type { Produto, Maquina, Previsao, PrevisaoItem, PeriodoComDuracao } from "@/types/domain";
 import type { AnaliseCapacidadeSemanal } from "@/features/capacidade/types";
+import SelecaoRotasContainer from "@/features/rotas/SelecaoRotasContainer";
 
 export interface PrevItemFormState {
   produtoId: string;
@@ -37,6 +38,10 @@ export interface ItensPrevistosProps {
   // funcionários marcados como produtivos NESTA semana (não o total de ativos)
   equipeProdutivaCount: number;
   formatBRL: (v: number) => string;
+  // só produto de ROTAS (M3): dias produtivos da semana e custo/hora para a prévia; ausentes = prévia sem custo
+  diasProdutivosCount?: number;
+  custoHoraPorOperacao?: Record<string, number>;
+  custoHoraEmpresa?: number;
 }
 
 // "Itens previstos" — formulário (com viabilidade ao vivo, seleção de
@@ -45,11 +50,13 @@ export default function ItensPrevistos({
   loading, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, semana,
   showForm, setShowForm, editingId, form, onSelecionarProduto, onQuantidadeChange, onToggleMaquina,
   onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, equipeProdutivaCount, formatBRL,
+  diasProdutivosCount, custoHoraPorOperacao, custoHoraEmpresa,
 }: ItensPrevistosProps) {
   const produtoSel = produtos.find((p) => p.id === form.produtoId) || null;
   const roteiroSel = produtoSel?.roteiro || [];
+  const produtoDeRotas = !!produtoSel?.estruturaRotas;   // produto de rotas: seleção por rota + prévia nominal; o produto linear segue exatamente o fluxo de sempre
 
-  const viabAoVivo = form.produtoId && produtoSel && roteiroSel.length > 0
+  const viabAoVivo = form.produtoId && produtoSel && !produtoDeRotas && roteiroSel.length > 0
     ? calcularViabilidadeItem(
         { produtoId: form.produtoId, quantidade: toNumber(form.quantidade), maquinasPorEtapa: form.maquinasPorEtapa },
         produtos, periodosComDuracao, horasPorMaquinaSemana
@@ -98,7 +105,12 @@ export default function ItensPrevistos({
                 />
               </div>
 
-              {form.produtoId && (
+              {form.produtoId && produtoSel && produtoDeRotas && (
+                <SelecaoRotasContainer produto={produtoSel} produtos={produtos} maquinas={maquinas} semana={semana} periodosComDuracao={periodosComDuracao} diasProdutivos={diasProdutivosCount ?? 5}
+                  quantidade={toNumber(form.quantidade)} maquinasPorEtapa={form.maquinasPorEtapa} onToggleMaquina={onToggleMaquina} editandoItemId={editingId}
+                  custoHoraPorOperacao={custoHoraPorOperacao} custoHoraEmpresa={custoHoraEmpresa} />
+              )}
+              {form.produtoId && !produtoDeRotas && (
                 roteiroSel.length === 0 ? (
                   <p className="stx-panel-sub stx-form-full" style={{ margin: 0 }}>Esse produto não tem fluxo de produção cadastrado — não dá pra escolher máquinas nem calcular viabilidade.</p>
                 ) : (
@@ -148,7 +160,7 @@ export default function ItensPrevistos({
                 )
               )}
 
-              {form.produtoId && produtoSel && roteiroSel.length > 0 && (
+              {form.produtoId && produtoSel && !produtoDeRotas && roteiroSel.length > 0 && (
                 viabAoVivo && viabAoVivo.funcionariosNecessarios === 0 ? (
                   <p className="stx-panel-sub stx-form-full" style={{ margin: 0 }}>Marca as máquinas acima pra ver quantos funcionários isso exige e quantas peças dá pra fazer.</p>
                 ) : viabAoVivo ? (
@@ -182,7 +194,8 @@ export default function ItensPrevistos({
           const maquinasDoItem = new Set(Object.values(it.maquinasPorEtapa || {}).flat());
           const gargalosQueAfetam = analise.gargalos.filter((g) => maquinasDoItem.has(g.maquinaId));
           const produtoDoItem = produtos.find((p) => p.id === it.produtoId);
-          const selecoesInvalidas = produtoDoItem
+          const itemDeRotas = !!produtoDoItem?.estruturaRotas;   // a viabilidade linear (cadeia por ordem) não vale para ele: a leitura certa é a prévia por rota ao editar
+          const selecoesInvalidas = produtoDoItem && !itemDeRotas
             ? encontrarSelecoesInvalidas(it.maquinasPorEtapa, produtoDoItem.roteiro || [], maquinas)
             : [];
           return (
@@ -190,14 +203,15 @@ export default function ItensPrevistos({
               <div>
                 <p className="stx-entry-desc">
                   {it.produtoNome}
-                  {viab.atingivel === true && <span className="stx-badge blueprint">✓ atinge sozinho</span>}
-                  {viab.atingivel === false && (
+                  {itemDeRotas && <span className="stx-badge blueprint">rotas · veja a prévia ao editar</span>}
+                  {!itemDeRotas && viab.atingivel === true && <span className="stx-badge blueprint">✓ atinge sozinho</span>}
+                  {!itemDeRotas && viab.atingivel === false && (
                     <span className="stx-badge" style={{ background: "rgba(217,83,79,0.15)", color: "var(--danger)" }}>
                       faltam {it.quantidade - viab.maxPecas} ({viab.gargalo})
                     </span>
                   )}
                 </p>
-                {gargalosQueAfetam.length > 0 && (
+                {!itemDeRotas && gargalosQueAfetam.length > 0 && (
                   <p className="stx-entry-aviso-compartilhada">
                     ⚠ {gargalosQueAfetam.map((g) => `${g.nome} está em ${g.pct.toFixed(0)}% (compartilhada com outro produto)`).join(" · ")}
                   </p>
@@ -209,7 +223,7 @@ export default function ItensPrevistos({
                 )}
                 <p className="stx-entry-meta">
                   {it.quantidade} × {formatBRL(it.valorUnitario)}
-                  {viab.funcionariosNecessarios > 0 && ` · usa ${viab.funcionariosNecessarios} máquina${viab.funcionariosNecessarios > 1 ? "s" : ""} → precisa de ${viab.funcionariosNecessarios} funcionário${viab.funcionariosNecessarios > 1 ? "s" : ""}`}
+                  {!itemDeRotas && viab.funcionariosNecessarios > 0 && ` · usa ${viab.funcionariosNecessarios} máquina${viab.funcionariosNecessarios > 1 ? "s" : ""} → precisa de ${viab.funcionariosNecessarios} funcionário${viab.funcionariosNecessarios > 1 ? "s" : ""}`}
                 </p>
                 {(it.quantidadeAdicional ?? 0) > 0 && (
                   <p className="stx-entry-meta">

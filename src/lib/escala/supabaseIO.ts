@@ -2,6 +2,7 @@
 // Escala: lê o estado de uma semana, aplica o recálculo via RPC e opera o
 // outbox de eventos. Nada de regra de negócio aqui — só I/O.
 
+import { carregarRotasDoEstado, gravarDivisaoRotas } from "./rotasIO";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { agregarHistoricoEquidade, JANELA_EQUIDADE_DIAS } from "@/features/escala/equidade";
 import { lerParametros } from "@/features/escala/parametros";
@@ -150,6 +151,9 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
       // estoque intermediário (Fase 3): só é lido com o WIP ativo; sem controles = undefined (comportamento anterior)
       const wipControle = parametros.wipModo === "ativo" ? await carregarWipControle(admin, prev.semana_inicio) : undefined;
 
+      // produtos de ROTAS na semana (M3): só existe quando algum item da Previsão for de rotas; semana linear = undefined (nenhuma mudança)
+      const rotas = await carregarRotasDoEstado(admin, [...new Set(itensBrutos.map((i) => i.produtoId))]);
+
       return {
         previsaoId,
         semanaInicio: prev.semana_inicio,
@@ -194,12 +198,17 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         historicoEquidade,
         parametros,
         ...(wipControle ? { wipControle } : {}),
+        ...(rotas ? { rotas } : {}),
         proximaSemana: proximaSemanaDe(ok(proxima, "previsoes (próxima semana)") as { previsao_itens: { produto_id: string; quantidade: number; tipo: string }[] | null } | null),
       };
     },
 
     async gravarSnapshotsWip(semanaInicio, snapshots) {
       await gravarSnapshotsWip(admin, semanaInicio, snapshots);
+    },
+
+    async gravarDivisaoRotas(registros) {
+      await gravarDivisaoRotas(admin, registros);
     },
 
     async aplicar(p: PayloadAplicacao) {

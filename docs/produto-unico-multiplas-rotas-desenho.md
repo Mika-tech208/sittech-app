@@ -509,3 +509,46 @@ Caminho legado intacto: sem `produto_rota` ⇒ `modelo:"linear"`, o planejador d
 2. **F começa sem máquinas marcadas** na Previsão (recomendado) ou pré-marcadas como no legado.
 3. **Adaptador de 3 cadeias virtuais** (recomendado, motor intocado) em vez de ensinar o motor a ter convergência.
 4. Confirmar **nenhuma coluna/tabela nova** para a seleção (reuso de `previsao_item_maquinas`).
+
+## 20. M3 — implementado em DEV/Preview (26/10/2026) — nada em PROD; `suporte_ativo=false`; F `ativo=false`
+
+**Regra respeitada:** a Previsão (uma pessoa) escolhe as máquinas; o sistema nunca acrescenta máquina. Planejador, adaptador e motor só enxergam `previsao_item_maquinas` (item, etapa, máquina). O cadastro ("pode") nunca completa a seleção ("será"): `planejarRotas` agora **exige** `selecao`; etapa sem marcação = capacidade 0.
+
+### 20.1 O que foi feito
+| Peça | Onde |
+|---|---|
+| Seleção de máquinas (reuso, sem tabela nova) | `previsao_item_maquinas`; F = 1 item; rota deriva do `etapa_id` (T3 SQL) |
+| Adaptador F#CONV / F#AUTO / F#COMUM | `src/features/rotas/adaptador.ts` — projeta o `EstadoBruto` em cadeias lineares virtuais (quantidades = alvo das rotas e produto final), devolve tudo ao produto F; produto linear ⇒ **o mesmo objeto**, sem cópia |
+| Capacidade nominal | `planejador.ts`/`capacidade.ts`: só máquinas marcadas, metas, períodos, dias, indisponibilidades da Previsão e horas já pedidas por outros itens |
+| Máquina compartilhada | `compartilhada.ts`: orçamento único de horas por máquina (Σ concedido ≤ horas); F pede primeiro nas máquinas sem concorrência; falta igualada entre quem disputa (mesma lógica do motor: gargalo/menor folga) |
+| Capacidade realizável + feedback (≤ 3 rodadas) | `resolucao.ts` (`resolverRotas`), chamada em `processarSemana`; só se a semana tem produto de rotas |
+| Registro da divisão | `escala_rota_divisao` (append-only) + migration `20261108100000` (colunas aditivas); IO em `src/lib/escala/rotasIO.ts` (idempotente por hash+rodada) |
+| UI da Previsão | `SelecaoRotasPrevisao.tsx` + `SelecaoRotasContainer.tsx`, ligados a `ItensPrevistos` **só** para produto com `estruturaRotas`; F começa tudo desmarcado; linear intacto (pré-marcação de sempre) |
+| Teste/Preview sem abrir a trava | `/produtos/rotas` virou "Previsão simulada" (nada gravado): seleção manual, prévia, funil do gargalo e "Simular Escala" em memória (rodadas, hashes, nominal × realizável) |
+| Trava | `useProdutos` só traz F à Previsão se `rotas_config.suporte_ativo=true` (hoje false ⇒ F invisível, como antes) |
+| Parâmetro de estabilidade | `toleranciaEstabilidade` opcional; **sem valor = desligada** (o 1% do M2 virou só experimental no shadow) |
+
+### 20.2 Feedback: critério, rodadas, auditoria
+- **Convergência:** (a) `atendeu_alvo` — o motor realiza o alvo de todas as cadeias; ou (b) `estabilizou` — o plano novo (com tetos) é igual ao anterior (nenhuma compensação possível dentro do selecionado). Senão `limite_rodadas` (3): **não converge**, nada é inventado, devolve diagnóstico (etapa, planejado × realizável).
+- **O que muda entre rodadas:** somente os tetos por etapa (`capacidadeRealizavelEscala` = peças que o motor conseguiu quando ficou abaixo do alvo). Seleção, demanda e metas não mudam.
+- **Cada rodada registra:** hash da entrada do planejador, hash da `EntradaEscala` (cadeias virtuais), tetos, alvo, nominal/realizável por rota, final planejado/realizável, gargalo e motivos; `escala_rota_divisao` guarda uma linha por rota e por rodada (`rodada_final` marca a efetiva), com `algoritmo_versao`, semana, `capacidade_nominal`, `capacidade_rota` (= realizável), `gargalo`, `motivo`.
+- Exemplo (teste): AUTO nominal 35.625, realizável 21.375 (a máquina cai na quinta, só a Escala vê) ⇒ rodada 2: AUTO 21.375 + CONV 76.125 (só com as máquinas CONV marcadas) ⇒ `atendeu_alvo`.
+
+### 20.3 Teste crítico E16 (Caixa Amarela + Conector; motor real, inalterado)
+Provado: E16 nunca dupla-contada (cada dia×período serve 1 produto e 1 operador; ≤ 30 períodos/semana; invariantes do motor); retirar a E16 do Conector remove o uso imediatamente; lucro/hora não domina (mesma divisão com Caixa a R$ 50 ou R$ 0,01); revezamento duro vale entre cadeias (Etiquetar do Conector e da Caixa = mesma `operacao_id`); com a Caixa pedindo 60.000, a Caixa completa e o Conector fica com o resto dos períodos.
+**Achado a decidir (honesto):** o motor atual arbitra por **gargalo/menor folga ⇒ iguala as faltas em períodos** e usa preço só no empate. No exemplo "6 períodos": Caixa 2 + Conector 4 (cabem os dois) ✔; Conector 6 ⇒ **1 + 5** (faltas iguais); Conector que não completaria nem com 6 ⇒ **0 + 6** — **não** o "2 + 4" do exemplo conceitual (completar a Caixa). Mudar isso exige trocar a regra do motor (afeta o desempate de produtos lineares) ⇒ não foi feito; o teste de caracterização documenta o comportamento. Ver decisão em 20.6.
+
+### 20.4 Golden master (zero divergência)
+TS (`golden_ts_depois4_dev.json`) **idêntico**; SQL (apontado real, sintético, hashes da semana 26/10 e colunas das tabelas antigas) **idêntico**; novo: `processarSemana` × motor direto **idêntico** nas 4 Previsões do DEV (sem `rotas` no estado). `t1`, `t2`, `t3` SQL passam.
+
+### 20.5 Riscos / limites
+- **Prévia ≠ motor** na disputa por máquina (estimativa por horas × decisão por período): em contenção pesada (Caixa ocupando a E16 inteira) a convergência pode exigir mais que 3 rodadas — reportado como `limite_rodadas`, com diagnóstico.
+- Servidor sem **custo/hora** no estado: sem custo a divisão desempata pela preferência (AUTO antes de CONV — hoje coincide com o mais barato). A UI/prévia usa o custo real.
+- Planejamento da **semana inteira**: replanejamento no meio da semana usa os créditos congelados por (cadeia, etapa); a divisão não é "congelada" por rota (M4).
+- WIP/adicional de F **fora** (como decidido): o vínculo rota → Etiquetar só existe no planejador, não no controle de WIP do motor.
+- Demais telas (Capacidade, Produtos, indicadores, apontado real) **não** conhecem produto de rotas; por isso a trava continua fechada.
+- A seleção da prévia não valida "máquina elegível no cadastro" além do que o motor já faz (descarta e avisa `selecao_maquina_invalida`).
+
+### 20.6 Decisões e o que falta (M4)
+1. **Arbitragem global na E16:** manter o motor (faltas iguais) ou criar, só para semanas de rotas, uma regra "completar o que pode ser completado"? (exige aprovação; golden master deve continuar zero para semanas lineares).
+2. **M4:** apontado real/indicadores por etapa final explícita; `wip_controle_criar` e WIP entre rotas → pool comum; custo/hora no estado do servidor; tornar Capacidade/Produtos/relatórios conscientes de rotas; revisão da regra de congelamento da divisão no meio da semana; só então avaliar abrir `suporte_ativo`.

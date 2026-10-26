@@ -7,6 +7,7 @@ import { criarClienteAdmin } from "@/lib/supabase-admin";
 import { criarEscalaIO } from "@/lib/escala/supabaseIO";
 import { montarEntradaEscala } from "@/lib/escala/montarEntrada";
 import { gerarEscala } from "@/features/escala/gerarEscala";
+import { processarSemana } from "@/lib/escala/processar";
 import { analisarAtingibilidade } from "@/features/escala/atingibilidade";
 import { jsonCanonico, sha256Hex } from "@/features/escala/hashCanonico";
 import { calcularAlocacaoSemanal, calcularAnaliseCapacidadeSemanal, calcularCapacidadeInicialPorMaquina, calcularCapacidadeMaximaProduto, calcularCapacidadeMaximaSemana, calcularHorasPorMaquina, calcularItensSemanaAgregados } from "@/features/capacidade/calculations";
@@ -48,6 +49,7 @@ async function main() {
   const lineares = produtos.filter((p) => !comRotas.has(p.id));
 
   const semanas: Record<string, unknown> = {};
+  const confere: { semana: string; orquestradorIgualAoMotor: boolean; semRotasNoEstado: boolean }[] = [];
   for (const pv of previsoes) {
     const itensDb = await q(admin.from("previsao_itens").select("id, produto_id, produto_nome, valor_unitario, quantidade, tipo, quantidade_adicional, previsao_item_maquinas(etapa_id, maquina_id)").eq("previsao_id", pv.id).eq("tipo", "previsto")) as { id: string; produto_id: string; produto_nome: string; valor_unitario: number; quantidade: number; previsao_item_maquinas: { etapa_id: string; maquina_id: string }[] }[];
     const diasAtivos = ((await q(admin.from("previsao_dias_produtivos").select("dia, ativo").eq("previsao_id", pv.id))) as { dia: string; ativo: boolean }[]).filter((d) => d.ativo).length;
@@ -73,6 +75,11 @@ async function main() {
       const montada = montarEntradaEscala(estado, agoraMs);
       const resultado = gerarEscala(montada.entrada);
       const ating = analisarAtingibilidade(montada.entrada, resultado);
+      // M3: o orquestrador (processarSemana, que agora tem o ramo de rotas) precisa dar EXATAMENTE as alocações do motor direto para semanas lineares; e o IO não pode ter carregado `rotas`
+      let payloadAloc: unknown = null;
+      await processarSemana({ carregarEstado: async () => estado, aplicar: async (pl) => { payloadAloc = pl.alocacoes; return { versoes: {} }; } }, { agoraMs, criarSeNaoExiste: true });
+      const mesmo = payloadAloc !== null ? h(payloadAloc) === h(resultado.alocacoes) : (montada.entrada.pools.length === 0 && estado.diasExistentes.length === 0) || resultado.alocacoes.length === 0;   // sem pools e sem escala: o orquestrador ignora (comportamento anterior)
+      confere.push({ semana: pv.semana_inicio, orquestradorIgualAoMotor: mesmo, semRotasNoEstado: estado.rotas === undefined, ...(mesmo ? {} : { payloadNulo: payloadAloc === null, alocacoesMotor: resultado.alocacoes.length, pools: montada.entrada.pools.length, diasExistentes: estado.diasExistentes.length }) });
       escala = {
         poolsHash: h(montada.entrada.pools.filter((p) => !comRotas.has(p.produtoId))), entradaHash: h(montada.entrada), avisosHash: h(montada.avisos), alocacoesHash: h(resultado.alocacoes), alertasHash: h(resultado.alertas),
         atingibilidadeHash: h(ating), nAlocacoes: resultado.alocacoes.length, nPools: montada.entrada.pools.length, statusAtingibilidade: ating.status,
@@ -94,6 +101,7 @@ async function main() {
     n_produtos_lineares: lineares.length,
   };
   writeFileSync(process.argv[2], JSON.stringify({ gerado_com: "rotas-golden-master v1", legado, wip, semanas }, null, 2));
+  console.log("orquestrador (processarSemana) × motor direto, semanas lineares:", JSON.stringify(confere));
   console.log(`golden master: ${previsoes.length} previsões, ${lineares.length} produtos lineares → ${process.argv[2]}`);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

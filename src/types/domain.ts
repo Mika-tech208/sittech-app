@@ -87,6 +87,8 @@ export interface Produto {
   ativo: boolean;
   prioridade: Prioridade; // ainda não usado em cálculo
   roteiro: RoteiroEtapa[];
+  // Só produto de ROTAS (M3) com a trava de suporte aberta: rotas, convergência, fluxo comum e etapa final explícita. Ausente em todo produto linear (nada muda para eles).
+  estruturaRotas?: import("@/features/rotas/tipos").EstruturaProduto;
 }
 
 export interface Maquina {

@@ -23,14 +23,17 @@ import GlobalStyles from "@/components/shell/GlobalStyles";
 import { THEMES } from "@/lib/constants";
 import { temPermissao } from "@/lib/permissoes";
 import { formatBRL, setModoPrivadoAtivo } from "@/lib/format";
-import { cenario, estruturaDasLinhas, etapasDoProduto, horasComprometidasPorOutros, selecaoComoPrevisaoLegada, type LinhasRotas } from "./dados";
+import { estruturaDasLinhas, etapasDoProduto, type LinhasRotas } from "./dados";
 import { validarEstrutura, todasAsEtapas } from "./estrutura";
-import { capacidadeEtapa, horasMaquinaSemana } from "./capacidade";
-import type { ContextoCapacidade, PeriodoId } from "./tipos";
+import type { PeriodoId } from "./tipos";
 import DiagramaRotas from "./DiagramaRotas";
 import PlanoRotas from "./PlanoRotas";
-import { planejarRotas, type SaidaPlanejador } from "./planejador";
+import SelecaoRotasPrevisao from "./SelecaoRotasPrevisao";
+import { previaComCompartilhamento, type ItemSelecionado, type MetasDaEtapa } from "./compartilhada";
 import type { ContextoCusto } from "./custo";
+import { resolverRotas, type ResolucaoProduto } from "./resolucao";
+import { estadoDeSimulacao } from "./simulacao";
+import { epochMsNoFuso } from "@/features/escala/tempo";
 
 interface Carga {
   linhas: Omit<LinhasRotas, "produtoId">;
@@ -85,15 +88,14 @@ export default function RotasProdutoPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [demanda, setDemanda] = useState(116625);
   const [dias, setDias] = useState(5);
-  const [modoMaquinas, setModoMaquinas] = useState<"previsao_legada" | "todas">("previsao_legada");
-  const [descontar, setDescontar] = useState(true);
-  const [e16, setE16] = useState<"real" | "0" | "25" | "50" | "100">("real");   // quanto da Etiquetadora 16 sobra para o Conector (concorrência com outros produtos)
-  const [autoParada, setAutoParada] = useState(false);
-  const [desempenhoAuto, setDesempenhoAuto] = useState(0);   // peças/semana efetivas da AUTO (0 = meta cadastrada)
-  const [wipPool, setWipPool] = useState(0);
   const [semanaId, setSemanaId] = useState<string>("");
-  const [manual, setManual] = useState<Record<string, string[]> | null>(null);   // ajuste manual de máquinas por etapa (o que a Previsão selecionaria)
-  const [itensSemana, setItensSemana] = useState<{ produto_id: string; quantidade: number; previsao_item_maquinas: { etapa_id: string; maquina_id: string }[] }[]>([]);
+  // SIMULAÇÃO da Previsão: tudo começa DESMARCADO. Esta página nunca marca máquina por você e não grava nada.
+  const [selecao, setSelecao] = useState<Record<string, string[]>>({});
+  const [pessoas, setPessoas] = useState(18);
+  const [autoCaiNaQuinta, setAutoCaiNaQuinta] = useState(false);   // indisponibilidade dinâmica: só a Escala enxerga ⇒ realizável < nominal
+  const [maxRodadas, setMaxRodadas] = useState(3);
+  const [simulada, setSimulada] = useState<ResolucaoProduto | null>(null);
+  const [itensSemana, setItensSemana] = useState<{ produto_id: string; quantidade: number; valor_unitario: number; previsao_item_maquinas: { etapa_id: string; maquina_id: string }[] }[]>([]);
 
   const ativo = auth.autenticado && permitido;
   useEffect(() => {
@@ -109,7 +111,7 @@ export default function RotasProdutoPage() {
     if (!ativo || !semanaId) return;
     let vivo = true;
     void (async () => {
-      const r = await supabase.from("previsao_itens").select("produto_id, quantidade, previsao_item_maquinas(etapa_id, maquina_id)").eq("previsao_id", semanaId).eq("tipo", "previsto");
+      const r = await supabase.from("previsao_itens").select("produto_id, quantidade, valor_unitario, previsao_item_maquinas(etapa_id, maquina_id)").eq("previsao_id", semanaId).eq("tipo", "previsto");
       if (vivo && !r.error) setItensSemana((r.data ?? []) as unknown as typeof itensSemana);
     })();
     return () => { vivo = false; };
@@ -123,33 +125,42 @@ export default function RotasProdutoPage() {
     const estrutura = estruturaDasLinhas(linhas);
     const periodos = carga.periodos.map((p) => ({ id: p.id as PeriodoId, minutos: min(p.fim) - min(p.inicio) }));
     const legados = new Set(carga.variantes.filter((v) => v.produto_final_id === produtoF.id).map((v) => v.produto_legado_id));
-    const opDaEtapa = new Map(carga.todasEtapas.map((e) => [e.id, e.operacao_id]));
-    const etapasPorId = new Map(carga.todasEtapas.map((e) => [e.id, { operacaoId: e.operacao_id, metas: { m1: Number(e.meta_m1), m2: Number(e.meta_m2), m3: Number(e.meta_m3), t1: Number(e.meta_t1), t2: Number(e.meta_t2), t3: Number(e.meta_t3) } as Record<PeriodoId, number> }]));
-    const base = modoMaquinas === "previsao_legada" ? selecaoComoPrevisaoLegada(etapas, itensSemana, legados, opDaEtapa) : Object.fromEntries([...etapas.values()].map((e) => [e.id, e.maquinasIds]));
-    const selecao = manual ?? base;
-    const ctx: ContextoCapacidade = { periodos, diasProdutivos: dias };
-    if (descontar) ctx.horasComprometidasPorMaquina = horasComprometidasPorOutros(itensSemana, new Set([produtoF.id, ...legados]), etapasPorId, ctx);
-    // simulação do planejador: a E16 (e qualquer máquina) pode ser reservada por outros produtos; "AUTO parada" tira a máquina da rota
-    const ctxPlan: ContextoCapacidade = { ...ctx, maquinasIndisponiveis: autoParada ? [...(etapas.get(estrutura.rotas.find((r) => r.codigo === "AUTO")?.etapas[0] ?? "")?.maquinasIds ?? [])] : [] };
-    let selPlan = selecao;
-    const etiqId = estrutura.poolComum?.etapas.find((id) => etapas.get(id)?.operacao === "Etiquetar");
-    const e16Id = etiqId ? etapas.get(etiqId)?.maquinasIds.find((m) => /16/.test(carga.maquinas.find((x) => x.id === m)?.nome ?? "")) : undefined;
-    if (e16 !== "real" && etiqId && e16Id) {
-      selPlan = { ...selecao, [etiqId]: [...new Set([...(selecao[etiqId] ?? []), e16Id])] };
-      ctxPlan.horasComprometidasPorMaquina = { ...(ctx.horasComprometidasPorMaquina ?? {}), [e16Id]: horasMaquinaSemana(ctx) * (1 - Number(e16) / 100) };
-    }
-    const autoEtapa = estrutura.rotas.find((r) => r.codigo === "AUTO")?.etapas[0];
-    const nomAuto = autoEtapa ? capacidadeEtapa(etapas.get(autoEtapa)!, ctx, selecao[autoEtapa]).pecas : 0;
-    const custoCtx: ContextoCusto = { periodos, custoHoraPorOperacao: custoHora.custoHoraPorOperacao, custoHoraPadrao: custoHora.custoHoraEmpresa };
-    const plano = planejarRotas({ estrutura, etapas, demanda, ctx: ctxPlan, selecao: selPlan, valorUnitario: Number(produtoF.valor_unitario), wipInicial: wipPool > 0 ? { pool: wipPool } : undefined,
-      fatorDesempenho: autoEtapa && desempenhoAuto > 0 && nomAuto > 0 ? { [autoEtapa]: desempenhoAuto / nomAuto } : undefined, custo: custoCtx }) as SaidaPlanejador;
-    const analise = cenario(estrutura, etapas, demanda, ctx, selecao);
+    const etapasPorId = new Map<string, MetasDaEtapa>(carga.todasEtapas.map((e) => [e.id, { operacaoId: e.operacao_id, metas: { m1: Number(e.meta_m1), m2: Number(e.meta_m2), m3: Number(e.meta_m3), t1: Number(e.meta_t1), t2: Number(e.meta_t2), t3: Number(e.meta_t3) } as Record<PeriodoId, number> }]));
+    // demais itens da semana de referência (quem também escolheu máquinas) — os legados P/A do Conector ficam de fora (são o mesmo produto)
+    const porProduto = new Map<string, ItemSelecionado & { valor: number }>();
+    itensSemana.filter((i) => !legados.has(i.produto_id) && i.produto_id !== produtoF.id).forEach((i) => {
+      const o = porProduto.get(i.produto_id) ?? { itemId: i.produto_id, produtoNome: carga.produtos.find((x) => x.id === i.produto_id)?.nome.trim(), quantidade: 0, selecao: {}, valor: Number(i.valor_unitario) };
+      o.quantidade += Number(i.quantidade);
+      i.previsao_item_maquinas.forEach((m) => { o.selecao[m.etapa_id] = [...new Set([...(o.selecao[m.etapa_id] ?? []), m.maquina_id])]; });
+      porProduto.set(i.produto_id, o);
+    });
+    const outros = [...porProduto.values()];
+    const etapaAuto = estrutura.rotas.find((r) => r.codigo === "AUTO")?.etapas[0];
+    const maquinasAuto = etapaAuto ? etapas.get(etapaAuto)?.maquinasIds ?? [] : [];
+    const custo: ContextoCusto = { periodos, custoHoraPorOperacao: custoHora.custoHoraPorOperacao, custoHoraPadrao: custoHora.custoHoraEmpresa };
+    const ctx = { periodos, diasProdutivos: dias };
+    const previa = previaComCompartilhamento({ itemId: "__F", estrutura, etapas, demanda, ctx, selecao, outros, etapasDosOutros: etapasPorId, custo, valorUnitario: Number(produtoF.valor_unitario) });
     const problemas = validarEstrutura(estrutura, [...etapas.values()]);
-    return { etapas, estrutura, analise, problemas, selecao, ctx, legados, plano };
-  }, [carga, produtoF, demanda, dias, modoMaquinas, descontar, itensSemana, manual, e16, autoParada, desempenhoAuto, wipPool, custoHora]);
+    return { etapas, estrutura, periodos, legados, etapasPorId, outros, maquinasAuto, ctx, custo, previa, problemas, linhas };
+  }, [carga, produtoF, demanda, dias, selecao, itensSemana, custoHora]);
 
   const nomeMaquina = (id: string) => carga?.maquinas.find((m) => m.id === id)?.nome.trim() ?? id.slice(0, 6);
   const nomeProd = (id: string) => carga?.produtos.find((p) => p.id === id)?.nome.trim() ?? id.slice(0, 6);
+  const alternar = (etapaId: string, maquinaId: string) => { setSimulada(null); setSelecao((s) => { const atual = s[etapaId] ?? []; return { ...s, [etapaId]: atual.includes(maquinaId) ? atual.filter((x) => x !== maquinaId) : [...atual, maquinaId] }; }); };
+
+  function simularEscala() {
+    if (!carga || !produtoF || !modelo) return;
+    const semanaInicio = "2026-11-02";
+    const estado = estadoDeSimulacao({
+      produtoId: produtoF.id, nomeProduto: produtoF.nome, valorUnitario: Number(produtoF.valor_unitario), linhas: modelo.linhas, todasEtapas: carga.todasEtapas, todasEtapaMaquinas: carga.linhas.etapaMaquinas,
+      periodos: carga.periodos, semanaInicio, dias, demanda, selecao, maquinasIndisponiveis: [],
+      outros: modelo.outros.map((o) => ({ produtoId: o.itemId, nome: o.produtoNome ?? o.itemId, quantidade: o.quantidade, valorUnitario: o.valor, maquinasPorEtapa: o.selecao })), pessoas,
+      maquinaQueCai: autoCaiNaQuinta && modelo.maquinasAuto[0] ? { maquinaId: modelo.maquinasAuto[0], desdeIso: "2026-11-05T03:00:00.000Z" } : undefined,
+      custoHoraPorOperacao: custoHora.custoHoraPorOperacao, custoHoraPadrao: custoHora.custoHoraEmpresa, maxRodadas,
+    });
+    const r = resolverRotas(estado, epochMsNoFuso(semanaInicio, "05:00"));
+    setSimulada(r ? r.produtos[produtoF.id] ?? null : null);
+  }
 
   if (meta.loading || auth.restaurandoSessao || !auth.autenticado) {
     return (
@@ -167,7 +178,7 @@ export default function RotasProdutoPage() {
   );
   if (!permitido) return <div className="stx-root"><GlobalStyles cores={cores} /><div className="stx-layout">{sidebar}<AcessoNegado /></div></div>;
 
-  const a = modelo?.analise;
+  const ultima = simulada?.rodadas.at(-1);
   return (
     <div className="stx-root">
       <GlobalStyles cores={cores} />
@@ -176,73 +187,69 @@ export default function RotasProdutoPage() {
         <div className="stx-content-wrapper">
           <TopBarActions modoPrivado={modoPrivado} onToggleModoPrivado={() => { const n = !modoPrivado; setModoPrivadoAtivo(n); setModoPrivado(n); }} tema={tema} onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
             usuarioLogado={auth.usuarioLogado} abaAtiva="produtos" onAbrirMenu={shell.abrirGaveta} />
-          <div className="stx-header"><div><h1 className="stx-title">Rotas de fabricação (demonstração)</h1>
-            <p className="stx-panel-sub">Somente leitura — M0/M1/M2. O planejador roda só em memória (simulação); a Previsão, a Escala, o WIP e os apontamentos ainda NÃO usam este modelo.</p></div></div>
+          <div className="stx-header"><div><h1 className="stx-title">Rotas de fabricação (simulação da Previsão)</h1>
+            <p className="stx-panel-sub">Ambiente de teste (M3): nada é gravado e a trava de suporte continua fechada. As máquinas começam desmarcadas — o sistema nunca escolhe máquina por você.</p></div></div>
           {erro && <div className="stx-esc-banner erro">{erro}</div>}
           {!carga && !erro && <div className="stx-empty">Carregando…</div>}
           {carga && !produtoF && <div className="stx-empty">Nenhum produto com rotas neste ambiente (a M1 ainda não foi aplicada).</div>}
-          {carga && produtoF && modelo && a && (
+          {carga && produtoF && modelo && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingBottom: 24 }}>
               <section style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 14 }}>
                 <b>{produtoF.nome}</b> · referência {produtoF.referencia} · valor único R$ {Number(produtoF.valor_unitario).toLocaleString("pt-BR", { minimumFractionDigits: 4 })}
-                <div style={{ overflowX: "auto", marginTop: 10 }}><DiagramaRotas estrutura={modelo.estrutura} etapas={modelo.etapas} analise={a} nomeProduto={produtoF.nome} /></div>
+                <div style={{ overflowX: "auto", marginTop: 10 }}><DiagramaRotas estrutura={modelo.estrutura} etapas={modelo.etapas} nomeProduto={produtoF.nome} /></div>
               </section>
 
               <section style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-                <b>Planejador de rotas (simulação)</b>
+                <b>Previsão simulada</b>
                 <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13, alignItems: "flex-end" }}>
-                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>Etiquetadora 16 disponível
-                    <select value={e16} onChange={(e) => setE16(e.target.value as typeof e16)}><option value="real">como a Previsão (real)</option><option value="0">0%</option><option value="25">25%</option><option value="50">50%</option><option value="100">100%</option></select></label>
-                  <label style={{ display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={autoParada} onChange={(e) => setAutoParada(e.target.checked)} />AUTO parada</label>
-                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>AUTO efetiva (peças/semana, 0 = meta)<input type="number" min={0} value={desempenhoAuto} onChange={(e) => setDesempenhoAuto(Math.max(0, Number(e.target.value)))} style={{ width: 110 }} /></label>
-                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>WIP inicial no pool<input type="number" min={0} value={wipPool} onChange={(e) => setWipPool(Math.max(0, Number(e.target.value)))} style={{ width: 100 }} /></label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>Quantidade prevista (demanda final)<input type="number" value={demanda} min={0} onChange={(e) => { setSimulada(null); setDemanda(Math.max(0, Number(e.target.value))); }} style={{ width: 130 }} /></label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>Dias produtivos<input type="number" value={dias} min={1} max={7} onChange={(e) => { setSimulada(null); setDias(Math.min(7, Math.max(1, Number(e.target.value)))); }} style={{ width: 80 }} /></label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>Semana de referência (outros itens e suas máquinas)
+                    <select value={semanaId} onChange={(e) => { setSimulada(null); setSemanaId(e.target.value); }}>{carga.previsoes.map((p) => <option key={p.id} value={p.id}>{p.semana_inicio}{p.modelo_rotas ? " (rotas)" : ""}</option>)}</select></label>
+                  <button type="button" className="stx-btn-secondary" onClick={() => { setSimulada(null); setSelecao({}); }}>Desmarcar tudo</button>
                 </div>
-                <PlanoRotas plano={modelo.plano} />
+                <SelecaoRotasPrevisao estrutura={modelo.estrutura} etapas={modelo.etapas} nomeMaquina={nomeMaquina} maquinasIndisponiveis={[]} selecao={selecao} onToggleMaquina={alternar} demanda={demanda} ctx={modelo.ctx}
+                  outros={modelo.outros} etapasDosOutros={modelo.etapasPorId} custo={modelo.custo} valorUnitario={Number(produtoF.valor_unitario)}
+                  realizavel={ultima ? { porRota: ultima.capacidadeRealizavelPorRota, final: ultima.finalRealizavel, observacao: simulada?.convergiu ? "convergiu" : "não convergiu" } : null} />
+                {modelo.outros.length > 0 && <p className="stx-panel-sub" style={{ margin: 0 }}>Outros itens da semana de referência usados na disputa por máquina: {modelo.outros.map((o) => nomeProd(o.itemId)).join(", ")}.</p>}
               </section>
 
               <section style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-                <b>Cenário de capacidade</b>
+                <b>Divisão, funil do fluxo comum e gargalo (nominal)</b>
+                <PlanoRotas plano={modelo.previa.plano} />
+              </section>
+
+              <section style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+                <b>Escala em memória — capacidade realizável e feedback (até {maxRodadas} rodadas)</b>
                 <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13, alignItems: "flex-end" }}>
-                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>Demanda final<input type="number" value={demanda} min={0} onChange={(e) => setDemanda(Math.max(0, Number(e.target.value)))} style={{ width: 120 }} /></label>
-                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>Dias produtivos<input type="number" value={dias} min={1} max={7} onChange={(e) => setDias(Math.min(7, Math.max(1, Number(e.target.value))))} style={{ width: 80 }} /></label>
-                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>Semana de referência (itens dos outros produtos / máquinas)
-                    <select value={semanaId} onChange={(e) => setSemanaId(e.target.value)}>{carga.previsoes.map((p) => <option key={p.id} value={p.id}>{p.semana_inicio}{p.modelo_rotas ? " (rotas)" : ""}</option>)}</select></label>
-                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>Máquinas
-                    <select value={modoMaquinas} onChange={(e) => { setManual(null); setModoMaquinas(e.target.value as "previsao_legada" | "todas"); }}><option value="previsao_legada">como a Previsão dos produtos legados</option><option value="todas">todas as elegíveis</option></select></label>
-                  <label style={{ display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={descontar} onChange={(e) => setDescontar(e.target.checked)} />descontar capacidade comprometida por outros produtos</label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>Pessoas na equipe<input type="number" min={1} value={pessoas} onChange={(e) => { setSimulada(null); setPessoas(Math.max(1, Number(e.target.value))); }} style={{ width: 80 }} /></label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>Rodadas (máx.)<input type="number" min={1} max={3} value={maxRodadas} onChange={(e) => { setSimulada(null); setMaxRodadas(Math.min(3, Math.max(1, Number(e.target.value)))); }} style={{ width: 70 }} /></label>
+                  <label style={{ display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={autoCaiNaQuinta} onChange={(e) => { setSimulada(null); setAutoCaiNaQuinta(e.target.checked); }} />máquina automática cai na quinta (só a Escala vê)</label>
+                  <button type="button" className="stx-btn-primary" onClick={simularEscala}>Simular Escala</button>
                 </div>
-                <div style={{ fontSize: 14 }}>
-                  <b>{a.atende ? "A demanda cabe" : "A demanda NÃO cabe"}:</b> entregável {fmt(a.maxEntregavel)} de {fmt(a.demanda)}{a.falta > 0 ? ` (faltam ${fmt(a.falta)})` : ""} · entrada das rotas {fmt(a.capacidadeEntrada)} · pool comum {fmt(a.capacidadeComum)}.
-                  {a.gargalo?.tipo === "comum" && <> Gargalo <b>comum</b>: {a.gargalo.operacao}.</>}
-                  {a.gargalo?.tipo === "entrada" && <> A soma das rotas não cobre a demanda: {a.gargalo.limitantes.map((l) => `${l.rotaCodigo} (${l.operacao}: ${fmt(l.pecas)})`).join(" + ")}.</>}
-                </div>
-                <div style={{ overflowX: "auto" }}>
-                  <table className="stx-rel-tabela" style={{ minWidth: 520, width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                    <thead><tr><th style={{ textAlign: "left" }}>Etapa</th><th style={{ textAlign: "left" }}>Onde</th><th style={{ textAlign: "left" }}>Máquinas marcadas (peças/semana)</th><th style={{ textAlign: "right" }}>Capacidade</th></tr></thead>
-                    <tbody>
-                      {[...a.capacidadePorRota.flatMap((r) => r.etapas.map((c) => ({ c, onde: r.rotaCodigo }))), ...a.comum.map((c) => ({ c, onde: "POOL COMUM" }))].map(({ c, onde }) => (
-                        <tr key={c.etapaId}><td>{c.operacao}</td><td>{onde}</td><td>
-                          {modelo.etapas.get(c.etapaId)?.maquinasIds.map((m) => {
-                            const marcada = (modelo.selecao?.[c.etapaId] ?? []).includes(m);
-                            return (
-                              <label key={m} style={{ marginRight: 10, whiteSpace: "nowrap" }}>
-                                <input type="checkbox" checked={marcada} onChange={() => setManual({ ...(modelo.selecao ?? {}), [c.etapaId]: marcada ? (modelo.selecao?.[c.etapaId] ?? []).filter((x) => x !== m) : [...(modelo.selecao?.[c.etapaId] ?? []), m] })} />
-                                {" "}{nomeMaquina(m)}{c.porMaquina[m] !== undefined ? ` ${fmt(c.porMaquina[m])}` : ""}
-                              </label>
-                            );
-                          })}
-                        </td><td style={{ textAlign: "right" }}>{fmt(c.pecas)}</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                {!simulada && <p className="stx-panel-sub" style={{ margin: 0 }}>Marque as máquinas e clique em “Simular Escala”. O resultado volta agrupado no Conector 3/4&quot; (Final): Rota convencional, Rota automática e Fluxo comum.</p>}
+                {simulada && (
+                  <div style={{ fontSize: 13 }}>
+                    <b>{simulada.convergiu ? "Convergiu" : "NÃO convergiu"}</b> — motivo da parada: <code>{simulada.parada}</code> · {simulada.rodadas.length} rodada(s)
+                    <div style={{ overflowX: "auto", marginTop: 6 }}>
+                      <table className="stx-rel-tabela" style={{ minWidth: 560, width: "100%", borderCollapse: "collapse" }}>
+                        <thead><tr><th>Rodada</th><th>Rota</th><th style={{ textAlign: "right" }}>Alvo</th><th style={{ textAlign: "right" }}>Nominal</th><th style={{ textAlign: "right" }}>Realizável</th><th>Hash entrada</th></tr></thead>
+                        <tbody>{simulada.rodadas.flatMap((r) => Object.keys(r.alvo).map((c) => (
+                          <tr key={`${r.rodada}-${c}`}><td>{r.rodada}</td><td>{c === "AUTO" ? "Rota automática" : c === "CONV" ? "Rota convencional" : c}</td><td style={{ textAlign: "right" }}>{fmt(r.alvo[c])}</td><td style={{ textAlign: "right" }}>{fmt(r.capacidadeNominalPorRota[c])}</td><td style={{ textAlign: "right" }}>{fmt(r.capacidadeRealizavelPorRota[c])}</td><td><code>{r.hashEntradaPlanejador.slice(0, 10)}</code></td></tr>
+                        )))}</tbody>
+                      </table>
+                    </div>
+                    <p style={{ margin: "6px 0 0" }}>Fluxo comum planejado {fmt(simulada.plano.final)} · realizável pela Escala {fmt(ultima?.finalRealizavel ?? 0)}.</p>
+                    {simulada.diagnostico.length > 0 && <ul style={{ margin: "6px 0 0", paddingLeft: 18, color: "var(--warning)" }}>{simulada.diagnostico.map((d) => <li key={d}>{d}</li>)}</ul>}
+                  </div>
+                )}
               </section>
 
               <section style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 14, fontSize: 13 }}>
                 <b>Verificações estruturais</b>
                 <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
                   <li>Estrutura válida: {modelo.problemas.length === 0 ? "sim" : <span style={{ color: "var(--danger)" }}>{modelo.problemas.join("; ")}</span>}</li>
-                  <li>Etapas do produto final: {todasAsEtapas(modelo.estrutura).length} (todas com ids novos; nenhuma etapa legada referenciada)</li>
+                  <li>Etapas do produto final: {todasAsEtapas(modelo.estrutura).length} (ids novos; nenhuma etapa legada referenciada)</li>
                   <li>Etapa final (explícita, não por ordem): {modelo.etapas.get(modelo.estrutura.etapaFinalId ?? "")?.operacao ?? "—"}</li>
                   <li>Vínculo analítico: {carga.variantes.filter((v) => v.produto_final_id === produtoF.id).map((v) => `${nomeProd(v.produto_legado_id)} → ${carga.linhas.rotas.find((r) => r.id === v.rota_id)?.codigo}`).join(" · ")}</li>
                 </ul>
