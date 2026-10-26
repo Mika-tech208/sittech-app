@@ -82,6 +82,14 @@ export function digestDasFontes(f: FontesRelatorio, considerados: PeriodoRef[]):
   return sha256Hex(jsonCanonico({ aps, ofi, aus, sit, equipe: [...f.equipe].sort(), dias: [...f.diasProdutivos].sort() }));
 }
 
+// Reconstrução ao instante do fechamento: apontamentos, ausências, equipe e dias produtivos vêm do log temporal; o plano oficial, da versão vigente — se não houver versão, declara.
+export function avisosDeReconstrucao(f: FontesRelatorio): string[] {
+  if (!f.comoDe || !f.reconstrucao) return [];
+  return f.reconstrucao.oficial === "atual"
+    ? ["O plano oficial não pôde ser reconstruído ao instante do fechamento (nenhuma versão registrada); vale o plano vigente na geração. Os demais insumos refletem o instante do fechamento."]
+    : [];
+}
+
 export function hashDoConteudo(c: ConteudoRelatorio): { canonico: string; hash: string } {
   const canonico = jsonCanonico(c);
   return { canonico, hash: sha256Hex(canonico) };
@@ -286,7 +294,7 @@ export function montarConteudo(f: FontesRelatorio, meta: MetaGeracao): ConteudoR
     toleranciaApontamentoMin: toleranciaMin,
     fechamentoAutomatico: meta.fechamentoAutomatico === true,
     urlVerificacao: meta.urlVerificacao,
-    fontes: { planoVersao: f.planoVersao, digest: digestDasFontes(f, considerados), qtdApontamentos: apProd.length + semProd.length, qtdAusencias: f.ausencias.length, qtdOficial: f.oficial.filter((o) => setCons.has(`${o.data}|${o.periodoId}`)).length, qtdAjustesManuais: f.ajustesManuais.length },
+    fontes: { planoVersao: f.planoVersao, digest: digestDasFontes(f, considerados), qtdApontamentos: apProd.length + semProd.length, qtdAusencias: f.ausencias.length, qtdOficial: f.oficial.filter((o) => setCons.has(`${o.data}|${o.periodoId}`)).length, qtdAjustesManuais: f.ajustesManuais.length, avisos: avisosDeReconstrucao(f) },
     dias, funcionarios,
     semProducao: semProd.map((a) => ({ data: a.data, periodoId: a.periodoId, maquina: nomeM(a.maquinaId), motivo: ROTULO_MOTIVO_SEM_PRODUCAO[a.motivo ?? "outro"] ?? (a.motivo ?? "outro") }))
       .sort((x, y) => (`${x.data}|${x.periodoId}|${x.maquina}` < `${y.data}|${y.periodoId}|${y.maquina}` ? -1 : 1)),

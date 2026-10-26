@@ -28,6 +28,10 @@ describe("status: parcial / final decidido pelo sistema (fechamento lógico: sex
     expect(statusDoRelatorio(f, em("17:59", SAB)).status).toBe("parcial");
     expect(statusDoRelatorio(f, em("18:00", SAB)).status).toBe("final");
   });
+  it("domingo produtivo: fecha no domingo 18:00 (semana sem produção nenhuma é tratada pelo worker)", () => {
+    expect(fechamentoLogicoMs(fontes({ diasProdutivos: [SEG, SAB, "2026-11-08"] }))).toBe(em("18:00", "2026-11-08"));
+    expect(fechamentoLogicoMs(fontes({ diasProdutivos: ["2026-11-08"] }))).toBe(em("18:00", "2026-11-08"));
+  });
   it("sábado NÃO produtivo (mesmo que exista na semana) não adia o fechamento da sexta", () => {
     expect(fechamentoLogicoMs(fontes({ diasProdutivos: [SEG, SEX] }))).toBe(em("18:00", SEX));
   });

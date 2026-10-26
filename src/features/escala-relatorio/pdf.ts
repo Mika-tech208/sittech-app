@@ -145,6 +145,7 @@ export async function renderizarPdf(c: ConteudoRelatorio, hash: string): Promise
   texto(pg, `SHA-256 do conteúdo: ${hash.slice(0, 16)}…${hash.slice(-8)} (completo registrado no sistema).`, M, y, 8); y -= 10;
   texto(pg, `Verificação: ${c.urlVerificacao}`, M, y, 8); y -= 10;
   texto(pg, "O hash prova que o conteúdo registrado não foi alterado depois de gerado; ele não substitui a conferência dos fatos pelos responsáveis.", M, y, 7.5, f, CINZA);
+  c.fontes.avisos.forEach((a) => quebrar(f, `Aviso: ${a}`, 7.5, W - 2 * M).forEach((l) => { y -= 10; texto(pg, l, M, y, 7.5, f, CINZA); }));
 
   // ---------------- grade por funcionário (começa em página própria: a 1ª é só identificação e resumo) ----------------
   novaPagina();

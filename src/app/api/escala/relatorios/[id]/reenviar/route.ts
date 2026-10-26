@@ -1,4 +1,4 @@
-// REENVIAR E-MAIL do relatório gerado pelo fechamento automático: reaproveita EXATAMENTE o mesmo PDF/versão (nunca regera). Exige `escala_relatorios`.
+// REENVIAR E-MAIL do relatório gerado pelo fechamento automático: reaproveita EXATAMENTE o mesmo PDF/versão/hash (nunca regera), inclusive quando já consta como enviado (cada reenvio entra no histórico). Exige `escala_relatorios`.
 import { NextResponse } from "next/server";
 import { criarClienteAdmin } from "@/lib/supabase-admin";
 import { autenticarRequisicaoIntelligence } from "@/features/intelligence/auth";
@@ -17,7 +17,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ erro: "id inválido." }, { status: 400 });
   try {
     const base = process.env.RELATORIO_BASE_URL && /^https?:\/\//.test(process.env.RELATORIO_BASE_URL) ? process.env.RELATORIO_BASE_URL : new URL(request.url).origin;
-    const r = await reenviarEmail(criarClienteAdmin(), provedorDoAmbiente(), id, base);
+    const r = await reenviarEmail(criarClienteAdmin(), provedorDoAmbiente(), id, base, auth.usuario.id);
     return NextResponse.json(r.ok ? { ok: true } : { ok: false, erro: r.erro }, { status: r.ok ? 200 : 409 });
   } catch (e) {
     console.error("escala/relatorios reenviar:", e instanceof Error ? e.message : e);

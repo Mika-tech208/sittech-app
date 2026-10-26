@@ -3,8 +3,9 @@
 //
 //   geração × e-mail são etapas SEPARADAS (cada uma com status, tentativas e último erro); falha de e-mail nunca regera o PDF; falha técnica de geração nunca cria v2.
 //   A orquestração fala com uma "porta" (testável em memória); o adaptador do Supabase está no fim do arquivo.
+import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fechamentoLogicoMs, dataHoraSP, somarDias } from "@/features/escala-relatorio/conteudo";
+import { fechamentoLogicoMs, somarDias } from "@/features/escala-relatorio/conteudo";
 import type { FontesRelatorio } from "@/features/escala-relatorio/tipos";
 import { baixarPdf, gerarRelatorio, lerFontes, type RelatorioGerado } from "./servico";
 import { montarEmail, type ProvedorEmail } from "./email";
@@ -24,11 +25,11 @@ export interface RelatorioParaEnvio { codigo: string; versao: number; semanaInic
 export interface PortaFechamento {
   config(): Promise<ConfigFechamento>;
   lerFontes(semana: string): Promise<FontesRelatorio | null>;               // null = semana sem Previsão
-  reivindicar(semana: string, logicoMs: number, destinatario: string): Promise<Fechamento | null>; // null = tudo feito ou outro worker está processando
+  reivindicar(semana: string, logicoMs: number, destinatario: string, forcar?: boolean): Promise<Fechamento | null>; // null = tudo feito (sem `forcar`) ou outro worker está processando
   gerar(semana: string, logicoMs: number): Promise<RelatorioGerado>;        // grava o relatório E marca o fechamento como gerado (uma transação)
   erroGeracao(fechamentoId: string, erro: string): Promise<void>;
   carregarRelatorio(relatorioId: string): Promise<RelatorioParaEnvio>;     // PDF armazenado, com o hash conferido
-  registrarEmail(fechamentoId: string, ok: boolean, erro: string | null, provedorId: string | null): Promise<void>;
+  registrarEmail(fechamentoId: string, ok: boolean, erro: string | null, provedorId: string | null, origem: "automatico" | "manual", usuarioId: string | null): Promise<void>;
   liberar(fechamentoId: string): Promise<void>;
 }
 
@@ -43,16 +44,20 @@ export const segundaDeSP = (ms: number): string => {
 const msde = (iso: string | null) => (iso ? Date.parse(iso) : 0);
 const msgDe = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 500);
 
-export async function enviarEmailDoFechamento(porta: PortaFechamento, provedor: ProvedorEmail, f: Fechamento, relatorioId: string, chaveExtra = ""): Promise<{ ok: boolean; erro?: string }> {
+export interface OrigemEnvio { origem: "automatico" | "manual"; usuarioId: string | null; chaveExtra: string }
+const ENVIO_AUTOMATICO: OrigemEnvio = { origem: "automatico", usuarioId: null, chaveExtra: "" };
+
+// Cada tentativa (automática ou REENVIO manual) entra no histórico de envios; o PDF/versão/hash são SEMPRE os do relatório guardado.
+export async function enviarEmailDoFechamento(porta: PortaFechamento, provedor: ProvedorEmail, f: Fechamento, relatorioId: string, envio: OrigemEnvio = ENVIO_AUTOMATICO): Promise<{ ok: boolean; erro?: string }> {
   try {
     const r = await porta.carregarRelatorio(relatorioId);
     const msg = montarEmail({ semanaInicio: r.semanaInicio, codigo: r.codigo, versao: r.versao, fechamentoMs: Date.parse(f.fechamentoLogicoEm), destinatario: f.destinatario, nomeArquivo: r.nomeArquivo, pdf: r.pdf });
-    const { id } = await provedor.enviar({ ...msg, chaveIdempotencia: `escala-relatorio-${relatorioId}${chaveExtra}` });
-    await porta.registrarEmail(f.id, true, null, id);
+    const { id } = await provedor.enviar({ ...msg, chaveIdempotencia: `escala-relatorio-${relatorioId}${envio.chaveExtra}` });
+    await porta.registrarEmail(f.id, true, null, id, envio.origem, envio.usuarioId);
     return { ok: true };
   } catch (e) {
     const erro = msgDe(e);
-    await porta.registrarEmail(f.id, false, erro, null);
+    await porta.registrarEmail(f.id, false, erro, null, envio.origem, envio.usuarioId);
     return { ok: false, erro };
   }
 }
@@ -130,8 +135,8 @@ export function portaSupabase(admin: SupabaseClient, baseUrl: string): PortaFech
     async lerFontes(semana) {
       try { return await lerFontes(admin, semana); } catch (e) { if (e instanceof Error && e.message.includes("Não existe Previsão")) return null; throw e; }
     },
-    async reivindicar(semana, logicoMs, destinatario) {
-      const r = await rpc("escala_relatorio_fechamento_reivindicar", { p_semana: semana, p_logico: new Date(logicoMs).toISOString(), p_destinatario: destinatario });
+    async reivindicar(semana, logicoMs, destinatario, forcar = false) {
+      const r = await rpc("escala_relatorio_fechamento_reivindicar", { p_semana: semana, p_logico: new Date(logicoMs).toISOString(), p_destinatario: destinatario, p_forcar: forcar });
       return r ? paraFechamento(r as Record<string, unknown>) : null;
     },
     gerar: (semana, logicoMs) => gerarRelatorio(admin, { semana, tipo: "executada", usuario: null, baseUrl, automatico: { fechamentoLogicoMs: logicoMs } }),
@@ -143,22 +148,21 @@ export function portaSupabase(admin: SupabaseClient, baseUrl: string): PortaFech
       if (!arq) throw new Error("PDF do relatório não encontrado.");
       return { codigo: rel.codigo as string, versao: Number(rel.versao), semanaInicio: String(rel.semana_inicio), nomeArquivo: arq.nomeArquivo, pdf: new Uint8Array(arq.bytes) };
     },
-    async registrarEmail(id, ok, erro, provedorId) { await rpc("escala_relatorio_fechamento_email", { p_id: id, p_ok: ok, p_erro: erro, p_provedor_id: provedorId }); },
+    async registrarEmail(id, ok, erro, provedorId, origem, usuarioId) { await rpc("escala_relatorio_fechamento_email", { p_id: id, p_ok: ok, p_erro: erro, p_provedor_id: provedorId, p_origem: origem, p_usuario: usuarioId }); },
     async liberar(id) { await rpc("escala_relatorio_fechamento_liberar", { p_id: id }); },
   };
 }
 
-// Reenvio manual (botão REENVIAR E-MAIL): MESMO PDF/versão do fechamento — nunca regera; só quando o e-mail ainda não foi enviado.
-export async function reenviarEmail(admin: SupabaseClient, provedor: ProvedorEmail, relatorioId: string, baseUrl: string): Promise<{ ok: boolean; erro?: string }> {
+// REENVIAR E-MAIL (botão): MESMO PDF/versão/hash do relatório do fechamento — nunca regera. Vale também quando o e-mail já consta como enviado (a Tamara perdeu a mensagem):
+// o primeiro envio (email_enviado_em) é preservado e cada reenvio entra no histórico com o usuário que clicou.
+export async function reenviarEmail(admin: SupabaseClient, provedor: ProvedorEmail, relatorioId: string, baseUrl: string, usuarioId: string): Promise<{ ok: boolean; erro?: string }> {
   const { data: fech, error } = await admin.from("escala_relatorio_fechamentos").select("*").eq("relatorio_id", relatorioId).maybeSingle();
   if (error) throw new Error(error.message);
   if (!fech) return { ok: false, erro: "Este relatório não foi gerado pelo fechamento automático." };
   const f = paraFechamento(fech as Record<string, unknown>);
-  if (f.emailStatus === "enviado") return { ok: false, erro: "O e-mail deste relatório já foi enviado." };
-  const porta = portaSupabase(admin, baseUrl);
-  const { data: lease, error: eL } = await admin.rpc("escala_relatorio_fechamento_reivindicar", { p_semana: f.semana, p_logico: f.fechamentoLogicoEm, p_destinatario: f.destinatario });
+  const { data: lease, error: eL } = await admin.rpc("escala_relatorio_fechamento_reivindicar", { p_semana: f.semana, p_logico: f.fechamentoLogicoEm, p_destinatario: f.destinatario, p_forcar: true });
   if (eL) throw new Error(eL.message);
   if (!lease) return { ok: false, erro: "Outro processo está enviando este e-mail agora. Tente novamente em instantes." };
   // chave diferente por clique: o usuário quer MESMO reenviar (a chave automática protege só a retentativa do worker)
-  return enviarEmailDoFechamento(porta, provedor, f, relatorioId, `-manual-${dataHoraSP(Date.now()).iso}`);
+  return enviarEmailDoFechamento(portaSupabase(admin, baseUrl), provedor, f, relatorioId, { origem: "manual", usuarioId, chaveExtra: `-manual-${randomUUID()}` });
 }

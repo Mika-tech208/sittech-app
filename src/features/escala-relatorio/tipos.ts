@@ -13,6 +13,8 @@ export interface SituacaoBruta { funcionarioId: string; acao: string; efetivoEm:
 
 export interface FontesRelatorio {
   agoraBanco: string;
+  comoDe?: string | null;                                 // instante da reconstrução (fechamento lógico); ausente/nulo = estado atual
+  reconstrucao?: { oficial: "versao" | "atual" };       // como o plano oficial foi obtido na reconstrução
   semanaInicio: string;
   previsaoId: string;
   diasProdutivos: string[];
@@ -91,7 +93,7 @@ export interface ConteudoRelatorio {
   toleranciaApontamentoMin: number;
   fechamentoAutomatico: boolean; // finalizado pelo sistema no fechamento lógico (sexta/sábado 18:00)
   urlVerificacao: string;
-  fontes: { planoVersao: { id: string; hashPlano: string; validoDesde: string } | null; digest: string; qtdApontamentos: number; qtdAusencias: number; qtdOficial: number; qtdAjustesManuais: number };
+  fontes: { planoVersao: { id: string; hashPlano: string; validoDesde: string } | null; digest: string; qtdApontamentos: number; qtdAusencias: number; qtdOficial: number; qtdAjustesManuais: number; avisos: string[] };
   dias: DiaConteudo[];
   funcionarios: FuncionarioConteudo[];
   semProducao: { data: string; periodoId: string; maquina: string; motivo: string }[];

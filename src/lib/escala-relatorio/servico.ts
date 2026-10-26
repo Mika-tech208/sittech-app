@@ -62,7 +62,7 @@ export async function gerarRelatorio(
   throw ultimoErro ?? new Error("Não foi possível registrar o relatório.");
 }
 
-export interface InfoEmail { status: "pendente" | "enviado" | "falhou"; destinatario: string; enviadoEm: string | null; tentativas: number; ultimoErro: string | null }
+export interface InfoEmail { status: "pendente" | "enviado" | "falhou"; destinatario: string; enviadoEm: string | null; ultimoEnvioEm: string | null; envios: number; tentativas: number; ultimoErro: string | null }
 export interface LinhaRelatorio {
   id: string; codigo: string; tipo: TipoRelatorio; versao: number; status: StatusRelatorio; geradoEm: string; consolidadoAte: string; geradoPor: string | null; hash: string; pdfBytes: number;
   alteracoesPosteriores: boolean | null; // dados-fonte mudaram depois deste relatório (não invalida o relatório)

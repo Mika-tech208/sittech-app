@@ -8,7 +8,7 @@ declare
   v_ap_ok uuid := gen_random_uuid(); v_ap_tarde uuid := gen_random_uuid(); v_ap_edit uuid := gen_random_uuid();
   v_au_ok uuid := gen_random_uuid(); v_au_tarde uuid := gen_random_uuid(); v_au_edit uuid := gen_random_uuid();
   PA uuid := gen_random_uuid(); EA uuid := gen_random_uuid(); v_op uuid;
-  v_msg text; v_j jsonb; v_r jsonb; v_ok boolean; v_n int; v_fid uuid;
+  v_msg text; v_j jsonb; v_r jsonb; v_ok boolean; v_n int; v_fid uuid; v_primeiro timestamptz;
   v_canon text := '{"codigo":"ESC-EXEC-2031-10-0001","v":1}'; v_hash text; v_pdf bytea := '\x255044462d312e340a'::bytea; v_pdf_sha text; v_rel uuid := gen_random_uuid();
 begin
   select auth_user_id, id into v_adm, v_usr from usuarios where papel = 'admin' and ativo order by id limit 1;
@@ -27,7 +27,8 @@ begin
   begin update escala_relatorio_config set automatico_ativo = true; v_ok := false; exception when others then v_ok := position('escala_relatorio_config_desde' in sqlerrm) > 0; end;
   if not v_ok then raise exception 'FALHOU (1) ligar sem semana inicial deveria ser recusado'; end if;
 
-  -- (2) as-of: apontamentos
+  -- (2) as-of (caminho LEGADO: linhas anteriores ao log temporal, sem versões): criado_em + histórico de edição
+  alter table apontamentos_producao disable trigger trg_registro_versoes; alter table ausencias_funcionarios disable trigger trg_registro_versoes;
   insert into apontamentos_producao (id, produto_id, etapa_id, operacao_id, valor_unitario_produto_vigente, maquina_id, funcionario_id, periodo_id, data, hora_lancamento, quantidade_produzida, quantidade_refugo, periodo_inicio_vigente, periodo_fim_vigente, meta_periodo_vigente, custo_hora_operacao_vigente,
       criado_por, status, criado_em, atualizado_em) values
     (v_ap_ok,    PA, EA, v_op, 1, v_maq, v_func, 'm1', SEM, '09:00', 10, 0, '07:12', '08:48', 100, 10, v_usr, 'produzindo', CORTE - interval '1 day', CORTE - interval '1 day'),
@@ -103,22 +104,34 @@ begin
   exception when others then v_ok := position('escala_relatorio_auto_final_exec' in sqlerrm) > 0; end;
   if not v_ok then raise exception 'FALHOU (6) parcial automático deveria ser recusado'; end if;
 
-  -- (7) e-mail: falha → falhou (PDF intacto); retry → enviado; depois de enviado nada regrava
+  -- (7) e-mail: falha → falhou (PDF intacto); retry → enviado; REENVIO de e-mail já entregue mantém o primeiro envio e soma ao histórico
   perform public.escala_relatorio_fechamento_email(v_fid, false, 'smtp 451', null);
   select to_jsonb(f) into v_r from escala_relatorio_fechamentos f where id = v_fid;
-  if v_r->>'email_status' <> 'falhou' or (v_r->>'email_tentativas')::int <> 1 or v_r->>'email_ultimo_erro' <> 'smtp 451' or v_r->>'email_enviado_em' is not null or v_r->>'geracao_status' <> 'gerado' then raise exception 'FALHOU (7) falha de e-mail: %', v_r; end if;
+  if v_r->>'email_status' <> 'falhou' or (v_r->>'email_tentativas')::int <> 1 or v_r->>'email_ultimo_erro' <> 'smtp 451' or v_r->>'email_enviado_em' is not null or v_r->>'geracao_status' <> 'gerado' or (v_r->>'email_envios')::int <> 0 then raise exception 'FALHOU (7) falha de e-mail: %', v_r; end if;
   perform public.escala_relatorio_fechamento_email(v_fid, true, null, 'msg-123');
-  perform public.escala_relatorio_fechamento_email(v_fid, false, 'não deveria regravar', null);
   select to_jsonb(f) into v_r from escala_relatorio_fechamentos f where id = v_fid;
-  if v_r->>'email_status' <> 'enviado' or (v_r->>'email_tentativas')::int <> 2 or v_r->>'email_provedor_id' <> 'msg-123' or v_r->>'email_ultimo_erro' is not null then raise exception 'FALHOU (7) enviado: %', v_r; end if;
-  if public.escala_relatorio_fechamento_reivindicar(SEM, CORTE, 'teste@example.com') is not null then raise exception 'FALHOU (7) tudo feito: nada a reivindicar'; end if;
+  v_primeiro := (v_r->>'email_enviado_em')::timestamptz;
+  if v_r->>'email_status' <> 'enviado' or (v_r->>'email_tentativas')::int <> 2 or v_r->>'email_provedor_id' <> 'msg-123' or v_r->>'email_ultimo_erro' is not null or (v_r->>'email_envios')::int <> 1 then raise exception 'FALHOU (7) enviado: %', v_r; end if;
+  if public.escala_relatorio_fechamento_reivindicar(SEM, CORTE, 'teste@example.com') is not null then raise exception 'FALHOU (7) tudo feito: o worker não reivindica'; end if;
+  if public.escala_relatorio_fechamento_reivindicar(SEM, CORTE, 'teste@example.com', 240, true) is null then raise exception 'FALHOU (7) reenvio manual precisa conseguir reivindicar'; end if;
+  perform pg_sleep(0.05);
+  perform public.escala_relatorio_fechamento_email(v_fid, true, null, 'msg-456', 'manual', v_usr);
+  perform public.escala_relatorio_fechamento_email(v_fid, false, 'caixa cheia', null, 'manual', v_usr);   -- falha de um reenvio NÃO "desenvia"
+  select to_jsonb(f) into v_r from escala_relatorio_fechamentos f where id = v_fid;
+  if v_r->>'email_status' <> 'enviado' or (v_r->>'email_envios')::int <> 2 or (v_r->>'email_tentativas')::int <> 4 or v_r->>'email_provedor_id' <> 'msg-456' then raise exception 'FALHOU (7) reenvio: %', v_r; end if;
+  if (v_r->>'email_enviado_em')::timestamptz <> v_primeiro then raise exception 'FALHOU (7) o primeiro envio não pode ser sobrescrito'; end if;
+  if (v_r->>'email_ultimo_envio_em')::timestamptz < v_primeiro then raise exception 'FALHOU (7) último envio deveria ser posterior'; end if;
+  select count(*) into v_n from escala_relatorio_envios where fechamento_id = v_fid;
+  if v_n <> 4 or (select count(*) from escala_relatorio_envios where fechamento_id = v_fid and ok) <> 2 or (select count(*) from escala_relatorio_envios where fechamento_id = v_fid and origem = 'manual' and usuario_id = v_usr) <> 2 then raise exception 'FALHOU (7) histórico de envios: % linhas', v_n; end if;
+  begin update escala_relatorio_envios set ok = false where fechamento_id = v_fid; v_ok := false; exception when others then v_ok := position('ESCALA_RELATORIO_ENVIOS_IMUTAVEL' in sqlerrm) > 0; end;
+  if not v_ok then raise exception 'FALHOU (7) histórico de envios deve ser append-only'; end if;
 
   -- (8) a lista interna expõe o e-mail
   perform set_config('request.jwt.claims', json_build_object('sub', v_adm, 'role', 'authenticated')::text, true);
   set local role authenticated;
   v_j := public.escala_relatorio_listar(SEM);
   reset role;
-  if v_j->0->>'fechamentoAutomatico' <> 'true' or v_j->0->'email'->>'status' <> 'enviado' then raise exception 'FALHOU (8) listar: %', v_j; end if;
+  if v_j->0->>'fechamentoAutomatico' <> 'true' or v_j->0->'email'->>'status' <> 'enviado' or (v_j->0->'email'->>'envios')::int <> 2 then raise exception 'FALHOU (8) listar: %', v_j; end if;
 
   raise exception 'TESTE_OK T2 fechamento automático: config desligada, as-of (cria/edição posteriores ignoradas), plano por versão, idempotência/lease, geração × e-mail separados, parcial nunca automático';
 end $$;

@@ -9,7 +9,7 @@ import { formatarDataHoraBR, weekLabel } from "@/lib/date";
 interface Linha {
   id: string; codigo: string; tipo: "planejada" | "executada"; versao: number; status: "parcial" | "final"; geradoEm: string; consolidadoAte: string; geradoPor: string | null; hash: string;
   pdfBytes: number; alteracoesPosteriores: boolean | null;
-  fechamentoAutomatico: boolean; email: { status: "pendente" | "enviado" | "falhou"; destinatario: string; enviadoEm: string | null; tentativas: number; ultimoErro: string | null } | null;
+  fechamentoAutomatico: boolean; email: { status: "pendente" | "enviado" | "falhou"; destinatario: string; enviadoEm: string | null; ultimoEnvioEm: string | null; envios: number; tentativas: number; ultimoErro: string | null } | null;
 }
 interface Fechamento { ativo: boolean; desdeSemana: string | null; destinatario: string; fechamentoLogicoEm: string | null; geracaoStatus: "pendente" | "gerado" | "erro" | null; geracaoTentativas: number; geracaoUltimoErro: string | null }
 interface Lista { relatorios: Linha[]; status: "parcial" | "final" | null; elegivelFinalEm: string | null; fechamento: Fechamento }
@@ -69,7 +69,8 @@ export default function RelatoriosEscalaModal({ semanaInicio, onFechar }: { sema
     await baixar(j.id, j.nomeArquivo);
   }
 
-  async function reenviar(id: string) {
+  async function reenviar(id: string, destinatario: string, jaEnviado: boolean) {
+    if (jaEnviado && !window.confirm(`Este relatório já foi enviado. Reenviar o MESMO PDF para ${destinatario}?`)) return;
     setOcupado(`email-${id}`); setErro(null); setAviso(null);
     const t = await token();
     if (!t) { setOcupado(null); setErro("Sessão expirada."); return; }
@@ -123,7 +124,13 @@ export default function RelatoriosEscalaModal({ semanaInicio, onFechar }: { sema
               <div><b>{r.codigo}</b> · v{r.versao} · {nomeTipo(r.tipo)} · <b>{r.status === "final" ? "FINAL" : "PARCIAL"}</b>{r.fechamentoAutomatico && <> · <b>Gerado automaticamente</b></>}</div>
               {r.email && (
                 <div style={{ color: r.email.status === "falhou" ? "var(--danger)" : "var(--text-muted)" }}>
-                  {r.email.status === "enviado" && <>Enviado para {r.email.destinatario} · Enviado em {r.email.enviadoEm ? formatarDataHoraBR(r.email.enviadoEm) : "—"}</>}
+                  {r.email.status === "enviado" && (
+                    <>
+                      Enviado para {r.email.destinatario} · Enviado em {r.email.enviadoEm ? formatarDataHoraBR(r.email.enviadoEm) : "—"}
+                      {r.email.envios > 1 && <> · Último envio: {r.email.ultimoEnvioEm ? formatarDataHoraBR(r.email.ultimoEnvioEm) : "—"}</>} · Envios realizados: {r.email.envios}
+                      {r.email.ultimoErro && <span style={{ color: "var(--danger)" }}> · Falha no último reenvio: {r.email.ultimoErro}</span>}
+                    </>
+                  )}
                   {r.email.status === "falhou" && <>Falha no envio para {r.email.destinatario}{r.email.ultimoErro ? ` — ${r.email.ultimoErro}` : ""} ({r.email.tentativas} tentativa(s))</>}
                   {r.email.status === "pendente" && <>Envio para {r.email.destinatario} pendente</>}
                 </div>
@@ -135,8 +142,8 @@ export default function RelatoriosEscalaModal({ semanaInicio, onFechar }: { sema
               <div style={{ display: "flex", gap: 10, marginTop: 4, flexWrap: "wrap" }}>
                 <button type="button" className="stx-btn-secondary" onClick={() => void baixar(r.id, `SITTECH_Revezamento_${semanaInicio}_v${r.versao}_${r.tipo === "executada" ? "executado" : "planejado"}.pdf`)}>Baixar PDF</button>
                 <a href={`/relatorios/escala/verificar/${r.id}`} target="_blank" rel="noreferrer" className="stx-btn-secondary" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}>Página de verificação</a>
-                {r.email && r.email.status !== "enviado" && (
-                  <button type="button" className="stx-btn-primary" disabled={!!ocupado} onClick={() => void reenviar(r.id)}>{ocupado === `email-${r.id}` ? "Enviando…" : "REENVIAR E-MAIL"}</button>
+                {r.email && (
+                  <button type="button" className={r.email.status === "enviado" ? "stx-btn-secondary" : "stx-btn-primary"} disabled={!!ocupado} onClick={() => void reenviar(r.id, r.email!.destinatario, r.email!.status === "enviado")}>{ocupado === `email-${r.id}` ? "Enviando…" : "REENVIAR E-MAIL"}</button>
                 )}
               </div>
             </div>

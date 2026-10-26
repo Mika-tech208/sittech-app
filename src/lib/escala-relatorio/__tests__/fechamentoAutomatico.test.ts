@@ -33,7 +33,8 @@ function criarMundo(opcoes: { fontes?: Partial<FontesRelatorio>; cfg?: Partial<C
     agora: em("12:00", SEX),
     cfg: { ativo: true, desdeSemana: SEG, destinatario: "tamara@sittech.com.br", ...opcoes.cfg } as ConfigFechamento,
     fontesAtuais: fontes({ ...base(), ...opcoes.fontes }),
-    fechamentos: new Map<string, Fechamento & { lease: number; erroGeracao: string | null; erroEmail: string | null; enviadoEm: number | null; provedorId: string | null }>(),
+    fechamentos: new Map<string, Fechamento & { lease: number; erroGeracao: string | null; erroEmail: string | null; enviadoEm: number | null; ultimoEnvioEm: number | null; envios: number; provedorId: string | null }>(),
+    historicoEnvios: [] as { ok: boolean; origem: string; usuarioId: string | null; erro: string | null }[],
     relatorios: [] as RelGuardado[],
     falharGeracao: null as string | null,
     geracoes: 0,
@@ -41,13 +42,13 @@ function criarMundo(opcoes: { fontes?: Partial<FontesRelatorio>; cfg?: Partial<C
   const porta: PortaFechamento = {
     async config() { return { ...w.cfg }; },
     async lerFontes(semana) { return semana === SEG ? w.fontesAtuais : null; },
-    async reivindicar(semana, logicoMs, destinatario) {
+    async reivindicar(semana, logicoMs, destinatario, forcar = false) {
       let f = w.fechamentos.get(semana);
       if (!f) {
-        f = { id: `fech-${semana}`, semana, fechamentoLogicoEm: new Date(logicoMs).toISOString(), destinatario, geracaoStatus: "pendente", geracaoTentativas: 0, geracaoUltimaTentativaEm: null, relatorioId: null, emailStatus: "pendente", emailTentativas: 0, emailUltimaTentativaEm: null, lease: 0, erroGeracao: null, erroEmail: null, enviadoEm: null, provedorId: null };
+        f = { id: `fech-${semana}`, semana, fechamentoLogicoEm: new Date(logicoMs).toISOString(), destinatario, geracaoStatus: "pendente", geracaoTentativas: 0, geracaoUltimaTentativaEm: null, relatorioId: null, emailStatus: "pendente", emailTentativas: 0, emailUltimaTentativaEm: null, lease: 0, erroGeracao: null, erroEmail: null, enviadoEm: null, ultimoEnvioEm: null, envios: 0, provedorId: null };
         w.fechamentos.set(semana, f);
       }
-      if (f.geracaoStatus === "gerado" && f.emailStatus === "enviado") return null;
+      if (f.geracaoStatus === "gerado" && f.emailStatus === "enviado" && !forcar) return null;
       if (f.lease > w.agora) return null;
       f.lease = w.agora + 240_000;
       return { ...f };
@@ -75,11 +76,12 @@ function criarMundo(opcoes: { fontes?: Partial<FontesRelatorio>; cfg?: Partial<C
       const r = w.relatorios.find((x) => x.id === relatorioId)!;
       return { codigo: r.codigo, versao: r.versao, semanaInicio: r.conteudo.semana.inicio, nomeArquivo: `SITTECH_Revezamento_${r.conteudo.semana.inicio}_a_${r.conteudo.semana.fim}_v${r.versao}.pdf`, pdf: r.pdf };
     },
-    async registrarEmail(id, ok, erro, provedorId) {
+    async registrarEmail(id, ok, erro, provedorId, origem, usuarioId) {
       const f = [...w.fechamentos.values()].find((x) => x.id === id)!;
-      if (f.emailStatus === "enviado") return;
-      f.emailStatus = ok ? "enviado" : "falhou"; f.emailTentativas++; f.emailUltimaTentativaEm = new Date(w.agora).toISOString(); f.lease = 0;
-      if (ok) { f.enviadoEm = w.agora; f.provedorId = provedorId; f.erroEmail = null; } else f.erroEmail = erro;
+      w.historicoEnvios.push({ ok, origem, usuarioId, erro });
+      f.emailTentativas++; f.emailUltimaTentativaEm = new Date(w.agora).toISOString(); f.lease = 0;
+      if (ok) { f.emailStatus = "enviado"; f.enviadoEm = f.enviadoEm ?? w.agora; f.ultimoEnvioEm = w.agora; f.envios++; f.provedorId = provedorId; f.erroEmail = null; }
+      else { if (f.emailStatus !== "enviado") f.emailStatus = "falhou"; f.erroEmail = erro; }   // falha de reenvio não "desenvia"
     },
     async liberar(id) { const f = [...w.fechamentos.values()].find((x) => x.id === id); if (f) f.lease = 0; },
   };
@@ -222,7 +224,7 @@ describe("fechamento automático — falhas e retentativas", () => {
     prov.falharComo = null;
     const f = (await m.porta.reivindicar(SEG, em("18:00", SEX), "tamara@sittech.com.br"))!;
     // o worker "esgotaria" a espera; o usuário reenvia na hora
-    const r = await enviarEmailDoFechamento(m.porta, prov, f, m.w.relatorios[0].id, "-manual-x");
+    const r = await enviarEmailDoFechamento(m.porta, prov, f, m.w.relatorios[0].id, { origem: "manual", usuarioId: "u1", chaveExtra: "-manual-x" });
     expect(r.ok).toBe(true);
     expect(sha(prov.enviados[0].anexos[0].bytes)).toBe(m.w.relatorios[0].pdfSha);
     expect(prov.enviados[0].chaveIdempotencia).toBe("escala-relatorio-rel-1-manual-x");
@@ -235,6 +237,60 @@ describe("fechamento automático — falhas e retentativas", () => {
     expect(daSemana(await rodar(m, bloqueado)).acao).toBe("gerado_email_falhou");
     expect(m.w.fechamentos.get(SEG)!.erroEmail).toContain("bloqueado fora de produção");
     expect(real.enviados).toHaveLength(0);
+  });
+});
+
+describe("worker atrasado: os fatos do relatório não dependem de quando o worker roda", () => {
+  it("rodando às 18:00, 18:07, 18:25 e 19:00 o conteúdo factual é idêntico; só `gerado em` muda; consolidado até continua 18:00", async () => {
+    const conteudos: ConteudoRelatorio[] = [];
+    const fatos = base(); // os MESMOS fatos (mesmos ids) em todas as execuções
+    for (const h of ["18:00", "18:07", "18:25", "19:00"]) {
+      const m = criarMundo({ fontes: fatos }); m.w.agora = em(h, SEX);
+      expect(daSemana(await rodar(m)).acao).toBe("gerado_e_enviado");
+      conteudos.push(m.w.relatorios[0].conteudo);
+    }
+    const semGeracao = (c: ConteudoRelatorio) => { const { geradoEm, geradoEmTexto, ...resto } = c; void geradoEm; void geradoEmTexto; return JSON.stringify(resto); };
+    expect(new Set(conteudos.map(semGeracao)).size).toBe(1);
+    expect(conteudos.map((c) => c.geradoEmTexto.slice(-8))).toEqual(["18:00:00", "18:07:00", "18:25:00", "19:00:00"]);
+    expect(new Set(conteudos.map((c) => c.consolidadoAteTexto)).size).toBe(1);
+    expect(conteudos[0].consolidadoAteTexto).toBe("06/11/2026 18:00:00");
+    expect(new Set(conteudos.map((c) => c.fontes.digest)).size).toBe(1);
+  });
+});
+
+describe("versão efetiva e reenvio de e-mail já entregue", () => {
+  it("com um parcial MANUAL já existente, o final automático é v2 e o e-mail informa a versão efetivamente gerada", async () => {
+    const m = criarMundo(); const prov = provedorMock(); m.w.agora = em("18:00", SEX);
+    m.w.relatorios.push({ id: "rel-manual", versao: 1, codigo: "ESC-EXEC-2026-45-0001", conteudo: montarConteudo(m.w.fontesAtuais, { tipo: "executada", codigo: "ESC-EXEC-2026-45-0001", versao: 1, geradoEmMs: em("10:00", SEX), geradoPor: { id: "u1", nome: "Admin" }, urlVerificacao: "https://x.test/1" }), hash: "h", pdf: new Uint8Array([1]), pdfSha: "s", digest: "d", automatico: false });
+    expect(m.w.relatorios[0].conteudo.status).toBe("parcial");
+    expect(daSemana(await rodar(m, prov)).acao).toBe("gerado_e_enviado");
+    expect(m.w.relatorios).toHaveLength(2); expect(m.w.relatorios[1].versao).toBe(2); expect(m.w.relatorios[1].automatico).toBe(true);
+    expect(prov.enviados[0].texto).toContain("Versão: v2");
+    expect(prov.enviados[0].anexos[0].nome).toBe("SITTECH_Revezamento_2026-11-02_a_2026-11-08_v2.pdf");
+    expect(sha(prov.enviados[0].anexos[0].bytes)).toBe(m.w.relatorios[1].pdfSha); // o parcial manual nunca é enviado
+  });
+  it("REENVIAR depois de enviado: mesmo PDF/hash/versão, sem novo relatório; mantém o 1º envio e soma ao histórico; falha de reenvio não 'desenvia'", async () => {
+    const m = criarMundo(); const prov = provedorMock(); m.w.agora = em("18:07", SEX);
+    await rodar(m, prov);
+    const primeiro = m.w.fechamentos.get(SEG)!.enviadoEm;
+    expect(await m.porta.reivindicar(SEG, em("18:00", SEX), "tamara@sittech.com.br")).toBeNull();           // o worker não reenvia
+    m.w.agora = em("09:30", "2026-11-09");                                                                      // segunda: "perdi o e-mail"
+    const f = (await m.porta.reivindicar(SEG, em("18:00", SEX), "tamara@sittech.com.br", true))!;
+    expect(f).not.toBeNull();
+    const rel = m.w.relatorios[0];
+    expect(await enviarEmailDoFechamento(m.porta, prov, f, rel.id, { origem: "manual", usuarioId: "u-admin", chaveExtra: "-manual-1" })).toEqual({ ok: true });
+    prov.falharComo = "caixa cheia";
+    await m.porta.reivindicar(SEG, em("18:00", SEX), "tamara@sittech.com.br", true);
+    expect((await enviarEmailDoFechamento(m.porta, prov, f, rel.id, { origem: "manual", usuarioId: "u-admin", chaveExtra: "-manual-2" })).ok).toBe(false);
+    const fe = m.w.fechamentos.get(SEG)!;
+    expect(fe).toMatchObject({ emailStatus: "enviado", envios: 2, enviadoEm: primeiro, ultimoEnvioEm: em("09:30", "2026-11-09"), emailTentativas: 3 });
+    expect(m.w.historicoEnvios.map((h) => [h.ok, h.origem, h.usuarioId])).toEqual([[true, "automatico", null], [true, "manual", "u-admin"], [false, "manual", "u-admin"]]);
+    expect(prov.enviados).toHaveLength(2);
+    expect(prov.enviados.map((e) => sha(e.anexos[0].bytes))).toEqual([rel.pdfSha, rel.pdfSha]);
+    expect(prov.enviados[1].anexos[0].nome).toBe(prov.enviados[0].anexos[0].nome);
+    expect(prov.enviados[1].texto).toBe(prov.enviados[0].texto);
+    expect(new Set(prov.enviados.map((e) => e.chaveIdempotencia)).size).toBe(2);   // chave por clique: o provedor não descarta o reenvio
+    expect(m.w.relatorios).toHaveLength(1); expect(m.w.geracoes).toBe(1);
   });
 });
 
