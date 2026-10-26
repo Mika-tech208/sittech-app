@@ -1,6 +1,6 @@
 # Produto único com múltiplas rotas de fabricação — DESENHO TÉCNICO (revisão 2)
 
-Status: **somente desenho.** Nada implementado, nenhuma migration aplicada, nada em PROD. Esta revisão incorpora as decisões definitivas de 26/10/2026 (PROD não foi consultado nesta revisão; o que depende dele está listado no §13 como **a verificar**).
+Status: **somente desenho.** Nada implementado, nenhuma migration aplicada, nada alterado em PROD. Esta revisão incorpora as decisões definitivas de 26/10/2026 e os **resultados da leitura somente leitura de PROD** (§15), que resolveram os quatro pontos que estavam "a verificar".
 
 ## 0. O que mudou em relação à revisão 1
 
@@ -78,7 +78,7 @@ Adicionar a etapa "Rosquear + Parafusar" a P sem renumerar exige `ordem` maior q
 
 - `valor_unitario`: **um só** — o valor comercial vigente do Conector 3/4" (0,1825 **se** confirmado no cadastro/contrato; o cadastro legado da automática tem 0,182 e **não** é propagado).
 - Metas, máquinas e operações das etapas de F são **copiadas por cadastro** (valores, não referências) a partir dos cadastros atuais e **passam a ser mantidas em F** — mudar meta em P/A não muda F e vice-versa. Custo/hora por operação continua vindo do sistema; nada é gravado como constante no código.
-- `nome`/`referencia`: F precisa ser distinguível de P/A no banco; **a verificar** se `produtos.nome` tem unicidade (§13). Na interface, o seletor de produtos da Previsão filtra pelo **modo da semana** (§4.4), então o usuário vê um "Conector 3/4"" só.
+- `nome`/`referencia`: **confirmado em PROD** (§15) que `produtos.nome` **não** tem restrição de unicidade — produtos são identificados só pelo `id` (uuid) e `referencia` é informativa (sem índice único). Mesmo assim F deve ter **nome distinto** para não confundir telas/relatórios que mostram o nome: **recomendado `Conector 3/4" (Final)`**, `referencia` = a do produto vendido (56126022), **valor 0,1825**. Na interface, o seletor de produtos da Previsão filtra pelo **modo da semana** (§4.4), então o usuário vê um só "Conector 3/4"" por semana.
 
 ## 4. Modelo de dados (todas as estruturas são aditivas)
 
@@ -241,7 +241,7 @@ Objetivo: **produto sem rotas ⇒ comportamento idêntico, byte a byte**, antes 
 
 ## 12. Simulação (cálculo conceitual, com as hipóteses declaradas)
 
-**Hipóteses:** semana de 5 dias; custos/peça = snapshots reais de out/26 (ilustrativos; o sistema recalcula); valor 0,1825; **AUTO capacidade 35.625**; **CONV 81.000** (equipe); etapas comuns disponíveis p/ este produto: Etiquetar 140.000, Embalar 130.000 (ilustrativos); estoque inicial opcional 8.000 (CONV pronta) + 5.000 (AUTO pronta).
+**Hipóteses (as etapas comuns são ilustrativas; ver o dado real de 26/10 em §15, que mostra um gargalo comum de verdade):** semana de 5 dias; custos/peça = snapshots reais de out/26 (ilustrativos; o sistema recalcula); valor 0,1825; **AUTO capacidade 35.625**; **CONV 81.000** (equipe); etapas comuns disponíveis p/ este produto: Etiquetar 140.000, Embalar 130.000 (ilustrativos); estoque inicial opcional 8.000 (CONV pronta) + 5.000 (AUTO pronta).
 
 Custo/peça: **CONV exclusivo** 0,02479 + 0,03291 = **0,05770**; **AUTO exclusivo** **0,03737**; **comum** (Etiquetar + Embalar) 0,01368 + 0,00979 = **0,02347** (igual nas duas rotas pelo rateio proporcional). Totais: CONV 0,08117 (margem 55,5%), AUTO 0,06084 (margem 66,7%).
 
@@ -274,11 +274,7 @@ CONV por equipe cai para 60.000 ⇒ AUTO 35.625 + CONV 60.000 = 95.625, falta **
 
 ## 13. Riscos e pontos a verificar
 
-**A verificar (não consultei PROD nesta revisão):**
-1. `produtos.nome` tem unicidade? (define o nome de F e a necessidade de `referencia`).
-2. A Previsão de **02/11/2026** já existe? Se existir no modelo legado, a conversão (M4) usa RPC com prévia e snapshot.
-3. O valor comercial **vigente** do Conector 3/4" é mesmo R$ 0,1825 (confirmar no cadastro/contrato).
-4. Estado dos `wip_controle` do Conector 3/4" e saldos confirmados hoje (insumo das confirmações de abertura de F).
+**Pontos que estavam a verificar — resolvidos na leitura de PROD (§15):** sem unicidade em `produtos.nome`; Previsão de 02/11 **não existe** (nasce já em modo rotas, sem conversão); preço cadastrado 0,1825 (convencional) × 0,182 (automática); **nenhum** controle de WIP existe (0 controles, 0 saldos, 0 confirmações).
 
 **Riscos:**
 1. **Generalização do motor** (origens múltiplas na convergência) toca `cobertura`, `adicionalWip`, `wipSaldo`, alertas e atingibilidade — por isso entra em **sombra** e só depois no oficial, atrás da prova de equivalência (§10).
@@ -302,3 +298,26 @@ DEV/Preview primeiro em todas; PROD só com aprovação explícita por fase; nen
 | M3 | preparação de 02/11 (confirmações de WIP, encerramento aditivo dos legados) | médio (conferência de estoque) |
 | M4 | 02/11 em modo rotas (motor oficial, WIP convergente, Produção Real e custo por rota) | médio/alto, gated |
 | M5 | semanas seguintes, relatórios por produto final | médio |
+
+## 15. Leitura somente leitura de PROD (26/10/2026) — resultados
+
+| Item | Resultado | Impacto no desenho |
+|---|---|---|
+| Restrições de `produtos` | só `PRIMARY KEY (id)` e `CHECK prioridade`; **sem UNIQUE em `nome`** nem em `referencia`; trigger só `updated_at` | F pode ser criado sem colisão técnica; identidade = `id`. Nome recomendado distinto: **`Conector 3/4" (Final)`** (não renomear nenhum existente) |
+| Identificação dos produtos | `id` uuid; `referencia` informativa (P = 56126022; automática sem referência); o nome da automática tem **espaço no fim** (`"…Maquina Automatica "`) | confirma "não usar nome como chave"; F herda `referencia` 56126022 (mesmo produto vendido) |
+| Preço vigente | P (Conector 3/4") **R$ 0,1825** (atualizado 20/10 18:22:24); automática **R$ 0,182** (atualizado 20/10 18:22:38, 14 s depois); itens da Previsão 26/10 gravam 0,1825 e 0,182 | preço único de F: **0,1825** (valor do produto vendido; 0,182 parece arredondamento — diferença R$ 0,0005/peça ≈ R$ 17,81 na semana de 35.625). **Confirmar com o contrato** antes de cadastrar F |
+| Previsão de 02/11/2026 | **não existe** (nenhuma Previsão posterior a 26/10; existentes: 12/10, 19/10, 26/10) → sem Escala gerada | **02/11 segue seguro**: a Previsão nasce já em modo rotas, **sem conversão** de dados legados. Risco: alguém criar 02/11 no modelo legado antes do corte → travar/avisar na criação |
+| WIP legado | **0 controles, 0 ajustes, 0 confirmações, 0 saldos semanais**; parâmetros: `wip_modo="ativo"`, `wip_dias_limite=1`, `wip_dias_limite_semanas={"2026-10-26": 2}` | **não há saldo de WIP a migrar**: os controles de F nascem do zero (confirmação de abertura opcional). `wip_controle_encerramento` provavelmente **desnecessário** (só existiria se houvesse controles legados) |
+| WIP planejado de 26/10 | `previsao_item_adicional_etapa`: Conector 3/4" **Rosquear = 22.800** (adicional no intermediário); a automática sem adicional | vínculo com 26/10 permanece legado; no modelo de rotas o "adicional por etapa" por rota é item de fase posterior (V1 limitado) |
+| Etapas legadas (identidade) | **Conector 3/4"**: Rosquear `ca90456c…` (ordem 0) · Parafusar `78aaa207…` (1) · Etiquetar `34371af3…` (2) · Embalar `b3db9629…` (3). **Automática**: R+P `1b72bf46…` (0) · Etiquetar `1863b452…` (1) · Embalar `fb96d08d…` (2). Operações: Rosquear `bb9da8be…`, Parafusar `11c45ab6…`, R+P `15625032…`, Etiquetar `b41b8b0e…`, Embalar `220902ab…` | **nenhum desses ids/ordens é tocado**. Confirma que a automática tem **etapas próprias** de Etiquetar e Embalar (ids distintos das do convencional), apesar de mesma operação, mesmas máquinas e mesmas metas |
+| Máquinas legadas | Conv.: Rosq. 3/5/6 · Parafus. 9/10/11/12 · Etiq. 15/16 · Embal. 17. Auto: **Máq. Automática 8** (`a118f430…`, ativa) · Etiq. 15/16 · Embal. 17 | F copia (por valor) |
+| Capacidade da AUTO | metas 1275/1275/1275/1100/1100/1100 ⇒ **7.125/dia**; 6 períodos/dia (M1 07:12–08:48, M2 08:48–10:24, M3 10:24–11:55, T1 13:00–14:20, T2 14:20–15:40, T3 15:40–17:00); 5 dias produtivos (26–30/10) ⇒ **35.625/semana**. Sem indisponibilidade (previsão nem recurso aberto) | **35.625 confirmado**, consistente com a Previsão |
+| Máquinas escolhidas em 26/10 | **Convencional**: Rosq. 3+6 · Parafus. 10+9 · Etiq. **15** · Embal. 17. **Automática**: Máq. Aut. 8 · Etiq. **15** · Embal. 17 | veja o conflito abaixo |
+
+**Conflitos / achados relevantes**
+
+1. **Gargalo comum real em 26/10 (não é hipótese).** Os dois cadastros marcaram **somente a Etiquetadora 15** para Etiquetar, e ambos somam **116.625** na mesma máquina; a capacidade teórica da E15 na semana é **97.500** (19.500/dia × 5). Visto como dois produtos, cada um "cabe" (81.000 ≤ 97.500 e 35.625 ≤ 97.500); visto como **um** produto, o pool comum de Etiquetar **não fecha** sem a Etiquetadora 16 (que já tem a Caixa Amarela). É exatamente o tipo de gargalo que o modelo de rotas passa a enxergar de frente (cenário C do §12 deixa de ser hipotético para essa configuração). Embalar: Embalagem 17 = 142.500/semana ≥ 116.625 (ok).
+2. **Capacidade CONV = 81.000** coincide com a **Parafusar**: 2 parafusadeiras (10 e 9) × 8.100/dia × 5 dias = 81.000 — ou seja, o "81.000 convencional" do pedido é o teto de Parafusar com duas máquinas marcadas (não uma quantidade livre).
+3. **Preço divergente** 0,1825 × 0,182 (confirmar no contrato antes de cadastrar F).
+4. **Sem WIP real hoje:** a Fase de WIP está "ativa" por parâmetro, mas não há nenhum controle/saldo — a virada para rotas não herda estoque.
+5. **Nenhum conflito com a decisão de não renumerar:** F nasce com ids e ordens próprias; P e A ficam intactos.
