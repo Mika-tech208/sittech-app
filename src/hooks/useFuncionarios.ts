@@ -38,6 +38,7 @@ interface FuncionarioRow {
   created_at: string;
   salario_base: number;
   ativo: boolean;
+  desligado_em?: string | null;
   operacoes: { nome: string } | null;
   funcionario_custos: { id: string; descricao: string; valor: number }[] | null;
 }
@@ -51,7 +52,7 @@ async function resolverOperacaoId(nome: string): Promise<string | null> {
 async function buscarFuncionarios(): Promise<{ lista: Funcionario[] | null }> {
   const { data, error } = await supabase
     .from("funcionarios")
-    .select("id, nome, created_at, salario_base, ativo, operacoes(nome), funcionario_custos(id, descricao, valor)")
+    .select("id, nome, created_at, salario_base, ativo, desligado_em, operacoes(nome), funcionario_custos(id, descricao, valor)")
     .order("created_at");
   if (error) return { lista: null };
   return {
@@ -62,6 +63,7 @@ async function buscarFuncionarios(): Promise<{ lista: Funcionario[] | null }> {
       operacao: f.operacoes?.nome || "",
       salarioBase: Number(f.salario_base),
       ativo: f.ativo,
+      desligadoEm: f.desligado_em ?? null,
       custos: (f.funcionario_custos || []).map((c) => ({ id: c.id, descricao: c.descricao, valor: Number(c.valor) })),
     })),
   };
@@ -127,6 +129,12 @@ export function useFuncionarios(pronto: boolean) {
   // custos sempre substituídos por inteiro (apaga e recria) — mesmo
   // comportamento do formulário atual, que sempre envia a lista completa.
   const atualizarFuncionario = useCallback(async (id: string, payload: FuncionarioPayload): Promise<boolean> => {
+    // cadastro de funcionário INATIVO é somente leitura (salvar apagaria e recriaria os custos extras): só reativar
+    const atual = funcionarios.find((f) => f.id === id);
+    if (atual && !atual.ativo) {
+      setErro("Funcionário inativo: o cadastro é somente leitura. Reative o funcionário para editar.");
+      return false;
+    }
     const operacaoId = await resolverOperacaoId(payload.operacao);
     if (!operacaoId) {
       setErro("Não foi possível salvar o funcionário: operação não encontrada.");
@@ -155,28 +163,18 @@ export function useFuncionarios(pronto: boolean) {
       f.id === id ? { ...f, nome: payload.nome, operacao: payload.operacao, salarioBase: payload.salarioBase, custos: custosSalvos } : f
     )));
     return true;
-  }, []);
+  }, [funcionarios]);
 
   const duplicarFuncionario = useCallback((f: Funcionario) => {
     return criarFuncionario({
-      nome: f.nome + " (cópia)", operacao: f.operacao, salarioBase: f.salarioBase, ativo: f.ativo,
+      nome: f.nome + " (cópia)", operacao: f.operacao, salarioBase: f.salarioBase, ativo: true, // a cópia nasce ativa: ativar/desativar só pelas ações de administrador
       custos: f.custos.map((c) => ({ descricao: c.descricao, valor: c.valor })),
     });
   }, [criarFuncionario]);
 
-  // ativar/desativar é sempre UPDATE de `ativo` — nunca exclusão física.
-  const alternarFuncionarioAtivo = useCallback(async (id: string) => {
-    const atual = funcionarios.find((f) => f.id === id);
-    if (!atual) return;
-    const novoAtivo = !atual.ativo;
-    setFuncionarios((prev) => prev.map((f) => (f.id === id ? { ...f, ativo: novoAtivo } : f)));
-    const { error } = await supabase.from("funcionarios").update({ ativo: novoAtivo }).eq("id", id);
-    if (error) setErro("Não foi possível atualizar o funcionário.");
-  }, [funcionarios]);
-
   return {
     funcionarios, loading, erro,
-    criarFuncionario, atualizarFuncionario, duplicarFuncionario, alternarFuncionarioAtivo, recarregarFuncionarios,
+    criarFuncionario, atualizarFuncionario, duplicarFuncionario, recarregarFuncionarios,
   };
 }
 

@@ -1,6 +1,10 @@
 -- T7: EXCLUIR SEM UNIFICAR com histórico (somente admin): sem histórico, apontamentos, escala, ausência, tudo combinado,
 -- trava de ocorrência com paradas de terceiros, assinatura (inclusive conteúdo alterado), rollback forçado, não-admin,
 -- zero referências residuais, log completo e dados de terceiros intactos.
+-- A exclusão destrutiva saiu da aplicação (funcionario_exclusao_* recusam "sem unificar"): resta a função interna _funcionario_exclusao para
+-- administração de EMERGÊNCIA, fora da interface. Estes testes a exercitam por wrappers temporários (security definer; a checagem de admin é do núcleo).
+create or replace function pg_temp.sim(a uuid, b uuid default null, c jsonb default '{}'::jsonb) returns jsonb language sql security definer as $$ select public._funcionario_exclusao(a, b, c, false, null) $$;
+create or replace function pg_temp.exe(a uuid, b uuid, c jsonb, d text) returns jsonb language sql security definer as $$ select public._funcionario_exclusao(a, b, c, true, d) $$;
 do $$
 declare
   v_auth uuid := 'a27f42df-54fe-4718-93a7-0085f5ed5a09';
@@ -77,9 +81,9 @@ begin
   -- (h) NÃO-ADMIN recusado (simular e executar)
   perform set_config('request.jwt.claims', json_build_object('sub', gen_random_uuid(), 'role', 'authenticated')::text, true);
   set local role authenticated;
-  begin perform public.funcionario_exclusao_simular(AP, null, '{}'); v_ok := false; exception when others then v_ok := position('FUNC_SOMENTE_ADMIN' in sqlerrm) > 0; end;
+  begin perform pg_temp.sim(AP, null, '{}'); v_ok := false; exception when others then v_ok := position('FUNC_SOMENTE_ADMIN' in sqlerrm) > 0; end;
   if not v_ok then raise exception 'FALHOU (h) simular não-admin'; end if;
-  begin perform public.funcionario_exclusao_executar(AP, null, '{}', 'x'); v_ok := false; exception when others then v_ok := position('FUNC_SOMENTE_ADMIN' in sqlerrm) > 0; end;
+  begin perform pg_temp.exe(AP, null, '{}', 'x'); v_ok := false; exception when others then v_ok := position('FUNC_SOMENTE_ADMIN' in sqlerrm) > 0; end;
   if not v_ok then raise exception 'FALHOU (h) executar não-admin'; end if;
   reset role;
   if pg_temp.refs(AP) = 0 then raise exception 'FALHOU preparo AP sem vínculos'; end if;
@@ -88,32 +92,32 @@ begin
   set local role authenticated;
 
   -- (a) SEM histórico
-  v_sim := public.funcionario_exclusao_simular(S, null, '{}');
+  v_sim := pg_temp.sim(S, null, '{}');
   if not (v_sim->>'pode_executar')::boolean or (v_sim#>>'{remover,apontamentos}')::int <> 0 then raise exception 'FALHOU (a) %', v_sim; end if;
-  v_res := public.funcionario_exclusao_executar(S, null, '{}', v_sim->>'assinatura');
+  v_res := pg_temp.exe(S, null, '{}', v_sim->>'assinatura');
   reset role;
   if exists (select 1 from funcionarios where id = S) then raise exception 'FALHOU (a) S deveria ter sido excluído'; end if;
   perform set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
   set local role authenticated;
 
   -- (b) COM APONTAMENTOS: nada de bloqueio; resumo do impacto; assinatura inválida; conteúdo alterado entre simular e executar
-  v_sim := public.funcionario_exclusao_simular(AP, null, '{}');
+  v_sim := pg_temp.sim(AP, null, '{}');
   if not (v_sim->>'pode_executar')::boolean then raise exception 'FALHOU (b) não deveria bloquear: %', v_sim->'bloqueios'; end if;
   if (v_sim#>>'{remover,apontamentos}')::int <> 3 or (v_sim#>>'{remover,apontamento_paradas}')::int <> 3 or (v_sim#>>'{remover,apontamento_historico}')::int <> 1 then raise exception 'FALHOU (b) remover: %', v_sim->'remover'; end if;
   if (v_sim#>>'{impacto_indicadores,apontamentos,quantidade_produzida}')::numeric <> 600 or (v_sim#>>'{impacto_indicadores,apontamentos,quantidade_refugo}')::numeric <> 6 or (v_sim#>>'{impacto_indicadores,apontamentos,n}')::int <> 3
      or (v_sim#>>'{impacto_indicadores,apontamentos,valor_produzido}')::numeric <> 1200 or (v_sim#>>'{impacto_indicadores,paradas_minutos}')::numeric <> 45 then raise exception 'FALHOU (b) indicadores: %', v_sim->'impacto_indicadores'; end if;
-  begin perform public.funcionario_exclusao_executar(AP, null, '{}', 'assinatura-invalida'); v_ok := false;
+  begin perform pg_temp.exe(AP, null, '{}', 'assinatura-invalida'); v_ok := false;
   exception when others then v_err := sqlerrm; v_ok := position('FUNC_ASSINATURA_DESATUALIZADA' in v_err) > 0; end;
   if not v_ok then raise exception 'FALHOU (b) assinatura inválida: %', v_err; end if;
   reset role;
   insert into funcionario_custos (funcionario_id, descricao, valor) values (AP, 'surgiu depois da simulação', 1);   -- os dados mudam entre simular e executar
   perform set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
   set local role authenticated;
-  begin perform public.funcionario_exclusao_executar(AP, null, '{}', v_sim->>'assinatura'); v_ok := false;
+  begin perform pg_temp.exe(AP, null, '{}', v_sim->>'assinatura'); v_ok := false;
   exception when others then v_err := sqlerrm; v_ok := position('FUNC_ASSINATURA_DESATUALIZADA' in v_err) > 0; end;
   if not v_ok then raise exception 'FALHOU (b) dados mudaram e a execução deveria ser recusada: %', v_err; end if;
-  v_sim := public.funcionario_exclusao_simular(AP, null, '{}');            -- nova simulação
-  v_res := public.funcionario_exclusao_executar(AP, null, '{}', v_sim->>'assinatura');
+  v_sim := pg_temp.sim(AP, null, '{}');            -- nova simulação
+  v_res := pg_temp.exe(AP, null, '{}', v_sim->>'assinatura');
   reset role;
   if exists (select 1 from funcionarios where id = AP) or pg_temp.refs(AP) <> 0 then raise exception 'FALHOU (b) sobrou algo de AP'; end if;
   if exists (select 1 from apontamento_paradas where apontamento_id = ap_hist) or exists (select 1 from apontamento_producao_historico where apontamento_id = ap_hist) then raise exception 'FALHOU (b) dependentes órfãos'; end if;
@@ -125,9 +129,9 @@ begin
   -- (c) COM ESCALA + equipe
   perform set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
   set local role authenticated;
-  v_sim := public.funcionario_exclusao_simular(ES, null, '{}');
+  v_sim := pg_temp.sim(ES, null, '{}');
   if (v_sim#>>'{remover,alocacoes_passadas}')::int <> 1 or (v_sim#>>'{remover,alocacoes_futuras}')::int <> 1 or (v_sim#>>'{remover,semanas_equipe}')::int <> 1 then raise exception 'FALHOU (c) %', v_sim->'remover'; end if;
-  v_res := public.funcionario_exclusao_executar(ES, null, '{}', v_sim->>'assinatura');
+  v_res := pg_temp.exe(ES, null, '{}', v_sim->>'assinatura');
   reset role;
   if exists (select 1 from funcionarios where id = ES) or pg_temp.refs(ES) <> 0 then raise exception 'FALHOU (c) sobrou algo de ES'; end if;
   if not exists (select 1 from escala_producao_eventos where tipo = 'previsao' and payload->>'origem' = 'unificacao_funcionario' and previsao_id = P3) then raise exception 'FALHOU (c) recálculo da Escala não solicitado'; end if;
@@ -135,9 +139,9 @@ begin
   -- (d) COM AUSÊNCIA (+ histórico da ausência)
   perform set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
   set local role authenticated;
-  v_sim := public.funcionario_exclusao_simular(AU, null, '{}');
+  v_sim := pg_temp.sim(AU, null, '{}');
   if (v_sim#>>'{remover,ausencias}')::int <> 1 or (v_sim#>>'{remover,ausencias_historico}')::int <> 1 then raise exception 'FALHOU (d) %', v_sim->'remover'; end if;
-  v_res := public.funcionario_exclusao_executar(AU, null, '{}', v_sim->>'assinatura');
+  v_res := pg_temp.exe(AU, null, '{}', v_sim->>'assinatura');
   reset role;
   if exists (select 1 from funcionarios where id = AU) or pg_temp.refs(AU) <> 0 then raise exception 'FALHOU (d) sobrou algo de AU'; end if;
   select * into v_log from funcionarios_exclusoes_log where funcionario_excluido_id = AU;
@@ -146,19 +150,19 @@ begin
   -- (f) trava: ocorrência de OC com parada lançada por OUTRO funcionário (K) => bloqueia, nada muda
   perform set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
   set local role authenticated;
-  v_sim := public.funcionario_exclusao_simular(OC, null, '{}');
+  v_sim := pg_temp.sim(OC, null, '{}');
   if (v_sim->>'pode_executar')::boolean or v_sim#>>'{bloqueios,0,codigo}' <> 'OCORRENCIA_COM_PARADAS_DE_OUTROS' then raise exception 'FALHOU (f) %', v_sim->'bloqueios'; end if;
-  begin perform public.funcionario_exclusao_executar(OC, null, '{}', v_sim->>'assinatura'); v_ok := false;
+  begin perform pg_temp.exe(OC, null, '{}', v_sim->>'assinatura'); v_ok := false;
   exception when others then v_ok := position('FUNC_BLOQUEADO' in sqlerrm) > 0; end;
   if not v_ok then raise exception 'FALHOU (f) execução deveria ser bloqueada'; end if;
 
   -- (e) TUDO COMBINADO
-  v_sim := public.funcionario_exclusao_simular(TD, null, '{}');
+  v_sim := pg_temp.sim(TD, null, '{}');
   if not (v_sim->>'pode_executar')::boolean then raise exception 'FALHOU (e) %', v_sim->'bloqueios'; end if;
   if (v_sim#>>'{remover,apontamentos}')::int <> 2 or (v_sim#>>'{remover,apontamento_paradas}')::int <> 2 or (v_sim#>>'{remover,ocorrencias}')::int <> 1 or (v_sim#>>'{remover,notificacoes_ocorrencia}')::int <> 1
      or (v_sim#>>'{remover,ausencias}')::int <> 1 or (v_sim#>>'{remover,ausencias_historico}')::int <> 1 or (v_sim#>>'{remover,semanas_equipe}')::int <> 1
      or (v_sim#>>'{remover,alocacoes_passadas}')::int <> 1 or (v_sim#>>'{remover,alocacoes_futuras}')::int <> 1 or jsonb_array_length(v_sim#>'{remover,custos}') <> 2 then raise exception 'FALHOU (e) remover: %', v_sim->'remover'; end if;
-  v_res := public.funcionario_exclusao_executar(TD, null, '{}', v_sim->>'assinatura');
+  v_res := pg_temp.exe(TD, null, '{}', v_sim->>'assinatura');
   reset role;
   if exists (select 1 from funcionarios where id = TD) or pg_temp.refs(TD) <> 0 or exists (select 1 from ocorrencias_maquina where id = oc_td) or exists (select 1 from push_notificacoes_ocorrencia where ocorrencia_id = oc_td) then raise exception 'FALHOU (e) sobrou algo de TD'; end if;
   select * into v_log from funcionarios_exclusoes_log where funcionario_excluido_id = TD;
@@ -180,7 +184,7 @@ begin
   insert into escala_producao_alocacoes (data, periodo_id, funcionario_id, maquina_id, produto_id, etapa_id, operacao_id, pecas) values ('2030-01-07', 't3', RB, v_maq[10], v_prod, v_etapa, v_opet, 1);
   perform set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
   set local role authenticated;
-  v_sim := public.funcionario_exclusao_simular(RB, null, '{}');
+  v_sim := pg_temp.sim(RB, null, '{}');
   reset role;
   s1 := (select md5(string_agg(x, '|' order by x)) from (select 'f:' || id::text x from funcionarios where id = RB union all select 'ap:' || id::text from apontamentos_producao where funcionario_id = RB
         union all select 'pa:' || p.id::text from apontamento_paradas p join apontamentos_producao a on a.id = p.apontamento_id where a.funcionario_id = RB union all select 'au:' || id::text from ausencias_funcionarios where funcionario_id = RB
@@ -190,7 +194,7 @@ begin
   execute 'create trigger zz_falha before delete on public.funcionarios for each row execute function pg_temp.zz_falha()';
   perform set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
   set local role authenticated;
-  begin perform public.funcionario_exclusao_executar(RB, null, '{}', v_sim->>'assinatura'); v_ok := false;
+  begin perform pg_temp.exe(RB, null, '{}', v_sim->>'assinatura'); v_ok := false;
   exception when others then v_err := sqlerrm; v_ok := position('FALHA_FORCADA' in v_err) > 0; end;
   reset role;
   if not v_ok then raise exception 'FALHOU (g) deveria ter falhado: %', v_err; end if;
@@ -206,7 +210,7 @@ begin
   execute format('insert into public.zz_ref_teste values (%L)', RB);
   perform set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
   set local role authenticated;
-  begin perform public.funcionario_exclusao_executar(RB, null, '{}', v_sim->>'assinatura'); v_ok := false;
+  begin perform pg_temp.exe(RB, null, '{}', v_sim->>'assinatura'); v_ok := false;
   exception when others then v_err := sqlerrm; v_ok := position('FUNC_REFERENCIAS_RESIDUAIS' in v_err) > 0 and position('zz_ref_teste' in v_err) > 0; end;
   reset role;
   if not v_ok then raise exception 'FALHOU (i) referência residual: %', v_err; end if;
@@ -219,7 +223,7 @@ begin
   -- sem a falha, a mesma operação conclui
   perform set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
   set local role authenticated;
-  v_res := public.funcionario_exclusao_executar(RB, null, '{}', v_sim->>'assinatura');
+  v_res := pg_temp.exe(RB, null, '{}', v_sim->>'assinatura');
   reset role;
   if exists (select 1 from funcionarios where id = RB) or pg_temp.refs(RB) <> 0 then raise exception 'FALHOU (g) conclusão de RB'; end if;
 

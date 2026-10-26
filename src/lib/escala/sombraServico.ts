@@ -20,6 +20,7 @@ import { executarCorteSombra, type DecisaoCorte, type ParametrosCorte } from "@/
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import type { AlocacaoEscala, EntradaEscala } from "@/features/escala/types";
 import { ausenciaNoCorte } from "./ausenciaAberta";
+import { ativoNoCorte } from "./situacaoFuncionario";
 import { ConflitoDeVersaoError, type AusenciaBruta, type EstadoBruto } from "./estado";
 import { montarEntradaEscala } from "./montarEntrada";
 import { estadoComVersao, type VersaoPlanoOficial } from "./planoVersionado";
@@ -116,6 +117,8 @@ export function estadoNoCorte(estado: EstadoBruto, corteMs: number): EstadoBruto
   return {
     ...estado,
     ausencias: estado.ausencias.map((a) => ausenciaNoCorte(a, corteMs)).filter((a): a is AusenciaBruta => a !== null),
+    // ativo/inativo COMO ERA no corte: só vale o que já tinha sido registrado até o corte; o desligamento efetivo antes do corte, mas registrado depois, não existe para ele
+    equipeProdutiva: estado.equipeProdutiva.map((m) => (estado.situacaoFuncionarios?.[m.funcionarioId] ? { ...m, ativo: ativoNoCorte(estado.situacaoFuncionarios[m.funcionarioId], corteMs, corteMs, m.ativo) } : m)),
     indisponibilidades: estado.indisponibilidades.filter((i) => Date.parse(i.desde) <= corteMs).map((i) => (i.liberadaEm && Date.parse(i.liberadaEm) > corteMs ? { ...i, liberadaEm: null } : i)),
     // WIP: confirmações e ajustes criados depois do corte não existiam (append-only, com carimbo); a Produção Real é lida só até a data do corte
     ...(estado.wipControle

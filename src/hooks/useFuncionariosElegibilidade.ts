@@ -19,6 +19,7 @@ export interface FuncionarioElegivel {
   nome: string;
   ativo: boolean;
   operacaoId: string | null;
+  desligadoEm?: string | null; // instante efetivo do desligamento (ISO); null enquanto ativo
 }
 
 interface FuncionarioElegibilidadeRow {
@@ -26,6 +27,7 @@ interface FuncionarioElegibilidadeRow {
   nome: string;
   ativo: boolean;
   operacao_id: string | null;
+  desligado_em?: string | null;
 }
 
 export function useFuncionariosElegibilidade(pronto: boolean) {
@@ -39,7 +41,7 @@ export function useFuncionariosElegibilidade(pronto: boolean) {
     (async () => {
       const { data, error } = await supabase
         .from("funcionarios_elegibilidade")
-        .select("id, nome, ativo, operacao_id")
+        .select("id, nome, ativo, operacao_id, desligado_em")
         .order("nome")
         .returns<FuncionarioElegibilidadeRow[]>();
       if (!montado) return;
@@ -48,7 +50,7 @@ export function useFuncionariosElegibilidade(pronto: boolean) {
         setLoading(false);
         return;
       }
-      setFuncionarios((data || []).map((f) => ({ id: f.id, nome: f.nome, ativo: f.ativo, operacaoId: f.operacao_id })));
+      setFuncionarios((data || []).map((f) => ({ id: f.id, nome: f.nome, ativo: f.ativo, operacaoId: f.operacao_id, desligadoEm: f.desligado_em ?? null })));
       setLoading(false);
     })();
     return () => { montado = false; };

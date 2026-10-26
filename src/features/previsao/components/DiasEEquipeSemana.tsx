@@ -79,7 +79,7 @@ export default function DiasEEquipeSemana({
               return (
                 <div key={m.funcionarioId} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <label className="stx-maquina-chip" style={{ flex: "1 1 130px", minWidth: 0 }}>
-                    <input type="checkbox" checked={m.produtivo} disabled={salvando} onChange={() => onToggleMembro(m.funcionarioId)} />
+                    <input type="checkbox" checked={m.produtivo} disabled={salvando || (inativos.has(m.funcionarioId) && !m.produtivo)} title={inativos.has(m.funcionarioId) && !m.produtivo ? "Funcionário inativo: reative-o em Funcionários para voltar a incluí-lo" : undefined} onChange={() => onToggleMembro(m.funcionarioId)} />
                     {nomePorId.get(m.funcionarioId) || "Funcionário removido"}{inativos.has(m.funcionarioId) ? " (inativo)" : ""}
                   </label>
                   <select

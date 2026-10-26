@@ -1,6 +1,10 @@
 -- T15: ATRASO EM ABERTO — abrir, conflitos, encerrar (agora/manual), duração com almoço, correção do início, histórico, eventos, fechamento automático,
 -- dia seguinte independente, lote/unificação/exclusão, permissões. Tudo desfeito no final. Rodar só em DEV/local (ou em BEGIN…ROLLBACK junto com a migration).
 -- O relógio é fixado com `app.agora_teste` (função public._agora()); sem ele vale now().
+-- A exclusão destrutiva saiu da aplicação (funcionario_exclusao_* recusam "sem unificar"): resta a função interna _funcionario_exclusao para
+-- administração de EMERGÊNCIA, fora da interface. Estes testes a exercitam por wrappers temporários (security definer; a checagem de admin é do núcleo).
+create or replace function pg_temp.sim(a uuid, b uuid default null, c jsonb default '{}'::jsonb) returns jsonb language sql security definer as $$ select public._funcionario_exclusao(a, b, c, false, null) $$;
+create or replace function pg_temp.exe(a uuid, b uuid, c jsonb, d text) returns jsonb language sql security definer as $$ select public._funcionario_exclusao(a, b, c, true, d) $$;
 do $$
 declare
   v_auth uuid; v_user uuid; v_prev uuid; v_snap jsonb;
@@ -155,11 +159,11 @@ begin
   begin perform registrar_ausencias_funcionario_lote(F[13], array[D2], 'atraso', '07:12', null, 0, null, gen_random_uuid()); exception when others then null; end;
   select count(*) into v_n from ausencias_funcionarios where tipo = 'atraso' and horario_fim is null and not em_aberto;
   if v_n <> v_n0 or exists (select 1 from ausencias_funcionarios where funcionario_id = F[13] and data = D2) then raise exception 'FALHOU (13) lote não pode criar atraso sem fim/aberto'; end if;
-  v_j := funcionario_exclusao_simular(F[11], null, '{}'::jsonb);
+  v_j := pg_temp.sim(F[11], null, '{}'::jsonb);
   if not exists (select 1 from jsonb_array_elements(v_j->'bloqueios') b where b->>'codigo' = 'ATRASO_EM_ABERTO') then raise exception 'FALHOU (13) exclusão deveria ser bloqueada: %', v_j->'bloqueios'; end if;
   v_j := funcionario_exclusao_simular(F[14], F[11], '{}'::jsonb);
   if not exists (select 1 from jsonb_array_elements(v_j->'bloqueios') b where b->>'codigo' = 'ATRASO_EM_ABERTO') then raise exception 'FALHOU (13) unificação (mantido com atraso aberto) deveria ser bloqueada'; end if;
-  v_j := funcionario_exclusao_simular(F[14], null, '{}'::jsonb);
+  v_j := pg_temp.sim(F[14], null, '{}'::jsonb);
   if exists (select 1 from jsonb_array_elements(v_j->'bloqueios') b where b->>'codigo' = 'ATRASO_EM_ABERTO') then raise exception 'FALHOU (13) sem atraso aberto não pode bloquear por isso'; end if;
 
   -- (14) PERMISSÕES: anônimo não executa; o fechamento interno não é executável por usuário; o público é seguro para qualquer usuário autenticado

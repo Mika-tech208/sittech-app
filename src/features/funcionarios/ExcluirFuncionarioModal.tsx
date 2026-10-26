@@ -1,16 +1,16 @@
 "use client";
 
-// Excluir funcionário — fluxo controlado (somente administrador). O administrador escolhe:
-//  • UNIFICAR E EXCLUIR CADASTRO: escolhe outro funcionário, simula, vê conflitos, confirma; o histórico é transferido.
-//  • EXCLUIR SEM UNIFICAR: mesmo com histórico. O sistema mostra o impacto; a decisão é do administrador, com
-//    confirmação forte (resumo, segunda confirmação, digitar o nome e botão vermelho "Excluir permanentemente").
-// Em ambos: simulação (nada é gravado) -> assinatura -> execução atômica no backend. Nunca há DELETE no navegador.
+// Unificar cadastro duplicado / remover cadastro VAZIO — fluxo controlado (somente administrador).
+//  • UNIFICAR: dois cadastros representam a mesma pessoa; escolhe-se qual manter, simula, vê conflitos, confirma; o histórico é transferido.
+//  • REMOVER CADASTRO VAZIO: só para cadastro criado por engano e SEM nenhum vínculo (apontamentos, ausências, Escala, equipe, custos, ocorrências, auditorias).
+// "Excluir funcionário" que saiu da empresa NÃO passa por aqui: é DESATIVAR (FuncionarioSituacaoModal), que preserva todo o histórico.
+// O caminho destrutivo "excluir sem unificar" não existe mais na interface. Nunca há DELETE no navegador.
 
 import { useEffect, useState } from "react";
-import { executarExclusao, carregarResumo, simularExclusao, type Decisoes } from "./exclusaoApi";
+import { executarExclusao, carregarResumo, removerCadastroVazio, simularExclusao, type Decisoes } from "./exclusaoApi";
 import {
-  descreverFuncionario, formatarData, haHistoricoNoPlano, linhasConsolidacao, linhasDeVinculos, linhasDescarte, linhasImpactoIndicadores, linhasRemocao,
-  linhasTransferencia, nomeConfere, plural, podeConfirmar, temHistorico,
+  descreverFuncionario, formatarData, linhasConsolidacao, linhasDeVinculos, linhasDescarte,
+  linhasTransferencia, plural, podeConfirmar,
   type PlanoExclusao, type ResumoFuncionario,
 } from "./exclusao";
 
@@ -38,7 +38,7 @@ const ESTILOS = `
 .stx-ex-btn-perigo:disabled { opacity: .45; cursor: not-allowed; }
 `;
 
-type Modo = "simples" | "unificacao";
+type Modo = "vazio" | "unificacao";
 
 export interface ExcluirFuncionarioModalProps {
   funcionarioId: string;
@@ -49,17 +49,13 @@ export interface ExcluirFuncionarioModalProps {
 export default function ExcluirFuncionarioModal({ funcionarioId, onFechar, onConcluido }: ExcluirFuncionarioModalProps) {
   const [resumo, setResumo] = useState<ResumoFuncionario | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [modo, setModo] = useState<Modo | null>(null); // com histórico: o administrador escolhe; sem histórico: "simples"
+  const [modo, setModo] = useState<Modo | null>(null); // cadastro vazio: o administrador escolhe remover ou unificar; com vínculos: só unificar
   const [destinoId, setDestinoId] = useState<string>(""); // NUNCA pré-selecionado
   const [plano, setPlano] = useState<PlanoExclusao | null>(null);
   const [destinoSimulado, setDestinoSimulado] = useState<string | null>(null);
   const [decisoes, setDecisoes] = useState<Decisoes>({});
   const [ocupado, setOcupado] = useState(false);
   const [concluido, setConcluido] = useState<string | null>(null);
-  // confirmação forte (exclusão permanente com histórico)
-  const [forte, setForte] = useState(false);
-  const [entendo, setEntendo] = useState(false);
-  const [nomeDigitado, setNomeDigitado] = useState("");
 
   useEffect(() => {
     let vivo = true;
@@ -71,22 +67,18 @@ export default function ExcluirFuncionarioModal({ funcionarioId, onFechar, onCon
         return;
       }
       setResumo(r.dados);
-      setModo(temHistorico(r.dados.vinculos) ? null : "simples");
+      setModo(r.dados.vazio ? null : "unificacao");
     })();
     return () => { vivo = false; };
   }, [funcionarioId]);
 
   const unificando = modo === "unificacao";
-  const comHistorico = resumo ? temHistorico(resumo.vinculos) : false;
-  const exclusaoPermanente = modo === "simples" && comHistorico; // exclusão sem unificar COM histórico => confirmação forte
+  const vazio = resumo?.vazio === true;
 
   function limparSimulacao() {
     setPlano(null);
     setDecisoes({});
     setErro(null);
-    setForte(false);
-    setEntendo(false);
-    setNomeDigitado("");
   }
 
   async function simular(novasDecisoes: Decisoes = decisoes) {
@@ -103,9 +95,6 @@ export default function ExcluirFuncionarioModal({ funcionarioId, onFechar, onCon
     }
     setPlano(r.dados);
     setDestinoSimulado(unificando ? destinoId : null);
-    setForte(false);
-    setEntendo(false);
-    setNomeDigitado("");
   }
 
   function escolherModo(m: Modo | null) {
@@ -122,11 +111,19 @@ export default function ExcluirFuncionarioModal({ funcionarioId, onFechar, onCon
     await simular(novas);
   }
 
-  const nomeAlvo = resumo?.funcionario.nome ?? "";
-  const confirmacaoForteOk = !exclusaoPermanente || (forte && entendo && nomeConfere(nomeDigitado, nomeAlvo));
+  async function remover() {
+    if (!vazio || ocupado) return;
+    setOcupado(true);
+    setErro(null);
+    const r = await removerCadastroVazio(funcionarioId);
+    setOcupado(false);
+    if (!r.ok) { setErro(r.erro); return; }
+    setConcluido("Cadastro removido. Ele não tinha nenhum vínculo no sistema.");
+    onConcluido();
+  }
 
   async function confirmar() {
-    if (!plano || !podeConfirmar(plano, unificando ? destinoId : null, destinoSimulado) || !confirmacaoForteOk) return;
+    if (!plano || !podeConfirmar(plano, unificando ? destinoId : null, destinoSimulado)) return;
     setOcupado(true);
     setErro(null);
     const r = await executarExclusao(funcionarioId, unificando ? destinoId : null, decisoes, plano.assinatura);
@@ -134,17 +131,13 @@ export default function ExcluirFuncionarioModal({ funcionarioId, onFechar, onCon
     if (!r.ok) {
       setErro(r.erro);
       setPlano(null); // dados podem ter mudado: simular de novo
-      setForte(false);
-      setEntendo(false);
       return;
     }
-    setConcluido(unificando
-      ? `Funcionário unificado: o histórico foi transferido para ${plano.mantido?.nome ?? "o funcionário mantido"} e o cadastro excluído foi removido.`
-      : "Funcionário excluído permanentemente. Tudo que foi removido ficou registrado no log de exclusões.");
+    setConcluido(`Cadastros unificados: o histórico foi transferido para ${plano.mantido?.nome ?? "o funcionário mantido"} e o cadastro duplicado foi removido.`);
     onConcluido();
   }
 
-  const tituloAcao = unificando ? "Unificar funcionário e excluir cadastro" : modo === "simples" ? (comHistorico ? "Excluir sem unificar" : "Excluir funcionário") : "Excluir funcionário";
+  const tituloAcao = unificando ? "Unificar cadastro duplicado" : modo === "vazio" ? "Remover cadastro vazio" : "Unificar ou remover cadastro";
   const f = resumo?.funcionario;
   const vinculos = resumo?.vinculos;
   const semVinculo = vinculos ? linhasDeVinculos(vinculos).length === 0 : false;
@@ -178,7 +171,7 @@ export default function ExcluirFuncionarioModal({ funcionarioId, onFechar, onCon
         {!concluido && resumo && f && vinculos && (
           <>
             <div className="stx-ex-bloco stx-ex-excluir">
-              <h4>Funcionário que será excluído</h4>
+              <h4>{modo === "vazio" ? "Cadastro" : "Cadastro duplicado (será removido)"}</h4>
               <p className="stx-ex-alvo"><b>{descreverFuncionario({ ...f, apontamentos: vinculos.apontamentos })}</b></p>
               {semVinculo ? (
                 <p className="stx-panel-sub" style={{ margin: "6px 0 0" }}>Este funcionário não possui histórico no sistema.</p>
@@ -190,16 +183,20 @@ export default function ExcluirFuncionarioModal({ funcionarioId, onFechar, onCon
               )}
             </div>
 
-            {/* 1) com histórico: o administrador escolhe uma das duas ações */}
-            {comHistorico && modo === null && (
+            <p className="stx-panel-sub" style={{ margin: "10px 0 0" }}>
+              Para um funcionário que saiu da empresa, use <b>Desativar funcionário</b>: o histórico é preservado. Unificar serve só quando dois cadastros representam a mesma pessoa.
+            </p>
+
+            {/* cadastro sem NENHUM vínculo: pode ser removido (criado por engano) ou unificado */}
+            {vazio && modo === null && (
               <div className="stx-ex-escolhas">
+                <button type="button" className="stx-ex-escolha perigo" onClick={() => escolherModo("vazio")}>
+                  <b>Remover cadastro (criado por engano)</b>
+                  <span>Este cadastro não tem nenhum vínculo. A remoção fica registrada no log.</span>
+                </button>
                 <button type="button" className="stx-ex-escolha" onClick={() => escolherModo("unificacao")}>
                   <b>Unificar com outro funcionário</b>
-                  <span>Transfere o histórico para outro cadastro e exclui este. Você escolhe qual manter.</span>
-                </button>
-                <button type="button" className="stx-ex-escolha perigo" onClick={() => escolherModo("simples")}>
-                  <b>Excluir sem unificar</b>
-                  <span>Remove este cadastro e os dados vinculados a ele, sem transferir nada. Exige confirmação forte.</span>
+                  <span>Transfere o histórico para outro cadastro e remove este. Você escolhe qual manter.</span>
                 </button>
                 <div className="stx-form-actions" style={{ justifyContent: "flex-end" }}>
                   <button type="button" className="stx-btn-secondary" onClick={onFechar}>Cancelar</button>
@@ -207,17 +204,16 @@ export default function ExcluirFuncionarioModal({ funcionarioId, onFechar, onCon
               </div>
             )}
 
-            {/* sem histórico: exclusão simples (ou unificar, se quiser) */}
-            {!comHistorico && (
-              <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
-                <label><input type="radio" name="modo" checked={modo === "simples"} onChange={() => escolherModo("simples")} /> Excluir funcionário</label>
-                <label><input type="radio" name="modo" checked={modo === "unificacao"} onChange={() => escolherModo("unificacao")} /> Migrar histórico para outro funcionário e excluir</label>
+            {modo === "vazio" && (
+              <div className="stx-form-actions" style={{ marginTop: 16, justifyContent: "flex-end" }}>
+                <button type="button" className="stx-btn-secondary" onClick={() => escolherModo(null)} disabled={ocupado}>Voltar</button>
+                <button type="button" className="stx-btn-primary stx-ex-btn-perigo" onClick={() => void remover()} disabled={ocupado}>{ocupado ? "Removendo…" : "Remover cadastro"}</button>
               </div>
             )}
 
-            {comHistorico && modo !== null && !plano && (
+            {vazio && modo === "unificacao" && !plano && (
               <p className="stx-panel-sub" style={{ marginTop: 10 }}>
-                <button type="button" className="stx-btn-secondary" onClick={() => escolherModo(null)} disabled={ocupado}>← Voltar às duas opções</button>
+                <button type="button" className="stx-btn-secondary" onClick={() => escolherModo(null)} disabled={ocupado}>← Voltar às opções</button>
               </p>
             )}
 
@@ -236,7 +232,7 @@ export default function ExcluirFuncionarioModal({ funcionarioId, onFechar, onCon
               </div>
             )}
 
-            {modo !== null && !plano && (
+            {unificando && !plano && (
               <div className="stx-form-actions" style={{ marginTop: 16, justifyContent: "flex-end" }}>
                 <button type="button" className="stx-btn-secondary" onClick={onFechar} disabled={ocupado}>Cancelar</button>
                 <button type="button" className="stx-btn-primary" onClick={() => void simular()} disabled={ocupado || (unificando && !destinoId)}>
@@ -293,28 +289,6 @@ export default function ExcluirFuncionarioModal({ funcionarioId, onFechar, onCon
                   </div>
                 )}
 
-                {plano.modo === "exclusao" && (
-                  <>
-                    <div className={`stx-ex-bloco ${haHistoricoNoPlano(plano) ? "stx-ex-perigo" : ""}`}>
-                      <h4>Excluir sem unificar</h4>
-                      {linhasRemocao(plano).length === 0 ? (
-                        <p className="stx-panel-sub" style={{ margin: 0 }}>Nenhum dado vinculado a este cadastro. Apenas o cadastro será excluído.</p>
-                      ) : (
-                        <>
-                          <p className="stx-panel-sub" style={{ margin: "0 0 4px" }}>Esta operação removerá permanentemente os dados vinculados exclusivamente a este cadastro:</p>
-                          <ul>{linhasRemocao(plano).map((l) => <li key={l}>{l}</li>)}</ul>
-                        </>
-                      )}
-                    </div>
-                    {linhasImpactoIndicadores(plano).length > 0 && (
-                      <div className="stx-ex-bloco">
-                        <h4>Impacto nos indicadores históricos</h4>
-                        <ul>{linhasImpactoIndicadores(plano).map((l) => <li key={l}>{l}</li>)}</ul>
-                      </div>
-                    )}
-                  </>
-                )}
-
                 {plano.pendencias.some((p) => p.custo_id) && (
                   <div className="stx-ex-bloco">
                     <h4>Custos diferentes — decisão necessária</h4>
@@ -337,7 +311,7 @@ export default function ExcluirFuncionarioModal({ funcionarioId, onFechar, onCon
                   ) : (
                     <p className="stx-panel-sub" style={{ margin: 0 }}>
                       {plural(plano.impacto_escala.semanas_recalculadas.length, "semana será recalculada", "semanas serão recalculadas")} ({plano.impacto_escala.semanas_recalculadas.map((s) => formatarData(s.semana_inicio)).join(", ")}).
-                      Os períodos futuros são recalculados; os já iniciados {plano.modo === "exclusao" ? "perdem apenas as alocações deste funcionário" : "não são alterados"}.
+                      Os períodos futuros são recalculados; os já iniciados não são alterados.
                     </p>
                   )}
                 </div>
@@ -346,45 +320,18 @@ export default function ExcluirFuncionarioModal({ funcionarioId, onFechar, onCon
                 {plano.avisos.map((a) => <p key={a.codigo} className="stx-ex-aviso">⚠ {a.mensagem}</p>)}
                 {plano.pendencias.filter((p) => !p.custo_id).map((p) => <p key={p.codigo} className="stx-ex-erro">{p.mensagem}</p>)}
 
-                {/* confirmação forte: exclusão permanente com histórico */}
-                {exclusaoPermanente && forte && (
-                  <div className="stx-ex-bloco stx-ex-perigo">
-                    <h4>Confirmação final</h4>
-                    <p className="stx-ex-alvo"><b>Esta exclusão é permanente e não transfere o histórico para outro funcionário.</b></p>
-                    <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, marginTop: 8 }}>
-                      <input type="checkbox" checked={entendo} onChange={(e) => setEntendo(e.target.checked)} />
-                      <span>Entendo que os dados listados serão apagados e que os indicadores históricos podem mudar.</span>
-                    </label>
-                    <label className="stx-panel-sub" htmlFor="ex-nome" style={{ display: "block", margin: "10px 0 4px" }}>
-                      Digite <b>{nomeAlvo.trim().toLocaleUpperCase("pt-BR")}</b> para confirmar.
-                    </label>
-                    <input id="ex-nome" className="stx-input" value={nomeDigitado} onChange={(e) => setNomeDigitado(e.target.value)} autoComplete="off" placeholder={nomeAlvo} />
-                  </div>
-                )}
-
                 <div className="stx-form-actions" style={{ marginTop: 16, justifyContent: "flex-end" }}>
                   <button type="button" className="stx-btn-secondary" onClick={onFechar} disabled={ocupado}>Cancelar</button>
                   <button type="button" className="stx-btn-secondary" onClick={() => void simular()} disabled={ocupado}>Simular novamente</button>
-                  {exclusaoPermanente && !forte ? (
-                    <button type="button" className="stx-btn-secondary" onClick={() => setForte(true)} disabled={ocupado || !podeOk}
-                      style={!podeOk ? { opacity: 0.45, cursor: "not-allowed" } : { borderColor: "var(--danger)", color: "var(--danger)" }}>
-                      Continuar para a confirmação
-                    </button>
-                  ) : exclusaoPermanente ? (
-                    <button type="button" className="stx-btn-primary stx-ex-btn-perigo" onClick={() => void confirmar()} disabled={ocupado || !podeOk || !confirmacaoForteOk}>
-                      {ocupado ? "Excluindo…" : "Excluir permanentemente"}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="stx-btn-primary"
-                      onClick={() => void confirmar()}
-                      disabled={ocupado || !podeOk}
-                      style={ocupado || !podeOk ? { opacity: 0.45, cursor: "not-allowed" } : undefined}
-                    >
-                      {ocupado ? "Processando…" : unificando ? "Unificar e excluir cadastro" : "Excluir funcionário"}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="stx-btn-primary"
+                    onClick={() => void confirmar()}
+                    disabled={ocupado || !podeOk}
+                    style={ocupado || !podeOk ? { opacity: 0.45, cursor: "not-allowed" } : undefined}
+                  >
+                    {ocupado ? "Processando…" : "Unificar e remover cadastro duplicado"}
+                  </button>
                 </div>
               </>
             )}

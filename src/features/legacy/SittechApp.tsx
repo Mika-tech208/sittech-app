@@ -58,6 +58,8 @@ import LoginScreen from "@/components/shell/LoginScreen";
 import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import TopBarActions from "@/components/shell/TopBarActions";
 import ExcluirFuncionarioModal from "@/features/funcionarios/ExcluirFuncionarioModal";
+import FuncionarioSituacaoModal from "@/features/funcionarios/FuncionarioSituacaoModal";
+import { filtrarPorSituacao } from "@/features/funcionarios/situacao";
 import { formatarData } from "@/features/funcionarios/exclusao";
 import AccountModal from "@/components/shell/AccountModal";
 import {
@@ -545,16 +547,20 @@ export default function SittechApp() {
     setTextoNovaOperacao("");
     setNovaOperacao(false);
   }
-  function toggleFuncAtivo(id) {
-    funcionariosHook.alternarFuncionarioAtivo(id);
-  }
-  // Excluir funcionário: somente administrador, por fluxo controlado no backend (resumo -> simulação ->
-  // confirmação). O navegador NUNCA faz DELETE direto em `funcionarios`.
+  // Ativo / Inativo é UM conceito só. "Excluir funcionário" = DESATIVAR (histórico preservado): somente administrador, pelo backend
+  // (desativar_funcionario / reativar_funcionario). O navegador NUNCA faz UPDATE de `ativo` nem DELETE direto em `funcionarios`.
+  const [funcSituacao, setFuncSituacao] = useState(null); // { id, modo: "desativar" | "reativar" }
+  const [funcFiltro, setFuncFiltro] = useState("ativos"); // ativos | inativos | todos (padrão: ativos)
+  // Unificar cadastro duplicado (ou remover cadastro VAZIO): fluxo separado, também só administrador.
   const [funcExcluindoId, setFuncExcluindoId] = useState(null);
   const ehAdmin = usuarioLogado?.papel === "admin";
   function deleteFunc(id) {
     if (!ehAdmin) return;
     setFuncExcluindoId(id);
+  }
+  function mudarSituacaoFunc(id, modo) {
+    if (!ehAdmin) return;
+    setFuncSituacao({ id, modo });
   }
   // nomes repetidos: o card mostra a data de cadastro para diferenciar os cadastros
   const nomesRepetidos = (() => {
@@ -1046,6 +1052,14 @@ export default function SittechApp() {
       />
       {cadastrosBase.erro && <p className="stx-save-error">{cadastrosBase.erro}</p>}
       {funcionariosHook.erro && <p className="stx-save-error">{funcionariosHook.erro}</p>}
+      {funcSituacao && ehAdmin && (
+        <FuncionarioSituacaoModal
+          funcionarioId={funcSituacao.id}
+          modo={funcSituacao.modo}
+          onFechar={() => setFuncSituacao(null)}
+          onConcluido={() => { void funcionariosHook.recarregarFuncionarios(); }}
+        />
+      )}
       {funcExcluindoId && ehAdmin && (
         <ExcluirFuncionarioModal
           funcionarioId={funcExcluindoId}
@@ -1565,14 +1579,25 @@ export default function SittechApp() {
             ) : funcionariosHook.funcionarios.length === 0 ? (
               <div className="stx-empty">Nenhum funcionário cadastrado ainda.</div>
             ) : (
-              funcionariosHook.funcionarios.map((f) => (
+              <>
+              <div style={{ display: "flex", gap: 8, margin: "0 0 12px", flexWrap: "wrap" }}>
+                {[["ativos", "Ativos"], ["inativos", "Inativos"], ["todos", "Todos"]].map(([k, rotulo]) => (
+                  <button key={k} type="button" className={funcFiltro === k ? "stx-btn-primary" : "stx-btn-secondary"} onClick={() => setFuncFiltro(k)}>
+                    {rotulo} ({filtrarPorSituacao(funcionariosHook.funcionarios, k).length})
+                  </button>
+                ))}
+              </div>
+              {filtrarPorSituacao(funcionariosHook.funcionarios, funcFiltro).length === 0 && (
+                <div className="stx-empty">{funcFiltro === "inativos" ? "Nenhum funcionário inativo." : "Nenhum funcionário nesta lista."}</div>
+              )}
+              {filtrarPorSituacao(funcionariosHook.funcionarios, funcFiltro).map((f) => (
                 <div className={`stx-func-card ${!f.ativo ? "paused" : ""}`} key={f.id}>
                   <div className="stx-func-top">
                     <div>
                       <p className="stx-func-nome">
                         {f.nome}
                         <span className="stx-badge blueprint">{f.operacao}</span>
-                        {!f.ativo && <span className="stx-badge">pausado</span>}
+                        {!f.ativo && <span className="stx-badge">Inativo</span>}
                       </p>
                       <p className="stx-func-itens">
                         Salário base {formatBRL(f.salarioBase)}
@@ -1580,16 +1605,11 @@ export default function SittechApp() {
                       </p>
                     </div>
                     <div className="stx-entry-right">
-                      <button
-                        className={`stx-icon-btn ${f.ativo ? "on" : ""}`}
-                        title={f.ativo ? "Pausar" : "Retomar"}
-                        onClick={() => toggleFuncAtivo(f.id)}
-                      >
-                        {f.ativo ? "⏸" : "▶"}
-                      </button>
-                      <button className="stx-icon-btn" title="Duplicar" onClick={() => duplicateFunc(f)}>⧉</button>
-                      <button className="stx-icon-btn" title="Editar" onClick={() => editFunc(f)}>✎</button>
-                      {ehAdmin && <button className="stx-icon-btn danger" title="Excluir ou unificar funcionário (somente administrador)" onClick={() => deleteFunc(f.id)}>✕</button>}
+                      {f.ativo && <button className="stx-icon-btn" title="Duplicar" onClick={() => duplicateFunc(f)}>⧉</button>}
+                      {f.ativo && <button className="stx-icon-btn" title="Editar" onClick={() => editFunc(f)}>✎</button>}
+                      {ehAdmin && f.ativo && <button className="stx-btn-secondary" title="Remove das operações futuras; o histórico é preservado (somente administrador)" onClick={() => mudarSituacaoFunc(f.id, "desativar")}>DESATIVAR FUNCIONÁRIO</button>}
+                      {ehAdmin && !f.ativo && <button className="stx-btn-secondary" title="Volta a permitir o uso em operações futuras (somente administrador)" onClick={() => mudarSituacaoFunc(f.id, "reativar")}>REATIVAR FUNCIONÁRIO</button>}
+                      {ehAdmin && <button className="stx-icon-btn" title="Unificar cadastro duplicado (somente administrador)" onClick={() => deleteFunc(f.id)}>⇄</button>}
                     </div>
                   </div>
                   <div className="stx-func-rates">
@@ -1603,7 +1623,8 @@ export default function SittechApp() {
                     </div>
                   </div>
                 </div>
-              ))
+              ))}
+              </>
             )}
         </div>
       )}

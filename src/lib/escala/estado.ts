@@ -54,6 +54,15 @@ export interface AusenciaBruta {
   historico?: AusenciaHistorico[];
 }
 
+// Linha do tempo de situação do funcionário (funcionario_situacao_historico): bitemporal (efetivo x registrado)
+export interface SituacaoFuncionarioEvento {
+  acao: "desativado" | "reativado";
+  efetivoEm: string; // ISO
+  registradoEm: string; // ISO
+  ativoAntes: boolean;
+  ativoDepois: boolean;
+}
+
 export interface AusenciaHistorico {
   alteradoEm: string; // ISO
   // estado ANTES desta mudança; null quando a linha é a abertura (a ausência ainda não existia)
@@ -73,6 +82,8 @@ export interface EstadoBruto {
   periodosAtuais: PeriodoEscala[];
   diasExistentes: DiaExistente[];
   equipeProdutiva: { funcionarioId: string; nome?: string; ativo: boolean }[]; // só quem foi marcado produtivo
+  // eventos de ativação/desativação por funcionário (todos os que têm linha do tempo): permitem reconstruir `ativo` em um corte passado (sombra sem hindsight)
+  situacaoFuncionarios?: Record<string, SituacaoFuncionarioEvento[]>;
   itens: ItemPrevistoBruto[];
   etapas: EtapaBruta[];
   maquinasIndisponiveisPrevisao: string[];

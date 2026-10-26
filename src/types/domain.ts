@@ -32,7 +32,8 @@ export interface Funcionario {
   criadoEm?: string; // created_at do cadastro (diferencia dois funcionários de mesmo nome)
   operacao: string;
   salarioBase: number;
-  ativo: boolean;
+  ativo: boolean; // ATIVO / INATIVO (um único conceito: inativo = fora das operações futuras, histórico preservado)
+  desligadoEm?: string | null; // instante efetivo do desligamento (ISO)
   custos: FuncionarioCusto[];
 }
 

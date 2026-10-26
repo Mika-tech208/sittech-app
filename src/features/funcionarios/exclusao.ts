@@ -22,8 +22,10 @@ export interface CandidatoUnificacao {
 }
 
 export interface ResumoFuncionario {
-  funcionario: { id: string; nome: string; ativo: boolean; cadastro: string; ultima_atividade: string | null };
+  funcionario: { id: string; nome: string; ativo: boolean; cadastro: string; ultima_atividade: string | null; desligado_em?: string | null; motivo_desligamento?: string | null };
   vinculos: VinculosFuncionario;
+  atraso_em_aberto?: boolean; // bloqueia a desativação
+  vazio?: boolean; // sem NENHUM vínculo: único caso em que o cadastro pode ser removido fisicamente
   candidatos: CandidatoUnificacao[];
 }
 
@@ -193,7 +195,14 @@ export function podeConfirmar(plano: PlanoExclusao | null, destinoId: string | n
 }
 
 const MENSAGENS: [RegExp, string][] = [
-  [/FUNC_SOMENTE_ADMIN/, "Somente administradores podem excluir ou unificar funcionários."],
+  [/FUNC_SOMENTE_ADMIN/, "Somente administradores podem desativar, reativar, remover ou unificar funcionários."],
+  [/ATRASO_EM_ABERTO/, "Este funcionário tem um atraso em aberto. Registre a chegada em Faltas e Ausências antes de desativar."],
+  [/FUNC_DESLIGAMENTO_FUTURO|FUNC_REATIVACAO_FUTURA/, "A data/hora efetiva não pode estar no futuro."],
+  [/FUNC_DESLIGAMENTO_ANTES_DO_CADASTRO|FUNC_REATIVACAO_ANTES_DO_CADASTRO/, "A data/hora efetiva não pode ser anterior ao cadastro do funcionário."],
+  [/FUNC_DESLIGAMENTO_ANTES_DA_ULTIMA_MUDANCA|FUNC_REATIVACAO_ANTES_DO_DESLIGAMENTO/, "A data/hora efetiva não pode ser anterior à última mudança de situação do funcionário."],
+  [/FUNC_TEM_VINCULOS/, "Este cadastro tem vínculos (histórico) e não pode ser removido. Desative o funcionário ou unifique com outro cadastro."],
+  [/FUNC_EXCLUSAO_DESCONTINUADA/, "Excluir funcionário agora é desativar: o histórico é sempre preservado."],
+  [/FUNC_USE_RPC/, "Ativar ou desativar funcionário só é possível pelas ações de desativar/reativar (somente administrador)."],
   [/FUNC_ASSINATURA_DESATUALIZADA/, "Os dados mudaram desde a simulação. Simule novamente."],
   [/FUNC_BLOQUEADO/, "Existem bloqueios na simulação. Resolva-os e simule novamente."],
   [/OCORRENCIA_COM_PARADAS_DE_OUTROS/, "Uma ocorrência de máquina deste funcionário tem paradas de outros funcionários. Use \"Unificar com outro funcionário\"."],

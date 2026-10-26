@@ -8,6 +8,7 @@ import { lerParametros } from "@/features/escala/parametros";
 import type { AlocacaoEscala, PeriodoEscala } from "@/features/escala/types";
 import { linhasConsolidadas, type LinhaHistoricoBruta } from "./historicoConsolidado";
 import { historicoDaAusencia } from "./ausenciaAberta";
+import { historicoDeSituacao } from "./situacaoFuncionario";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "./estado";
 import { processarSemana, type EscalaIO, type OpcoesProcessamento } from "./processar";
 import { carregarWipControle, gravarSnapshotsWip } from "./wipIO";
@@ -112,6 +113,8 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
       const funcRows = funcIds.length
         ? (ok(await admin.from("funcionarios").select("id, nome, ativo").in("id", funcIds), "funcionarios") as { id: string; nome: string; ativo: boolean }[])
         : [];
+      // linha do tempo de situação (ativo/inativo) — tabela pequena; leitura completa para o corte da sombra reconstruir `ativo` sem hindsight
+      const situacaoRows = ok(await admin.from("funcionario_situacao_historico").select("funcionario_id, acao, efetivo_em, registrado_em, ativo_antes, ativo_depois"), "funcionario_situacao_historico") as { funcionario_id: string; acao: string; efetivo_em: string; registrado_em: string; ativo_antes: boolean; ativo_depois: boolean }[];
       const produtoIds = [...new Set(itensRows.map((i) => i.produto_id))];
       const etapaRows = produtoIds.length
         ? (ok(await admin.from("roteiro_etapas").select(`id, produto_id, operacao_id, ordem, ${META_COLS}`).in("produto_id", produtoIds), "roteiro_etapas") as unknown as Record<string, string | number>[])
@@ -153,6 +156,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         diasProdutivos: diasRows.filter((d) => d.ativo).map((d) => d.dia).sort(),
         periodosAtuais,
         diasExistentes: existentesRows.map((d) => ({ data: d.data, versao: d.versao, periodosSnapshot: d.periodos_snapshot })),
+        situacaoFuncionarios: historicoDeSituacao(situacaoRows),
         equipeProdutiva: equipeRows.map((r) => {
           const f = funcRows.find((x) => x.id === r.funcionario_id);
           return { funcionarioId: r.funcionario_id, nome: f?.nome, ativo: f?.ativo ?? false };

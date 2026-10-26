@@ -1,4 +1,8 @@
 
+-- A exclusão destrutiva saiu da aplicação (funcionario_exclusao_* recusam "sem unificar"): resta a função interna _funcionario_exclusao para
+-- administração de EMERGÊNCIA, fora da interface. Estes testes a exercitam por wrappers temporários (security definer; a checagem de admin é do núcleo).
+create or replace function pg_temp.sim(a uuid, b uuid default null, c jsonb default '{}'::jsonb) returns jsonb language sql security definer as $$ select public._funcionario_exclusao(a, b, c, false, null) $$;
+create or replace function pg_temp.exe(a uuid, b uuid, c jsonb, d text) returns jsonb language sql security definer as $$ select public._funcionario_exclusao(a, b, c, true, d) $$;
 do $$
 declare
   v_auth uuid := 'a27f42df-54fe-4718-93a7-0085f5ed5a09';
@@ -30,14 +34,14 @@ begin
   set local role authenticated;
 
   -- X (sem apontamentos): exclusão simples permitida
-  v_sim := public.funcionario_exclusao_simular(X, null, '{}');
+  v_sim := pg_temp.sim(X, null, '{}');
   if not (v_sim->>'pode_executar')::boolean then raise exception 'FALHOU (T2) exclusão simples de X deveria ser permitida: %', v_sim; end if;
   if (v_sim#>>'{descartar,ausencias}')::int <> 1 or (v_sim#>>'{descartar,semanas_equipe}')::int <> 1 or jsonb_array_length(v_sim#>'{descartar,custos}') <> 1 then raise exception 'FALHOU (T2) resumo do que será removido: %', v_sim->'descartar'; end if;
-  v_res := public.funcionario_exclusao_executar(X, null, '{}', v_sim->>'assinatura');
+  v_res := pg_temp.exe(X, null, '{}', v_sim->>'assinatura');
   -- K (com apontamento): agora PERMITIDO (decisão do administrador); o impacto aparece na simulação
-  v_sim := public.funcionario_exclusao_simular(K, null, '{}');
+  v_sim := pg_temp.sim(K, null, '{}');
   if not (v_sim->>'pode_executar')::boolean or (v_sim#>>'{remover,apontamentos}')::int <> 1 then raise exception 'FALHOU (T2) K deveria poder ser excluído: %', v_sim; end if;
-  v_res := public.funcionario_exclusao_executar(K, null, '{}', v_sim->>'assinatura'); v_ok := true;
+  v_res := pg_temp.exe(K, null, '{}', v_sim->>'assinatura'); v_ok := true;
   reset role;
   if not v_ok then raise exception 'FALHOU (T2) executar bloqueado: %', v_err; end if;
   if exists (select 1 from funcionarios where id = X) then raise exception 'FALHOU (T2) X deveria ter sido excluído'; end if;

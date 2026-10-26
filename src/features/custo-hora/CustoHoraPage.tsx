@@ -312,7 +312,7 @@ export default function CustoHoraPage() {
                     </div>
                     {r.funcionarios.map((f) => (
                       <div className={`stx-op-func-line ${!f.ativo ? "paused" : ""}`} key={f.id}>
-                        <span className="n">{f.nome}{!f.ativo ? " (pausado)" : ""}</span>
+                        <span className="n">{f.nome}{!f.ativo ? " (inativo)" : ""}</span>
                         <span className="v">{formatBRL(custoHoraSittech(f))}/h</span>
                       </div>
                     ))}

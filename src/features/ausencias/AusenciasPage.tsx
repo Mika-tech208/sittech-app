@@ -20,6 +20,7 @@ import { useSidebarState } from "@/hooks/useSidebarState";
 import RegistrarAusenciaModal from "./RegistrarAusenciaModal";
 import AusenciaDetalheModal from "./AusenciaDetalheModal";
 import { hojeEmSaoPaulo, horaEmSaoPaulo, hhmm, minutosEmAndamento, visaoAtrasoAberto } from "./atrasoAberto";
+import { funcionariosParaResumo } from "./resumoHistorico";
 import {
   LABEL_TIPO_AUSENCIA, TIPOS_AUSENCIA, minutosJornadaCompleta, formatarDuracao,
   calcularResumoPorFuncionario, calcularTotalEquipe, calcularDisponibilidadePct, type TipoAusencia,
@@ -112,12 +113,15 @@ export default function AusenciasPage() {
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const filtrosVazios: FiltrosAusencias = useMemo(() => ({ dataInicial: primeiroDiaDoMes(), dataFinal: ultimoDiaDoMes() }), []);
   const [filtrosForm, setFiltrosForm] = useState<FiltrosAusencias>(filtrosVazios);
+  const [filtrosAplicados, setFiltrosAplicados] = useState<FiltrosAusencias>(filtrosVazios); // o que a lista/resumo realmente mostram
 
   function aplicarFiltros() {
+    setFiltrosAplicados(filtrosForm);
     ausenciasHook.buscar(filtrosForm);
   }
   function limparFiltros() {
     setFiltrosForm(filtrosVazios);
+    setFiltrosAplicados(filtrosVazios);
     ausenciasHook.buscar(filtrosVazios);
   }
 
@@ -140,15 +144,20 @@ export default function AusenciasPage() {
   // ---- resumo mensal — reflete o MESMO filtro ativo acima (V1 simples:
   // não existe um segundo seletor de mês independente) ----
   const horasPorDia = useMemo(() => minutosJornadaCompleta(jornadaOficialHook.jornada) / 60, [jornadaOficialHook.jornada]);
+  // inativos HOJE com registros no período (ou ainda ativos em algum momento dele) continuam no resumo, nos totais e no denominador de horas previstas
+  const funcionariosDoResumo = useMemo(
+    () => funcionariosParaResumo(funcionariosElegibilidadeHook.funcionarios, ausenciasHook.ausencias.map((a) => a.funcionarioId), filtrosAplicados.dataInicial),
+    [funcionariosElegibilidadeHook.funcionarios, ausenciasHook.ausencias, filtrosAplicados.dataInicial]
+  );
   const resumoPorFuncionario = useMemo(
-    () => calcularResumoPorFuncionario(ausenciasHook.ausencias, funcionariosAtivosSimples),
-    [ausenciasHook.ausencias, funcionariosAtivosSimples]
+    () => calcularResumoPorFuncionario(ausenciasHook.ausencias, funcionariosDoResumo),
+    [ausenciasHook.ausencias, funcionariosDoResumo]
   );
   const totalEquipe = useMemo(() => calcularTotalEquipe(resumoPorFuncionario), [resumoPorFuncionario]);
   const minutosPrevistosEquipe = useMemo(() => {
     const horasProdutivasFuncionario = calcularHorasProdutivasFuncionario(horasPorDia, cadastrosBase.diasUteis);
-    return calcularTotalHorasProdutivasEmpresa(horasProdutivasFuncionario, funcionariosAtivosSimples.length) * 60;
-  }, [horasPorDia, cadastrosBase.diasUteis, funcionariosAtivosSimples.length]);
+    return calcularTotalHorasProdutivasEmpresa(horasProdutivasFuncionario, funcionariosDoResumo.length) * 60;
+  }, [horasPorDia, cadastrosBase.diasUteis, funcionariosDoResumo.length]);
   const disponibilidadePct = calcularDisponibilidadePct(minutosPrevistosEquipe, totalEquipe.minutosPerdidos);
 
   if (auth.emModoRecovery) {
