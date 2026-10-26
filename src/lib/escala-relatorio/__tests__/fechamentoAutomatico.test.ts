@@ -227,3 +227,21 @@ describe("alterações posteriores ao fechamento não mudam a v1", () => {
     expect(m.w.relatorios).toHaveLength(1); expect(m.w.relatorios[0].hash).toBe(hash);
   });
 });
+
+describe("FINAL já gerado e depois mudam os dias produtivos da semana", () => {
+  it("sábado vira produtivo depois do final de sexta: o PDF antigo não muda, o worker não regera, a tela acusa 'alterações posteriores'; só nova versão manual reflete a mudança", async () => {
+    const m = criarMundo(); m.w.agora = em("18:00", SEX);
+    expect(daSemana(await rodar(m)).acao).toBe("gerado");
+    const v1 = m.w.relatorios[0]; const pdfAntes = v1.pdfSha; const hashAntes = v1.hash;
+    const considerados = v1.conteudo.dias.flatMap((d) => d.periodos.filter((p) => p.considerado).map((p) => ({ data: d.data, periodoId: p.id })));
+    expect(digestDasFontes(m.w.fontesAtuais, considerados)).toBe(v1.digest);               // nada mudou ainda → sem aviso
+    m.w.fontesAtuais = { ...m.w.fontesAtuais, diasProdutivos: [SEG, SAB] };                // alguém marca o sábado como produtivo
+    expect(fechamentoLogicoMs(m.w.fontesAtuais)).toBe(em("18:00", SAB));                   // o fechamento lógico atual passaria a ser o de sábado...
+    expect(digestDasFontes(m.w.fontesAtuais, considerados)).not.toBe(v1.digest);          // ...e a v1 é marcada como tendo alterações posteriores (mesmo comparador da tela)
+    for (const [h, d] of [["18:05", SEX], ["06:00", SAB]] as const) { m.w.agora = em(h, d); expect(["aguardando", "nada_a_fazer"]).toContain(daSemana(await rodar(m)).acao); } // antes do "novo" fechamento: nada é gerado
+    for (const [h, d] of [["18:00", SAB], ["18:30", SAB]] as const) { m.w.agora = em(h, d); expect(daSemana(await rodar(m)).acao).toBe("nada_a_fazer"); }   // no "novo" fechamento: o final desta semana já existe
+    expect(m.w.relatorios).toHaveLength(1); expect(m.w.geracoes).toBe(1);
+    expect(v1.pdfSha).toBe(pdfAntes); expect(v1.hash).toBe(hashAntes); expect(hashDoConteudo(v1.conteudo).hash).toBe(hashAntes);
+    expect(v1.conteudo.dias.map((d) => d.data)).toEqual([SEG]);                            // o snapshot continua com os dias de 18:00
+  });
+});
