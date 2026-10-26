@@ -367,3 +367,57 @@ DEV/Preview primeiro em todas; PROD só com aprovação explícita por fase; nen
 - **Não alterado (por escopo):** RPCs de indicadores/apontado real (`max(ordem)`) e `wip_controle_criar` (ordem+1) — ficam protegidas pela trava; a troca para `produto_etapa_final`/estrutura de rotas é tarefa do M4.
 
 **Golden master após o ajuste:** idêntico (TS e SQL). **Testes:** `supabase/tests/rotas/t1_m0_m1.sql` e `src/features/rotas/__tests__/{rotas,custo}.test.ts` ampliados (sem passagem entre rotas; `ordem` ≠ caminho; convergência; demanda comum única; custo; trava). Observação: o SQL `t8_desativacao_logica` falha **somente** quando executado fora dos períodos cadastrados (18:35, "Horário não está dentro de nenhum período") — dependência de horário **pré-existente**, não relacionada a esta mudança (confirmado com o gatilho novo desabilitado).
+
+## 18. M2 — Planejador puro de rotas (somente DEV/Preview; 26/10/2026)
+
+**Escopo respeitado:** nada de PROD; `rotas_config.suporte_ativo = false`; F segue `ativo = false` e fora de qualquer tela operacional; sem Previsão 02/11; sem apontamentos de F; Escala oficial intacta; o planejador **não escreve** Previsão, Escala, WIP, apontamentos nem divisão oficial.
+
+### 18.1 Arquitetura
+`src/features/rotas/planejador.ts` (função pura `planejarRotas(entrada) → saída`, versão `rotas-planejador-1.0`) sobre os helpers **explícitos** de `estrutura.ts` / `capacidade.ts` / `custo.ts`: rotas = trecho exclusivo; convergência (origem → destino); pool comum (Etiquetar, Embalar uma vez); etapa final **explícita**. **Nada usa `max(ordem)`/`ordem+1`** (teste: embaralhar `ordem` não muda o resultado). Produto linear devolve `aplicavel:false` e segue o caminho legado.
+Compatibilidade para o M4 (`compat.ts`, nenhuma RPC alterada): `etapaFinalDoProduto` (linear = maior ordem; rotas = final explícita) e `apontadoRealProduto` (só a etapa final conta produto acabado).
+
+### 18.2 Entradas e saídas
+**Entradas:** produto (estrutura + etapas), demanda final, metas/máquinas (cadastro), períodos, dias produtivos, máquinas indisponíveis, horas comprometidas por outros produtos (concorrência real, ex.: E16 × Caixa Amarela), equipe apta **por operação** + revezamento duro, teto de capacidade realizável vindo da Escala, desempenho observado, WIP inicial (por rota e no pool), limite de WIP, divisão anterior, máximo por rota (V1), custo/hora e preço.
+**Saídas:** demanda final; alvo AUTO/CONV (entrega ao pool); capacidade nominal e realizável por rota; capacidade do pool e por etapa comum (Etiquetar, Embalar); final atingível, falta, % atingível; gargalo (`comum`: etapa, ou `entrada`: limitantes por rota); motivos codificados; WIP projetado (sombra); custo estimado, custo por peça (exclusivo/comum/final), **economia AUTO**, margem.
+
+### 18.3 Algoritmo (ordem da política aprovada)
+1. **Maximizar o produto final:** `F = min(D, L, W + Σ cap_r)` (D demanda; L = mín. das etapas comuns; W semiacabado pronto).
+2. **Restrições físicas:** capacidade da etapa = Σ máquinas livres × metas × períodos × dias; menos máquinas indisponíveis e horas comprometidas; × fração operável pela equipe (`fracaoOperavel`: sem revezamento k/m; com revezamento duro k·⌈P/2⌉/(m·P)); × desempenho; limitado por teto da Escala. Capacidade da rota = **mínimo** das etapas exclusivas em série (Rosquear e Parafusar não se somam).
+3. **Sem WIP inútil:** as rotas entregam exatamente `E = max(0, F − W)`.
+4. **Menor custo:** divisão enchendo primeiro a rota de menor custo **exclusivo** (rotas disjuntas ⇒ guloso é ótimo), até o máximo realizável/V1. Nunca sacrifica atendimento por custo (o custo só escolhe entre divisões que já atendem F).
+5. **Estabilidade:** divisão anterior viável (ajustada à capacidade e ao necessário) é mantida se custar ≤ 1% a mais que a ótima.
+6. **Desempate:** preferência da rota, depois código.
+Gargalo: se `L ≤ W + Σcap` ⇒ **comum** (corta as duas rotas); senão **entrada**.
+
+### 18.4 Resultado dos cenários (testes `planejador.test.ts`, 39 casos; condições de 26/10 da Previsão: AUTO 35.625, CONV 81.000 limitada por Parafusar, E15 97.500, Embalar 142.500)
+| Cenário | Resultado |
+|---|---|
+| **Real 116.625, só E15 (E16 ocupada)** | final **97.500**, falta **19.125**, **83,6%**, gargalo **Etiquetar (comum)**; AUTO 35.625 + CONV 61.875 (só o que o pool consome); 35.625+81.000 = 116.625 **não** basta |
+| E16 0% / 25% / 50% / 100% livre | 97.500 / 116.625 (pool 121.875) / 116.625 (146.250→Embalar 142.500) / 116.625 |
+| Demanda 20.000 | AUTO 20.000, CONV 0, sem excesso, WIP 0 |
+| AUTO parada | AUTO 0, CONV 81.000, final 81.000, falta 35.625 (gargalo de entrada) |
+| AUTO acima da meta (39.000) | AUTO 39.000, CONV 77.625 (soma = 116.625); com demanda 90.000 → CONV 51.000 |
+| Falta de operador AUTO / Rosquear (1 de 2) / Parafusar (1 de 2) | AUTO 0 / CONV 54.000 / CONV 40.500 (cai só o posto afetado; sem número fixo por rota) |
+| Revezamento duro (2 pessoas, 2 máq., 6 períodos) | CONV realizável 40.500 (nominal 81.000); teto da Escala entra como menor valor |
+| Sábado produtivo (6 dias) | AUTO 42.750, CONV 97.200, E15 117.000 ⇒ 116.625 atendido |
+| Máquina indisponível (P9) | CONV 40.500, final 76.125, gargalo de entrada |
+| WIP inicial / limite | WIP reduz a entrega das rotas; saldo projetado acima do limite é sinalizado; exemplo 8.000+5.000−12.000 ⇒ 1.000 (rateio proporcional, sem FIFO) |
+| Custo / economia | custo = Σ entrega×exclusivo + final×comum; economia AUTO = volume AUTO × (excl. CONV − excl. AUTO) ≈ R$ 724/semana com 35.625 peças; ordem inverte se AUTO ficar mais cara; estabilidade mantém divisão a ≤ 1% |
+| Etapa final fora de max(ordem) | "Etapa Técnica" ordem 99: final continua Embalar (TS + `t2_m2_etapa_final_explicita.sql`) |
+| Produto linear | `aplicavel:false`; golden master idêntico |
+
+### 18.5 Sombra
+`supabase/migrations/20261107100000_rotas_m2_planejador_sombra.sql` (aditiva, **só DEV**): tabela própria `rotas_planejador_sombra` **append-only** (trigger imutável; select só para admin/`produtos`; insert só `service_role`). Registra entrada (com hash SHA-256), resultado completo, gargalo, divisão, custo, timestamp, versão do algoritmo. `scripts/rotas-planejador-sombra.ts [--gravar]` roda 8 cenários sobre os **dados do DEV** (cadastro de F + Previsão 26/10 do DEV) e grava; **não usa** `escala_rota_divisao`. Os números do DEV diferem dos de PROD (DEV: Rosquear só R6 ⇒ CONV 54.000; Embalar 4.600/3.800 ⇒ 126.000); os números de PROD acima vêm dos testes com as condições lidas em 26/10.
+
+### 18.6 Golden master e trava
+TS e SQL (apontado real, sintético, hashes da semana 26/10 e das colunas das tabelas antigas, agora excluindo também `rotas_planejador_sombra`) **idênticos** aos de antes (`docs/rotas-golden/*_depois3_dev.*`). `t1_m0_m1.sql` e `t2_m2_etapa_final_explicita.sql` passam. Trava e F inativo conferidos após as execuções.
+
+### 18.7 Riscos / limites conhecidos
+- Planejador **assume rotas disjuntas** (sem máquina em comum); se houver máquina compartilhada ele sinaliza `MAQUINAS_COMPARTILHADAS_ENTRE_ROTAS` (soma pode superestimar).
+- Concorrência por máquina é **estimada** (horas dos outros itens divididas entre as máquinas marcadas); a alocação real dependerá do motor da Escala.
+- Revezamento: `fracaoOperavel` é um limite superior aproximado; o valor exato deve vir do motor da Escala (`capacidadeRealizavelEscala`).
+- Custo/hora na UI é o real do app; no script de sombra é uma referência uniforme (ordem de grandeza).
+- RPCs de apontado real/indicadores e `wip_controle_criar` continuam com `max(ordem)`/`ordem+1`: protegidos pela trava até o M4.
+
+### 18.8 O que falta para o M3
+Persistir a divisão oficial (`escala_rota_divisao`) a partir do planejador; integrar à Previsão (item único de F, `previsao_rota_limite`), à Capacidade e ao motor da Escala (itens/etapas por rota, pool comum único); obter o **revezamento realizável** do motor para alimentar `capacidadeRealizavelEscala`; decisão sobre concorrência de máquinas (E16) na alocação; telas operacionais; só então considerar `suporte_ativo`. M4: apontado real/indicadores/WIP por etapa final explícita.

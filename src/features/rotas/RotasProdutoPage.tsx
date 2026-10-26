@@ -9,6 +9,11 @@ import { useAuthSession } from "@/hooks/useAuthSession";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { useMetaSemanalShell } from "@/hooks/useMetaSemanalShell";
 import { useTema } from "@/hooks/useTema";
+import { useCadastrosBase } from "@/hooks/useCadastrosBase";
+import { useFuncionarios } from "@/hooks/useFuncionarios";
+import { useCustos } from "@/hooks/useCustos";
+import { calcularPeriodosComDuracao, filtrarPeriodosValidos, calcularHorasPorDia } from "@/lib/calculations/periodos";
+import { calcularCustoHoraEOperacoes } from "@/features/custo-hora/calculations";
 import LoginScreen from "@/components/shell/LoginScreen";
 import Sidebar from "@/components/shell/Sidebar";
 import TopBarActions from "@/components/shell/TopBarActions";
@@ -20,8 +25,12 @@ import { temPermissao } from "@/lib/permissoes";
 import { formatBRL, setModoPrivadoAtivo } from "@/lib/format";
 import { cenario, estruturaDasLinhas, etapasDoProduto, horasComprometidasPorOutros, selecaoComoPrevisaoLegada, type LinhasRotas } from "./dados";
 import { validarEstrutura, todasAsEtapas } from "./estrutura";
+import { capacidadeEtapa, horasMaquinaSemana } from "./capacidade";
 import type { ContextoCapacidade, PeriodoId } from "./tipos";
 import DiagramaRotas from "./DiagramaRotas";
+import PlanoRotas from "./PlanoRotas";
+import { planejarRotas, type SaidaPlanejador } from "./planejador";
+import type { ContextoCusto } from "./custo";
 
 interface Carga {
   linhas: Omit<LinhasRotas, "produtoId">;
@@ -63,12 +72,25 @@ export default function RotasProdutoPage() {
   const meta = useMetaSemanalShell(auth.autenticado);
   const permitido = temPermissao(auth.usuarioLogado, "produtos");
 
+  // custo/hora real (mesma fórmula do resto do app): cadastros-base → funcionários → custos fixos
+  const cadastros = useCadastrosBase(auth.autenticado);
+  const funcionariosHook = useFuncionarios(auth.autenticado && !cadastros.loading);
+  const custosHook = useCustos(auth.autenticado && !cadastros.loading && !funcionariosHook.loading);
+  const custoHora = useMemo(() => {
+    const horasDia = calcularHorasPorDia(filtrarPeriodosValidos(calcularPeriodosComDuracao(cadastros.periodos)));
+    return calcularCustoHoraEOperacoes(funcionariosHook.funcionarios, custosHook.fixedCosts, horasDia, cadastros.diasUteis);
+  }, [cadastros.periodos, cadastros.diasUteis, funcionariosHook.funcionarios, custosHook.fixedCosts]);
+
   const [carga, setCarga] = useState<Carga | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [demanda, setDemanda] = useState(116625);
   const [dias, setDias] = useState(5);
   const [modoMaquinas, setModoMaquinas] = useState<"previsao_legada" | "todas">("previsao_legada");
   const [descontar, setDescontar] = useState(true);
+  const [e16, setE16] = useState<"real" | "0" | "25" | "50" | "100">("real");   // quanto da Etiquetadora 16 sobra para o Conector (concorrência com outros produtos)
+  const [autoParada, setAutoParada] = useState(false);
+  const [desempenhoAuto, setDesempenhoAuto] = useState(0);   // peças/semana efetivas da AUTO (0 = meta cadastrada)
+  const [wipPool, setWipPool] = useState(0);
   const [semanaId, setSemanaId] = useState<string>("");
   const [manual, setManual] = useState<Record<string, string[]> | null>(null);   // ajuste manual de máquinas por etapa (o que a Previsão selecionaria)
   const [itensSemana, setItensSemana] = useState<{ produto_id: string; quantidade: number; previsao_item_maquinas: { etapa_id: string; maquina_id: string }[] }[]>([]);
@@ -107,10 +129,24 @@ export default function RotasProdutoPage() {
     const selecao = manual ?? base;
     const ctx: ContextoCapacidade = { periodos, diasProdutivos: dias };
     if (descontar) ctx.horasComprometidasPorMaquina = horasComprometidasPorOutros(itensSemana, new Set([produtoF.id, ...legados]), etapasPorId, ctx);
+    // simulação do planejador: a E16 (e qualquer máquina) pode ser reservada por outros produtos; "AUTO parada" tira a máquina da rota
+    const ctxPlan: ContextoCapacidade = { ...ctx, maquinasIndisponiveis: autoParada ? [...(etapas.get(estrutura.rotas.find((r) => r.codigo === "AUTO")?.etapas[0] ?? "")?.maquinasIds ?? [])] : [] };
+    let selPlan = selecao;
+    const etiqId = estrutura.poolComum?.etapas.find((id) => etapas.get(id)?.operacao === "Etiquetar");
+    const e16Id = etiqId ? etapas.get(etiqId)?.maquinasIds.find((m) => /16/.test(carga.maquinas.find((x) => x.id === m)?.nome ?? "")) : undefined;
+    if (e16 !== "real" && etiqId && e16Id) {
+      selPlan = { ...selecao, [etiqId]: [...new Set([...(selecao[etiqId] ?? []), e16Id])] };
+      ctxPlan.horasComprometidasPorMaquina = { ...(ctx.horasComprometidasPorMaquina ?? {}), [e16Id]: horasMaquinaSemana(ctx) * (1 - Number(e16) / 100) };
+    }
+    const autoEtapa = estrutura.rotas.find((r) => r.codigo === "AUTO")?.etapas[0];
+    const nomAuto = autoEtapa ? capacidadeEtapa(etapas.get(autoEtapa)!, ctx, selecao[autoEtapa]).pecas : 0;
+    const custoCtx: ContextoCusto = { periodos, custoHoraPorOperacao: custoHora.custoHoraPorOperacao, custoHoraPadrao: custoHora.custoHoraEmpresa };
+    const plano = planejarRotas({ estrutura, etapas, demanda, ctx: ctxPlan, selecao: selPlan, valorUnitario: Number(produtoF.valor_unitario), wipInicial: wipPool > 0 ? { pool: wipPool } : undefined,
+      fatorDesempenho: autoEtapa && desempenhoAuto > 0 && nomAuto > 0 ? { [autoEtapa]: desempenhoAuto / nomAuto } : undefined, custo: custoCtx }) as SaidaPlanejador;
     const analise = cenario(estrutura, etapas, demanda, ctx, selecao);
     const problemas = validarEstrutura(estrutura, [...etapas.values()]);
-    return { etapas, estrutura, analise, problemas, selecao, ctx, legados };
-  }, [carga, produtoF, demanda, dias, modoMaquinas, descontar, itensSemana, manual]);
+    return { etapas, estrutura, analise, problemas, selecao, ctx, legados, plano };
+  }, [carga, produtoF, demanda, dias, modoMaquinas, descontar, itensSemana, manual, e16, autoParada, desempenhoAuto, wipPool, custoHora]);
 
   const nomeMaquina = (id: string) => carga?.maquinas.find((m) => m.id === id)?.nome.trim() ?? id.slice(0, 6);
   const nomeProd = (id: string) => carga?.produtos.find((p) => p.id === id)?.nome.trim() ?? id.slice(0, 6);
@@ -141,7 +177,7 @@ export default function RotasProdutoPage() {
           <TopBarActions modoPrivado={modoPrivado} onToggleModoPrivado={() => { const n = !modoPrivado; setModoPrivadoAtivo(n); setModoPrivado(n); }} tema={tema} onToggleTema={() => setTema((t) => (t === "dark" ? "light" : "dark"))}
             usuarioLogado={auth.usuarioLogado} abaAtiva="produtos" onAbrirMenu={shell.abrirGaveta} />
           <div className="stx-header"><div><h1 className="stx-title">Rotas de fabricação (demonstração)</h1>
-            <p className="stx-panel-sub">Somente leitura — M0/M1. O planejador, a Previsão e a Escala ainda NÃO usam este modelo.</p></div></div>
+            <p className="stx-panel-sub">Somente leitura — M0/M1/M2. O planejador roda só em memória (simulação); a Previsão, a Escala, o WIP e os apontamentos ainda NÃO usam este modelo.</p></div></div>
           {erro && <div className="stx-esc-banner erro">{erro}</div>}
           {!carga && !erro && <div className="stx-empty">Carregando…</div>}
           {carga && !produtoF && <div className="stx-empty">Nenhum produto com rotas neste ambiente (a M1 ainda não foi aplicada).</div>}
@@ -150,6 +186,18 @@ export default function RotasProdutoPage() {
               <section style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 14 }}>
                 <b>{produtoF.nome}</b> · referência {produtoF.referencia} · valor único R$ {Number(produtoF.valor_unitario).toLocaleString("pt-BR", { minimumFractionDigits: 4 })}
                 <div style={{ overflowX: "auto", marginTop: 10 }}><DiagramaRotas estrutura={modelo.estrutura} etapas={modelo.etapas} analise={a} nomeProduto={produtoF.nome} /></div>
+              </section>
+
+              <section style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+                <b>Planejador de rotas (simulação)</b>
+                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13, alignItems: "flex-end" }}>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>Etiquetadora 16 disponível
+                    <select value={e16} onChange={(e) => setE16(e.target.value as typeof e16)}><option value="real">como a Previsão (real)</option><option value="0">0%</option><option value="25">25%</option><option value="50">50%</option><option value="100">100%</option></select></label>
+                  <label style={{ display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={autoParada} onChange={(e) => setAutoParada(e.target.checked)} />AUTO parada</label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>AUTO efetiva (peças/semana, 0 = meta)<input type="number" min={0} value={desempenhoAuto} onChange={(e) => setDesempenhoAuto(Math.max(0, Number(e.target.value)))} style={{ width: 110 }} /></label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>WIP inicial no pool<input type="number" min={0} value={wipPool} onChange={(e) => setWipPool(Math.max(0, Number(e.target.value)))} style={{ width: 100 }} /></label>
+                </div>
+                <PlanoRotas plano={modelo.plano} />
               </section>
 
               <section style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
