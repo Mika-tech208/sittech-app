@@ -93,7 +93,7 @@ begin
 
   -- (4) DESATIVAR X com desligamento EFETIVO retroativo (saiu quarta 17:00, registrado quinta... aqui: efetivo 04/03 17:00, registrado 05/03 10:00)
   reset role;
-  update escala_producao_eventos set status = 'processado' where status = 'pendente';
+  update escala_producao_eventos set status = 'processado' where previsao_id in (P0, P1, P2, P3) and status = 'pendente';
   set local role authenticated;
   v_res := public.desativar_funcionario(X, v_efetivo, 'saiu da empresa');
   if (v_res->>'ok')::boolean is not true or (v_res->>'equipes_futuras_ajustadas')::int <> 2 then raise exception 'FALHOU (4) retorno: %', v_res; end if;
