@@ -421,3 +421,91 @@ TS e SQL (apontado real, sintético, hashes da semana 26/10 e das colunas das ta
 
 ### 18.8 O que falta para o M3
 Persistir a divisão oficial (`escala_rota_divisao`) a partir do planejador; integrar à Previsão (item único de F, `previsao_rota_limite`), à Capacidade e ao motor da Escala (itens/etapas por rota, pool comum único); obter o **revezamento realizável** do motor para alimentar `capacidadeRealizavelEscala`; decisão sobre concorrência de máquinas (E16) na alocação; telas operacionais; só então considerar `suporte_ativo`. M4: apontado real/indicadores/WIP por etapa final explícita.
+
+## 19. M3 — desenho revisado: a Previsão escolhe as máquinas, o sistema só calcula (26/10/2026) — SOMENTE DESENHO, nada implementado
+
+**Regra de ouro (decisão do usuário):** quem escolhe as máquinas é a pessoa, na Previsão Semanal. O sistema **nunca** adiciona máquina (E16, rosqueadeira, parafusadeira, outra automática) por ser "tecnicamente compatível". Cadastro do produto = "PODE fabricar"; Previsão = "NESTA semana SERÁ considerada". Redistribuir é permitido **somente entre recursos que a pessoa selecionou**. Sugerir "a E16 aumentaria a capacidade" fica para o futuro, como sugestão, nunca como decisão.
+
+### 19.1 Auditoria do que existe (por que a mudança de schema é mínima)
+- `previsao_item_maquinas (item_id, etapa_id, maquina_id)`, PK composta, FK `etapa_id → roteiro_etapas`, `item_id → previsao_itens` (cascade). É a **fonte oficial** da seleção da semana, gravada por `upsert_previsao_semana` (`maquinas_por_etapa: {etapaId: [maquinaId]}`), lida por Capacidade, motor da Escala (`PoolEscala.maquinasIds`: "o motor NUNCA usa máquina fora de `maquinasIds`") e snapshots de plano (`maquinasPorEtapa`).
+- No modelo de rotas **cada etapa de F tem id próprio e está em exatamente um lugar** (exclusiva de uma rota ou pool comum). Logo `(previsão, item F, etapa, máquina)` **já determina a rota**: a rota sai de `rota_etapas`/`produto_pool_comum` pelo `etapa_id`. A chave exigida (Previsão + produto + etapa/rota + máquina) **já existe** na tabela atual.
+- **Conclusão: nenhuma tabela nova e nenhuma coluna nova para a seleção.** Reaproveita `previsao_itens` (1 item F com a demanda final, ex. 116.625) + `previsao_item_maquinas` tal como está; o RPC `upsert_previsao_semana` não muda.
+- Aditivo opcional (não obrigatório): gatilho de validação "a etapa pertence ao produto do item" — hoje o legado só valida em tempo de execução (`selecao_maquina_invalida`). Recomendo **não** criar agora.
+
+### 19.2 Schema mínimo do M3
+| Necessidade | Solução | Mudança |
+|---|---|---|
+| Seleção de máquinas por etapa/rota | `previsao_item_maquinas` existente | **nenhuma** |
+| Demanda final de F | 1 linha em `previsao_itens` (produto F) | nenhuma |
+| Limite máximo por rota (V1) | `previsao_rota_limite` (M0) | nenhuma |
+| Divisão calculada (alvo, nominal × realizável, motivo) | `escala_rota_divisao` (M0, append-only): `quantidade_alvo`, `capacidade_rota` = realizável, `motivo jsonb` = {nominal, realizável, iteração, limitante, gargalo}; `versao_plano_id` liga ao plano | **nenhuma** (se faltar coluna, 1 `ADD COLUMN` aditivo) |
+| Sombra do M2 | `rotas_planejador_sombra` | já existe |
+| Semana no modelo de rotas | `previsoes.modelo_rotas` + trava `rotas_suporte_ativo()` | já existem (virar a trava só no fim do M3, com aprovação) |
+Fonte única: **a seleção vive na Previsão**. A página `/produtos/rotas` e o planejador passam a **exigir** a seleção; etapa sem máquina marcada = capacidade 0 (sem queda para o cadastro).
+
+### 19.3 Fluxo
+```
+PREVISÃO (pessoa)           CAPACIDADE (puro)             PLANEJADOR (M2)              ESCALA (motor)                 FEEDBACK
+marca máquinas por    →     nominal por etapa      →      divisão AUTO/CONV      →     pessoas × máquinas ×     →     realizável por etapa
+etapa: CONV{Rosq,Paraf}     só das selecionadas,          limitada pelo pool comum;    períodos × dias;               (equipe/revezamento)
+AUTO{R+P} COMUM{Etiq,Emb}   descontando o que            menor custo dentro do        1 operador/posto/período;      volta como TETO ao
++ demanda final             máquinas compartilhadas       selecionado; sem WIP inútil  revezamento duro; ausência     planejador (≤ 3 rodadas)
+                            já têm comprometido                                       e indisponibilidade bloqueiam
+```
+Prioridade (decisão do usuário): 1) máquinas escolhidas; 2) maximizar atendimento; 3) capacidade compartilhada; 4) equipe/revezamento; 5) sem WIP inútil; 6) custo; 7) estabilidade.
+**Casos:** AUTO sem máquina marcada ⇒ AUTO = 0, tudo na CONV; CONV sem máquina ⇒ CONV = 0, tudo na AUTO; ambas ⇒ divide. Exemplo 116.625 com só a E15: possível 97.500, falta 19.125, 83,6%, gargalo Etiquetar; AUTO 35.625 + CONV 61.875 (não 81.000). Adicionar a E16 recalcula na hora e o novo gargalo pode ser Embalar, entrada ou equipe.
+
+### 19.4 Como o motor da Escala recebe F (adaptador; motor intocado)
+O motor trabalha com pool `(produto, etapa)` e **cadeia por `ordemEtapa`** (≈10 pontos: prioridade, WIP, execução, tetos). F não tem cadeia linear (convergência). Em vez de abrir o motor, um **adaptador** projeta F em **três cadeias lineares virtuais**, cada uma com `produtoId` virtual e quantidade própria:
+- `F#CONV`: Rosquear(0) → Parafusar(1), quantidade = alvo CONV;
+- `F#AUTO`: Rosquear + Parafusar(0), quantidade = alvo AUTO;
+- `F#COMUM`: Etiquetar(0) → Embalar(1), quantidade = produto final planejado.
+`maquinasIds` de cada pool = `previsao_item_maquinas` da etapa (nada de máquina fora). O resultado volta mapeado para o `produto_id` real de F (as colunas de alocação continuam apontando para F e a etapa real). Os produtos lineares passam pelo mesmo motor **sem mudança** (golden master). Limite conhecido: o vínculo de material entre o fim da rota e o Etiquetar (convergência) **não** entra no controle de WIP do motor na 1ª versão (WIP continua desligado em PROD); fica no planejador/`projetarPool`.
+
+### 19.5 Máquina compartilhada entre produtos (E16: Conector F × Caixa Amarela)
+- **Quem pode usar a máquina** = Previsão (as duas demandas foram autorizadas). **Quando** cada uma usa e **quem** opera = motor (slot a slot, 1 operador por máquina/período).
+- **Capacidade nunca contada duas vezes.** Na prévia da Previsão, as horas semanais de cada máquina são um **orçamento único** consumido em ordem; o planejador recebe `horasComprometidasPorMaquina` **exato** (não a estimativa M2 de "horas divididas igualmente"), calculado com a seleção real de cada item. Soma por máquina ≤ horas da máquina (teste obrigatório).
+- **Ordem de consumo (DECISÃO ABERTA — recomendo manter a regra que a Previsão já usa em `calcularAlocacaoSemanal`: maior lucro/hora primeiro):** (a) lucro/hora [recomendada, consistente com hoje], (b) proporcional à demanda (como `calcularCapacidadeMaximaSemana`), (c) prioridade manual por item. A decisão muda quem fica com a falta, não a regra de não contar em dobro. A prévia mostra o efeito nos **dois** produtos ("Caixa Amarela passa a ter X possível").
+- O motor, no fim, é a verdade da partilha por períodos; diferença para a prévia volta como "realizável".
+
+### 19.6 Feedback da Escala (capacidade realizável)
+1. Planejador com capacidade **nominal** (só máquinas selecionadas, já descontadas as compartilhadas) → alvos AUTO/CONV.
+2. Adaptador → motor (determinístico) → `analisarAtingibilidade` por pool = **realizável** com pessoas/revezamento/ausências.
+3. Se algum pool não entrega o alvo: o realizável vira **teto** (`capacidadeRealizavelEscala`, já suportado no M2) e o planejador **redistribui só entre as rotas selecionadas** (ex.: AUTO 28.500 < 35.625 ⇒ CONV compensa se houver máquinas CONV marcadas, operadores e pool comum). Repete até estabilizar ou **3 rodadas** (cada rodada só reduz tetos ⇒ termina).
+4. A tela mostra **nominal × realizável × final** por etapa e o motivo (equipe, revezamento, máquina, pool comum). Nenhuma máquina é acrescentada. Limite honesto: o realizável é medido com todas as demandas carregadas juntas (pessoas são compartilhadas), então o resultado é "possível", não um ótimo global provado.
+
+### 19.7 UI da Previsão para F (agrupada por rota; mesmo componente `ItensPrevistos`)
+```
+Conector 3/4" (Final)   Demanda final: [116.625]
+ ROTA CONV   (trecho exclusivo)
+   Rosquear               [☐ Rosq. 3] [☐ Rosq. 5] [☑ Rosq. 6]
+   Parafusar              [☑ Paraf. 9] [☑ Paraf. 10] [☐ ...]
+ ROTA AUTO
+   Rosquear + Parafusar   [☑ Máq. Automática 8]
+ FLUXO COMUM (Etiquetar → Embalar)
+   Etiquetar              [☑ Etiquetadora 15] [☐ Etiquetadora 16]
+   Embalar                [☑ Embalagem 17]
+ ── Prévia (recalcula ao marcar) ─────────────────────────────
+ Demanda 116.625 · AUTO possível 35.625 · CONV possível 81.000 · Etiquetar 97.500 · Embalar 142.500
+ Produto final possível 97.500 · Falta 19.125 · 83,6% · Gargalo: Etiquetar
+ Divisão proposta: AUTO 35.625 + CONV 61.875 (só o necessário)
+ Equipe (após a Escala): nominal 35.625 → realizável 28.500 (revezamento) · CONV compensa +7.125
+```
+- Máquinas oferecidas = elegíveis do cadastro (como hoje), menos as indisponíveis da semana; **nada pré-marcado para F** (a pessoa marca; o legado pré-marca todas as elegíveis ao escolher o produto — para F isso incluiria a E16 e mostraria 116.625 "possível" antes da decisão; recomendo começar vazio).
+- Máquina também selecionada em outro produto mostra a etiqueta "compartilhada com Caixa Amarela" e o quanto sobra.
+- Produtos lineares: tela atual sem mudança.
+
+### 19.8 Compatibilidade com produtos lineares
+Caminho legado intacto: sem `produto_rota` ⇒ `modelo:"linear"`, o planejador devolve `aplicavel:false`, UI e motor como hoje. O código que só vale para F (agrupar por rota, prévia, adaptador) é ativado por **estrutura do produto**, não por flag global. Semanas anteriores e 26/10 permanecem `modelo_rotas=false`; primeira semana de rotas = 02/11, só depois de aprovação e de a trava ser aberta. Golden master (TS+SQL) obrigatório antes/depois de cada passo do M3; a regra de mistura (legados P/A não entram em semana de rotas) já está no banco.
+
+### 19.9 Ajustes do M2 exigidos por esta regra (primeiro passo do M3)
+1. `planejarRotas`: `selecao` passa a ser **obrigatória**; ausente/etapa sem chave = nenhuma máquina (hoje o padrão cai em "todas as elegíveis do cadastro").
+2. `/produtos/rotas`: o modo "todas as elegíveis" e o seletor "Etiquetadora 16 disponível" são **simulação "e se"** do M2; no M3 a seleção vem **somente** da Previsão e a página só exibe/compara (a E16 deixa de ser alternável pela tela do planejador).
+3. `scripts/rotas-planejador-sombra.ts`: cenários "cadastro/todas as máquinas" são diagnóstico do DEV; a sombra do M3 usa a seleção da Previsão.
+4. `horasComprometidasPorOutros` (estimativa igual por máquina) → substituída pelo orçamento exato de horas por máquina do item seguinte na ordem de consumo.
+
+### 19.10 Decisões que preciso do usuário antes de implementar
+1. **Ordem de consumo da máquina compartilhada** (a/b/c do §19.5; recomendo a).
+2. **F começa sem máquinas marcadas** na Previsão (recomendado) ou pré-marcadas como no legado.
+3. **Adaptador de 3 cadeias virtuais** (recomendado, motor intocado) em vez de ensinar o motor a ter convergência.
+4. Confirmar **nenhuma coluna/tabela nova** para a seleção (reuso de `previsao_item_maquinas`).
