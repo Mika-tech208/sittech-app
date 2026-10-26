@@ -1,6 +1,7 @@
 // Dados do modelo de rotas para a página de demonstração (SOMENTE LEITURA): monta estrutura + capacidade a partir de linhas já carregadas.
 // Não decide divisão entre rotas, não altera nada. `commitment` (competição por capacidade) vem dos itens das Previsões dos OUTROS produtos.
 import { analisarCapacidadeRotas, tempoPorPeca } from "./capacidade";
+import { convergenciaDe } from "./estrutura";
 import type { AnaliseCapacidadeRotas, ContextoCapacidade, EstruturaProduto, EtapaCadastro, PeriodoId } from "./tipos";
 
 export interface LinhasRotas {
@@ -27,12 +28,13 @@ export function etapasDoProduto(l: LinhasRotas): Map<string, EtapaCadastro> {
 export function estruturaDasLinhas(l: LinhasRotas): EstruturaProduto {
   const rotas = l.rotas.filter((r) => r.produto_id === l.produtoId).sort((a, b) => a.preferencia - b.preferencia || (a.codigo < b.codigo ? -1 : 1));
   const pool = l.poolComum.filter((p) => p.produto_id === l.produtoId).sort((a, b) => a.posicao - b.posicao);
-  return {
-    produtoId: l.produtoId, modelo: "rotas", regraEtapaFinal: "explicita",
+  const estr: EstruturaProduto = {
+    produtoId: l.produtoId, modelo: "rotas", regraEtapaFinal: "explicita", convergencia: null,
     rotas: rotas.map((r) => ({ id: r.id, codigo: r.codigo, nome: r.nome, ativa: r.ativa, preferencia: r.preferencia, etapas: l.rotaEtapas.filter((x) => x.rota_id === r.id).sort((a, b) => a.posicao - b.posicao).map((x) => x.etapa_id) })),
     poolComum: pool.length ? { etapas: pool.map((p) => p.etapa_id), entradaId: pool[0].etapa_id } : null,
     etapaFinalId: pool.find((p) => p.final)?.etapa_id ?? null,
   };
+  return { ...estr, convergencia: convergenciaDe(estr.rotas, estr.poolComum) };
 }
 
 // Seleção de máquinas por etapa de F "como a Previsão dos produtos LEGADOS": união das máquinas marcadas, por OPERAÇÃO, nos itens dos legados (P e A) da semana

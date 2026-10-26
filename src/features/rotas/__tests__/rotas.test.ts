@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { calcularCapacidadeMaximaProduto } from "@/features/capacidade/calculations";
 import type { PeriodoComDuracao, Produto } from "@/types/domain";
+import { necessidadePorEtapa } from "../demanda";
 import { analisarCapacidadeRotas, capacidadeEtapa, capacidadeLinear, capacidadeRota, horasMaquinaSemana, tempoPorPeca } from "../capacidade";
-import { ehEtapaFinal, estruturaLinear, etapasAnteriores, etapasSeguintes, rotaDaEtapa, sequenciaDaRota, todasAsEtapas, validarEstrutura } from "../estrutura";
+import { ehEtapaFinal, estruturaLinear, etapasAnteriores, etapasSeguintes, rotaDaEtapa, percursoDaPeca, todasAsEtapas, validarEstrutura } from "../estrutura";
 import type { ContextoCapacidade, EstruturaProduto, EtapaCadastro, PeriodoId } from "../tipos";
 
 // ---- condições atuais (cadastro de out/26): períodos 96/96/91/80/80/80 min; metas por máquina por período ----
@@ -27,6 +28,7 @@ const F: EstruturaProduto = {
     { id: "r-conv", codigo: "CONV", nome: "Convencional", ativa: true, preferencia: 2, etapas: ["f-rosq", "f-para"] },
   ],
   poolComum: { etapas: ["f-etiq", "f-emb"], entradaId: "f-etiq" }, etapaFinalId: "f-emb",
+  convergencia: { destinoId: "f-etiq", origens: [{ rotaCodigo: "AUTO", etapaId: "f-rp" }, { rotaCodigo: "CONV", etapaId: "f-para" }] },
 };
 // seleção da Previsão de 26/10: Rosq. 3+6 · Parafus. 10+9 · Máq. Automática 8 · Etiquetadora 15 · Embalagem 17
 const SEL = { "f-rosq": ["R3", "R6"], "f-para": ["P10", "P9"], "f-rp": ["AUTO8"], "f-etiq": ["E15"], "f-emb": ["EMB17"] };
@@ -38,8 +40,8 @@ describe("convergência e estrutura do produto F (E, F, etapa final explícita)"
     expect(etapasSeguintes(F, "f-rosq")).toEqual(["f-para"]);
     expect(etapasAnteriores(F, "f-etiq").sort()).toEqual(["f-para", "f-rp"]);
     expect(etapasSeguintes(F, "f-etiq")).toEqual(["f-emb"]);
-    expect(sequenciaDaRota(F, "CONV")).toEqual(["f-rosq", "f-para", "f-etiq", "f-emb"]);
-    expect(sequenciaDaRota(F, "AUTO")).toEqual(["f-rp", "f-etiq", "f-emb"]);
+    expect(percursoDaPeca(F, "CONV")).toEqual(["f-rosq", "f-para", "f-etiq", "f-emb"]);
+    expect(percursoDaPeca(F, "AUTO")).toEqual(["f-rp", "f-etiq", "f-emb"]);
     expect(rotaDaEtapa(F, "f-rp")?.codigo).toBe("AUTO"); expect(rotaDaEtapa(F, "f-etiq")).toBeNull(); // comum não tem rota
   });
   it("F) Etiquetar e Embalar existem UMA vez só (sem 'Etiquetar CONV/AUTO'); a estrutura válida não tem problemas", () => {
@@ -68,6 +70,36 @@ describe("convergência e estrutura do produto F (E, F, etapa final explícita)"
     expect(validarEstrutura({ ...F, etapaFinalId: "f-rp" }, ETAPAS).join()).toMatch(/precisa estar no pool comum/);
     expect(validarEstrutura({ ...F, rotas: [F.rotas[0], { ...F.rotas[1], etapas: [] }] }, ETAPAS).join()).toMatch(/sem etapas exclusivas/);
     expect(validarEstrutura({ ...F, rotas: [F.rotas[0], { ...F.rotas[1], etapas: ["f-rosq"] }] }, ETAPAS).join()).toMatch(/não está em exatamente um lugar/);
+  });
+});
+
+describe("fluxo da fábrica: sem sequência linear falsa e sem demanda duplicada (revisão)", () => {
+  it("as rotas são caminhos ALTERNATIVOS: nenhuma peça CONV passa por Rosquear+Parafusar e nenhuma AUTO por Rosquear/Parafusar convencionais", () => {
+    expect(percursoDaPeca(F, "CONV")).toEqual(["f-rosq", "f-para", "f-etiq", "f-emb"]);
+    expect(percursoDaPeca(F, "AUTO")).toEqual(["f-rp", "f-etiq", "f-emb"]);
+    expect(percursoDaPeca(F, "CONV")).not.toContain("f-rp"); expect(percursoDaPeca(F, "AUTO")).not.toContain("f-rosq"); expect(percursoDaPeca(F, "AUTO")).not.toContain("f-para");
+    expect(etapasSeguintes(F, "f-para")).toEqual(["f-etiq"]); expect(etapasSeguintes(F, "f-para")).not.toContain("f-rp"); // Parafusar → Etiquetar, NUNCA → Rosquear + Parafusar
+    expect(etapasAnteriores(F, "f-rp")).toEqual([]);                                                                         // a automática não recebe nada de Parafusar convencional
+  });
+  it("a leitura por `ordem` (0→1→2→3→4) é FALSA e diferente do modelo: ela encadearia Parafusar → Rosquear+Parafusar", () => {
+    const porOrdem = [...ETAPAS].sort((a, b) => a.ordem - b.ordem).map((x) => x.id);
+    expect(porOrdem).toEqual(["f-rosq", "f-para", "f-rp", "f-etiq", "f-emb"]);
+    expect(percursoDaPeca(F, "CONV")).not.toEqual(porOrdem); expect(percursoDaPeca(F, "AUTO")).not.toEqual(porOrdem);
+    expect(etapasSeguintes(F, "f-para")).not.toEqual([porOrdem[porOrdem.indexOf("f-para") + 1]]);
+  });
+  it("rotas contêm SÓ etapas exclusivas (trecho antes da convergência); Etiquetar/Embalar ficam uma vez no fluxo comum", () => {
+    const exclusivas = F.rotas.flatMap((r) => r.etapas);
+    expect(exclusivas.sort()).toEqual(["f-para", "f-rosq", "f-rp"]);
+    expect(exclusivas).not.toContain("f-etiq"); expect(exclusivas).not.toContain("f-emb");
+    expect(F.poolComum?.etapas).toEqual(["f-etiq", "f-emb"]);
+  });
+  it("convergência EXPLÍCITA: a última etapa exclusiva de cada rota (Parafusar; Rosquear + Parafusar) converge em Etiquetar", () => {
+    expect(F.convergencia).toEqual({ destinoId: "f-etiq", origens: [{ rotaCodigo: "AUTO", etapaId: "f-rp" }, { rotaCodigo: "CONV", etapaId: "f-para" }] });
+  });
+  it("demanda comum NÃO é duplicada: AUTO 35.625 + CONV 81.000 ⇒ Etiquetar = Embalar = 116.625 (uma necessidade cada), exclusivas só o que cada rota entrega", () => {
+    const n = necessidadePorEtapa(F, { AUTO: 35625, CONV: 81000 });
+    expect(n).toEqual({ "f-rp": 35625, "f-rosq": 81000, "f-para": 81000, "f-etiq": 116625, "f-emb": 116625 });
+    expect(Object.keys(n).filter((k) => k === "f-etiq")).toHaveLength(1);
   });
 });
 

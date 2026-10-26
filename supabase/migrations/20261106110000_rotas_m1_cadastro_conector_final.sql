@@ -5,7 +5,7 @@
 -- • Preço único R$ 0,1825 (decisão do desenvolvimento; confirmar no contrato antes de qualquer ativação em PROD). Os preços legados NÃO são alterados.
 -- • Rotas: CONV (Rosquear → Parafusar) e AUTO (Rosquear + Parafusar) convergem no POOL COMUM (Etiquetar → Embalar, final). `ordem` 0..4 é só rótulo de cadastro: a sequência vem das tabelas de rotas.
 -- • Idempotente: se o produto já existir, não faz nada. Sem os cadastros legados (ambiente novo), não faz nada.
--- • NÃO usa o produto na Previsão, não ativa semana, não toca Escala/WIP/Produção Real.
+-- • O produto nasce INATIVO e bloqueado (rotas_config.suporte_ativo = false): não entra em Previsão, Escala, WIP nem Produção Real; não ativa semana.
 do $$
 declare
   c_nome constant text := 'Conector 3/4" (Final)';
@@ -41,7 +41,8 @@ begin
     raise exception 'M1_PARADA: Etiquetar/Embalar divergem entre os cadastros legados (metas ou máquinas) — decidir antes de unificar as etapas comuns';
   end if;
 
-  insert into produtos (nome, referencia, valor_unitario, ativo, prioridade) values (c_nome, c_ref, c_valor, true, v_prio) returning id into v_f;
+  -- ativo = false: produto de rotas ainda NÃO ativado (nenhum fluxo legado o enxerga); a ativação (suporte + semana de rotas) é um passo futuro e explícito
+  insert into produtos (nome, referencia, valor_unitario, ativo, prioridade) values (c_nome, c_ref, c_valor, false, v_prio) returning id into v_f;
 
   insert into roteiro_etapas (id, produto_id, operacao_id, ordem, meta_m1, meta_m2, meta_m3, meta_t1, meta_t2, meta_t3) values
     (n_rosq, v_f, e_p_rosq.operacao_id, 0, e_p_rosq.meta_m1, e_p_rosq.meta_m2, e_p_rosq.meta_m3, e_p_rosq.meta_t1, e_p_rosq.meta_t2, e_p_rosq.meta_t3),

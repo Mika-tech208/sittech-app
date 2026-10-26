@@ -1,7 +1,7 @@
 // Estrutura de um produto: rotas, pool comum (convergência) e etapa FINAL. Único ponto que decide "qual é a próxima etapa" e "qual é a etapa final":
 //   • produto LINEAR (legado): próxima = ordem imediatamente maior; final = maior ordem (regra atual, preservada);
 //   • produto de ROTAS: próxima/final vêm do modelo (rota exclusiva → pool comum → final EXPLÍCITA). NUNCA max(ordem)/ordem+1.
-import type { EstruturaProduto, EtapaCadastro, RotaEstrutura } from "./tipos";
+import type { Convergencia, EstruturaProduto, EtapaCadastro, RotaEstrutura } from "./tipos";
 
 // Produto sem rotas cadastradas → rota única implícita (idêntica ao roteiro linear de hoje)
 export function estruturaLinear(produtoId: string, etapas: Pick<EtapaCadastro, "id" | "ordem">[]): EstruturaProduto {
@@ -9,9 +9,15 @@ export function estruturaLinear(produtoId: string, etapas: Pick<EtapaCadastro, "
   return {
     produtoId, modelo: "linear", regraEtapaFinal: "max_ordem_legado",
     rotas: [{ id: null, codigo: "IMPLICITA", nome: "Rota única (legado)", ativa: true, preferencia: 100, etapas: ordenadas.map((e) => e.id) }],
-    poolComum: null,
+    poolComum: null, convergencia: null,
     etapaFinalId: ordenadas.length > 0 ? ordenadas[ordenadas.length - 1].id : null,
   };
+}
+
+// convergência derivada da estrutura: a última etapa EXCLUSIVA de cada rota ativa → primeira etapa comum
+export function convergenciaDe(rotas: RotaEstrutura[], poolComum: EstruturaProduto["poolComum"]): Convergencia | null {
+  if (!poolComum) return null;
+  return { destinoId: poolComum.entradaId, origens: rotas.filter((r) => r.ativa && r.etapas.length > 0).map((r) => ({ rotaCodigo: r.codigo, etapaId: r.etapas[r.etapas.length - 1] })) };
 }
 
 // JSON devolvido pelo banco (produto_estrutura_rotas) → tipo do código
@@ -19,14 +25,17 @@ export function estruturaDoBanco(j: {
   produtoId: string; modelo: "linear" | "rotas"; regraEtapaFinal: "max_ordem_legado" | "explicita";
   rotas: { id: string | null; codigo: string; nome: string; ativa: boolean; preferencia: number; etapas: string[] }[];
   poolComum: { etapas: string[]; entradaId: string } | null; etapaFinalId: string | null;
+  convergencia?: Convergencia | null;
 }): EstruturaProduto {
-  return { produtoId: j.produtoId, modelo: j.modelo, regraEtapaFinal: j.regraEtapaFinal, rotas: j.rotas.map((r) => ({ ...r })), poolComum: j.poolComum ? { etapas: [...j.poolComum.etapas], entradaId: j.poolComum.entradaId } : null, etapaFinalId: j.etapaFinalId };
+  const rotas = j.rotas.map((r) => ({ ...r }));
+  const poolComum = j.poolComum ? { etapas: [...j.poolComum.etapas], entradaId: j.poolComum.entradaId } : null;
+  return { produtoId: j.produtoId, modelo: j.modelo, regraEtapaFinal: j.regraEtapaFinal, rotas, poolComum, convergencia: j.convergencia ?? convergenciaDe(rotas, poolComum), etapaFinalId: j.etapaFinalId };
 }
 
 export const todasAsEtapas = (e: EstruturaProduto): string[] => [...e.rotas.flatMap((r) => r.etapas), ...(e.poolComum?.etapas ?? [])];
 
-// sequência COMPLETA que uma peça percorre na rota: etapas exclusivas + pool comum
-export function sequenciaDaRota(e: EstruturaProduto, codigo: string): string[] {
+// CAMINHO FÍSICO de uma peça fabricada por uma rota: trecho EXCLUSIVO da rota + fluxo COMUM (a rota em si é só o trecho exclusivo; as etapas comuns não pertencem a nenhuma rota)
+export function percursoDaPeca(e: EstruturaProduto, codigo: string): string[] {
   const r = e.rotas.find((x) => x.codigo === codigo);
   return r ? [...r.etapas, ...(e.poolComum?.etapas ?? [])] : [];
 }

@@ -57,6 +57,18 @@ begin
   if (select count(*) from produto_pool_comum where produto_id = F) <> 1 + 1 then raise exception 'FALHOU (5) um único pool comum (Etiquetar+Embalar)'; end if;
   if (select count(*) from produto_variante_legada where produto_final_id = F) <> 2 or (select rota_id from produto_variante_legada where produto_legado_id = P) <> v_conv or (select rota_id from produto_variante_legada where produto_legado_id = A) <> v_auto then raise exception 'FALHOU (5) vínculo analítico dos legados'; end if;
 
+  -- (5b) convergência EXPLÍCITA e rotas = SÓ trecho exclusivo: origens = última etapa exclusiva de cada rota → destino = Etiquetar (entrada do fluxo comum)
+  if (v_j -> 'convergencia' ->> 'destinoId')::uuid <> v_etiq then raise exception 'FALHOU (5b) destino da convergência: %', v_j -> 'convergencia'; end if;
+  if jsonb_array_length(v_j -> 'convergencia' -> 'origens') <> 2
+     or (select (o ->> 'etapaId')::uuid from jsonb_array_elements(v_j -> 'convergencia' -> 'origens') o where o ->> 'rotaCodigo' = 'AUTO') <> v_rp
+     or (select (o ->> 'etapaId')::uuid from jsonb_array_elements(v_j -> 'convergencia' -> 'origens') o where o ->> 'rotaCodigo' = 'CONV') <> (select e.id from roteiro_etapas e join operacoes o2 on o2.id = e.operacao_id where e.produto_id = F and o2.nome = 'Parafusar') then
+    raise exception 'FALHOU (5b) origens da convergência (AUTO: Rosquear+Parafusar; CONV: Parafusar): %', v_j -> 'convergencia';
+  end if;
+  if (select count(*) from rota_etapas where rota_id in (v_conv, v_auto)) <> 3 then raise exception 'FALHOU (5b) rota_etapas deve ter SÓ as 3 etapas exclusivas'; end if;
+  -- nenhuma peça CONV passa por R+P e nenhuma AUTO por Rosquear/Parafusar: as listas exclusivas são disjuntas e o pool comum é único
+  if (select count(*) from rota_etapas a join rota_etapas b on a.etapa_id = b.etapa_id and a.rota_id <> b.rota_id) <> 0 then raise exception 'FALHOU (5b) etapa exclusiva em duas rotas'; end if;
+  if (select ativo from produtos where id = F) then raise exception 'FALHOU (5b) F deve nascer INATIVO (não ativado)'; end if;
+
   -- (6) etapa final EXPLÍCITA em F; produto linear segue a regra legada (max ordem) e é 'linear'
   if public.produto_etapa_final(F) <> v_emb then raise exception 'FALHOU (6) etapa final de F'; end if;
   if (public.produto_estrutura_rotas(P) ->> 'modelo') <> 'linear' or public.produto_etapa_final(P) <> (select id from roteiro_etapas where produto_id = P order by ordem desc limit 1) then raise exception 'FALHOU (6) produto linear mudou de regra'; end if;
@@ -103,6 +115,21 @@ begin
 
   -- (10) PROTEÇÃO CONTRA MISTURA (Previsão): semana legada × produto de rotas e semana de rotas × produtos legados
   select id into v_luva from produtos where nome = 'Luva 3/4"' limit 1;
+  -- (10-) TRAVA DE SUPORTE: com rotas_config.suporte_ativo = false o produto de rotas NÃO entra em nenhum fluxo (Previsão em modo rotas, apontamento, WIP)
+  if public.rotas_suporte_ativo() then raise exception 'FALHOU (10-) suporte deveria nascer desativado'; end if;
+  begin insert into previsoes (id, semana_inicio, modelo_rotas) values (gen_random_uuid(), '2031-03-24', true); v_ok := false;
+  exception when others then v_ok := position('PREVISAO_MODELO_ROTAS_BLOQUEADO' in sqlerrm) > 0; end;
+  if not v_ok then raise exception 'FALHOU (10-a) semana de rotas deveria ser bloqueada sem suporte'; end if;
+  begin
+    insert into apontamentos_producao (produto_id, etapa_id, operacao_id, valor_unitario_produto_vigente, maquina_id, funcionario_id, periodo_id, data, hora_lancamento, quantidade_produzida, quantidade_refugo, periodo_inicio_vigente, periodo_fim_vigente, meta_periodo_vigente, custo_hora_operacao_vigente, criado_por, status)
+    values (F, v_emb, (select operacao_id from roteiro_etapas where id = v_emb), 0.1, (select id from maquinas where ativo limit 1), (select id from funcionarios limit 1), 'm1', '2031-03-03', '09:00', 10, 0, '07:12', '08:48', 100, 10, (select id from usuarios where papel = 'admin' and ativo limit 1), 'produzindo');
+    v_ok := false;
+  exception when others then v_ok := position('PRODUTO_DE_ROTAS_FORA_DE_USO' in sqlerrm) > 0; end;
+  if not v_ok then raise exception 'FALHOU (10-b) apontamento do produto de rotas deveria ser bloqueado sem suporte'; end if;
+  begin insert into wip_controle (produto_id, etapa_origem_id, etapa_seguinte_id, data_inicio, saldo_inicial) values (F, (select e.id from roteiro_etapas e join operacoes o2 on o2.id = e.operacao_id where e.produto_id = F and o2.nome = 'Parafusar'), v_rp, '2031-03-03', 0); v_ok := false;
+  exception when others then v_ok := position('PRODUTO_DE_ROTAS_FORA_DE_USO' in sqlerrm) > 0; end;
+  if not v_ok then raise exception 'FALHOU (10-c) WIP do produto de rotas (ex.: Parafusar → Rosquear+Parafusar, falso) deveria ser bloqueado'; end if;
+  update rotas_config set suporte_ativo = true;   -- só dentro desta transação de teste (desfeita no final)
   insert into previsoes (id, semana_inicio) values (gen_random_uuid(), '2031-03-03') returning id into v_prev;
   insert into previsoes (id, semana_inicio, modelo_rotas) values (gen_random_uuid(), '2031-03-10', true) returning id into v_prev2;
   if (select modelo_rotas from previsoes where id = v_prev) then raise exception 'FALHOU (10) default deveria ser false'; end if;

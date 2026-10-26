@@ -8,3 +8,6 @@ Prova de equivalência: **mesmas entradas ⇒ mesmos resultados** antes e depois
 - Arquivos `*_antes_dev.*` / `*_depois_dev.*`: capturas desta rodada (DEV). Resultado: **idênticos**.
 
 Nota honesta da 1ª comparação: a primeira execução do "depois" divergiu porque o M0 não concedeu SELECT ao `service_role` nas tabelas novas — o script não conseguiu ler `produto_rota` e tratou o produto F como linear. O golden master achou o defeito; o M0 foi corrigido (GRANTs) e a comparação refeita: idêntica. Também havia um nome de tabela desatualizado na lista de exclusão do hash de colunas (corrigido).
+
+## Revisão pós M0/M1 (26/10/2026)
+Após a correção do fluxo (trava de suporte, F inativo/invisível ao carregador legado, convergência explícita) o DEV foi recriado (rollback + migrations corrigidas) e o golden master repetido: **TS idêntico** (`golden_ts_depois2_dev.json`) e **SQL idêntico** (`sql*_depois2_dev.txt`; hash de colunas agora exclui também `rotas_config`).

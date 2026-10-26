@@ -1,6 +1,11 @@
 -- Sittech — PRODUTO ÚNICO COM MÚLTIPLAS ROTAS — M0: INFRAESTRUTURA ADITIVA (somente DEV nesta rodada).
 -- Desenho: docs/produto-unico-multiplas-rotas-desenho.md (revisão 2 + decisões finais).
 --
+-- TERMINOLOGIA (fluxo da fábrica):
+--   • "rota" = TRECHO EXCLUSIVO anterior à convergência. CONV = Rosquear → Parafusar; AUTO = Rosquear + Parafusar. As rotas são CAMINHOS ALTERNATIVOS: nenhuma peça passa de uma rota para a outra.
+--   • "pool comum" = o fluxo COMUM depois da convergência: Etiquetar → Embalar (final). Etiquetar e Embalar existem UMA vez só (nunca "Etiquetar CONV/AUTO"); o produto depois de Embalar é o mesmo, qualquer que seja a origem.
+--   • `roteiro_etapas.ordem` é só rótulo de cadastro/apresentação; NÃO é o caminho (0→1→2→3→4 seria fisicamente errado).
+--
 -- Regras desta migration:
 --  • só CRIA objetos novos (tabelas, funções, gatilhos) + UMA coluna com default em `previsoes` (modelo_rotas = false). Nenhuma linha existente muda; nenhum produto/etapa existente é tocado.
 --  • produto SEM rotas continua exatamente no modelo legado (a sequência/etapa final de produto linear segue sendo por `ordem`/max(ordem), como hoje).
@@ -75,6 +80,13 @@ create table public.produto_variante_legada (
   desde date,                                          -- semana de corte (definida na ativação; NULL enquanto não ativado)
   check (produto_legado_id <> produto_final_id)
 );
+
+comment on table public.produto_rota is 'Forma de fabricar = TRECHO EXCLUSIVO anterior à convergência (CONV, AUTO). Caminhos alternativos; não contém Etiquetar/Embalar.';
+comment on table public.rota_etapas is 'Somente as etapas EXCLUSIVAS de cada rota, em ordem. Etapas comuns NUNCA entram aqui (ficam uma vez em produto_pool_comum).';
+comment on table public.produto_pool_comum is 'Fluxo COMUM depois da convergência (Etiquetar → Embalar), uma vez por produto final; `final` marca explicitamente a etapa que conta produto acabado.';
+comment on table public.previsao_rota_limite is 'Limite MÁXIMO (V1) de entrega de uma rota (trecho exclusivo) ao pool comum numa Previsão. Nunca limita as etapas comuns.';
+comment on table public.escala_rota_divisao is 'Quanto cada rota ENTREGA ao pool comum (trecho exclusivo). Etiquetar/Embalar têm UMA necessidade total (= demanda restante), nunca uma parte por rota.';
+comment on column public.escala_rota_divisao.quantidade_alvo is 'Entrega planejada da rota ao pool comum; Σ das rotas ≤ demanda final. NÃO é demanda de Etiquetar/Embalar por rota.';
 
 -- Chave por Previsão: semana no modelo de rotas (padrão false = comportamento legado para TODAS as semanas existentes)
 alter table public.previsoes add column modelo_rotas boolean not null default false;
@@ -231,6 +243,9 @@ language plpgsql
 set search_path = public, pg_temp
 as $$
 begin
+  if new.modelo_rotas and not public.rotas_suporte_ativo() then
+    raise exception 'PREVISAO_MODELO_ROTAS_BLOQUEADO: o suporte ao modelo de rotas ainda não está ativado (rotas_config.suporte_ativo = false)';
+  end if;
   if new.modelo_rotas and exists (select 1 from previsao_itens i join produto_variante_legada v on v.produto_legado_id = i.produto_id where i.previsao_id = new.id) then
     raise exception 'PREVISAO_MODELO_ROTAS_ITENS_LEGADOS: a semana já tem itens de produtos legados; não é possível ativar o modelo de rotas sem convertê-los';
   end if;
@@ -241,6 +256,42 @@ begin
 end;
 $$;
 create trigger trg_previsoes_modelo_rotas before update of modelo_rotas on public.previsoes for each row when (old.modelo_rotas is distinct from new.modelo_rotas) execute function public.previsoes_trg_modelo_rotas();
+create trigger trg_previsoes_modelo_rotas_ins before insert on public.previsoes for each row when (new.modelo_rotas) execute function public.previsoes_trg_modelo_rotas();
+
+-- =========================================================================
+-- 4b) TRAVA DE SUPORTE: enquanto os consumidores do modelo de rotas (planejador, Escala, WIP, Produção Real) não existirem, o produto de rotas NÃO entra em nenhum fluxo operacional.
+--     O código legado interpreta etapas por `ordem` (cadeia linear): um produto de rotas lá seria lido como Rosquear→Parafusar→Rosquear+Parafusar→Etiquetar→Embalar (falso) e
+--     duplicaria a demanda em cada etapa. A trava é UMA chave (`rotas_config.suporte_ativo`, padrão false) virada só quando os consumidores estiverem prontos e aprovados.
+-- =========================================================================
+create table public.rotas_config (
+  id boolean primary key default true check (id),
+  suporte_ativo boolean not null default false,
+  atualizado_em timestamptz not null default now()
+);
+insert into public.rotas_config (id) values (true);
+alter table public.rotas_config enable row level security;
+create policy rotas_config_select on public.rotas_config for select to authenticated using (public.is_usuario_ativo());
+revoke all on public.rotas_config from anon, authenticated;
+grant select on public.rotas_config to authenticated, service_role;
+create or replace function public.rotas_suporte_ativo()
+returns boolean language sql stable set search_path = public, pg_temp as $$ select coalesce((select suporte_ativo from public.rotas_config where id), false) $$;
+revoke all on function public.rotas_suporte_ativo() from public, anon;
+grant execute on function public.rotas_suporte_ativo() to authenticated, service_role;
+
+create or replace function public.produto_de_rotas_guard()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if not public.rotas_suporte_ativo() and exists (select 1 from public.produto_rota where produto_id = new.produto_id) then
+    raise exception 'PRODUTO_DE_ROTAS_FORA_DE_USO: o produto de rotas ainda não pode entrar em % (os consumidores do modelo de rotas não estão ativados)', tg_table_name;
+  end if;
+  return new;
+end;
+$$;
+create trigger trg_produto_de_rotas_guard before insert on public.apontamentos_producao for each row execute function public.produto_de_rotas_guard();
+create trigger trg_produto_de_rotas_guard before insert on public.wip_controle for each row execute function public.produto_de_rotas_guard();
 
 -- =========================================================================
 -- 5) Leitura: estrutura do produto (rotas / pool comum / etapa final) — ÚNICO ponto de verdade para o código novo
@@ -256,7 +307,7 @@ declare v_tem_rotas boolean := exists (select 1 from produto_rota where produto_
 begin
   if not v_tem_rotas then
     return jsonb_build_object(
-      'produtoId', p_produto, 'modelo', 'linear', 'regraEtapaFinal', 'max_ordem_legado',
+      'produtoId', p_produto, 'modelo', 'linear', 'regraEtapaFinal', 'max_ordem_legado', 'convergencia', null,
       'rotas', jsonb_build_array(jsonb_build_object('id', null, 'codigo', 'IMPLICITA', 'nome', 'Rota única (legado)', 'ativa', true, 'preferencia', 100,
         'etapas', coalesce((select jsonb_agg(e.id order by e.ordem) from roteiro_etapas e where e.produto_id = p_produto), '[]'::jsonb))),
       'poolComum', null,
@@ -270,6 +321,11 @@ begin
     'poolComum', jsonb_build_object(
       'etapas', coalesce((select jsonb_agg(pc.etapa_id order by pc.posicao) from produto_pool_comum pc where pc.produto_id = p_produto), '[]'::jsonb),
       'entradaId', (select pc.etapa_id from produto_pool_comum pc where pc.produto_id = p_produto order by pc.posicao limit 1)),
+    -- convergência EXPLÍCITA: de onde cada rota (trecho exclusivo) entrega e para qual etapa comum todas convergem
+    'convergencia', jsonb_build_object(
+      'destinoId', (select pc.etapa_id from produto_pool_comum pc where pc.produto_id = p_produto order by pc.posicao limit 1),
+      'origens', coalesce((select jsonb_agg(jsonb_build_object('rotaCodigo', ro.codigo, 'etapaId', (select re.etapa_id from rota_etapas re where re.rota_id = ro.id order by re.posicao desc limit 1)) order by ro.preferencia, ro.codigo)
+        from produto_rota ro where ro.produto_id = p_produto and ro.ativa), '[]'::jsonb)),
     'etapaFinalId', (select pc.etapa_id from produto_pool_comum pc where pc.produto_id = p_produto and pc.final));
 end;
 $$;

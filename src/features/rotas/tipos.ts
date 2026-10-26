@@ -19,15 +19,19 @@ export interface RotaEstrutura {
   nome: string;
   ativa: boolean;
   preferencia: number;                 // menor = preferida (só desempate)
-  etapas: string[];                    // etapas EXCLUSIVAS da rota, em ordem (produto linear: todas, por ordem)
+  etapas: string[];                    // etapas EXCLUSIVAS (trecho anterior à convergência), em ordem — NUNCA Etiquetar/Embalar. Produto linear: todas, por ordem
 }
+
+// CONVERGÊNCIA explícita: de onde cada rota (trecho exclusivo) entrega e para qual etapa COMUM todas convergem
+export interface Convergencia { destinoId: string; origens: { rotaCodigo: string; etapaId: string }[] }
 
 export interface EstruturaProduto {
   produtoId: string;
   modelo: "linear" | "rotas";
   regraEtapaFinal: "max_ordem_legado" | "explicita";
   rotas: RotaEstrutura[];
-  poolComum: { etapas: string[]; entradaId: string } | null;   // convergência explícita (null no produto linear)
+  poolComum: { etapas: string[]; entradaId: string } | null;   // fluxo COMUM depois da convergência (null no produto linear)
+  convergencia: Convergencia | null;                              // null no produto linear
   etapaFinalId: string | null;
 }
 

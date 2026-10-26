@@ -136,7 +136,13 @@ export function useProdutos(pronto: boolean) {
         setLoading(false);
         return;
       }
-      setProdutos(((data || []) as unknown as ProdutoRow[]).map(linhaParaProduto));
+      // Produto de ROTAS (modelo novo) NÃO é lido pelo caminho legado: aqui as etapas viram uma cadeia linear por `ordem` (Rosquear→Parafusar→Rosquear+Parafusar→…, falsa para ele),
+      // com custo somando as duas rotas e demanda duplicada. Enquanto os consumidores do modelo de rotas não existem, ele fica invisível para Produtos/Previsão/Capacidade.
+      // Sem a tabela (ambiente antes do M0) ou sem produtos de rotas, o filtro é vazio — nenhum efeito para os produtos lineares.
+      const rotas = await supabase.from("produto_rota").select("produto_id");
+      const comRotas = new Set(rotas.error ? [] : (rotas.data || []).map((r) => r.produto_id as string));
+      if (!montado) return;
+      setProdutos(((data || []) as unknown as ProdutoRow[]).filter((p) => !comRotas.has(p.id)).map(linhaParaProduto));
       setLoading(false);
     })();
     return () => { montado = false; };

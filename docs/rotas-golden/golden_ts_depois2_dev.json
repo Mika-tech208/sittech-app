@@ -1,0 +1,105 @@
+{
+  "gerado_com": "rotas-golden-master v1",
+  "legado": {
+    "produtos": "88cfdcba995bfeaa",
+    "roteiro_etapas": "96f296b214b7ff2e",
+    "roteiro_etapa_maquinas": "5472b6f704d83227",
+    "n_produtos_lineares": 7
+  },
+  "wip": {
+    "wip_controle": "4f53cda18c2baa0c",
+    "wip_ajustes": "4f53cda18c2baa0c",
+    "wip_confirmacoes": "4f53cda18c2baa0c",
+    "wip_saldo_semanal": "4f53cda18c2baa0c"
+  },
+  "semanas": {
+    "2026-08-24": {
+      "capacidade": {
+        "analise": "2c25e1115c3e11f9",
+        "maximo": "1928424b33773216",
+        "porItem": "2f40e1926f260709",
+        "horasPorMaquina": "0100fd64a9c9add6",
+        "alocacaoSemanal": "a6415577dcfea99c",
+        "horasSemana": 43.583333333333336,
+        "itens": 4
+      },
+      "escala": {
+        "poolsHash": "5a512ff4235f4dd1",
+        "entradaHash": "22602f4c7c2563f1",
+        "avisosHash": "ba9386fe9d6fe71f",
+        "alocacoesHash": "2fd4a2d367f36fba",
+        "alertasHash": "3bf29ab059274f7f",
+        "atingibilidadeHash": "610cb901f5dfb7d5",
+        "nAlocacoes": 450,
+        "nPools": 1,
+        "statusAtingibilidade": "impossivel"
+      }
+    },
+    "2026-08-31": {
+      "capacidade": {
+        "analise": "033a6f25ece2450d",
+        "maximo": "1efa9b37d9d607a5",
+        "porItem": "e54f97d89645f98c",
+        "horasPorMaquina": "43ad03b836f204b2",
+        "alocacaoSemanal": "6a717d1fd11b418e",
+        "horasSemana": 43.583333333333336,
+        "itens": 5
+      },
+      "escala": {
+        "poolsHash": "dbd7130ae2086d76",
+        "entradaHash": "f9955d58fb18624e",
+        "avisosHash": "b49ab2f916336464",
+        "alocacoesHash": "8879483c4d5e059f",
+        "alertasHash": "67ee2353a79bc6ea",
+        "atingibilidadeHash": "bf30e5102afaa0a7",
+        "nAlocacoes": 450,
+        "nPools": 13,
+        "statusAtingibilidade": "impossivel"
+      }
+    },
+    "2026-09-07": {
+      "capacidade": {
+        "analise": "772dce82b5db56bf",
+        "maximo": "11a351453a447011",
+        "porItem": "4f53cda18c2baa0c",
+        "horasPorMaquina": "44136fa355b3678a",
+        "alocacaoSemanal": "e4794354deaaa8fd",
+        "horasSemana": 43.583333333333336,
+        "itens": 0
+      },
+      "escala": {
+        "poolsHash": "4f53cda18c2baa0c",
+        "entradaHash": "d1b5f5fc68ba6ea1",
+        "avisosHash": "4e017001b5627f08",
+        "alocacoesHash": "d18a86ede78117d7",
+        "alertasHash": "e9c73f26f8b20341",
+        "atingibilidadeHash": "0c4b51d71273820e",
+        "nAlocacoes": 60,
+        "nPools": 0,
+        "statusAtingibilidade": "atingivel"
+      }
+    },
+    "2026-10-26": {
+      "capacidade": {
+        "analise": "1f52333444c15517",
+        "maximo": "ebf5e02c722cba00",
+        "porItem": "5f83ae29ea3d29a4",
+        "horasPorMaquina": "cfaa8a6e7184c542",
+        "alocacaoSemanal": "5455b62cc02c6845",
+        "horasSemana": 34.86666666666667,
+        "itens": 5
+      },
+      "escala": {
+        "poolsHash": "dbd7130ae2086d76",
+        "entradaHash": "826722a061462e12",
+        "avisosHash": "6f5cd88345abd370",
+        "alocacoesHash": "f7560e5a07be2d96",
+        "alertasHash": "3f63e01e91a9a3ed",
+        "atingibilidadeHash": "2b9b435ceb2a53aa",
+        "nAlocacoes": 360,
+        "nPools": 13,
+        "statusAtingibilidade": "impossivel"
+      }
+    }
+  }
+}
