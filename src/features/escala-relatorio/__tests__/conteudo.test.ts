@@ -1,26 +1,50 @@
 import { describe, it, expect } from "vitest";
-import { digestDasFontes, hashDoConteudo, montarConteudo, percentualDecimos, periodosConsiderados, statusDoRelatorio } from "../conteudo";
+import { digestDasFontes, fechamentoLogicoMs, hashDoConteudo, montarConteudo, percentualDecimos, periodosConsiderados, statusDoRelatorio } from "../conteudo";
 import { sha256Hex } from "@/features/escala/hashCanonico";
 import { ap, aus, em, fontes, META, ofi, OP, SEG } from "./fixtures";
 
-const ENCERRADA = em("19:30"); // depois de 17:00 + 2h => FINAL
+const ENCERRADA = em("18:30", "2026-11-06"); // depois do fechamento (sexta 18:00) => FINAL
 const rotacaoOk = (f: string, dia = SEG, ops = [OP.rosq, OP.mont, OP.emb, OP.etiq, OP.rosq, OP.mont]) =>
   ["m1", "m2", "m3", "t1", "t2", "t3"].map((p, i) => ap(f, p, i % 2 === 0 ? "r3" : "m18", ops[i], "p1", {}, dia));
 
-describe("status: parcial / final decidido pelo sistema (fim do último período produtivo + 2h)", () => {
-  it("antes de 19:00 é PARCIAL; a partir de 19:00 é FINAL; registra o momento de elegibilidade", () => {
+describe("status: parcial / final decidido pelo sistema (fechamento lógico: sexta 18:00; sábado 18:00 se produtivo)", () => {
+  const SEX = "2026-11-06", SAB = "2026-11-07";
+  it("sexta 17:59 é PARCIAL; sexta 18:00 é FINAL; registra o fechamento lógico", () => {
     const f = fontes();
-    expect(statusDoRelatorio(f, em("18:59")).status).toBe("parcial");
-    expect(statusDoRelatorio(f, em("19:00")).status).toBe("final");
-    expect(statusDoRelatorio(f, em("19:01")).elegivelFinalEmMs).toBe(em("19:00"));
-    expect(montarConteudo(f, META(em("18:59"))).status).toBe("parcial");
-    expect(montarConteudo(f, META(em("19:01"))).status).toBe("final");
-    expect(montarConteudo(f, META(em("19:01"))).elegivelFinalEmTexto).toBe("02/11/2026 às 19:00:00");
+    expect(statusDoRelatorio(f, em("17:59", SEX)).status).toBe("parcial");
+    expect(statusDoRelatorio(f, em("18:00", SEX)).status).toBe("final");
+    expect(statusDoRelatorio(f, em("18:07", SEX)).elegivelFinalEmMs).toBe(em("18:00", SEX));
+    expect(montarConteudo(f, META(em("17:59", SEX))).status).toBe("parcial");
+    expect(montarConteudo(f, META(em("18:07", SEX))).status).toBe("final");
+    expect(montarConteudo(f, META(em("18:07", SEX))).elegivelFinalEmTexto).toBe("06/11/2026 às 18:00:00");
   });
-  it("o último dia produtivo é o que conta (semana com mais dias)", () => {
-    const f = fontes({ diasProdutivos: [SEG, "2026-11-03"], periodosPorDia: {} });
-    expect(statusDoRelatorio(f, em("19:30")).status).toBe("parcial");
-    expect(statusDoRelatorio(f, em("19:30", "2026-11-03")).status).toBe("final");
+  it("sexta SEM produção também fecha na sexta 18:00 (o dia produtivo é só a segunda)", () => {
+    expect(fechamentoLogicoMs(fontes({ diasProdutivos: [SEG] }))).toBe(em("18:00", SEX));
+  });
+  it("sábado produtivo: NÃO finaliza na sexta; finaliza no sábado 18:00", () => {
+    const f = fontes({ diasProdutivos: [SEG, SAB] });
+    expect(fechamentoLogicoMs(f)).toBe(em("18:00", SAB));
+    expect(statusDoRelatorio(f, em("18:00", SEX)).status).toBe("parcial");
+    expect(statusDoRelatorio(f, em("17:59", SAB)).status).toBe("parcial");
+    expect(statusDoRelatorio(f, em("18:00", SAB)).status).toBe("final");
+  });
+  it("sábado NÃO produtivo (mesmo que exista na semana) não adia o fechamento da sexta", () => {
+    expect(fechamentoLogicoMs(fontes({ diasProdutivos: [SEG, SEX] }))).toBe(em("18:00", SEX));
+  });
+  it("o sistema roda às 18:07, mas o relatório consolida até 18:00 (gerado 18:07, consolidado 18:00)", () => {
+    const f = fontes();
+    const c = montarConteudo(f, META(em("18:07", SEX), { consolidadoAteMs: em("18:00", SEX), fechamentoAutomatico: true }));
+    expect(c.status).toBe("final");
+    expect(c.consolidadoAteTexto).toBe("06/11/2026 18:00:00");
+    expect(c.geradoEmTexto).toBe("06/11/2026 às 18:07:00");
+    expect(c.fechamentoAutomatico).toBe(true);
+    expect(c.toleranciaApontamentoMin).toBe(0);
+  });
+  it("no FINAL todo período encerrado até o fechamento entra (tolerância zero); no PARCIAL vale a tolerância de 30 min", () => {
+    const f = fontes();
+    expect(periodosConsiderados(f, "executada", em("17:10"), 0).map((p) => p.periodoId)).toContain("t3");
+    expect(periodosConsiderados(f, "executada", em("17:10")).map((p) => p.periodoId)).not.toContain("t3");
+    expect(montarConteudo(f, META(em("18:00", SEX))).dias[0].periodos.every((p) => p.considerado)).toBe(true);
   });
 });
 
@@ -55,7 +79,7 @@ describe("revezamento do executado", () => {
   it("T3→M1 do dia seguinte REINICIA (mesma operação em T3 e no M1 seguinte não é violação)", () => {
     const d2 = "2026-11-03";
     const f = fontes({ diasProdutivos: [SEG, d2], periodosPorDia: {}, equipe: ["f1"], apontamentos: [...rotacaoOk("f1", SEG, [OP.rosq, OP.mont, OP.rosq, OP.mont, OP.rosq, OP.etiq]), ...rotacaoOk("f1", d2, [OP.etiq, OP.mont, OP.rosq, OP.mont, OP.rosq, OP.mont])] });
-    const c = montarConteudo(f, META(em("20:00", d2)));
+    const c = montarConteudo(f, META(em("20:00", "2026-11-06")));
     expect(c.resumo.revezamento.violacoes).toHaveLength(0);
     expect(c.resumo.revezamento.estado).toBe("SIM");
     expect(c.resumo.revezamento.verificadas).toBe(10); // 5 por dia; T3→M1 não é uma transição

@@ -87,7 +87,7 @@ export async function renderizarPdf(c: ConteudoRelatorio, hash: string): Promise
   } else {
     caixa(pg, M, y - 22, W - 2 * M - 90, 22, 1.2);
     texto(pg, "RELATÓRIO FINAL", M + 8, y - 14, 11, fb);
-    texto(pg, `Semana encerrada; dados consolidados em ${c.consolidadoAteTexto}.`, M + 120, y - 14, 8);
+    texto(pg, c.fechamentoAutomatico ? `Finalizado automaticamente pelo sistema em ${c.elegivelFinalEmTexto.replace(/:00$/, "")}; dados consolidados até ${c.consolidadoAteTexto}.` : `Semana encerrada; dados consolidados em ${c.consolidadoAteTexto}.`, M + 120, y - 14, 8);
   }
   // QR (vetor) no canto direito
   const qr = QRCode.create(c.urlVerificacao, { errorCorrectionLevel: "M" });
@@ -104,8 +104,8 @@ export async function renderizarPdf(c: ConteudoRelatorio, hash: string): Promise
   campo("Semana", c.semana.texto, M, y); campo("Código do relatório", c.codigo, M + 170, y); campo("Versão", String(c.versao), M + 340, y);
   campo("Tipo", c.tipo === "executada" ? "Revezamento executado" : "Escala planejada", M + 400, y); campo("Gerado em (America/Sao_Paulo)", c.geradoEmTexto, M + 560, y);
   y -= 30;
-  campo("Gerado por", c.geradoPor.nome, M, y); campo("Situação", parcial ? "PARCIAL" : "FINAL", M + 170, y);
-  campo("Elegível a FINAL a partir de", c.elegivelFinalEmTexto, M + 340, y);
+  campo(c.fechamentoAutomatico ? "Gerado" : "Gerado por", c.fechamentoAutomatico ? "Automaticamente pelo sistema" : c.geradoPor.nome, M, y); campo("Situação", parcial ? "PARCIAL" : "FINAL", M + 170, y);
+  campo("Fechamento (FINAL a partir de)", c.elegivelFinalEmTexto, M + 340, y);
   campo("Plano oficial (versão / hash)", c.fontes.planoVersao ? `${c.fontes.planoVersao.id.slice(0, 8)} / ${c.fontes.planoVersao.hashPlano.slice(0, 12)}` : "sem versão registrada", M + 560, y);
   y -= 32;
   linha(pg, M, y, W - M, y, 0.5);

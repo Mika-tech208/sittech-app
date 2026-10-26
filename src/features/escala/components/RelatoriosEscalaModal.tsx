@@ -9,8 +9,10 @@ import { formatarDataHoraBR, weekLabel } from "@/lib/date";
 interface Linha {
   id: string; codigo: string; tipo: "planejada" | "executada"; versao: number; status: "parcial" | "final"; geradoEm: string; consolidadoAte: string; geradoPor: string | null; hash: string;
   pdfBytes: number; alteracoesPosteriores: boolean | null;
+  fechamentoAutomatico: boolean; email: { status: "pendente" | "enviado" | "falhou"; destinatario: string; enviadoEm: string | null; tentativas: number; ultimoErro: string | null } | null;
 }
-interface Lista { relatorios: Linha[]; status: "parcial" | "final" | null; elegivelFinalEm: string | null }
+interface Fechamento { ativo: boolean; desdeSemana: string | null; destinatario: string; fechamentoLogicoEm: string | null; geracaoStatus: "pendente" | "gerado" | "erro" | null; geracaoTentativas: number; geracaoUltimoErro: string | null }
+interface Lista { relatorios: Linha[]; status: "parcial" | "final" | null; elegivelFinalEm: string | null; fechamento: Fechamento }
 
 async function token(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
@@ -67,6 +69,18 @@ export default function RelatoriosEscalaModal({ semanaInicio, onFechar }: { sema
     await baixar(j.id, j.nomeArquivo);
   }
 
+  async function reenviar(id: string) {
+    setOcupado(`email-${id}`); setErro(null); setAviso(null);
+    const t = await token();
+    if (!t) { setOcupado(null); setErro("Sessão expirada."); return; }
+    const r = await fetch(`/api/escala/relatorios/${id}/reenviar`, { method: "POST", headers: { Authorization: `Bearer ${t}` } });
+    const j = await r.json().catch(() => ({}));
+    setOcupado(null);
+    if (r.ok) setAviso("E-mail reenviado com o mesmo PDF.");
+    else setErro(j?.erro || "Não foi possível reenviar o e-mail.");
+    aplicarResultado(await buscarLista(semanaInicio));
+  }
+
   const nomeTipo = (t: string) => (t === "executada" ? "Revezamento executado" : "Escala planejada");
   const proxima = (tipo: "planejada" | "executada") => (lista?.relatorios.filter((r) => r.tipo === tipo).reduce((m, r) => Math.max(m, r.versao), 0) ?? 0) + 1;
   const statusSistema = lista?.status === "final" ? "FINAL" : "PARCIAL";
@@ -77,9 +91,18 @@ export default function RelatoriosEscalaModal({ semanaInicio, onFechar }: { sema
         <p className="stx-modal-titulo">Relatórios em PDF — {weekLabel(semanaInicio)}</p>
         <p className="stx-panel-sub" style={{ marginTop: 0 }}>
           Cada geração cria uma <b>nova versão imutável</b> (conteúdo congelado + hash SHA-256 + QR de verificação). Se a semana ainda está em andamento o relatório sai como <b>PARCIAL</b>;
-          depois do fim do último dia produtivo + 2 h, como <b>FINAL</b> — o sistema decide.
+          a partir do fechamento (<b>sexta-feira 18:00</b>; sábado 18:00 se o sábado for produtivo), como <b>FINAL</b> — o sistema decide.
           {lista?.status && <> Agora, um relatório gerado seria <b>{statusSistema}</b>{lista.status === "parcial" && lista.elegivelFinalEm ? ` (final a partir de ${formatarDataHoraBR(lista.elegivelFinalEm)})` : ""}.</>}
         </p>
+        {lista && (
+          <p className="stx-panel-sub" style={{ marginTop: 0 }}>
+            <b>Fechamento automático:</b>{" "}
+            {lista.fechamento.ativo && lista.fechamento.desdeSemana && semanaInicio >= lista.fechamento.desdeSemana
+              ? <>ligado — o Revezamento executado é finalizado{lista.fechamento.fechamentoLogicoEm ? ` em ${formatarDataHoraBR(lista.fechamento.fechamentoLogicoEm)}` : ""} e enviado por e-mail para {lista.fechamento.destinatario}.</>
+              : <>não se aplica a esta semana (desligado ou anterior à semana inicial).</>}
+            {lista.fechamento.geracaoStatus === "erro" && <span style={{ color: "var(--danger)" }}> Falha ao gerar ({lista.fechamento.geracaoTentativas} tentativa(s)): {lista.fechamento.geracaoUltimoErro}. O sistema tenta novamente sozinho.</span>}
+          </p>
+        )}
         <div className="stx-form-actions" style={{ justifyContent: "flex-start", gap: 8, flexWrap: "wrap" }}>
           <button type="button" className="stx-btn-primary" disabled={!!ocupado || !lista} onClick={() => void gerar("executada")}>
             {ocupado === "executada" ? "Gerando…" : `Revezamento executado (nova versão v${proxima("executada")})`}
@@ -97,14 +120,24 @@ export default function RelatoriosEscalaModal({ semanaInicio, onFechar }: { sema
           {lista && lista.relatorios.length === 0 && <p className="stx-panel-sub">Nenhum relatório gerado para esta semana ainda.</p>}
           {lista?.relatorios.map((r) => (
             <div key={r.id} style={{ borderTop: "1px solid var(--border)", padding: "8px 0", fontSize: 13 }}>
-              <div><b>{r.codigo}</b> · v{r.versao} · {nomeTipo(r.tipo)} · <b>{r.status === "final" ? "FINAL" : "PARCIAL"}</b></div>
+              <div><b>{r.codigo}</b> · v{r.versao} · {nomeTipo(r.tipo)} · <b>{r.status === "final" ? "FINAL" : "PARCIAL"}</b>{r.fechamentoAutomatico && <> · <b>Gerado automaticamente</b></>}</div>
+              {r.email && (
+                <div style={{ color: r.email.status === "falhou" ? "var(--danger)" : "var(--text-muted)" }}>
+                  {r.email.status === "enviado" && <>Enviado para {r.email.destinatario} · Enviado em {r.email.enviadoEm ? formatarDataHoraBR(r.email.enviadoEm) : "—"}</>}
+                  {r.email.status === "falhou" && <>Falha no envio para {r.email.destinatario}{r.email.ultimoErro ? ` — ${r.email.ultimoErro}` : ""} ({r.email.tentativas} tentativa(s))</>}
+                  {r.email.status === "pendente" && <>Envio para {r.email.destinatario} pendente</>}
+                </div>
+              )}
               <div style={{ color: "var(--text-muted)" }}>
-                Gerado em {formatarDataHoraBR(r.geradoEm)}{r.geradoPor ? ` por ${r.geradoPor}` : ""}{r.status === "parcial" ? ` · dados até ${formatarDataHoraBR(r.consolidadoAte)}` : ""} · SHA-256 {r.hash.slice(0, 12)}…
+                Gerado em {formatarDataHoraBR(r.geradoEm)}{r.geradoPor ? ` por ${r.geradoPor}` : r.fechamentoAutomatico ? " pelo sistema" : ""}{r.status === "parcial" ? ` · dados até ${formatarDataHoraBR(r.consolidadoAte)}` : ""} · SHA-256 {r.hash.slice(0, 12)}…
               </div>
-              {r.alteracoesPosteriores && <div style={{ color: "var(--warning)" }}>Existem alterações posteriores aos dados utilizados neste relatório (v{r.versao}). Gere uma nova versão para incluí-las; esta versão não é alterada.</div>}
+              {r.alteracoesPosteriores && <div style={{ color: "var(--warning)" }}>Existem alterações posteriores aos dados utilizados neste relatório. A v{r.versao} não é alterada; gere uma nova versão manualmente para incluí-las (nada é reenviado automaticamente).</div>}
               <div style={{ display: "flex", gap: 10, marginTop: 4, flexWrap: "wrap" }}>
                 <button type="button" className="stx-btn-secondary" onClick={() => void baixar(r.id, `SITTECH_Revezamento_${semanaInicio}_v${r.versao}_${r.tipo === "executada" ? "executado" : "planejado"}.pdf`)}>Baixar PDF</button>
                 <a href={`/relatorios/escala/verificar/${r.id}`} target="_blank" rel="noreferrer" className="stx-btn-secondary" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}>Página de verificação</a>
+                {r.email && r.email.status !== "enviado" && (
+                  <button type="button" className="stx-btn-primary" disabled={!!ocupado} onClick={() => void reenviar(r.id)}>{ocupado === `email-${r.id}` ? "Enviando…" : "REENVIAR E-MAIL"}</button>
+                )}
               </div>
             </div>
           ))}

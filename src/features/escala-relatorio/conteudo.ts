@@ -19,7 +19,7 @@ import type {
 
 export const EMPRESA = "SITTECH SOLUÇÕES INDUSTRIAIS";
 export const TOLERANCIA_APONTAMENTO_MIN = 30; // período recém-encerrado: os apontamentos ainda podem estar chegando — só entra depois disso
-export const TOLERANCIA_FINAL_MIN = 120; // FINAL = fim do último período do último dia produtivo + 2 h
+export const HORA_FECHAMENTO = "18:00"; // fechamento lógico do relatório semanal (America/Sao_Paulo): sexta 18:00; sábado 18:00 se o sábado for produtivo
 export const SCHEMA_VERSAO = 1;
 
 const MS_MIN = 60_000;
@@ -44,13 +44,15 @@ const hhmm = (t: string) => t.slice(0, 5);
 export const inicioPeriodoMs = (data: string, p: PeriodoBruto) => epochMsNoFuso(data, hhmm(p.inicio));
 export const fimPeriodoMs = (data: string, p: PeriodoBruto) => epochMsNoFuso(data, hhmm(p.fim));
 
-export function elegivelFinalEmMs(f: FontesRelatorio): number {
-  const dias = [...f.diasProdutivos].sort();
-  const ultimo = dias[dias.length - 1] ?? somarDias(f.semanaInicio, 6);
-  const ps = periodosDoDia(f, ultimo);
-  const fim = ps.length > 0 ? Math.max(...ps.map((p) => fimPeriodoMs(ultimo, p))) : epochMsNoFuso(ultimo, "23:59");
-  return fim + TOLERANCIA_FINAL_MIN * MS_MIN;
+// FECHAMENTO LÓGICO: sexta-feira 18:00; se o sábado (ou o domingo) for dia produtivo, o último desses dias às 18:00. Sexta sem produção também fecha na sexta.
+// O instante é lógico: um worker que rode às 18:07 continua "consolidando até 18:00".
+export function fechamentoLogicoMs(f: FontesRelatorio): number {
+  const sexta = somarDias(f.semanaInicio, 4), sabado = somarDias(f.semanaInicio, 5), domingo = somarDias(f.semanaInicio, 6);
+  const produtivos = new Set(f.diasProdutivos);
+  const dia = produtivos.has(domingo) ? domingo : produtivos.has(sabado) ? sabado : sexta;
+  return epochMsNoFuso(dia, HORA_FECHAMENTO);
 }
+export const elegivelFinalEmMs = fechamentoLogicoMs;
 // O sistema decide parcial/final — nunca o usuário.
 export function statusDoRelatorio(f: FontesRelatorio, geradoEmMs: number): { status: StatusRelatorio; elegivelFinalEmMs: number } {
   const e = elegivelFinalEmMs(f);
@@ -58,12 +60,12 @@ export function statusDoRelatorio(f: FontesRelatorio, geradoEmMs: number): { sta
 }
 
 export interface PeriodoRef { data: string; periodoId: string }
-// executada: só períodos já encerrados há ≥ tolerância no instante de consolidação; planejada: todos os períodos dos dias produtivos
-export function periodosConsiderados(f: FontesRelatorio, tipo: TipoRelatorio, consolidadoMs: number): PeriodoRef[] {
+// executada: só períodos já encerrados há ≥ tolerância no instante de consolidação (no FINAL a tolerância é 0: o fechamento 18:00 é o prazo declarado); planejada: todos os períodos dos dias produtivos
+export function periodosConsiderados(f: FontesRelatorio, tipo: TipoRelatorio, consolidadoMs: number, toleranciaMin = TOLERANCIA_APONTAMENTO_MIN): PeriodoRef[] {
   const out: PeriodoRef[] = [];
   [...f.diasProdutivos].sort().forEach((data) => {
     periodosDoDia(f, data).forEach((p) => {
-      if (tipo === "planejada" || fimPeriodoMs(data, p) + TOLERANCIA_APONTAMENTO_MIN * MS_MIN <= consolidadoMs) out.push({ data, periodoId: p.id });
+      if (tipo === "planejada" || fimPeriodoMs(data, p) + toleranciaMin * MS_MIN <= consolidadoMs) out.push({ data, periodoId: p.id });
     });
   });
   return out;
@@ -101,6 +103,8 @@ export interface MetaGeracao {
   geradoEmMs: number;
   geradoPor: { id: string; nome: string };
   urlVerificacao: string;
+  consolidadoAteMs?: number;       // padrão = geradoEmMs; no fechamento automático = o 18:00 lógico (o worker pode rodar depois)
+  fechamentoAutomatico?: boolean;  // gerado pelo sistema no fechamento (a pessoa em "geradoPor" é o próprio sistema)
 }
 
 // aritmética inteira, meio-para-cima, em décimos de ponto percentual (93,75% → 93,8%)
@@ -112,8 +116,9 @@ const textoPct = (dec: number | null) => (dec === null ? "—" : `${Math.floor(d
 
 export function montarConteudo(f: FontesRelatorio, meta: MetaGeracao): ConteudoRelatorio {
   const { status, elegivelFinalEmMs: elegMs } = statusDoRelatorio(f, meta.geradoEmMs);
-  const consolidadoMs = meta.geradoEmMs;
-  const considerados = periodosConsiderados(f, meta.tipo, consolidadoMs);
+  const consolidadoMs = meta.consolidadoAteMs ?? meta.geradoEmMs;
+  const toleranciaMin = status === "final" ? 0 : TOLERANCIA_APONTAMENTO_MIN;
+  const considerados = periodosConsiderados(f, meta.tipo, consolidadoMs, toleranciaMin);
   const setCons = new Set(considerados.map((c) => `${c.data}|${c.periodoId}`));
   const executada = meta.tipo === "executada";
 
@@ -278,7 +283,8 @@ export function montarConteudo(f: FontesRelatorio, meta: MetaGeracao): ConteudoR
     geradoPor: meta.geradoPor,
     consolidadoAte: c.iso, consolidadoAteTexto: c.texto.replace(" às ", " "),
     elegivelFinalEm: e.iso, elegivelFinalEmTexto: e.texto,
-    toleranciaApontamentoMin: TOLERANCIA_APONTAMENTO_MIN,
+    toleranciaApontamentoMin: toleranciaMin,
+    fechamentoAutomatico: meta.fechamentoAutomatico === true,
     urlVerificacao: meta.urlVerificacao,
     fontes: { planoVersao: f.planoVersao, digest: digestDasFontes(f, considerados), qtdApontamentos: apProd.length + semProd.length, qtdAusencias: f.ausencias.length, qtdOficial: f.oficial.filter((o) => setCons.has(`${o.data}|${o.periodoId}`)).length, qtdAjustesManuais: f.ajustesManuais.length },
     dias, funcionarios,

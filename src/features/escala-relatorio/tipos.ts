@@ -86,9 +86,10 @@ export interface ConteudoRelatorio {
   geradoPor: { id: string; nome: string };
   consolidadoAte: string;
   consolidadoAteTexto: string;
-  elegivelFinalEm: string;
+  elegivelFinalEm: string; // = fechamento lógico
   elegivelFinalEmTexto: string;
   toleranciaApontamentoMin: number;
+  fechamentoAutomatico: boolean; // finalizado pelo sistema no fechamento lógico (sexta/sábado 18:00)
   urlVerificacao: string;
   fontes: { planoVersao: { id: string; hashPlano: string; validoDesde: string } | null; digest: string; qtdApontamentos: number; qtdAusencias: number; qtdOficial: number; qtdAjustesManuais: number };
   dias: DiaConteudo[];

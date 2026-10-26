@@ -27,7 +27,7 @@ const contem = (bytes: Uint8Array, texto: string) => textoDoPdf(bytes).includes(
 
 describe("PDF do relatório", () => {
   it("gera A4 paisagem com várias páginas, cabeçalho PARCIAL/FINAL, declaração, assinaturas e rodapé com hash abreviado e Página X de Y", async () => {
-    const c = montarConteudo(f0(), META(em("19:30")));
+    const c = montarConteudo(f0(), META(em("19:30", "2026-11-06")));
     const { hash } = hashDoConteudo(c);
     const r = await renderizarPdf(c, hash);
     expect(Buffer.from(r.bytes).subarray(0, 5).toString()).toBe("%PDF-");
@@ -52,7 +52,7 @@ describe("PDF do relatório", () => {
   });
   it("estado do revezamento e a frase explicativa aparecem no PDF (não só o rótulo)", async () => {
     const semM3 = fontes({ equipe: ["f1"], apontamentos: aps("f1", [OP.rosq, OP.mont, OP.emb, OP.etiq, OP.rosq, OP.mont]).filter((a) => a.periodoId !== "m3") });
-    const c = montarConteudo(semM3, META(em("19:30")));
+    const c = montarConteudo(semM3, META(em("19:30", "2026-11-06")));
     expect(c.resumo.revezamento.estado).toBe("SIM_COM_RESSALVAS");
     const r = await renderizarPdf(c, hashDoConteudo(c).hash);
     expect(contem(r.bytes, "SIM COM RESSALVAS")).toBe(true);
@@ -60,31 +60,31 @@ describe("PDF do relatório", () => {
     expect(contem(r.bytes, "por ausência de apontamento")).toBe(true);
   });
   it("violação real aparece listada no PDF", async () => {
-    const c = montarConteudo(fontes({ equipe: ["f1"], apontamentos: aps("f1", [OP.rosq, OP.mont, OP.emb, OP.emb, OP.rosq, OP.mont]) }), META(em("19:30")));
+    const c = montarConteudo(fontes({ equipe: ["f1"], apontamentos: aps("f1", [OP.rosq, OP.mont, OP.emb, OP.emb, OP.rosq, OP.mont]) }), META(em("19:30", "2026-11-06")));
     const r = await renderizarPdf(c, hashDoConteudo(c).hash);
     expect(c.resumo.revezamento.estado).toBe("NAO");
     expect(contem(r.bytes, "Violações do revezamento encontradas")).toBe(true);
     expect(contem(r.bytes, "M3 -> T1")).toBe(true);
   });
   it("determinístico: mesmo snapshot => mesmos bytes e mesmo hash de arquivo; conteúdo diferente => hash de arquivo diferente", async () => {
-    const c = montarConteudo(f0(), META(em("19:30")));
+    const c = montarConteudo(f0(), META(em("19:30", "2026-11-06")));
     const { hash } = hashDoConteudo(c);
     const a = await renderizarPdf(c, hash), b = await renderizarPdf(c, hash);
     expect(sha(a.bytes)).toBe(sha(b.bytes));
     const g = f0(); g.apontamentos[0].produzido = 12345;
-    const c2 = montarConteudo(g, META(em("19:30")));
+    const c2 = montarConteudo(g, META(em("19:30", "2026-11-06")));
     const d = await renderizarPdf(c2, hashDoConteudo(c2).hash);
     expect(sha(d.bytes)).not.toBe(sha(a.bytes));
-    const v2 = montarConteudo(f0(), META(em("19:30"), { versao: 2 }));
+    const v2 = montarConteudo(f0(), META(em("19:30", "2026-11-06"), { versao: 2 }));
     expect(sha((await renderizarPdf(v2, hashDoConteudo(v2).hash)).bytes)).not.toBe(sha(a.bytes));
   });
   it("o QR/URL aponta para a versão certa (id da versão no endereço, dentro do conteúdo hasheado e impresso)", async () => {
     const url = "https://exemplo.test/relatorios/escala/verificar/11111111-2222-3333-4444-555555555555";
-    const c = montarConteudo(f0(), META(em("19:30"), { urlVerificacao: url }));
+    const c = montarConteudo(f0(), META(em("19:30", "2026-11-06"), { urlVerificacao: url }));
     expect(c.urlVerificacao).toBe(url);
     const r = await renderizarPdf(c, hashDoConteudo(c).hash);
     expect(contem(r.bytes, "Verificação: " + url)).toBe(true);
-    const outra = montarConteudo(f0(), META(em("19:30"), { urlVerificacao: url.replace("5555", "6666") }));
+    const outra = montarConteudo(f0(), META(em("19:30", "2026-11-06"), { urlVerificacao: url.replace("5555", "6666") }));
     expect(hashDoConteudo(outra).hash).not.toBe(hashDoConteudo(c).hash);
   });
   it("grade longa pagina sem estourar (15 funcionários × 6 dias)", async () => {
@@ -101,7 +101,7 @@ describe("PDF do relatório", () => {
 
 describe("página pública (QR): só metadados, nunca nomes", () => {
   it("o objeto público não contém nomes, escala, apontamentos nem ausências — mesmo com nomes no conteúdo canônico", () => {
-    const c = montarConteudo(f0(), META(em("19:30")));
+    const c = montarConteudo(f0(), META(em("19:30", "2026-11-06")));
     const { canonico, hash } = hashDoConteudo(c);
     expect(canonico).toContain("Ana"); // o snapshot guarda os nomes
     const reg: RegistroVerificacao = { id: "i", codigo: c.codigo, semanaInicio: SEG, tipo: "executada", versao: 1, status: "final", geradoEm: c.geradoEm, consolidadoAte: c.consolidadoAte, hash, pdfSha256: "b".repeat(64), integridadeBanco: true, conteudoCanonico: canonico, fonteDigest: c.fontes.digest, periodosConsiderados: [], versaoMaisRecente: 1, existeVersaoPosterior: false };
@@ -112,7 +112,7 @@ describe("página pública (QR): só metadados, nunca nomes", () => {
     expect(Object.keys(pub).sort()).toEqual(["alteracoesPosterioresNosDados", "codigo", "existemVersoesPosteriores", "geradoEm", "hash", "integridade", "pdfSha256", "semanaFim", "semanaInicio", "status", "tipo", "valido", "versao", "versaoMaisRecente"]);
   });
   it("integridade INCONSISTENTE quando o conteúdo canônico não confere com o hash; alteração posterior quando o digest muda", () => {
-    const c = montarConteudo(f0(), META(em("19:30")));
+    const c = montarConteudo(f0(), META(em("19:30", "2026-11-06")));
     const { canonico, hash } = hashDoConteudo(c);
     const base: RegistroVerificacao = { id: "i", codigo: c.codigo, semanaInicio: SEG, tipo: "executada", versao: 1, status: "final", geradoEm: c.geradoEm, consolidadoAte: c.consolidadoAte, hash, pdfSha256: "b".repeat(64), integridadeBanco: true, conteudoCanonico: canonico, fonteDigest: c.fontes.digest, periodosConsiderados: [], versaoMaisRecente: 2, existeVersaoPosterior: true };
     expect(paraPublico({ ...base, conteudoCanonico: canonico.replace("Ana", "Ane") }, null).integridade).toBe("INCONSISTENTE");
