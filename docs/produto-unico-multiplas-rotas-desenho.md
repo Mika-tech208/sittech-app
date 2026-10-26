@@ -321,3 +321,25 @@ DEV/Preview primeiro em todas; PROD só com aprovação explícita por fase; nen
 3. **Preço divergente** 0,1825 × 0,182 (confirmar no contrato antes de cadastrar F).
 4. **Sem WIP real hoje:** a Fase de WIP está "ativa" por parâmetro, mas não há nenhum controle/saldo — a virada para rotas não herda estoque.
 5. **Nenhum conflito com a decisão de não renumerar:** F nasce com ids e ordens próprias; P e A ficam intactos.
+
+## 16. Implementação M0 + M1 (somente DEV) — o que foi efetivamente criado
+
+**Migrations** (aplicadas só no DEV; nenhuma em PROD): `20261106100000_rotas_m0_estruturas.sql` (M0, DDL aditivo) e `20261106110000_rotas_m1_cadastro_conector_final.sql` (M1, só INSERT, idempotente, copia metas/máquinas **por valor** dos cadastros legados no momento da aplicação; **para** se Etiquetar/Embalar divergirem entre P e A).
+
+**Ajustes em relação ao desenho (decisões finais):** sem `wip_controle_encerramento` (não há WIP legado); `previsao_item_rota` virou **`previsao_rota_limite`** (chave lógica `(previsao_id, produto_id, rota_id)`, porque a Previsão recria `previsao_itens` a cada save); o pool comum é **uma tabela com a etapa final marcada** (`produto_pool_comum.final`), sem depender de `max(ordem)`; `escala_rota_divisao` existe só como estrutura (append-only); sem conversão de Previsão.
+
+**Tabelas novas:** `produto_rota`, `rota_etapas`, `produto_pool_comum`, `previsao_rota_limite` (V1: `CHECK modo='maximo'`), `escala_rota_divisao`, `produto_variante_legada`. **Única coluna em tabela existente:** `previsoes.modelo_rotas boolean not null default false` (todas as semanas existentes = legado).
+
+**Funções:** `produto_rotas_validar` (integridade), `produto_estrutura_rotas(produto)` e `produto_etapa_final(produto)` (**único ponto de verdade**: produto linear ⇒ regra legada `max(ordem)` explicitada; produto de rotas ⇒ etapa final **explícita**).
+
+**Gatilhos novos:** validação de integridade no COMMIT (rotas, rota_etapas, pool comum e `roteiro_etapas` — no-op para produto linear); etapa pertence ao produto; vínculo legado; **proteção contra mistura** em `previsao_itens` e `previsoes` (semana de rotas recusa os produtos legados vinculados; semana legada recusa o produto de rotas; trocar o modo com itens incompatíveis é recusado). Nada disso é aplicado em PROD (a proteção para 02/11 é só DEV, como pedido).
+
+**Produto F (DEV):** `Conector 3/4" (Final)` `5a5a2b67-1a2f-4f16-83b7-e1212f166fee`, referência 56126022, **R$ 0,1825**; etapas **novas** (`ordem` 0..4 é só rótulo): Rosquear `0684967e…`, Parafusar `1788e97d…`, Rosquear + Parafusar `6d7e542d…`, Etiquetar `206c87a2…`, Embalar `17dca53f…`. Rotas: **AUTO** `cab49f95…` (R+P) e **CONV** `fc1d148c…` (Rosquear → Parafusar); **pool comum**: Etiquetar → Embalar **[FINAL]**; vínculos: P → CONV, A → AUTO. (Observação: os valores copiados refletem o cadastro do DEV, que difere do PROD em Rosquear — só Rosqueadeira 6 — e Embalar 4600/3800; no PROD a M1 copia os valores de lá.)
+
+**Código (puro, sem ativação):** `src/features/rotas/` — `estrutura.ts` (linear implícita × rotas; próxima/anterior/final explícita; validação), `capacidade.ts` (capacidade por etapa/rota/pool comum com competição por máquina; **não** é o planejador), `dados.ts`, `DiagramaRotas.tsx` e a página somente-leitura `/produtos/rotas` (demonstração; fora do sidebar).
+
+**Prova de equivalência:** `docs/rotas-golden/README.md` — golden master TS + SQL **idênticos** antes/depois (capacidade, `EntradaEscala`, alocações, atingibilidade, WIP, apontado real, hashes da semana 26/10, colunas de todas as tabelas antigas). A 1ª comparação divergiu por um defeito do M0 (faltavam GRANTs ao `service_role`); corrigido e refeito.
+
+**Testes:** `supabase/tests/rotas/t1_m0_m1.sql` (ids novos, legados intactos, convergência, etapas comuns únicas, final explícita, AUTO = 35.625 pelas metas, E15 = 97.500, integridade e mistura bloqueadas, privilégios) e `src/features/rotas/__tests__/rotas.test.ts` (convergência; AUTO = 35.625; **gargalo da Etiquetadora 15: 116.625 → 97.500**; **E16 não assumida livre** por causa da Caixa Amarela; AUTO parada; 1.000 produtos lineares aleatórios idênticos ao legado).
+
+**Achados de risco (M0/M1):** (1) a página Produtos (legado) mostra F como cadeia linear de 5 etapas e calcula custo somando as 5 — enganoso só no DEV; tratar na fase da UI; (2) editar as etapas de F pela tela de Produtos é barrado pelas FKs/integridade (intencional); (3) `produto_estrutura_rotas`/`produto_etapa_final` devem ser a única fonte da "etapa final" em qualquer código novo — as RPCs de indicadores e apontado real **ainda usam `max(ordem)`** (coincide com Embalar em F, mas só por rótulo) e precisam ser trocadas antes de F ter apontamentos (Produção Real/M4); (4) o gatilho em `roteiro_etapas` roda para todo write de etapa (no-op para produtos lineares, custo mínimo).
