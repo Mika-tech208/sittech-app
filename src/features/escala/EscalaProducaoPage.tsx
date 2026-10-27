@@ -30,6 +30,8 @@ import AlertasEscala from "./components/AlertasEscala";
 import { BloquearModal, TrocaModal, MOTIVOS_INDISPONIBILIDADE } from "./components/ModaisEscala";
 import { ESTILOS_ESCALA } from "./components/estilos";
 import { validarTroca } from "./rotacao";
+import { primeiroPeriodoAfetado } from "./disponibilidade";
+import { epochMsNoFuso } from "./tempo";
 import RelatoriosEscalaModal from "./components/RelatoriosEscalaModal";
 import { buscarLista, finalAutomaticoDisponivel } from "./relatoriosApi";
 
@@ -105,6 +107,10 @@ export default function EscalaProducaoPage() {
   }, [estado.alocacoes, estado.nomes.funcionarios]);
   const alocacoesDoDia = useMemo(() => estado.alocacoes.filter((a) => a.data === diaAtual?.data), [estado.alocacoes, diaAtual]);
 
+  const periodosCronologicos = useMemo(
+    () => estado.dias.flatMap((d) => d.periodos.map((p) => ({ data: d.data, periodoId: p.id, nome: p.nome, inicioMs: epochMsNoFuso(d.data, p.inicio), fimMs: epochMsNoFuso(d.data, p.fim) }))).sort((a, b) => a.inicioMs - b.inicioMs),
+    [estado.dias]
+  );
   const maquinasPainel = useMemo(() => {
     const ids = new Set([...estado.postosDaPrevisao, ...estado.indisponibilidades.map((i) => i.maquinaId)]);
     return [...ids].sort((a, b) => (estado.nomes.maquinas.get(a) || "").localeCompare(estado.nomes.maquinas.get(b) || "", "pt-BR", { numeric: true }));
@@ -321,6 +327,7 @@ export default function EscalaProducaoPage() {
                                 {k > 0 ? " · " : ""}
                                 {c.origemTipo === "ocorrencia_maquina" ? "Parada" : "Bloqueio manual"}: {MOTIVOS_INDISPONIBILIDADE.find((m) => m.valor === c.motivo)?.rotulo || c.motivo} desde {formatarDataHoraBR(c.desde)}
                                 {c.origemTipo === "manual" && c.observacao ? ` (${c.observacao})` : ""}
+                                {(() => { const a = primeiroPeriodoAfetado(Date.parse(c.desde), periodosCronologicos); return a ? ` — afeta a partir de ${a.nome} ${a.data.slice(8)}/${a.data.slice(5, 7)}${a.emAndamentoNoInicio ? " (já em andamento: não é reescrito)" : ""}` : ""; })()}
                               </span>
                             ))}
                             {causas.some((c) => c.origemTipo === "ocorrencia_maquina") ? " — a Parada é encerrada em Produção Real (a máquina volta sozinha)" : ""}
