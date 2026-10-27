@@ -7,13 +7,38 @@
 // em ESCALA_VERSAO_CONFLITO o estado é relido e tudo é recalculado.
 
 import { gerarEscala } from "@/features/escala/gerarEscala";
-import { AVISO_PRIMEIRA_GERACAO, type AlertaEscala } from "@/features/escala/types";
+import { AVISO_PRIMEIRA_GERACAO, type AlertaEscala, type EntradaEscala, type PeriodoEscala } from "@/features/escala/types";
+import { epochMsNoFuso } from "@/features/escala/tempo";
 import { reverterResultado } from "@/features/rotas/adaptador";
 import { registrosDeDivisao, type RegistroDivisao } from "@/features/rotas/resolucao";
 import { montarEntradaEscala } from "./montarEntrada";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento, type SnapshotWipParaGravar } from "./estado";
 
 export const MOTIVO_ESCALA_JA_EXISTE = "Escala da semana já existe";
+
+// PONTO DE CORTE do recálculo = o PRIMEIRO período que AINDA NÃO COMEÇOU entre (a) os slots mutáveis e (b) os períodos dos dias que deixaram de ser produtivos.
+// PASSADO É IMUTÁVEL: nada que comece antes do corte é apagado nem reescrito. Sem nenhum período futuro (nem slot nem período removível) => null => NO-OP.
+// (Antes: sem slot futuro, o corte virava o 1º período do dia removido — mesmo que já tivesse ocorrido — e a RPC apagava a Escala histórica.)
+export function pontoDeCorte(
+  entrada: Pick<EntradaEscala, "slots" | "aPartirDe">,
+  removerDias: string[],
+  periodosPorDia: Map<string, PeriodoEscala[]>,
+  agoraMs: number
+): { data: string; periodoId: string } | null {
+  const candidatos: { data: string; periodoId: string; ms: number }[] = [];
+  const slot = entrada.slots[entrada.aPartirDe];
+  if (slot) candidatos.push({ data: slot.data, periodoId: slot.periodoId, ms: slot.inicioMs });
+  for (const data of removerDias) {
+    const futuro = (periodosPorDia.get(data) ?? [])
+      .map((p) => ({ data, periodoId: p.id, ms: epochMsNoFuso(data, p.inicio) }))
+      .filter((c) => c.ms > agoraMs)
+      .sort((a, b) => a.ms - b.ms)[0];
+    if (futuro) candidatos.push(futuro);
+  }
+  if (candidatos.length === 0) return null;
+  candidatos.sort((a, b) => a.ms - b.ms);
+  return { data: candidatos[0].data, periodoId: candidatos[0].periodoId };
+}
 
 export interface EscalaIO {
   carregarEstado(agoraMs?: number): Promise<EstadoBruto>; // agoraMs: só o consolidado (períodos já iniciados) entra no histórico de equidade
@@ -57,7 +82,9 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
     if (entrada.pools.length === 0 && estado.diasExistentes.length === 0) {
       return { status: "ignorado", motivoIgnorado: "Previsão sem itens com máquinas selecionadas", tentativas: tentativa, alertas: montada.avisos, alocacoesGravadas: 0 };
     }
-    if (entrada.aPartirDe >= entrada.slots.length && montada.removerDias.length === 0) {
+    const corte = pontoDeCorte(entrada, montada.removerDias, montada.periodosPorDia, opcoes.agoraMs);
+    if (!corte) {
+      // nada recalculável: nenhum slot futuro e nenhum período futuro a remover (semana toda já ocorrida) => NO-OP operacional; o histórico não é tocado
       return { status: "sem_alteracao", tentativas: tentativa, alertas: [], alocacoesGravadas: 0 };
     }
 
@@ -67,10 +94,8 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
     const chaveTroca = (x: { data: string; periodoId: string; funcionarioId: string; maquinaId: string | null }) => `${x.data}|${x.periodoId}|${x.funcionarioId}|${x.maquinaId ?? ""}`;
     const manuaisMantidas = new Set((entrada.trocasManuais ?? []).map(chaveTroca));
     resultado.alocacoes = resultado.alocacoes.map((x) => (manuaisMantidas.has(chaveTroca(x)) ? { ...x, origem: "manual" as const } : x));
-    const slotCorte = entrada.slots[entrada.aPartirDe];
-    // se só há dias a remover e nenhum slot mutável, corta no começo do dia mais próximo removido
-    const aPartirDeData = slotCorte?.data ?? montada.removerDias.slice().sort()[0];
-    const aPartirDePeriodo = slotCorte?.periodoId ?? (montada.periodosPorDia.get(aPartirDeData) ?? [])[0]?.id ?? "m1";
+    const aPartirDeData = corte.data;
+    const aPartirDePeriodo = corte.periodoId;
 
     // seleções da Previsão que o roteiro atual não torna elegíveis: ignoradas pelo motor e SEMPRE registradas no resumo do recálculo (a Previsão não é corrigida em silêncio)
     const invalidas: AlertaEscala[] = montada.avisos

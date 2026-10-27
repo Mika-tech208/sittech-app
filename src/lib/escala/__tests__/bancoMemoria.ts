@@ -6,6 +6,7 @@
 
 import { PERIODOS_REAIS } from "@/features/escala/__tests__/helpers";
 import { validarTroca } from "@/features/escala/rotacao";
+import { epochMsNoFuso } from "@/features/escala/tempo";
 import type { AlocacaoEscala } from "@/features/escala/types";
 import type { EstadoBruto, PayloadAplicacao } from "../estado";
 import { montarEntradaEscala } from "../montarEntrada";
@@ -56,6 +57,7 @@ export class Mundo {
   dias = new Map<string, { versao: number; snapshot: typeof PERIODOS_REAIS }>();
   recalculos = 0;
   snapshotsGravados = 0;
+  relogioMs = 0; // o now() do banco no instante do recálculo (para a guarda do histórico)
 
   constructor(entradas: EstadoBruto) {
     this.entradas = entradas;
@@ -66,7 +68,7 @@ export class Mundo {
     f(this.entradas);
   }
 
-  private io(): EscalaIO {
+  io(): EscalaIO {
     return {
       carregarEstado: async () => ({
         ...this.entradas,
@@ -88,7 +90,13 @@ export class Mundo {
           if (!this.dias.has(d.data)) this.dias.set(d.data, { versao: 0, snapshot: d.periodos_snapshot });
         });
         const corte = ordem(p.aPartirDePeriodo, p.aPartirDeData);
+        // GUARDA DO HISTÓRICO (igual à RPC escala_aplicar_recalculo): o ponto de corte tem que ser um período que AINDA NÃO COMEÇOU
+        const snap = this.dias.get(p.aPartirDeData)?.snapshot;
+        const per = snap?.find((x) => x.id === p.aPartirDePeriodo);
+        if (!per || epochMsNoFuso(p.aPartirDeData, per.inicio) <= this.relogioMs) throw new Error(`ESCALA_CORTE_NO_PASSADO: ${p.aPartirDeData} ${p.aPartirDePeriodo}`);
         this.alocacoes = this.alocacoes.filter((a) => !(a.data > p.aPartirDeData || (a.data === p.aPartirDeData && ordem(a.periodoId, a.data) >= corte)));
+        // dias que deixaram de ser produtivos: o futuro some (a linha do dia também); o passado nunca é tocado
+        p.removerDias.forEach((d) => { if (d > p.aPartirDeData || (d === p.aPartirDeData && corte === 0)) { this.dias.delete(d); this.alocacoes = this.alocacoes.filter((a) => a.data !== d); } });
         p.alocacoes.forEach((a) => this.alocacoes.push({ ...a, origem: (a as AlocacaoComOrigem).origem ?? "auto" }));
         const versoes: Record<string, number> = {};
         p.dias.forEach((d) => {
@@ -104,6 +112,7 @@ export class Mundo {
   // Um recálculo no instante `agoraMs` (a 1ª chamada, com criarSeNaoExiste, gera a semana).
   async recalcular(agoraMs: number, criar = false) {
     this.recalculos++;
+    this.relogioMs = agoraMs;
     return processarSemana(this.io(), { agoraMs, criarSeNaoExiste: criar });
   }
 
