@@ -61,7 +61,7 @@ describe("revalidarDisponibilidadeMaquinas — idempotente, sem mudança = nada"
   it("12:55 sem violações e sem mudança: NO-OP (nenhum evento => nenhuma versão nova)", async () => {
     const { cliente, chamadas } = admin({});
     const r = await revalidarDisponibilidadeMaquinas(cliente, agora("12:55"));
-    expect(chamadas).toEqual(["escala_reconciliar_indisponibilidades", "escala_violacoes_disponibilidade", "escala_divergencias_funcionarios"]); // máquinas + funcionários na mesma janela
+    expect(chamadas).toEqual(["escala_reconciliar_indisponibilidades", "escala_violacoes_disponibilidade", "escala_divergencias_funcionarios", "escala_divergencias_cadastro_maquinas"]); // máquinas + funcionários na mesma janela
     expect(r).toMatchObject({ dentroDaJanela: true, violacoes: 0, eventosRegistrados: 0 });
   });
   it("checagem repetida (três vezes) sem mudança continua sem registrar nada", async () => {

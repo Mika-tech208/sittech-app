@@ -50,7 +50,7 @@ describe("decisão: idempotente, sem laço", () => {
 });
 
 // banco falso: registra as chamadas; devolve o que o teste configurar
-function banco(cfg: { divergencias?: unknown[]; eventos?: unknown[]; falhaDivergencias?: boolean; violacoes?: unknown[] }) {
+function banco(cfg: { cadastro?: unknown[]; divergencias?: unknown[]; eventos?: unknown[]; falhaDivergencias?: boolean; violacoes?: unknown[] }) {
   const chamadas: { nome: string; args?: Record<string, unknown> }[] = [];
   const cadeia = (data: unknown) => { const c: Record<string, unknown> = {}; ["select", "eq", "in", "gte", "order", "limit"].forEach((m) => (c[m] = () => c)); c.then = (ok: (v: unknown) => void) => ok({ data, error: null }); return c; };
   const periodos = ["07:12", "08:48", "10:24", "13:00", "14:20", "15:40"].map((inicio) => ({ inicio: `${inicio}:00` }));
@@ -59,6 +59,7 @@ function banco(cfg: { divergencias?: unknown[]; eventos?: unknown[]; falhaDiverg
       chamadas.push({ nome, args });
       if (nome === "escala_reconciliar_indisponibilidades") return { data: { criadas: 0, atualizadas: 0, removidas: 0 }, error: null };
       if (nome === "escala_violacoes_disponibilidade") return { data: cfg.violacoes ?? [], error: null };
+      if (nome === "escala_divergencias_cadastro_maquinas") return { data: cfg.cadastro ?? [], error: null };
       if (nome === "escala_divergencias_funcionarios") return cfg.falhaDivergencias ? { data: null, error: { message: "falhou" } } : { data: cfg.divergencias ?? [], error: null };
       if (nome === "escala_registrar_evento") return { data: "evt", error: null };
       return { data: null, error: null };
@@ -108,6 +109,6 @@ describe("fluxo da revalidação pré-período (funcionários)", () => {
   it("máquinas e funcionários numa só revalidação: a mesma janela confere os dois", async () => {
     const { cliente, chamadas } = banco({});
     await revalidarDisponibilidade(cliente, agora("14:15"));
-    expect(chamadas.map((c) => c.nome)).toEqual(["escala_reconciliar_indisponibilidades", "escala_violacoes_disponibilidade", "escala_divergencias_funcionarios"]);
+    expect(chamadas.map((c) => c.nome)).toEqual(["escala_reconciliar_indisponibilidades", "escala_violacoes_disponibilidade", "escala_divergencias_funcionarios", "escala_divergencias_cadastro_maquinas"]);
   });
 });
