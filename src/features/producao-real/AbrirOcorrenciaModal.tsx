@@ -18,6 +18,7 @@ import { useProdutosElegiveisPorMaquina } from "@/hooks/useProdutosElegiveisPorM
 import type { OcorrenciaAberta } from "@/hooks/useProducaoRealPainel";
 import { mensagemErroOcorrencia } from "./calculations";
 import { notificarOcorrencia } from "@/lib/push/browserPush";
+import { dispararProcessamentoEscala } from "@/lib/escala/disparar";
 
 interface MaquinaSimples {
   id: string;
@@ -120,6 +121,7 @@ export default function AbrirOcorrenciaModal({ maquinasDisponiveis, funcionarios
     setMaquinaNomeSalva(maquina?.nome || "");
     setEtapa("confirmado");
     notificarOcorrencia(ocorrencia.id);
+    void dispararProcessamentoEscala(); // a Parada já tornou a máquina (in)disponível no banco: recalcula a Escala agora (best-effort; o outbox garante)
     onAberta(maquinaId, {
       id: ocorrencia.id,
       produtoNome: produto?.nome || "",

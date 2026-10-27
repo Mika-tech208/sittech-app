@@ -20,6 +20,16 @@ name: Escala - drenar outbox (fallback)
 on:
   schedule:
     - cron: "*/5 * * * *"
+    # Revalidação da disponibilidade das máquinas 5 min ANTES de cada período (07:07, 08:43, 10:19, 12:55, 14:15, 15:35 em
+    # America/Sao_Paulo = UTC−3, sem horário de verão), seg–sáb. REDUNDÂNCIA: o GitHub atrasa/pula agendamentos — a garantia vem do
+    # evento imediato da Parada, da pré-checagem do navegador (TV/Escala) e do próprio /api/escala/drenar (idempotente). Os horários
+    # reais dos períodos vêm do banco (tabela periodos); estes minutos só aproximam. A rota decide sozinha se está na janela.
+    - cron: "7 10 * * 1-6"
+    - cron: "43 11 * * 1-6"
+    - cron: "19 13 * * 1-6"
+    - cron: "55 15 * * 1-6"
+    - cron: "15 17 * * 1-6"
+    - cron: "35 18 * * 1-6"
 
 concurrency:
   group: escala-drenar

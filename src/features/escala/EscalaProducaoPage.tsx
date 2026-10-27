@@ -11,6 +11,7 @@ import { useAuthSession } from "@/hooks/useAuthSession";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { useMetaSemanalShell } from "@/hooks/useMetaSemanalShell";
 import { useEscalaProducao } from "@/hooks/useEscalaProducao";
+import { usePreChecagemEscala } from "@/hooks/usePreChecagemEscala";
 import LoginScreen from "@/components/shell/LoginScreen";
 import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import Sidebar from "@/components/shell/Sidebar";
@@ -29,6 +30,8 @@ import AlertasEscala from "./components/AlertasEscala";
 import { BloquearModal, TrocaModal, MOTIVOS_INDISPONIBILIDADE } from "./components/ModaisEscala";
 import { ESTILOS_ESCALA } from "./components/estilos";
 import { validarTroca } from "./rotacao";
+import { primeiroPeriodoAfetado } from "./disponibilidade";
+import { epochMsNoFuso } from "./tempo";
 import RelatoriosEscalaModal from "./components/RelatoriosEscalaModal";
 import { buscarLista, finalAutomaticoDisponivel } from "./relatoriosApi";
 
@@ -58,6 +61,7 @@ export default function EscalaProducaoPage() {
   const [finalDisponivel, setFinalDisponivel] = useState<{ versao: number } | null>(null);
   const escala = useEscalaProducao(auth.autenticado && podeOperar, semana);
   const { estado } = escala;
+  usePreChecagemEscala(auth.autenticado && podeOperar ? estado.dias[0]?.periodos : undefined); // revalida a disponibilidade das máquinas 5 min antes de cada período
 
   // Aviso "FINAL DISPONÍVEL": só consulta a lista (somente leitura) da semana exibida; atualiza ao fechar o modal de relatórios
   const consultarFinal = podeRelatorios && !!estado.previsaoId;
@@ -103,6 +107,10 @@ export default function EscalaProducaoPage() {
   }, [estado.alocacoes, estado.nomes.funcionarios]);
   const alocacoesDoDia = useMemo(() => estado.alocacoes.filter((a) => a.data === diaAtual?.data), [estado.alocacoes, diaAtual]);
 
+  const periodosCronologicos = useMemo(
+    () => estado.dias.flatMap((d) => d.periodos.map((p) => ({ data: d.data, periodoId: p.id, nome: p.nome, inicioMs: epochMsNoFuso(d.data, p.inicio), fimMs: epochMsNoFuso(d.data, p.fim) }))).sort((a, b) => a.inicioMs - b.inicioMs),
+    [estado.dias]
+  );
   const maquinasPainel = useMemo(() => {
     const ids = new Set([...estado.postosDaPrevisao, ...estado.indisponibilidades.map((i) => i.maquinaId)]);
     return [...ids].sort((a, b) => (estado.nomes.maquinas.get(a) || "").localeCompare(estado.nomes.maquinas.get(b) || "", "pt-BR", { numeric: true }));
@@ -300,21 +308,34 @@ export default function EscalaProducaoPage() {
           {estado.previsaoId && (
             <div className="stx-esc-painel">
               <h2>Recursos (postos da Previsão)</h2>
-              <p className="stx-esc-muted">Indisponível = não recebe funcionário nos períodos futuros, até alguém liberar.</p>
+              <p className="stx-esc-muted">Indisponível = não recebe funcionário nos períodos futuros. Parada de máquina (Produção Real) bloqueia sozinha e libera ao ser encerrada; o bloqueio manual só sai com «Liberar».</p>
               <div className="stx-esc-lista">
                 {maquinasPainel.length === 0 && <p className="stx-esc-muted">Nenhuma máquina selecionada na Previsão desta semana.</p>}
                 {maquinasPainel.map((mid) => {
-                  const ind = estado.indisponibilidades.find((i) => i.maquinaId === mid);
+                  // várias causas simultâneas: a máquina só fica disponível quando NENHUMA estiver ativa
+                  const causas = estado.indisponibilidades.filter((i) => i.maquinaId === mid);
+                  const manual = causas.find((i) => i.origemTipo === "manual");
                   return (
                     <div className="stx-esc-linha" key={mid}>
                       <span>
                         <b>{estado.nomes.maquinas.get(mid) || "Máquina"}</b>{" "}
-                        {ind ? (
-                          <span className="stx-esc-muted">indisponível desde {formatarDataHoraBR(ind.desde)} — {MOTIVOS_INDISPONIBILIDADE.find((m) => m.valor === ind.motivo)?.rotulo || ind.motivo}{ind.observacao ? ` (${ind.observacao})` : ""}</span>
+                        {causas.length > 0 ? (
+                          <span className="stx-esc-muted">
+                            INDISPONÍVEL —{" "}
+                            {causas.map((c, k) => (
+                              <span key={c.id}>
+                                {k > 0 ? " · " : ""}
+                                {c.origemTipo === "ocorrencia_maquina" ? "Parada" : "Bloqueio manual"}: {MOTIVOS_INDISPONIBILIDADE.find((m) => m.valor === c.motivo)?.rotulo || c.motivo} desde {formatarDataHoraBR(c.desde)}
+                                {c.origemTipo === "manual" && c.observacao ? ` (${c.observacao})` : ""}
+                                {(() => { const a = primeiroPeriodoAfetado(Date.parse(c.desde), periodosCronologicos); return a ? ` — afeta a partir de ${a.nome} ${a.data.slice(8)}/${a.data.slice(5, 7)}${a.emAndamentoNoInicio ? " (já em andamento: não é reescrito)" : ""}` : ""; })()}
+                              </span>
+                            ))}
+                            {causas.some((c) => c.origemTipo === "ocorrencia_maquina") ? " — a Parada é encerrada em Produção Real (a máquina volta sozinha)" : ""}
+                          </span>
                         ) : <span className="stx-esc-muted">disponível</span>}
                       </span>
-                      {ind ? (
-                        <button type="button" className="stx-esc-btn" disabled={escala.acaoEmAndamento} onClick={() => onLiberar(ind.id)}>Liberar</button>
+                      {manual ? (
+                        <button type="button" className="stx-esc-btn" disabled={escala.acaoEmAndamento} onClick={() => onLiberar(manual.id)}>Liberar bloqueio manual</button>
                       ) : (
                         <button type="button" className="stx-esc-btn" disabled={escala.acaoEmAndamento} onClick={() => { setErroModal(null); setBloqueando(mid); }}>Tornar indisponível</button>
                       )}

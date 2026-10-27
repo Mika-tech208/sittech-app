@@ -5,16 +5,19 @@
 //
 // Protegido por segredo server-side (CRON_SECRET, nunca exposto ao client):
 // o Vercel Cron envia `Authorization: Bearer $CRON_SECRET` automaticamente;
-// qualquer outro agendador externo pode usar o mesmo cabeçalho. Sem o
-// segredo configurado a rota se recusa a executar (fail closed).
+// qualquer outro agendador externo pode usar o mesmo cabeçalho. O agendador do
+// banco (pg_cron + pg_net) usa um token próprio, gerado no Vault e validado pela
+// RPC escala_agendador_token_valido. Sem nenhuma credencial configurada a rota
+// se recusa a executar (fail closed).
 //
 // Não recebe parâmetros e não aceita dados de negócio: só drena a fila e
 // recalcula a partir do estado real do banco. Idempotente.
 
 import { NextResponse } from "next/server";
-import { timingSafeEqual } from "node:crypto";
 import { criarClienteAdmin } from "@/lib/supabase-admin";
+import { autorizarWorker } from "@/lib/escala/autorizacaoWorker";
 import { drenarOutbox } from "@/lib/escala/supabaseIO";
+import { revalidarDisponibilidadeMaquinas } from "@/lib/escala/revalidarDisponibilidade";
 import { processarSombraDoServidor } from "@/lib/escala/sombraSupabase";
 import { executarFechamentoAutomatico, portaSupabase } from "@/lib/escala-relatorio/fechamentoAutomatico";
 
@@ -22,17 +25,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-function segredoValido(request: Request): boolean | null {
-  const segredo = process.env.CRON_SECRET;
-  if (!segredo || segredo.length < 16) return null; // não configurado: recusa tudo
-  const cabecalho = request.headers.get("authorization") ?? "";
-  const esperado = Buffer.from(`Bearer ${segredo}`);
-  const recebido = Buffer.from(cabecalho);
-  return recebido.length === esperado.length && timingSafeEqual(recebido, esperado);
-}
-
 async function drenar(request: Request) {
-  const ok = segredoValido(request);
+  const ok = await autorizarWorker(request.headers.get("authorization") ?? "", process.env.CRON_SECRET, async (token) => {
+    const { data, error } = await criarClienteAdmin().rpc("escala_agendador_token_valido", { p_token: token });
+    return !error && data === true;
+  });
   if (ok === null) return NextResponse.json({ erro: "Worker não configurado." }, { status: 503 });
   if (!ok) return NextResponse.json({ erro: "Não autorizado." }, { status: 401 });
 
@@ -48,6 +45,9 @@ async function drenar(request: Request) {
     } catch (e) {
       console.error("escala/drenar: fechamento de atrasos em aberto falhou:", e instanceof Error ? e.message : e);
     }
+    // Disponibilidade das máquinas (Parada/bloqueio): reconcilia e, na janela de cada período, confere a invariante ANTES de drenar — o evento
+    // que isto registrar é processado nesta mesma execução. Idempotente e sem mudança = nada; nunca lança.
+    const disponibilidade = await revalidarDisponibilidadeMaquinas(admin, Date.now());
     const resumo = await drenarOutbox(admin, Date.now());
     if (resumo.esgotados > 0) console.error(`escala/drenar: ${resumo.esgotados} evento(s) esgotaram as tentativas`);
     const sombra = await processarSombraDoServidor(admin, Date.now()); // fechamento de períodos (modo sombra); nunca lança
@@ -60,7 +60,7 @@ async function drenar(request: Request) {
     } catch (e) {
       console.error("escala/drenar: fechamento automático do relatório semanal falhou:", e instanceof Error ? e.message : e);
     }
-    return NextResponse.json({ ok: true, ...resumo, atrasosFechados, sombra, relatorios });
+    return NextResponse.json({ ok: true, ...resumo, atrasosFechados, disponibilidade, sombra, relatorios });
   } catch (e) {
     console.error("escala/drenar:", e instanceof Error ? e.message : e);
     return NextResponse.json({ erro: "Falha ao drenar a fila da Escala." }, { status: 500 });
