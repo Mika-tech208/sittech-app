@@ -123,6 +123,8 @@ export interface EstadoBruto {
   // Só carregado com wip_modo = "ativo". `hoje` é derivado do relógio da execução. Ausente/vazio = nenhum saldo (comportamento anterior).
   wipControle?: Omit<EntradaWip, "hoje">;
   rotas?: RotasDoEstado;
+  // Assinatura dos alertas do ÚLTIMO recálculo gravado desta semana (resumo.assinaturaAlertas). Ausente/null = não conhecida => nunca é no-op (comportamento anterior).
+  ultimaAssinaturaAlertas?: string | null;
 }
 
 export interface DiaParaAplicar {

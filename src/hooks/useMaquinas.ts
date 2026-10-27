@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
+import { dispararProcessamentoEscala } from "@/lib/escala/disparar";
 import type { Maquina } from "@/types/domain";
 
 interface MaquinaPayload {
@@ -101,7 +102,12 @@ export function useMaquinas(pronto: boolean) {
     const novoAtivo = !atual.ativo;
     setMaquinas((prev) => prev.map((m) => (m.id === id ? { ...m, ativo: novoAtivo } : m)));
     const { error } = await supabase.from("maquinas").update({ ativo: novoAtivo }).eq("id", id);
-    if (error) setErro("Não foi possível atualizar a máquina.");
+    if (error) {
+      setMaquinas((prev) => prev.map((m) => (m.id === id ? { ...m, ativo: atual.ativo } : m))); // não deixa a tela mentir: desfaz o otimismo
+      setErro("Não foi possível atualizar a máquina.");
+      return;
+    }
+    void dispararProcessamentoEscala(); // Escala: a máquina (des)ativada já gerou o evento no banco; recalcula os períodos futuros agora (best-effort)
   }, [maquinas]);
 
   // Exclusão respeita a FK RESTRICT do banco (roteiro de produto e

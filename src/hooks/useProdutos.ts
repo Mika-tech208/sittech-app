@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
+import { dispararProcessamentoEscala } from "@/lib/escala/disparar";
 import type { Produto, RoteiroEtapa, Prioridade } from "@/types/domain";
 import { estruturaDoBanco } from "@/features/rotas/estrutura";
 import { garantirAtivacaoRotas } from "@/lib/rotas/ativacao";
@@ -234,6 +235,7 @@ export function useProdutos(pronto: boolean) {
       );
       return false;
     }
+    void dispararProcessamentoEscala(); // Escala: roteiro/máquinas da etapa podem ter mudado (o banco já registrou o evento, se relevante); recalcula agora (best-effort)
 
     // Salvou de verdade — busca o produto de novo só pra pegar os ids
     // reais das etapas que eram novas (a function não devolve isso).
