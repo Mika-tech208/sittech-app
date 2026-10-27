@@ -16,8 +16,8 @@ begin
   if (select valor from escala_parametros where chave = 'producao_real_semanas_ativas') <> '[]'::jsonb then raise exception 'F1 falhou: semanas deve nascer vazio'; end if;
   if (select valor from escala_parametros where chave = 'producao_real_limiar_estabilidade') <> 'null'::jsonb then raise exception 'F1 falhou: limiar deve nascer null'; end if;
   if (select jsonb_array_length(valor) from escala_parametros where chave = 'producao_real_pares_legado') <> 1
-     or (select valor -> 0 ->> 'convencional' from escala_parametros where chave = 'producao_real_pares_legado') <> '27c229d7-f192-41eb-aad1-0c69ece53eba'
-     or (select valor -> 0 ->> 'automatica' from escala_parametros where chave = 'producao_real_pares_legado') <> 'a027ac97-ffd1-4834-8ed0-d3a94aac4aee'
+     or (select valor -> 0 ->> 'produtoConvencionalId' from escala_parametros where chave = 'producao_real_pares_legado') <> '27c229d7-f192-41eb-aad1-0c69ece53eba'
+     or (select valor -> 0 ->> 'produtoAutomaticaId' from escala_parametros where chave = 'producao_real_pares_legado') <> 'a027ac97-ffd1-4834-8ed0-d3a94aac4aee'
      or (select jsonb_array_length(valor -> 0 -> 'etapasComuns') from escala_parametros where chave = 'producao_real_pares_legado') <> 2 then
     raise exception 'F1 falhou: pares legado mal semeados';
   end if;
@@ -187,6 +187,32 @@ begin
   reset role;
   if not v_ok then raise exception 'F11 falhou: authenticated não pode chamar a RPC'; end if;
   insert into t_res(res) values ('ok F11 como service_role a RPC grava; como authenticated é negada (permission denied)');
+  -- F12) evento de FECHAMENTO (apontamento_periodo) também nasce só com o fluxo ligado; tudo desligado = inerte
+  declare
+    v_user uuid; F1 uuid; M1 uuid; P1 uuid; E1 uuid; O1 uuid; v_ini time; v_fim time; v_prev2 uuid;
+  begin
+    select id into v_user from usuarios where papel = 'admin' and ativo order by id limit 1;
+    select id into F1 from funcionarios where ativo order by id limit 1;
+    select id into M1 from maquinas where ativo order by id limit 1;
+    select produto_id, id, operacao_id into P1, E1, O1 from roteiro_etapas order by id limit 1;
+    select inicio, fim into v_ini, v_fim from periodos where id = 'm1';
+    if v_user is not null and F1 is not null and M1 is not null and E1 is not null then
+      insert into previsoes (semana_inicio) values ('2031-03-03') returning id into v_prev2;
+      insert into escala_producao_dias (data, previsao_id, periodos_snapshot, versao) values ('2031-03-04', v_prev2, v_snap, 0);
+      update escala_parametros set valor = '"desligado"' where chave in ('producao_real_modo', 'replanejamento_modo');
+      insert into apontamentos_producao (produto_id, etapa_id, operacao_id, maquina_id, funcionario_id, periodo_id, data, hora_lancamento, quantidade_produzida, periodo_inicio_vigente, periodo_fim_vigente, meta_periodo_vigente, custo_hora_operacao_vigente, criado_por)
+        values (P1, E1, O1, M1, F1, 'm1', '2031-03-04', '08:00', 10, v_ini, v_fim, 100, 1, v_user);
+      select count(*) into v_n from escala_producao_eventos where tipo = 'apontamento_periodo' and previsao_id = v_prev2;
+      if v_n <> 0 then raise exception 'F12 falhou: tudo desligado não deveria registrar evento (%)', v_n; end if;
+      update escala_parametros set valor = '"sombra"' where chave = 'producao_real_modo';
+      update apontamentos_producao set quantidade_produzida = 11 where data = '2031-03-04' and periodo_id = 'm1';
+      select count(*) into v_n from escala_producao_eventos where tipo = 'apontamento_periodo' and previsao_id = v_prev2;
+      if v_n <> 1 then raise exception 'F12 falhou: com o fluxo em sombra o fechamento deveria gerar 1 evento (%)', v_n; end if;
+      insert into t_res(res) values ('ok F12 evento de fechamento: inerte com replanejamento e fluxo desligados; nasce com o fluxo ligado');
+    else
+      insert into t_res(res) values ('ok F12 (pulado: banco sem massa para apontamento)');
+    end if;
+  end;
 end $$;
 select res from t_res order by n;
 rollback;

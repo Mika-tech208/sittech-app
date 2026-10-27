@@ -22,6 +22,9 @@ import type { AlocacaoEscala, EntradaEscala } from "@/features/escala/types";
 import { ausenciaNoCorte } from "./ausenciaAberta";
 import { ativoNoCorte } from "./situacaoFuncionario";
 import { ConflitoDeVersaoError, type AusenciaBruta, type EstadoBruto } from "./estado";
+import type { ConfigFluxo } from "./fluxo/parametrosFluxo";
+import { semanasComFluxoAtivo } from "./fluxo/parametrosFluxo";
+import type { ResultadoFechamentoFluxo } from "./fluxo/fechamento";
 import { montarEntradaEscala } from "./montarEntrada";
 import { estadoComVersao, type VersaoPlanoOficial } from "./planoVersionado";
 
@@ -87,6 +90,10 @@ export interface SombraIO {
   aplicarRestrito?(a: AplicacaoRestrita): Promise<{ id: string; hashAntes: string; hashDepois: string; versoesAntes: Record<string, number>; versoesDepois: Record<string, number> }>; // lança ConflitoDeVersaoError
   registrarAvaliacao?(r: RegistroAvaliacao): Promise<void>; // append-only: sem_mudanca / recusado / conflito / invalida / erro
   reavaliacoesPendentes?(semanas: string[]): Promise<{ previsaoId: string; data: string; periodoId: string }[]>; // Escala mudou depois da última avaliação (evento: ausência, Previsão...)
+  // ---- Escala Inteligente (fluxo) ----
+  lerConfigFluxo?(): Promise<ConfigFluxo>; // producao_real_* (modo, semanas autorizadas, ...)
+  // período FECHADO (decisão gravada agora): ativo => recálculo oficial da semana pelo fluxo; sombra => diagnóstico. Nunca lança.
+  aoFechamento?(a: { estado: EstadoBruto; ev: EventoSombra; agoraMs: number; corteMs: number }): Promise<ResultadoFechamentoFluxo | null>;
 }
 
 export interface ResumoSombra {
@@ -105,9 +112,12 @@ export interface ResumoSombra {
   ignoradas: number;
   concorrencia: number;
   erros: number;
+  // Escala Inteligente (fluxo) — presentes só quando o fluxo está ligado (sombra/ativo em alguma semana autorizada)
+  fluxo?: { semanasAtivas: string[]; fechamentos: number; erros: number };
+  interlockFluxo?: string[]; // semanas em que o fluxo é ATIVO: o replanejamento restrito NÃO aplica nelas
 }
 
-const paraReal = (a: ApontamentoBanco): ApontamentoReal => ({
+export const paraReal = (a: ApontamentoBanco): ApontamentoReal => ({
   data: a.data, periodoId: a.periodoId, funcionarioId: a.funcionarioId, maquinaId: a.maquinaId, produtoId: a.produtoId, etapaId: a.etapaId, operacaoId: a.operacaoId,
   boas: a.quantidadeProduzida - a.quantidadeRefugo, refugo: a.quantidadeRefugo, meta: a.meta, status: a.status === "produzindo" ? "produzindo" : "sem_producao", motivo: a.motivo, lancadoEmMs: a.criadoEmMs,
 });
@@ -304,8 +314,18 @@ export async function processarSombra(io: SombraIO, agoraMs: number): Promise<Re
   const modo = await io.lerModo();
   const efetivo = modoEfetivoReplanejamento(modo);
   const resumo: ResumoSombra = { modo, modoEfetivo: efetivo, avisoAtivoNaoImplementado: modo === "ativo", aplicadas: 0, semMudanca: 0, recusadas: 0, conflitos: 0, reavaliacoes: 0, eventos: 0, aguardando: 0, processadas: 0, duplicadas: 0, ignoradas: 0, concorrencia: 0, erros: 0 };
-  if (resumo.modoEfetivo === "desligado") return resumo;
-  const semanasAtivas = efetivo === "ativo_restrito" && io.lerSemanasAtivas ? await io.lerSemanasAtivas() : [];
+  // Escala Inteligente (fluxo): configuração lida UMA vez. Sem fluxo ligado (cfg ausente/desligado) este bloco é inerte e o comportamento é exatamente o anterior.
+  const cfgFluxo = io.lerConfigFluxo ? await io.lerConfigFluxo() : null;
+  const fluxoLigado = cfgFluxo !== null && cfgFluxo.modo !== "desligado" && cfgFluxo.semanasAtivas.length > 0;
+  if (resumo.modoEfetivo === "desligado" && !fluxoLigado) return resumo;
+  const restrito = efetivo !== "desligado"; // com o replanejamento desligado e só o fluxo ligado, o período fechado é detectado, mas não se calcula proposta restrita
+  // INTERLOCK: nas semanas em que o fluxo é ATIVO o replanejamento restrito NÃO aplica (o fluxo é o dono do recálculo); o parâmetro do restrito não é alterado.
+  const semanasFluxoAtivo = cfgFluxo ? semanasComFluxoAtivo(cfgFluxo) : [];
+  const semanasAtivas = (efetivo === "ativo_restrito" && io.lerSemanasAtivas ? await io.lerSemanasAtivas() : []).filter((s) => !semanasFluxoAtivo.includes(s));
+  if (fluxoLigado) {
+    resumo.fluxo = { semanasAtivas: cfgFluxo.semanasAtivas, fechamentos: 0, erros: 0 };
+    if (efetivo === "ativo_restrito" && semanasFluxoAtivo.length > 0) resumo.interlockFluxo = semanasFluxoAtivo;
+  }
   const contabilizar = (r: ResultadoAvaliacao) => {
     if (r === "aplicado") resumo.aplicadas++;
     else if (r === "sem_mudanca") resumo.semMudanca++;
@@ -322,7 +342,7 @@ export async function processarSombra(io: SombraIO, agoraMs: number): Promise<Re
     try {
       if (!cache.has(ev.previsaoId)) cache.set(ev.previsaoId, await io.carregar(ev.previsaoId));
       const ctx = cache.get(ev.previsaoId)!;
-      const r = await prepararDecisao(ctx.estado, ctx.apontamentos, ev, agoraMs, (ms) => io.versaoDoPlano(ev.previsaoId, ms), { restrito: efetivo !== "desligado" });
+      const r = await prepararDecisao(ctx.estado, ctx.apontamentos, ev, agoraMs, (ms) => io.versaoDoPlano(ev.previsaoId, ms), { restrito });
       if (!r.pronto) {
         if (r.motivoIgnorado) {
           if (await io.reivindicar(ev.id)) { await io.concluir(ev.id, "ignorado", r.motivoIgnorado); resumo.ignoradas++; } else resumo.concorrencia++;
@@ -336,6 +356,14 @@ export async function processarSombra(io: SombraIO, agoraMs: number): Promise<Re
         // (C)+(D) só com o modo restrito E semana autorizada E algo a mudar
         if (g.inserida && efetivo === "ativo_restrito" && semanasAtivas.includes(r.snapshot.identificacao.semanaInicio) && r.proposta && r.proposta.veredito !== "sem_mudanca") {
           contabilizar(await avaliarEAplicar(io, ev, ctx, carregar, agoraMs, "fechamento"));
+        }
+        // Escala Inteligente (fluxo): período fechado => ativo recalcula pelo fluxo; sombra grava o diagnóstico. Só na 1ª vez do evento; nunca lança nem muda o status do evento.
+        if (g.inserida && fluxoLigado && io.aoFechamento) {
+          const f = await io.aoFechamento({ estado: ctx.estado, ev, agoraMs, corteMs: r.corteMs });
+          if (f && resumo.fluxo) {
+            resumo.fluxo.fechamentos++;
+            if (f.resultado === "erro") resumo.fluxo.erros++;
+          }
         }
         await io.concluir(ev.id, "processado", g.inserida ? null : "decisão já existia");
         if (g.inserida) resumo.processadas++; else resumo.duplicadas++;

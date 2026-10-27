@@ -7,6 +7,10 @@ import { ConflitoDeVersaoError } from "./estado";
 import type { SnapshotSombra } from "@/features/escala/snapshotSombra";
 import { versaoDeLinhaBanco } from "./planoVersionado";
 import { criarEscalaIO } from "./supabaseIO";
+import { carregarApontamentosBanco, registrarDiagnosticoFluxo } from "./fluxo/supabaseFluxo";
+import { CHAVE_PR_LIMIAR, CHAVE_PR_MODO, CHAVE_PR_PARES, CHAVE_PR_SEMANAS, lerConfigFluxo } from "./fluxo/parametrosFluxo";
+import { fluxoNoFechamento } from "./fluxo/fechamento";
+import { processarSemana } from "./processar";
 import { processarSombra, type AplicacaoRestrita, type ApontamentoBanco, type DecisaoParaGravar, type EventoSombra, type RegistroAvaliacao, type ResumoSombra, type SombraIO } from "./sombraServico";
 
 const ms = (v: string | null | undefined) => (v ? Date.parse(v) : null);
@@ -59,6 +63,17 @@ export function criarSombraIO(admin: SupabaseClient): SombraIO {
       if (error) throw new Error(`escala_parametros: ${error.message}`);
       return lerParametros(data as { chave: string; valor: unknown }[]).replanejamentoSemanasAtivas;
     },
+    async lerConfigFluxo() {
+      const { data, error } = await admin.from("escala_parametros").select("chave, valor").in("chave", [CHAVE_PR_MODO, CHAVE_PR_SEMANAS, CHAVE_PR_LIMIAR, CHAVE_PR_PARES]);
+      if (error) throw new Error(`escala_parametros: ${error.message}`);
+      return lerConfigFluxo(data as { chave: string; valor: unknown }[]);
+    },
+    async aoFechamento(a) {
+      return fluxoNoFechamento(
+        { recalcular: (opcoes) => processarSemana(criarEscalaIO(admin, a.estado.previsaoId), opcoes), registrar: async (registro) => { await registrarDiagnosticoFluxo(admin, registro); } },
+        { estado: a.estado, ev: { data: a.ev.data, periodoId: a.ev.periodoId }, agoraMs: a.agoraMs }
+      );
+    },
     async proximaRevisao(previsaoId, data, periodoId) {
       const { data: rows, error } = await admin.from("escala_sombra_decisoes").select("revisao").eq("previsao_id", previsaoId).eq("data", data).eq("periodo_id", periodoId).order("revisao", { ascending: false }).limit(1);
       if (error) throw new Error(`escala_sombra_decisoes: ${error.message}`);
@@ -110,14 +125,7 @@ export function criarSombraIO(admin: SupabaseClient): SombraIO {
     },
     async carregar(previsaoId: string) {
       const estado = await criarEscalaIO(admin, previsaoId).carregarEstado(Date.now());
-      const { data, error } = await admin.rpc("escala_sombra_apontamentos", { p_semana_inicio: estado.semanaInicio });
-      if (error) throw new Error(`escala_sombra_apontamentos: ${error.message}`);
-      const apontamentos = ((data ?? []) as Record<string, unknown>[]).map((r): ApontamentoBanco => ({
-        data: String(r.data), periodoId: String(r.periodo_id), funcionarioId: (r.funcionario_id as string | null) ?? null, maquinaId: (r.maquina_id as string | null) ?? null,
-        produtoId: (r.produto_id as string | null) ?? null, etapaId: (r.etapa_id as string | null) ?? null, operacaoId: (r.operacao_id as string | null) ?? null,
-        quantidadeProduzida: Number(r.quantidade_produzida ?? 0), quantidadeRefugo: Number(r.quantidade_refugo ?? 0), meta: Number(r.meta ?? 0), status: String(r.status),
-        motivo: (r.motivo as string | null) ?? null, criadoEmMs: ms(r.criado_em as string) as number, atualizadoEmMs: ms(r.atualizado_em as string | null),
-      }));
+      const apontamentos = await carregarApontamentosBanco(admin, estado.semanaInicio);
       return { estado, apontamentos };
     },
     async versaoDoPlano(previsaoId: string, emMs: number) {

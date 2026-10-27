@@ -5,6 +5,8 @@ import type { ParametrosEscala } from "@/features/escala/parametros";
 import type { AlertaEscala, AlocacaoEscala, HistoricoEquidadeFuncionario, PeriodoEscala } from "@/features/escala/types";
 import type { ProximaSemana } from "@/features/escala/wip";
 import type { EntradaWip } from "@/features/escala/wipSaldo";
+import type { ParLegado } from "@/features/escala/fluxo/tipos";
+import type { ApontamentoReal } from "@/features/escala/producaoReal";
 
 export interface AvisoMontagem {
   tipo: "etapa_sem_maquina" | "sem_pools" | "sem_funcionarios_produtivos" | "selecao_maquina_invalida";
@@ -106,6 +108,16 @@ export interface EstadoBruto {
   wipControle?: Omit<EntradaWip, "hoje">;
   // Assinatura dos alertas do ÚLTIMO recálculo gravado desta semana (resumo.assinaturaAlertas). Ausente/null = não conhecida => nunca é no-op (comportamento anterior).
   ultimaAssinaturaAlertas?: string | null;
+  // ESCALA INTELIGENTE (fluxo): presente SOMENTE quando o modo EFETIVO da semana é sombra/ativo (producao_real_modo + producao_real_semanas_ativas).
+  // Ausente = desligado: o caminho atual roda sem nenhuma diferença (nem o núcleo do fluxo é chamado).
+  producaoReal?: EstadoProducaoReal;
+}
+
+export interface EstadoProducaoReal {
+  modoEfetivo: "sombra" | "ativo";
+  limiar: number | null; // producao_real_limiar_estabilidade (θ em peças finais); null = derivado pelo núcleo
+  paresLegado: ParLegado[]; // producao_real_pares_legado
+  apontamentos: ApontamentoReal[]; // TODAS as linhas de apontamento da semana (produzindo e sem_producao, com motivo e carimbo)
 }
 
 export interface DiaParaAplicar {
@@ -142,6 +154,8 @@ export interface ResultadoProcessamento {
   alertas: (AlertaEscala | AvisoMontagem)[];
   aviso?: string;
   alocacoesGravadas: number;
+  // Só com o fluxo em modo efetivo ativo/sombra: o que o fluxo fez neste recálculo (ausente com `desligado`).
+  fluxo?: { modo: "sombra" | "ativo"; resultado: "ok" | "fallback" | "erro"; usado: boolean };
 }
 
 export class ConflitoDeVersaoError extends Error {

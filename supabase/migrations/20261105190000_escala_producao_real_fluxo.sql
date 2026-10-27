@@ -68,13 +68,13 @@ insert into public.escala_parametros (chave, valor, grupo, descricao) values
   ('producao_real_semanas_ativas', '[]'::jsonb, 'operacional', 'Semanas (segunda-feira ISO, a partir de 2026-10-26) em que producao_real_modo = sombra/ativo VALE. Fora delas o modo efetivo é desligado'),
   ('producao_real_limiar_estabilidade', 'null'::jsonb, 'tecnico', 'θ da estabilidade (churn): ganho mínimo, em peças finais, para trocar uma alocação do período seguinte. null = derivado pelo código'),
   ('producao_real_pares_legado', jsonb_build_array(jsonb_build_object(
-      'nome', 'Conector 3/4"',
-      'convencional', '27c229d7-f192-41eb-aad1-0c69ece53eba',
-      'automatica', 'a027ac97-ffd1-4834-8ed0-d3a94aac4aee',
+      'id', 'conector-3-4',
+      'produtoConvencionalId', '27c229d7-f192-41eb-aad1-0c69ece53eba',
+      'produtoAutomaticaId', 'a027ac97-ffd1-4834-8ed0-d3a94aac4aee',
       'etapasComuns', jsonb_build_array(
-        jsonb_build_object('rotulo', 'Etiquetar', 'convencional', '34371af3-2608-42cc-9ded-1f7815a635a8', 'automatica', '1863b452-77f3-4d5c-9c49-a6d28ae77131'),
-        jsonb_build_object('rotulo', 'Embalar', 'convencional', 'b3db9629-c3f8-46d8-b4dd-64c9a61a5bc4', 'automatica', 'fb96d08d-bd64-43d3-8694-40230c695c39')))),
-    'tecnico', 'Adaptador do Conector legado: pares convencional × automática e suas etapas comuns (Etiquetar/Embalar) fundidas SÓ para o cálculo de fluxo. Produto fora do par fica em comportamento legado (explícito no diagnóstico)')
+        jsonb_build_object('rotulo', 'Etiquetar', 'etapaConvencionalId', '34371af3-2608-42cc-9ded-1f7815a635a8', 'etapaAutomaticaId', '1863b452-77f3-4d5c-9c49-a6d28ae77131'),
+        jsonb_build_object('rotulo', 'Embalar', 'etapaConvencionalId', 'b3db9629-c3f8-46d8-b4dd-64c9a61a5bc4', 'etapaAutomaticaId', 'fb96d08d-bd64-43d3-8694-40230c695c39')))),
+    'tecnico', 'Adaptador do Conector legado (ParLegado[]): produto convencional x automática e suas etapas comuns (Etiquetar/Embalar) fundidas SÓ para o cálculo de fluxo. Produto fora do par fica em comportamento legado (explícito no diagnóstico)')
 on conflict (chave) do nothing;
 alter table public.escala_parametros enable trigger trg_escala_plano_versao;
 alter table public.escala_parametros enable trigger trg_escala_parametros_evento;
@@ -233,6 +233,47 @@ as $$
 $$;
 revoke all on function public.escala_plano_entrada(uuid) from public, anon, authenticated;
 grant execute on function public.escala_plano_entrada(uuid) to service_role;
+
+-- (d) evento lógico de FECHAMENTO de período (apontamento_periodo): também nasce quando só o fluxo está ligado (o fechamento é a base do gatilho do fluxo).
+--     Com replanejamento_modo E producao_real_modo desligados continua inerte (comportamento atual).
+create or replace function public.escala_trg_apontamento()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_data date;
+  v_periodo text;
+  v_prev uuid;
+begin
+  begin
+    if tg_op = 'DELETE' then v_data := old.data; v_periodo := old.periodo_id;
+    else v_data := new.data; v_periodo := new.periodo_id; end if;
+    if public.escala_replanejamento_modo() = 'desligado' and public.escala_producao_real_modo() = 'desligado' then
+      return null;
+    end if;
+    select id into v_prev from public.previsoes where semana_inicio = date_trunc('week', v_data)::date;
+    if v_prev is null or not public.escala_semana_tem_escala(v_prev) then
+      return null;
+    end if;
+    if not exists (select 1 from public.escala_producao_dias where data = v_data and previsao_id = v_prev) then
+      return null;
+    end if;
+    insert into public.escala_producao_eventos as e (tipo, previsao_id, payload, chave, ultimo_lancamento_em, lancamentos)
+    values ('apontamento_periodo', v_prev, jsonb_build_object('data', v_data, 'periodo_id', v_periodo), v_prev::text || '|' || v_data::text || '|' || v_periodo, now(), 1)
+    on conflict (chave) where chave is not null do update
+      set lancamentos = e.lancamentos + case when e.status = 'processado' then 0 else 1 end,
+          lancamentos_tardios = e.lancamentos_tardios + case when e.status = 'processado' then 1 else 0 end,
+          ultimo_lancamento_em = now();
+  exception when others then
+    -- registrar o apontamento NUNCA pode falhar por causa do modo sombra/fluxo
+    raise warning 'escala_trg_apontamento: %', sqlerrm;
+  end;
+  return null;
+end;
+$$;
+revoke all on function public.escala_trg_apontamento() from public, anon, authenticated;
 
 -- =========================================================================
 -- 5) Diagnósticos APPEND-ONLY
