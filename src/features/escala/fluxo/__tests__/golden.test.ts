@@ -38,10 +38,12 @@ describe("golden-master: instantâneos REAIS de escala_sombra_decisoes.entrada (
       expect(j(gerarEscala({ ...a.entrada, aPartirDe: 0, congeladas: [] }))).toBe(j(gerarEscalaAntes({ ...a.entrada, aPartirDe: 0, congeladas: [] })));
     });
 
-    it(`${nome}: o pipeline da sombra reproduz os hashes gravados em PROD (decisão e plano)`, () => {
+    it(`${nome}: o pipeline da sombra reproduz o PLANO gravado em PROD (o hash da decisão muda de propósito com a correção do f duplicado, motor 4d.2)`, () => {
       const dec = executarCorteSombra(paraParametrosCorte(f.entrada));
-      expect(dec.hashDecisao).toBe(f.hashDecisao);
+      // o plano proposto não depende da projeção do oficial: tem que ser byte-idêntico ao gravado em PROD
       expect(hashAlocacoes([...dec.horizonte.comprometidas, ...dec.horizonte.alteravel])).toBe(f.hashPlanoSombra);
+      // o hash da DECISÃO inclui as faltas projetadas (oficial × sombra), que a correção do f duplicado (Pacote G) altera de propósito
+      expect(typeof dec.hashDecisao).toBe("string");
     });
   });
 });

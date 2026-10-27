@@ -19,7 +19,7 @@ const GERA = epochMsNoFuso(SEMANA, "05:00");
 const AGORA = epochMsNoFuso("2026-11-03", "09:30"); // terça, M2 em andamento
 const sig = (m: Mundo) => Mundo.assinatura(m.alocacoes, true);
 
-const aval = (): AvaliacaoPlano => ({ versao: 1, produtos: [], totais: { faltaFinalLo: 10, faltaFinalHi: 5, finalEntregueLo: 0, finalEntregueHi: 0, faltaPonderada: 0, wipFinalLo: 0, wipFinalHi: 0, wipLegadoResidual: 0, excessoWip: 0, capacidadeGargalo: 0 }, trajetoria: [], postos: [], marginais: {}, diagnosticos: [] });
+const aval = (): AvaliacaoPlano => ({ versao: 1, produtos: [], totais: { faltaFinalLo: 10, faltaFinalHi: 5, finalEntregueLo: 0, finalEntregueHi: 0, faltaPonderada: 0, wipFinalLo: 0, wipFinalHi: 0, wipLegadoResidual: 0, excessoWip: 0, capacidadeGargalo: 0, capacidadeDesperdicada: 0, excessoFinal: 0 }, trajetoria: [], postos: [], marginais: {}, diagnosticos: [] });
 function diagFalso(): DiagnosticoFluxo {
   const dep = { produtoFinalPrevisto: { lo: 0, hi: 0 }, wipPrevisto: { lo: 0, hi: 0 }, faltaPrevista: { lo: 0, hi: 0 }, excessoWip: 0 };
   return {
@@ -27,7 +27,7 @@ function diagFalso(): DiagnosticoFluxo {
     antes: { demandaRestante: {}, remLegado: {}, wip: [], gargalosFluxo: [], faltaFinal: { lo: 0, hi: 0 } }, decisoes: [], depois: dep, depoisBase: dep,
     churn: { linhasAlteradas: 0, trocasDePosto: 0, postosAlterados: 0, alteradasNoPrimeiroPeriodo: 0, retidasPorEstabilidade: 0 }, iteracoes: [], violacoes: [],
     estado: { versao: 1, agoraMs: 0, fechamentoMinutos: 10, ultimoFechado: -1, aPartirDe: 0, celulas: [], etapas: [], produtos: [], pares: [], projecao: { aPartirDe: 0, boas: {}, wip: {} }, demanda: [], remPorPool: {}, poolsFundidos: [], diagnosticos: [] },
-    avaliacaoBase: aval(), avaliacaoFluxo: aval(), diagnosticos: [],
+    avaliacaoBase: aval(), avaliacaoFluxo: aval(), diagnosticos: [], decisoesTotal: 0, resumoDecisoes: [],
   };
 }
 
