@@ -103,7 +103,7 @@ export function decidirDivergenciasGenerico<T extends DivergenciaComChave>(diver
 
 export function decidirDivergenciasFuncionarios(divergencias: DivergenciaFuncionario[], eventos: EventoDaSemana[], agoraMs: number): DecisaoDivergencias {
   const r = decidirDivergenciasGenerico(divergencias.map((d) => ({ ...d, chave: chaveFuncionario(d) })), eventos, agoraMs, ORIGEM_REVALIDACAO_FUNCIONARIOS);
-  return { registrar: r.registrar, aguardando: r.aguardando, persistentes: r.persistentes.map(({ chave: _c, ...d }) => d as DivergenciaFuncionario) };
+  return { registrar: r.registrar, aguardando: r.aguardando, persistentes: r.persistentes.map((d) => { const { chave, ...resto } = d; void chave; return resto as DivergenciaFuncionario; }) };
 }
 
 // eventos de replanejamento recentes/na fila das semanas (para a decisão acima)
