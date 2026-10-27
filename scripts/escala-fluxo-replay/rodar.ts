@@ -16,6 +16,7 @@ import type { Parada } from "./dados";
 export interface Rodada {
   cen: Cenario;
   ms: number;
+  bytesDiagnostico: number;
   res: ResultadoFluxo;
   hashResultado: string; // hash do ResultadoFluxo inteiro (determinismo)
   hashDeterminismoOk: boolean;
@@ -74,7 +75,7 @@ export function rodarCenario(cen: Cenario, paradas: Parada[] = [], opcoesExtra: 
   const faltaLegada = faltaLegadaDe(cen, cen.planoVigente, futuras, baseRegenerado);
   const conta = (l: { tipo: string; quantidade?: number }[]) => { const o: Record<string, number> = {}; l.forEach((a) => (o[a.tipo] = (o[a.tipo] ?? 0) + 1)); return o; };
   const alertas = { base: conta(baseRes.alertas), fluxo: conta(res.resultado.alertas) };
-  return { cen, ms, res, hashResultado, hashDeterminismoOk, hashPlanoFluxo: hashAlocacoes(futuras), planoFluxoFuturo: futuras, avVigente, avFluxo, avBase, baseRegenerado, avBaseRegenerado, alertas, viol, violNucleo, violNucleoPlanoCompleto, simInd, faltaLegada, churnVsVigente, churnVsBase, churnBaseVsVigente };
+  return { cen, ms, bytesDiagnostico: JSON.stringify(res.diagnostico).length, res, hashResultado, hashDeterminismoOk, hashPlanoFluxo: hashAlocacoes(futuras), planoFluxoFuturo: futuras, avVigente, avFluxo, avBase, baseRegenerado, avBaseRegenerado, alertas, viol, violNucleo, violNucleoPlanoCompleto, simInd, faltaLegada, churnVsVigente, churnVsBase, churnBaseVsVigente };
 }
 
 export const chaveP = chavePool;

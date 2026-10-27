@@ -50,7 +50,7 @@ export interface ExtrasRodada {
   pares: { chave: string; maxHi: number; slot: number }[];
   trajVigente: Record<string, [number, number, number][]>; // chave do par -> [slot, lo, hi]
   trajFluxo: Record<string, [number, number, number][]>;
-  e15: { capacidadeFutura: number; defLegado: number; defFundido: number | null };
+  e15: { capacidadeFutura: number; defLegado: number; defFundido: number | null; demandaReal: number; defReal: number; slotsMutaveis: number; ocupacaoVigente: number; ocupacaoFluxo: number };
 }
 
 export function extrasDe(r: Rodada): ExtrasRodada {
@@ -111,7 +111,7 @@ export function extrasDe(r: Rodada): ExtrasRodada {
 function e15(r: Rodada, st: Rodada["res"]["diagnostico"]["estado"]) {
   const f = r.cen.opcoes.fatorPorPool ?? {};
   let cap = 0;
-  for (let t = r.cen.aPartirDe; t < r.cen.entrada.slots.length; t++) {
+  for (let t = r.cen.c + 1; t < r.cen.entrada.slots.length; t++) { // c+1 (em curso/comprometido) ainda não produziu no fechamento
     const s = r.cen.entrada.slots[t];
     const pool = r.cen.entrada.pools.find((p) => `${p.produtoId}|${p.etapaId}` === C_ETQ);
     if (pool && pool.maquinasIds.includes(E15)) cap += (pool.metas[s.periodoId] ?? 0) * (f[C_ETQ] ?? 1);
@@ -119,5 +119,14 @@ function e15(r: Rodada, st: Rodada["res"]["diagnostico"]["estado"]) {
   const d = (k: string) => st.demanda.find((x) => x.chave === k);
   const leg = d(C_ETQ) && d(A_ETQ) ? d(C_ETQ)!.remLegado + d(A_ETQ)!.remLegado - cap : 0;
   const fus = st.poolsFundidos.find((x) => x.rotulo.toLowerCase().includes("etiq"));
-  return { capacidadeFutura: Math.round(cap), defLegado: Math.round(leg), defFundido: fus ? Math.round(fus.demandaComum - cap) : null };
+  // demanda restante REAL das duas etapas Etiquetar (Q − boas confirmadas até o corte) e ocupação da E15 no futuro (nº de períodos com a máquina ocupada)
+  const slots = r.cen.entrada.slots;
+  const idx = new Map(slots.map((x, i) => [`${x.data}|${x.periodoId}`, i]));
+  const B: Record<string, number> = {};
+  r.cen.dados.apontamentos.filter((a) => a.status === "produzindo" && a.produtoId && a.etapaId && a.lancadoEmMs <= r.cen.dec.corteMs && (idx.get(`${a.data}|${a.periodoId}`) ?? 99) <= r.cen.c).forEach((a) => { const k = `${a.produtoId}|${a.etapaId}`; B[k] = (B[k] ?? 0) + Math.max(0, a.boas); });
+  const Q = (k: string) => r.cen.entrada.pools.find((p) => `${p.produtoId}|${p.etapaId}` === k)?.quantidade ?? 0;
+  const demandaReal = Math.max(0, Q(C_ETQ) - (B[C_ETQ] ?? 0)) + Math.max(0, Q(A_ETQ) - (B[A_ETQ] ?? 0));
+  const ocup = (l: AlocacaoEscala[]) => new Set(l.filter((a) => a.maquinaId === E15 && (idx.get(`${a.data}|${a.periodoId}`) ?? -1) >= r.cen.aPartirDe).map((a) => `${a.data}|${a.periodoId}`)).size;
+  const extra = { demandaReal: Math.round(demandaReal), defReal: Math.round(demandaReal - cap), slotsMutaveis: Math.max(0, slots.length - r.cen.aPartirDe), ocupacaoVigente: ocup(r.cen.planoVigente), ocupacaoFluxo: ocup(r.planoFluxoFuturo) };
+  return { capacidadeFutura: Math.round(cap), defLegado: Math.round(leg), defFundido: fus ? Math.round(fus.demandaComum - cap) : null, ...extra };
 }

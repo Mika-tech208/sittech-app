@@ -5,7 +5,7 @@ import type { ViolacaoInd } from "./independente";
 export const arred = (n: number | null | undefined) => (n === null || n === undefined || !Number.isFinite(n) ? null : Math.round(n));
 
 export interface ResumoRodada {
-  id: string; data: string; periodoId: string; rev: number; modo: string; c: number; aPartirDe: number; corteMs: number; ms: number;
+  id: string; data: string; periodoId: string; rev: number; modo: string; c: number; aPartirDe: number; corteMs: number; ms: number; bytesDiagnostico: number;
   determinismo: boolean;
   hashPlanoFluxo: string;
   hashResultado: string;
@@ -42,7 +42,7 @@ export function resumir(r: Rodada): ResumoRodada {
   [...d.diagnosticos, ...st.diagnosticos, ...d.avaliacaoFluxo.diagnosticos].forEach((x) => (cod[x.codigo] = (cod[x.codigo] ?? 0) + 1));
   const tot = (a: Rodada["avFluxo"]) => a.totais;
   return {
-    id: r.cen.dec.id, data: r.cen.dec.data, periodoId: r.cen.dec.periodoId, rev: r.cen.dec.revisao, modo: r.cen.dec.modo, c: r.cen.c, aPartirDe: r.cen.aPartirDe, corteMs: r.cen.dec.corteMs, ms: r.ms,
+    id: r.cen.dec.id, data: r.cen.dec.data, periodoId: r.cen.dec.periodoId, rev: r.cen.dec.revisao, modo: r.cen.dec.modo, c: r.cen.c, aPartirDe: r.cen.aPartirDe, corteMs: r.cen.dec.corteMs, ms: r.ms, bytesDiagnostico: r.bytesDiagnostico,
     determinismo: r.hashDeterminismoOk, hashPlanoFluxo: r.hashPlanoFluxo, hashResultado: r.hashResultado, planoEscolhido: d.planoEscolhido, iteracao: d.iteracaoEscolhida, theta: d.theta,
     demandaPool: st.demanda.map((x) => ({ chave: x.chave, final: x.final, remLegado: arred(x.remLegado), demandaFluxo: arred(x.demandaFluxo), remFluxo: arred(x.remFluxo), tetoUtilidade: arred(x.tetoUtilidade), limitadoPorUtilidade: x.limitadoPorUtilidade })),
     produtos: st.produtos.map((p) => ({ produtoId: p.produtoId, Qf: Math.round(p.quantidadeFinal), boasLo: Math.round(p.boasFinais.lo), boasHi: Math.round(p.boasFinais.hi), Rf: Math.round(p.demandaFinalRestante), RfMin: Math.round(p.demandaFinalRestanteMin) })),

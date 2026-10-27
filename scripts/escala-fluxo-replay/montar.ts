@@ -3,7 +3,6 @@
 import { desempenhoPorEtapa } from "@/features/escala/desempenho";
 import { paraParametrosCorte, desempacotarLinha } from "@/features/escala/snapshotSombra";
 import { visaoNoCorte } from "@/features/escala/sombraCorte";
-import { aplicarTetosDinamicos } from "@/features/escala/tetosWip";
 import { chavePool, type AlocacaoEscala, type EntradaEscala } from "@/features/escala/types";
 import type { ApontamentoReal } from "@/features/escala/producaoReal";
 import type { DadosProducaoReal, OpcoesFluxo, SaldoWipConfirmadoPar } from "@/features/escala/fluxo";
@@ -41,7 +40,8 @@ export function montarCenario(dec: DecisaoGravada, todos: ApontamentoReal[], oc:
   const idx = (a: { data: string; periodoId: string }) => slots.find((s) => s.data === a.data && s.periodoId === a.periodoId)?.indice ?? Number.POSITIVE_INFINITY;
   const v = visaoNoCorte(par);
   const planoVigente = oc.planoVigente ?? par.planoOficial;
-  const poolsBase = par.restrito && par.base.wip ? aplicarTetosDinamicos(par.base.pools) : par.base.pools;
+  // entrada OFICIAL (montarEntradaEscala): pools como estão, sem tetos dinâmicos do modo restrito
+  const poolsBase = par.base.pools;
   const visiveis = (oc.apontamentos ?? todos).filter((a) => a.lancadoEmMs <= dec.corteMs);
   // f de desempenho: mesma regra do replanejamento (apontamentos ≤ c lançados até o corte)
   const doCorte = visaoNoCorte({ ...par, apontamentos: visiveis });
@@ -68,7 +68,9 @@ export function montarCenario(dec: DecisaoGravada, todos: ApontamentoReal[], oc:
     if (i >= 0 && etapas[i + 1] && saldo > 0) wipConfirmado.push({ produtoId, etapaOrigemId, etapaSeguinteId: etapas[i + 1].etapaId, saldo });
   });
   const dados: DadosProducaoReal = { apontamentos: oc.apontamentos ?? todos, agoraMs: dec.corteMs, fechamentoMinutos: 10, wipConfirmado, planoVigente };
-  const opcoes: OpcoesFluxo = { ...(oc.paresLegado ? { paresLegado: oc.paresLegado } : {}), ...(oc.semFator ? {} : { fatorPorPool: fator }), ...(oc.extraOpcoes ?? {}) };
+  // Configuração do INTEGRADOR (feat/escala-fluxo-io › opcoesFluxo): só paresLegado e θ — NENHUM fator de desempenho (metas nominais, f = 1). FREPLAY_FATOR=1 liga o f (sensibilidade).
+  const semFator = oc.semFator ?? process.env.FREPLAY_FATOR !== "1";
+  const opcoes: OpcoesFluxo = { ...(oc.paresLegado ? { paresLegado: oc.paresLegado } : {}), ...(semFator ? {} : { fatorPorPool: fator }), ...(oc.extraOpcoes ?? {}) };
   return { dec, entrada, dados, opcoes, c, aPartirDe, planoVigente };
 }
 
