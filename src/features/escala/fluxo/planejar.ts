@@ -66,7 +66,7 @@ export function calcularChurn(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], retida
 
 export function tuplaObjetivo(aval: AvaliacaoPlano, churn: ChurnFluxo, ponderar: boolean): TuplaObjetivo {
   const t = aval.totais;
-  return [ponderar ? t.faltaPonderada : t.faltaFinalLo, t.faltaFinalHi, -t.capacidadeGargalo, t.wipLegadoResidual, t.excessoWip, churn.linhasAlteradas];
+  return [ponderar ? t.faltaPonderada : t.faltaFinalLo, t.faltaFinalHi, -t.capacidadeGargalo, t.wipLegadoResidual, t.excessoWip, t.excessoFinal, churn.linhasAlteradas];
 }
 
 // lexicográfica; componentes 0–1 com tolerância mínima, os demais com tolerância de 1 peça (ruído numérico não decide)

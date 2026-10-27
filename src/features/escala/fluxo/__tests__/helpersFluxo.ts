@@ -22,6 +22,8 @@ export interface Cenario {
   wipConfirmado?: SaldoWipConfirmadoPar[];
   extra?: Partial<EntradaEscala>;
   opcoes?: OpcoesFluxo;
+  /** substitui o plano vigente/congelado (linhas manuais) em vez do gerado pelo motor */
+  plano?: (slots: EntradaEscala["slots"]) => AlocacaoEscala[];
 }
 
 export function ap(p: Partial<ApontamentoReal> & Pick<ApontamentoReal, "data" | "periodoId" | "maquinaId" | "produtoId" | "etapaId" | "boas">): ApontamentoReal {
@@ -31,7 +33,7 @@ export function ap(p: Partial<ApontamentoReal> & Pick<ApontamentoReal, "data" | 
 /** Monta (entrada, dados) como a Escala oficial os veria no instante `c` + `aposFimMin`. */
 export function montar(c: Cenario): { entrada: EntradaEscala; dados: DadosProducaoReal; planoCompleto: AlocacaoEscala[] } {
   const e0 = entradaBase({ pools: c.pools, funcionarios: c.funcionarios, revezamentoDuro: true, ...(c.extra ?? {}) }, c.dias ?? ["2026-10-26", "2026-10-27"]);
-  const planoCompleto = gerarEscala({ ...e0, aPartirDe: 0, congeladas: [] }).alocacoes;
+  const planoCompleto = c.plano ? c.plano(e0.slots) : gerarEscala({ ...e0, aPartirDe: 0, congeladas: [] }).alocacoes;
   const slot = e0.slots[c.c];
   const agoraMs = slot.fimMs + (c.aposFimMin ?? 11) * MIN;
   const aPartirDe = primeiroSlotFuturo(e0.slots, agoraMs);
@@ -51,6 +53,20 @@ export function realComoPlano(plano: AlocacaoEscala[], pools: PoolEscala[], ate:
       const p = pools.find((x) => x.produtoId === a.produtoId && x.etapaId === a.etapaId) as PoolEscala;
       const mu = p.metas[a.periodoId] * (fator[`${a.produtoId}|${a.etapaId}`] ?? 1);
       return ap({ data: a.data, periodoId: a.periodoId, maquinaId: a.maquinaId as string, produtoId: a.produtoId as string, etapaId: a.etapaId as string, funcionarioId: a.funcionarioId, operacaoId: a.operacaoId, boas: Math.min(a.pecas, mu) });
+    });
+}
+
+/** Apontamentos para TODAS as linhas do plano até o período `ate`: `fn` devolve as boas (ou null ⇒ sem_producao/outro). Elimina incerteza de "não confirmado". */
+export function apontarPlano(plano: AlocacaoEscala[], pools: PoolEscala[], ate: number, slots: EntradaEscala["slots"], fn: (a: AlocacaoEscala, capacidade: number) => number | null): ApontamentoReal[] {
+  const idx = new Map(slots.map((s) => [`${s.data}|${s.periodoId}`, s.indice]));
+  return plano
+    .filter((a) => a.maquinaId && a.produtoId && a.etapaId && (idx.get(`${a.data}|${a.periodoId}`) as number) <= ate)
+    .map((a) => {
+      const p = pools.find((x) => x.produtoId === a.produtoId && x.etapaId === a.etapaId) as PoolEscala;
+      const cap = p.metas[a.periodoId];
+      const boas = fn(a, cap);
+      const base = { data: a.data, periodoId: a.periodoId, maquinaId: a.maquinaId as string, produtoId: a.produtoId as string, etapaId: a.etapaId as string, funcionarioId: a.funcionarioId, operacaoId: a.operacaoId };
+      return boas === null ? ap({ ...base, boas: 0, status: "sem_producao", motivo: "outro" }) : ap({ ...base, boas });
     });
 }
 
@@ -74,4 +90,9 @@ export function checarFluxo(x: { r: ResultadoFluxo; entrada: EntradaEscala }): s
 export function jsonSerializavel(v: unknown): boolean {
   const s = JSON.stringify(v);
   return typeof s === "string" && !s.includes("null,null") && JSON.parse(s) !== undefined;
+}
+
+/** Linha manual de plano: pessoa `f` na máquina `m` (pool produto/etapa/op) no slot `i`, com a capacidade `pecas`. */
+export function linhaPlano(slots: EntradaEscala["slots"], i: number, f: string, m: string, produto: string, etapa: string, op: string, pecas: number): AlocacaoEscala {
+  return { data: slots[i].data, periodoId: slots[i].periodoId, funcionarioId: f, maquinaId: m, produtoId: produto, etapaId: etapa, operacaoId: op, pecas, motivoSemPosto: null, excecaoRevezamento: false, motivoExcecao: null };
 }

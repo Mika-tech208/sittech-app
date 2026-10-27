@@ -176,10 +176,12 @@ export interface EstadoProduto {
   etapaFinalId: string;
   quantidadeFinal: number; // Q_f
   boasFinais: Intervalo;
-  /** R_f = max(0, Q_f − B_f,lo) — conservador: só o confirmado reduz a meta final. */
+  /** R_f = max(0, Q_f − B_f,lo) NO CORTE (último período fechado) — conservador: só o confirmado reduz a meta final. */
   demandaFinalRestante: number;
-  /** max(0, Q_f − B_f,hi) — limite otimista (para a faixa de falta). */
+  /** max(0, Q_f − B_f,hi) no corte — limite otimista (para a faixa de falta). */
   demandaFinalRestanteMin: number;
+  /** R_f já projetado até aPartirDe (desconta o que as linhas congeladas — período em andamento/comprometido — ainda produzem): o que entra no motor. */
+  restanteEmAPartirDe: number;
 }
 
 /** Projeção do estado em `aPartirDe`: o fechado + o que as linhas congeladas (período em andamento/comprometido) ainda produzem. */
@@ -282,6 +284,7 @@ export interface TotaisAvaliacao {
   wipLegadoResidual: number;
   excessoWip: number; // Σ max(0, WIP previsto (hi) − teto derivado do par)
   capacidadeGargalo: number;
+  excessoFinal: number; // peças do produto final que o plano produziria ALÉM da meta (capacidade desperdiçada, cenário pessimista)
 }
 
 export interface TrajetoriaWip {

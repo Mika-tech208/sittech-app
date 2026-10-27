@@ -40,6 +40,7 @@ export interface ResultadoSim {
   L: Record<string, number>;
   x: Record<string, number[]>; // produção por slot (índice t − tIni)
   traj: Record<string, number[]>; // W ao fim de cada slot (índice t − tIni)
+  bloqueadoPelaMeta: number; // peças do nó final que o plano produziria além da meta (capacidade desperdiçada)
 }
 
 export function simularGrupo(grafo: Grafo, g: GrupoFluxo, p: ParamsSim): ResultadoSim {
@@ -57,6 +58,7 @@ export function simularGrupo(grafo: Grafo, g: GrupoFluxo, p: ParamsSim): Resulta
     W[e] = Math.max(0, p.W0[e] ?? 0);
     L[e] = Math.min(W[e], Math.max(0, p.L0[e] ?? 0));
   });
+  let bloq = 0;
   const x: Record<string, number[]> = {};
   const traj: Record<string, number[]> = {};
   g.nos.forEach((n) => (x[n] = []));
@@ -72,19 +74,30 @@ export function simularGrupo(grafo: Grafo, g: GrupoFluxo, p: ParamsSim): Resulta
       const base = c?.base[t] ?? 0;
       const adic = c?.adic[t] ?? 0;
       const disp = (e: string) => (p.mesmoPeriodo ? W[e] : Wini[e]);
-      let avail = ins.length === 0 ? Number.POSITIVE_INFINITY : ins.reduce((s, e) => s + disp(e), 0);
-      let targetLeft = no.final || no.succ === null ? Math.max(0, (p.Q[n] ?? 0) - B[n]) : Number.POSITIVE_INFINITY;
+      const avail = ins.length === 0 ? Number.POSITIVE_INFINITY : ins.reduce((s, e) => s + disp(e), 0);
+      const targetLeft = no.final || no.succ === null ? Math.max(0, (p.Q[n] ?? 0) - B[n]) : Number.POSITIVE_INFINITY;
 
-      const xr = Math.min(real, avail, targetLeft);
-      avail -= xr;
-      targetLeft -= xr;
-      baseLeft[n] = Math.max(0, baseLeft[n] - xr);
-      const xb = Math.min(base, avail, baseLeft[n], targetLeft);
-      avail -= xb;
-      targetLeft -= xb;
-      baseLeft[n] -= xb;
-      const xa = Math.min(adic, avail, targetLeft);
+      const produzir = (alvo: number, ignoraRestante = false) => {
+        let disp = avail;
+        let left = alvo;
+        let bl = ignoraRestante ? Number.POSITIVE_INFINITY : baseLeft[n];
+        const xr = Math.min(real, disp, left);
+        disp -= xr;
+        left -= xr;
+        bl = Math.max(0, bl - xr);
+        const xb = Math.min(base, disp, bl, left);
+        disp -= xb;
+        left -= xb;
+        const xa = Math.min(adic, disp, left);
+        return { xr, xb, xa };
+      };
+      const { xr, xb, xa } = produzir(targetLeft);
+      baseLeft[n] = Math.max(0, baseLeft[n] - xr) - xb;
       const total = xr + xb + xa;
+      if (Number.isFinite(targetLeft)) {
+        const sem = produzir(Number.POSITIVE_INFINITY, true);
+        bloq += sem.xr + sem.xb + sem.xa - total; // produção que o plano queria mas a meta final já não aceita
+      }
       x[n].push(total);
       B[n] += total;
       // consome das arestas de entrada, proporcional ao disponível
@@ -101,7 +114,7 @@ export function simularGrupo(grafo: Grafo, g: GrupoFluxo, p: ParamsSim): Resulta
     });
     if (p.trajetoria) g.arestas.forEach((e) => traj[e].push(W[e]));
   }
-  return { B, W, L, x, traj };
+  return { B, W, L, x, traj, bloqueadoPelaMeta: bloq };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------

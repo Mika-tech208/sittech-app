@@ -62,7 +62,7 @@ export function avaliarComCtx(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], op: Op
   const produtos: AvaliacaoProduto[] = [];
   const trajetoria: TrajetoriaWip[] = [];
   const postos: PostoContribuicao[] = [];
-  const totais: TotaisAvaliacao = { faltaFinalLo: 0, faltaFinalHi: 0, finalEntregueLo: 0, finalEntregueHi: 0, faltaPonderada: 0, wipFinalLo: 0, wipFinalHi: 0, wipLegadoResidual: 0, excessoWip: 0, capacidadeGargalo: 0 };
+  const totais: TotaisAvaliacao = { faltaFinalLo: 0, faltaFinalHi: 0, finalEntregueLo: 0, finalEntregueHi: 0, faltaPonderada: 0, wipFinalLo: 0, wipFinalHi: 0, wipLegadoResidual: 0, excessoWip: 0, capacidadeGargalo: 0, excessoFinal: 0 };
   const T = ctx.entrada.slots.length;
 
   grafo.grupos.forEach((g, gi) => {
@@ -77,6 +77,7 @@ export function avaliarComCtx(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], op: Op
     totais.finalEntregueLo += entLo;
     totais.finalEntregueHi += entHi;
     totais.faltaPonderada += (Q - entLo) * w;
+    totais.excessoFinal += lo.bloqueadoPelaMeta;
 
     // WIP final / legado / excesso por aresta
     const wipFinal: Record<string, Intervalo> = {};
