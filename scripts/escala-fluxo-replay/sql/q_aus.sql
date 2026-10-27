@@ -1,0 +1,2 @@
+select a.id::text id, a.funcionario_id::text funcionario_id, f.nome, a.data::text data, a.tipo, a.horario_inicio::text hi, a.horario_fim::text hf, a.em_aberto, extract(epoch from a.criado_em)*1000 criado_ms, to_char(a.criado_em at time zone 'America/Sao_Paulo','MM-DD HH24:MI') criado
+from ausencias_funcionarios a join funcionarios f on f.id=a.funcionario_id where a.data >= '2026-10-26' and a.data < '2026-11-02' order by a.data, a.criado_em;
