@@ -66,8 +66,11 @@ export interface OpcoesFluxo {
   limiarEstabilidadePecas?: number;
   /** Máximo de iterações de valor marginal. Default 4. */
   maxIteracoes?: number;
-  /** Fator de desempenho por pool (metas futuras × f). Ausente = metas de entrada.pools já são as efetivas. */
+  /** Fator de desempenho por pool a APLICAR sobre entrada.pools[].metas (ausente = metas já efetivas). Não combinar com fatoresEmbutidos. */
   fatorPorPool?: Record<string, number>;
+  /** Fator de desempenho JÁ embutido em entrada.pools[].metas (como a sombra faz). Só serve para recuperar as metas NOMINAIS na checagem de
+   *  compatibilidade do Conector legado (metas × f diferentes entre os ramos não tornam os pools incompatíveis). */
+  fatoresEmbutidos?: Record<string, number>;
   /** Pondera a falta final por valorUnitario da etapa final (default false: peças). */
   ponderarPorValor?: boolean;
   /** Fluxo entre etapas no MESMO período (consumo ≤ WIP inicial + produção upstream do período). Default true (spec §3). */
@@ -75,6 +78,15 @@ export interface OpcoesFluxo {
   /** Inclui na avaliação a trajetória de WIP por par/slot e os marginais (mais pesado no jsonb). Default true / false. */
   incluirTrajetoria?: boolean;
   incluirMarginais?: boolean;
+  /** Produto único (F#CONV/F#AUTO/F#COMUM): a última etapa de `produtoOrigemId` alimenta a primeira de `produtoDestinoId`. */
+  ligacoes?: LigacaoProdutos[];
+  /** avaliarPlano: rem explícito (por chave do pool representante) com que o plano avaliado foi gerado (limita a produção do previsto). */
+  limitesRemPorPool?: Record<string, number>;
+}
+
+export interface LigacaoProdutos {
+  produtoOrigemId: string;
+  produtoDestinoId: string;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
