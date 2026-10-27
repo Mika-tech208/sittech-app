@@ -8,7 +8,7 @@ import { epochMsNoFuso } from "@/features/escala/tempo";
 import type { AlocacaoEscala } from "@/features/escala/types";
 import { ConflitoDeVersaoError, type EstadoBruto } from "../estado";
 import type { VersaoPlanoOficial } from "../planoVersionado";
-import { processarSombra, type AplicacaoRestrita, type ApontamentoBanco, type DecisaoParaGravar, type EventoSombra, type RegistroAvaliacao, type SombraIO } from "../sombraServico";
+import { processarSombra, regiaoAlvoJaIniciada, type AplicacaoRestrita, type ApontamentoBanco, type DecisaoParaGravar, type EventoSombra, type RegistroAvaliacao, type SombraIO } from "../sombraServico";
 import { estadoDeTeste, Mundo } from "./bancoMemoria";
 import type { ConfigFluxo } from "../fluxo/parametrosFluxo";
 
@@ -368,3 +368,71 @@ describe("interlock com o fluxo (producao_real_modo)", () => {
     expect(b.decisoes).toHaveLength(0);
   });
 });
+describe("reavaliação por evento: região-alvo já iniciada e invocações concorrentes", () => {
+  // avalia m1 (aplica algo), muda a Escala oficial por uma ausência e devolve o banco pronto para a reavaliação por evento
+  async function pendente() {
+    const { m, b } = await cenario(0.5);
+    b.agoraMs = agoraDe("m1");
+    await processarSombra(b, agoraDe("m1"));
+    const ult = b.auditoria.at(-1);
+    expect(ult?.aPartir).toBeTruthy();
+    const [data, periodoId] = (ult?.aPartir as string).split(" ");
+    const aPartir = idxPeriodo(data, periodoId);
+    b.hashConhecido = ult?.hashDepois ?? hashAlocacoes(regiao(m, aPartir));
+    const alvo = m.alocacoes.find((a) => idxSlot(a) >= aPartir + 1 && a.maquinaId)!;
+    m.entradas.ausencias.push({ funcionarioId: alvo.funcionarioId, data: alvo.data, horarioInicio: null, horarioFim: null });
+    await m.recalcular(agoraDe("m1"));
+    b.registrarVersao(agoraDe("m1"));
+    return { m, b, tamanho: b.auditoria.length, decisoes: b.decisoes.length, aplicar: b.chamadasAplicar };
+  }
+
+  it("c+2 ainda não iniciou: reavalia normalmente (grava decisão nova)", async () => {
+    const { b, decisoes } = await pendente();
+    const r = await processarSombra(b, agoraDe("m1") + MIN);
+    expect(r.reavaliacoes).toBe(1);
+    expect(r.reavaliacoesDispensadas).toBe(0);
+    expect(b.decisoes.length).toBeGreaterThan(decisoes);
+  });
+
+  it("c+2 (M3) já iniciou: NÃO roda o motor nem grava decisão; registra UMA recusa 'região já iniciada' com a região-alvo e não toca a Escala", async () => {
+    const { m, b, tamanho, decisoes, aplicar } = await pendente();
+    const antes = Mundo.assinatura(m.alocacoes, true);
+    const r = await processarSombra(b, FIM("m2") + 6 * MIN); // M3 começou às 10:24
+    expect(r.reavaliacoes).toBe(0);
+    expect(r.reavaliacoesDispensadas).toBe(1);
+    expect(r.recusadas).toBe(1);
+    expect(b.decisoes.length).toBe(decisoes);
+    expect(b.chamadasAplicar).toBe(aplicar);
+    expect(Mundo.assinatura(m.alocacoes, true)).toBe(antes);
+    expect(b.auditoria.length).toBe(tamanho + 1);
+    const reg = b.auditoria.at(-1)!;
+    expect(reg).toMatchObject({ decisaoId: null, resultado: "recusado", aPartir: `${D1} m3` });
+    expect(reg.motivo).toContain("região já iniciada");
+  });
+
+  it("outra invocação já tratou o pendente enquanto esta carregava: não avalia nem registra de novo", async () => {
+    const { b, tamanho, decisoes } = await pendente();
+    let chamadas = 0;
+    const original = b.reavaliacoesPendentes.bind(b);
+    b.reavaliacoesPendentes = async () => (++chamadas === 1 ? original() : []); // 1ª leitura: pendente; na reconfirmação outro worker já registrou
+    const r = await processarSombra(b, agoraDe("m1") + MIN);
+    expect(r.reavaliacoes).toBe(0);
+    expect(r.reavaliacoesDispensadas).toBe(0);
+    expect(r.concorrencia).toBe(1);
+    expect(b.decisoes.length).toBe(decisoes);
+    expect(b.auditoria.length).toBe(tamanho);
+  });
+});
+
+describe("regiaoAlvoJaIniciada", () => {
+  it("só dispensa quando c+2 já começou (c+1 sozinho não basta: o reparo é avaliado)", async () => {
+    const m = await semana();
+    const estado = estadoDe(m);
+    expect(regiaoAlvoJaIniciada(estado, { data: D1, periodoId: "m1" }, FIM("m1") + 15 * MIN)).toBeNull(); // M2 começa 08:48, M3 só 10:24
+    expect(regiaoAlvoJaIniciada(estado, { data: D1, periodoId: "m1" }, FIM("m2") + MIN)).toMatchObject({ alvo: { data: D1, periodoId: "m3" }, slotOrigem: 0 });
+    expect(regiaoAlvoJaIniciada(estado, { data: D1, periodoId: "m1" }, FIM("m2") - MIN)).toBeNull();
+    expect(regiaoAlvoJaIniciada(estado, { data: D1, periodoId: "inexistente" }, FIM("m2") + MIN)).toBeNull();
+    expect(regiaoAlvoJaIniciada(estado, { data: "2026-11-06", periodoId: "t3" }, epochMsNoFuso("2026-11-07", "10:00"))).toBeNull(); // fim da semana: não há c+2
+  });
+});
+
