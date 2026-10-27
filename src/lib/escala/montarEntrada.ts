@@ -35,7 +35,9 @@ export interface EntradaMontada {
 export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): EntradaMontada {
   const rotas = estado.rotas ? resolverRotas(estado, agoraMs) : null;
   if (!rotas) return montarEntradaBase(estado, agoraMs);
-  return { ...montarEntradaBase(rotas.estadoVirtual, agoraMs), rotas };
+  const m = montarEntradaBase(rotas.estadoVirtual, agoraMs);
+  const avisosPresumido = Object.values(rotas.produtos).flatMap((p) => Object.entries(p.rodadas.at(-1)?.restante.presumidoPorEtapa ?? {}).filter(([, v]) => v > 0.5).map(([etapaId, pecas]) => ({ tipo: "producao_presumida" as const, produtoId: p.produtoId, etapaId, pecas, semanaInicio: estado.semanaInicio })));
+  return { ...m, avisos: [...m.avisos, ...avisosPresumido], rotas };
 }
 
 export function montarEntradaBase(estado: EstadoBruto, agoraMs: number): EntradaMontada {

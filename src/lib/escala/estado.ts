@@ -8,12 +8,13 @@ import type { EntradaWip } from "@/features/escala/wipSaldo";
 import type { EstruturaProduto } from "@/features/rotas/tipos";
 
 export interface AvisoMontagem {
-  tipo: "etapa_sem_maquina" | "sem_pools" | "sem_funcionarios_produtivos" | "selecao_maquina_invalida";
+  tipo: "etapa_sem_maquina" | "sem_pools" | "sem_funcionarios_produtivos" | "selecao_maquina_invalida" | "producao_presumida";
   produtoId?: string;
   etapaId?: string;
   operacaoId?: string; // selecao_maquina_invalida: operação da etapa no roteiro atual
   maquinaId?: string; // selecao_maquina_invalida: máquina selecionada na Previsão que NÃO é elegível nessa etapa
   semanaInicio?: string;
+  pecas?: number; // producao_presumida: peças dos períodos passados SEM apontamento que o replanejamento de produto de rotas presumiu como produzidas (não confirmadas)
 }
 
 export interface DiaExistente {
@@ -85,6 +86,9 @@ export interface RotasDoEstado {
   maxRodadas?: number;                                                 // padrão 3
   // REPLANEJAMENTO no meio da semana: Produção Real BOA acumulada da semana por etapa (apontamentos). Etapa sem chave = ainda sem apontamento ⇒ vale o planejado congelado.
   producaoReal?: Record<string, number>;
+  // Cobertura dos apontamentos da semana (granular, vem de rotas_cobertura_apontamentos): separa produção CONFIRMADA (apontamento 'produzindo'), SEM PRODUÇÃO (apontamento 'sem_producao')
+  // e PRESUMIDA (o período passou e não há apontamento algum). Presumida preserva o plano congelado para não replanejar de forma caótica, mas NUNCA é produção real confirmada.
+  cobertura?: { data: string; periodoId: string; maquinaId: string; etapaId: string | null; status: string; boas: number }[];
   // WIP inicial confirmado por produto (só com o WIP ativo): saldo do pool (pronto para a 1ª etapa comum) no início da semana
   wipInicial?: Record<string, { pool?: number; entreEtapasComuns?: Record<string, number> }>;
 }

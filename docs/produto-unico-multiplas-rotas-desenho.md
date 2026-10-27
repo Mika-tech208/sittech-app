@@ -597,3 +597,8 @@ TS (`golden_ts_depois4_dev.json`) **idêntico**; SQL (apontado real, sintético,
 5. **Sombra em PROD:** `rotas-planejador-sombra` (leitura) com os dados de 26/10; conferir 97.500 / falta 19.125 / gargalo Etiquetar e o custo/hora real.
 6. **Abertura controlada (somente após novo OK):** `produtos.ativo=true` de F → `rotas_config.suporte_ativo=true` → a pessoa cria a Previsão 02/11 (F = 1 item, máquinas marcadas à mão) → gerar Escala (conferir rodadas/convergência) → liberar apontamento de F.
 7. **Reversão:** `suporte_ativo=false`, F `ativo=false`; semana 02/11 sem apontamentos pode voltar ao legado; P/A legados seguem para semanas anteriores.
+
+## 22. Pré-voo PROD (somente leitura) e ajustes pós-M4 (26/10/2026 noite)
+Relatório completo, baseline e plano revisado em `docs/rotas-prod-preflight.md`. Resumo: 0 máquinas ambíguas; Previsão 02/11 inexistente; cadastro de PROD coerente (Etiquetar/Embalar idênticos nos dois legados); WIP sem controles (mas `wip_modo=ativo`); **adicional de 22.800 em Rosquear no P (semana 26/10) atravessa a virada**; preço P 0,1825 × Automática 0,182 a confirmar.
+Ajuste implementado em DEV: **produção CONFIRMADA × PRESUMIDA × SEM PRODUÇÃO** no replanejamento de F (`rotas_cobertura_apontamentos`, `calcularRestante`): período passado sem apontamento preserva o plano congelado mas fica marcado "não confirmado por apontamento" (aviso `producao_presumida`, `incertezas`, `escala_rota_divisao.motivo.restante.presumidoPorEtapa`); o Apontado Real segue só com apontamentos válidos.
+Recomendação: **apto para publicar infraestrutura com trava fechada**; **não apto para ativar** (faltam shadow em PROD, validação visual com login e as decisões de preço e do estoque de Rosquear).

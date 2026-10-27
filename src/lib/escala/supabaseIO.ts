@@ -3,7 +3,6 @@
 // outbox de eventos. Nada de regra de negócio aqui — só I/O.
 
 import { carregarRotasDoEstado, gravarDivisaoRotas } from "./rotasIO";
-import { producaoBoas } from "./wipIO";
 import { carregarCustoHora } from "@/lib/custo/custoHoraDados";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { agregarHistoricoEquidade, JANELA_EQUIDADE_DIAS } from "@/features/escala/equidade";
@@ -157,12 +156,11 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
       const rotas = await carregarRotasDoEstado(admin, [...new Set(itensBrutos.map((i) => i.produtoId))]);
       // custo/hora REAL (mesma fonte e mesma fórmula da tela): a divisão AUTO/CONV por custo no servidor decide igual à prévia. Só é lido quando há produto de rotas.
       if (rotas) { const c = await carregarCustoHora(admin); rotas.custoHoraPorOperacao = c.custoHoraPorOperacao; rotas.custoHoraPadrao = c.custoHoraEmpresa;
-        // Produção Real BOA da semana por etapa (feedback do replanejamento): só etapas que já têm apontamento; as demais valem o planejado congelado
-        const etapasF = Object.values(rotas.estruturas).flatMap((e) => [...e.rotas.flatMap((r) => r.etapas), ...(e.poolComum?.etapas ?? [])]);
-        const real = await producaoBoas(admin, etapasF, prev.semana_inicio);
-        const fim = somarDias(prev.semana_inicio, 6); const pr: Record<string, number> = {};
-        real.filter((x) => x.data >= prev.semana_inicio && x.data <= fim).forEach((x) => { pr[x.etapaId] = (pr[x.etapaId] ?? 0) + x.boas; });
-        rotas.producaoReal = pr; }
+        // Cobertura dos apontamentos da semana (confirmado × sem produção × sem apontamento = presumido): feedback do replanejamento
+        const cob = await admin.rpc("rotas_cobertura_apontamentos", { p_semana_inicio: prev.semana_inicio });
+        if (cob.error) throw new Error(`rotas_cobertura_apontamentos: ${cob.error.message}`);
+        rotas.cobertura = ((cob.data ?? []) as { data: string; periodo_id: string; maquina_id: string; etapa_id: string | null; status: string; boas: number }[])
+          .map((x) => ({ data: String(x.data), periodoId: x.periodo_id, maquinaId: x.maquina_id, etapaId: x.etapa_id, status: x.status, boas: Number(x.boas ?? 0) })); }
 
       return {
         previsaoId,

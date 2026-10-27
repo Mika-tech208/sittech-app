@@ -1,0 +1,31 @@
+a=2026-10-27 00:28:59.619564+00 | b=2026-10-26 19:54:07.058483+00 | c=2026-10-20 17:04:13.64552+00 | k=marcador_t0
+a=11 | b=3fe242d536b3a047bbbab9ab3a840b6a | c= | k=cadastros_produtos
+a=30 | b=f4a1d3a2a2cd43957626a8b5ec6cd2ce | c= | k=cadastros_roteiro_etapas
+a=56 | b=6f606ee30e366d14805818a7e196fc58 | c= | k=cadastros_roteiro_etapa_maquinas
+a=22 | b=a92a1b7023ffccef5e960e6282f8b326 | c= | k=cadastros_maquinas
+a=14 | b=3e24526ecb252a3c033beadc0a3d43ed | c= | k=cadastros_operacoes
+a=6 | b=eb31e9474b397b6685be2716843c57b9 | c= | k=cadastros_periodos
+a=10 | b=d7abc8baab06cba3e5d9712c7e72f789 | c=2026-10-26 | k=previsoes_todas
+a=125 | b=e4fd312c40eb7f84fe36f47df3be88a2 | c= | k=previsao_itens_fechado
+a=6 | b=8281dc39aad1e04436fcc5fa835742c0 | c= | k=previsao_itens_26_10_vivo
+a=149 | b=bddb0eecbf32598a2ffa43a4dcdc16c7 | c= | k=previsao_item_maquinas_fechado
+a=19 | b=bbe3b07881304e5d5401136ffa4c7c51 | c= | k=previsao_item_maquinas_26_10_vivo
+a=2 | b=3736779bd9146c50e209913ac552c5e5 | c= | k=previsao_item_adicional_etapa
+a=7/17 | b=f8aff80821f7471d9e8d9ad062066124 | c= | k=previsao_dias_equipe_26_10_vivo
+a=0 | b=d41d8cd98f00b204e9800998ecf8427e | c= | k=previsao_maquinas_indisponiveis
+a=5 | b=d9b7a776d230aba4a7d17a6d4c266d7c | c= | k=escala_dias_fechado
+a=300 | b=06f9d4b72230f88fd254195c3980abe9 | c= | k=escala_alocacoes_fechado
+a=451 | b=83c1787cd908353f3d805231a4e85117 | c= | k=escala_alocacoes_26_10_vivo
+a=37 | b=2026-10-26 23:24:26.142822+00 | c= | k=escala_plano_versoes
+a=1 | b=bd91963706ef60d2cd99a88d4d62d96c | c= | k=escala_plano_entrada_26_10_vivo
+a=6 | b=0c23c4a93cf9d61c50cc8d83762e39e5 | c= | k=escala_parametros
+a=7 | b=597fcc18080153849b9dff84dcfc11b0 | c= | k=escala_replanejamentos
+a=0 | b=d41d8cd98f00b204e9800998ecf8427e | c= | k=escala_recurso_indisponivel
+a=3695 | b=15512840d098a1cbcd454eed69ef2c9a | c= | k=apontamentos_fechado
+a=132 | b=e246bd91cb18ade44b1d23033162c22b | c= | k=apontamentos_26_10_vivo
+a=0/0/0/0 | b= | c= | k=wip_tabelas
+a=17/187/14 | b=10c42212a14428e1bc8da37f52fb67f7 | c= | k=funcionarios_custos
+a=180 | b=510962dee294602ab86c3bda5859a4b6 | c= | k=valor_atribuido_lineares
+a=502 | b=111a722f80601579b983e601e7235ba2 | c= | k=tabelas_antigas_colunas
+a=123 | b=94480df4fbcaa7361bd91697ff23332c | c= | k=funcoes_publicas
+a=3 | b=d1f5a09fdd75b34c3b00b73ca4bf2dde | c=corpo anterior; muda de propósito na migration 20261109100000/110000 | k=funcoes_corpo_alteradas_pelo_m4

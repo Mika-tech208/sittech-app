@@ -194,3 +194,31 @@ describe("M4 — apontado real e etapa final (compat TS) e cadeias virtuais no m
     expect(v.proximaSemana!.quantidadePorProduto[idVirtual(F, "COMUM")]).toBe(50000); expect(v.proximaSemana!.quantidadePorProduto[idVirtual(F, "CONV")]).toBe(50000);
   });
 });
+
+describe("M4 — PROD tem wip_modo = 'ativo' (sem nenhum controle/saldo): semana de rotas continua correta", () => {
+  it("com WIP ativo e sem controles o plano e a Escala de F são os mesmos do WIP desligado (invariantes do motor)", async () => {
+    const { gerarEscala } = await import("@/features/escala/gerarEscala");
+    const { montarEntradaEscala } = await import("@/lib/escala/montarEntrada");
+    const { checarInvariantes } = await import("@/features/escala/__tests__/helpers");
+    const { AGORA } = await import("./fixtureRotas");
+    const lig = (modo: "ativo" | "desligado") => { const e = estadoF({ pessoas: 20 }); e.parametros = { ...(e.parametros as object), wipModo: modo } as typeof e.parametros; return e; };
+    const a = montarEntradaEscala(lig("ativo"), AGORA), d = montarEntradaEscala(lig("desligado"), AGORA);
+    expect(a.rotas!.produtos[F].plano.alvo).toEqual(d.rotas!.produtos[F].plano.alvo);
+    expect(a.entrada.pools.every((p) => (p.adicionalMax ?? 0) === 0)).toBe(true);        // F não tem adicional: nenhuma carga extra é inventada
+    const r = gerarEscala(a.entrada);
+    expect(checarInvariantes(a.entrada, r)).toEqual([]);
+    expect(r.alocacoes.filter((x) => x.maquinaId).length).toBeGreaterThan(0);
+  });
+});
+
+describe("M4 — código novo contra banco SEM as tabelas de rotas (deploy antes das migrations)", () => {
+  it("carregarRotasDoEstado devolve undefined (semana linear) quando produto_rota não existe; outro erro continua sendo erro", async () => {
+    const { carregarRotasDoEstado } = await import("@/lib/escala/rotasIO");
+    const falso = (erro: { code?: string; message: string }) => ({ from: () => ({ select: () => ({ in: async () => ({ data: null, error: erro }) }) }) }) as never;
+    expect(await carregarRotasDoEstado(falso({ code: "PGRST205", message: "Could not find the table 'public.produto_rota' in the schema cache" }), ["p1"])).toBeUndefined();
+    expect(await carregarRotasDoEstado(falso({ code: "42P01", message: 'relation "public.produto_rota" does not exist' }), ["p1"])).toBeUndefined();
+    await expect(carregarRotasDoEstado(falso({ code: "XX000", message: "falha de conexão" }), ["p1"])).rejects.toThrow(/produto_rota/);
+    expect(await carregarRotasDoEstado(falso({ message: "x" }), [])).toBeUndefined();
+  });
+});
+

@@ -46,6 +46,9 @@ begin
   exception when others then v_ok := position('APONTAMENTO_ETAPA_FORA_DO_PRODUTO' in sqlerrm) > 0; end;
   if not v_ok then raise exception 'FALHOU (2) etapa de outro produto deveria ser recusada'; end if;
 
+  -- cobertura (servidor): 1 linha por apontamento 'produzindo' de F com as peças BOAS; período sem apontamento NÃO aparece (será PRESUMIDO no replanejamento, nunca produção real)
+  select count(*), coalesce(sum(boas), 0) into v_n, v_boas from rotas_cobertura_apontamentos(date '2031-05-05') c where c.etapa_id in (select id from roteiro_etapas where produto_id = F);
+  if v_n <> i or v_boas <> (select sum(1000 * o - 10 * o) from generate_series(1, i) o) then raise exception 'FALHOU (2) cobertura: n=% boas=%', v_n, v_boas; end if;
   perform set_config('request.jwt.claims', json_build_object('sub', (select auth_user_id from usuarios where id = v_usr), 'role', 'authenticated')::text, true);
   set local role authenticated;
   -- apontado real: a "última" é a final explícita (ordem de Embalar), com UMA etapa nessa ordem

@@ -106,4 +106,52 @@ describe("M4 — replanejamento no meio da semana (quarta 12:00)", () => {
     expect(nomes.every((n) => n.startsWith('Conector 3/4" (Final) · '))).toBe(true);
     expect(r.estadoVirtual.itens.some((i) => i.produtoId === idVirtual(F, "COMUM"))).toBe(true);
   });
+
+  // ---------------- produção CONFIRMADA × PRESUMIDA × SEM PRODUÇÃO ----------------
+  describe("período passado sem apontamento NÃO é produção real", () => {
+    const congelados = plano0.filter((a) => a.data < "2026-11-04" || (a.data === "2026-11-04" && ["m1", "m2", "m3"].includes(a.periodoId)));
+    const linhasF = congelados.filter((a) => a.maquinaId && a.produtoId === F && a.etapaId);
+    const cob = (filtro: (a: AlocacaoEscala) => boolean, status = "produzindo") => linhasF.filter(filtro).map((a) => ({ data: a.data, periodoId: a.periodoId, maquinaId: a.maquinaId as string, etapaId: status === "produzindo" ? (a.etapaId as string) : null, status, boas: status === "produzindo" ? a.pecas : 0 }));
+    const estadoCom = (cobertura: ReturnType<typeof cob>): EstadoBruto => ({ ...meio(), rotas: { estruturas: base.rotas!.estruturas, cobertura } });
+    const total = linhasF.reduce((s, a) => s + a.pecas, 0);
+
+    it("sem NENHUM apontamento: tudo é PRESUMIDO (plano preservado para não replanejar de forma caótica), marcado como não confirmado, com diagnóstico de incerteza e aviso", () => {
+      const e = estadoCom([]);
+      const r = resolverRotas(e, QUARTA_12H)!.produtos[F];
+      const rest = r.rodadas[0].restante;
+      expect(Object.values(rest.presumidoPorEtapa).reduce((s, v) => s + v, 0)).toBeCloseTo(total, 4);
+      expect(Object.values(rest.confirmadoPorEtapa).reduce((s, v) => s + v, 0)).toBe(0);
+      expect(r.incertezas.length).toBeGreaterThan(0); expect(r.incertezas.join(" ")).toMatch(/PRESUMIDAS|presumidas/i); expect(r.incertezas.join(" ")).toMatch(/não confirmadas/);
+      const m = montarEntradaEscala(e, QUARTA_12H);
+      expect(m.avisos.filter((a) => a.tipo === "producao_presumida").length).toBeGreaterThan(0);
+      // o plano segue o congelado (mesmo restante que o caminho sem cobertura): presumir não muda o plano, só o RÓTULO
+      const semCob = resolverRotas(meio(), QUARTA_12H)!.produtos[F];
+      expect(r.plano.alvo.AUTO).toBeCloseTo(semCob.plano.alvo.AUTO, 4); expect(r.plano.alvo.CONV).toBeCloseTo(semCob.plano.alvo.CONV, 4);
+    });
+    it("apontamento fechado de TODOS os períodos: nada é presumido, sem incerteza e sem aviso; o executado vem do apontado", () => {
+      const e = estadoCom(cob(() => true));
+      const r = resolverRotas(e, QUARTA_12H)!.produtos[F];
+      expect(Object.values(r.rodadas[0].restante.presumidoPorEtapa).reduce((s, v) => s + v, 0)).toBe(0);
+      expect(r.incertezas).toEqual([]);
+      expect(Object.values(r.rodadas[0].restante.confirmadoPorEtapa).reduce((s, v) => s + v, 0)).toBeCloseTo(total, 4);
+      expect(montarEntradaEscala(e, QUARTA_12H).avisos.some((a) => a.tipo === "producao_presumida")).toBe(false);
+    });
+    it("metade apontada: só a metade sem apontamento é presumida (confirmado + presumido = congelado)", () => {
+      const par = (a: AlocacaoEscala) => a.data === "2026-11-02";
+      const r = resolverRotas(estadoCom(cob(par)), QUARTA_12H)!.produtos[F].rodadas[0].restante;
+      const conf = Object.values(r.confirmadoPorEtapa).reduce((s, v) => s + v, 0), pres = Object.values(r.presumidoPorEtapa).reduce((s, v) => s + v, 0);
+      expect(conf).toBeGreaterThan(0); expect(pres).toBeGreaterThan(0); expect(conf + pres).toBeCloseTo(total, 4);
+    });
+    it("SEM PRODUÇÃO registrado é zero CONHECIDO (não presumido): a AUTO que não produziu faz o futuro transferir para a CONV", () => {
+      const autoSem = cob((a) => a.etapaId === "f-rp", "sem_producao");
+      const resto = cob((a) => a.etapaId !== "f-rp");
+      const e = estadoCom([...autoSem, ...resto]);
+      const r = resolverRotas(e, QUARTA_12H)!.produtos[F];
+      const rest = r.rodadas[0].restante;
+      expect(rest.confirmadoPorEtapa["f-rp"] ?? 0).toBe(0); expect(rest.presumidoPorEtapa["f-rp"] ?? 0).toBe(0); expect(rest.semProducaoPorEtapa["f-rp"]).toBeGreaterThan(0);
+      expect(r.incertezas).toEqual([]);                                    // zero conhecido não é incerteza
+      const base0 = resolverRotas(estadoCom(cob(() => true)), QUARTA_12H)!.produtos[F];
+      expect(rest.produtoFinalExecutado).toBeLessThanOrEqual(base0.rodadas[0].restante.produtoFinalExecutado);
+    });
+  });
 });

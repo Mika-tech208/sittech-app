@@ -1,0 +1,4 @@
+a=3695 | b=bdf099f8bcca588f6b92060e426002dc | c=673 finais / 1129 nulos | k=indicadores_fechado
+a=91 | b=fe74134b725e04aed6c76c80ccbab537 | c= | k=apontado_real_fechado
+a=132 | b=22df2474c17ecfdbe0573f90adb5edaf | c= | k=indicadores_26_10_vivo
+a=11 | b=ea12107d6d2c67f4e066a1f8aa8c456b | c= | k=apontado_real_26_10_vivo

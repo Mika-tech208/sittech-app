@@ -150,3 +150,17 @@ $$;
 
 revoke all on function public.calcular_valor_atribuido_operacao(uuid, uuid, text) from public, anon, authenticated, service_role;
 grant execute on function public.calcular_valor_atribuido_operacao(uuid, uuid, text) to authenticated;
+
+-- (5) COBERTURA dos apontamentos da semana (replanejamento de produto de rotas): o que é produção CONFIRMADA (apontamento 'produzindo'), SEM PRODUÇÃO (apontamento 'sem_producao' registrado)
+-- e o que não tem apontamento nenhum (o período passou, mas nada foi registrado ⇒ PRODUÇÃO PRESUMIDA, nunca contada como Produção Real). Só o servidor (service_role) lê; somente leitura.
+-- O "Apontado Real" oficial continua vindo SÓ de apontamentos válidos (obter_apontado_real_previsao_por_semana): período sem apontamento não entra como produzido.
+create or replace function public.rotas_cobertura_apontamentos(p_semana_inicio date)
+returns table(data date, periodo_id text, maquina_id uuid, etapa_id uuid, status text, boas numeric)
+language sql stable security definer set search_path = public, pg_temp as $$
+  select a.data, a.periodo_id, a.maquina_id, a.etapa_id, a.status,
+         case when a.status = 'produzindo' then coalesce(a.quantidade_produzida, 0) - coalesce(a.quantidade_refugo, 0) else 0 end
+    from public.apontamentos_producao a
+   where a.data between p_semana_inicio and p_semana_inicio + 6 and (a.status = 'sem_producao' or a.etapa_id is not null);
+$$;
+revoke all on function public.rotas_cobertura_apontamentos(date) from public, anon, authenticated;
+grant execute on function public.rotas_cobertura_apontamentos(date) to service_role;
