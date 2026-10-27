@@ -23,10 +23,12 @@
 // e dentro de uma parte tocada o comportamento continua sendo apagar tudo
 // daquele tipo e recriar do zero (UUIDs novos a cada save).
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import type { Previsao, PrevisaoItem } from "@/types/domain";
 import { dispararProcessamentoEscala } from "@/lib/escala/disparar";
+import { useMaquinasIndisponiveisAgora } from "@/hooks/useMaquinasIndisponiveisAgora";
+import { aplicarIndisponibilidadeEfetiva } from "@/features/capacidade/indisponibilidadeEfetiva";
 
 type TipoItem = "previsto" | "realizado";
 
@@ -190,7 +192,14 @@ export function usePrevisoes(pronto: boolean) {
     return true;
   }, []);
 
-  return { previsoes, loading, erro, upsertSemana };
+  // Paradas de máquina (e bloqueios manuais da Escala) abertas agora: mesma verdade da Escala. O estado bruto `previsoes` segue só com o que está gravado.
+  const indisponiveis = useMaquinasIndisponiveisAgora(pronto);
+  const previsoesEfetivas = useMemo(
+    () => aplicarIndisponibilidadeEfetiva(previsoes, indisponiveis.ids, indisponiveis.hoje),
+    [previsoes, indisponiveis.ids, indisponiveis.hoje]
+  );
+
+  return { previsoes: previsoesEfetivas, loading, erro, upsertSemana, maquinasEmParada: indisponiveis.emParada };
 }
 
 export type PrevisoesHook = ReturnType<typeof usePrevisoes>;

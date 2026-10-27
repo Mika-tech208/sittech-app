@@ -39,6 +39,7 @@ export interface RecursoIndisponivel {
   observacao: string | null;
   desde: string;
   liberadaEm: string | null;
+  origemTipo: "manual" | "ocorrencia_maquina"; // Parada de máquina (Produção Real) ou bloqueio manual da Escala
 }
 
 export interface Nomes {
@@ -96,9 +97,10 @@ export function useEscalaProducao(pronto: boolean, semanaInicio: string) {
       funcionarios: new Map((func.data || []).map((r: { id: string; nome: string }) => [r.id, r.nome])),
     };
 
-    const indisp = await supabase.from("escala_recurso_indisponivel").select("id, maquina_id, motivo, observacao, desde, liberada_em").is("liberada_em", null).order("desde");
-    const indisponibilidades: RecursoIndisponivel[] = (indisp.data || []).map((r: { id: string; maquina_id: string; motivo: string; observacao: string | null; desde: string; liberada_em: string | null }) => ({
+    const indisp = await supabase.from("escala_recurso_indisponivel").select("id, maquina_id, motivo, observacao, desde, liberada_em, origem_tipo").is("liberada_em", null).order("desde");
+    const indisponibilidades: RecursoIndisponivel[] = (indisp.data || []).map((r: { id: string; maquina_id: string; motivo: string; observacao: string | null; desde: string; liberada_em: string | null; origem_tipo: string | null }) => ({
       id: r.id, maquinaId: r.maquina_id, motivo: r.motivo, observacao: r.observacao, desde: r.desde, liberadaEm: r.liberada_em,
+      origemTipo: r.origem_tipo === "ocorrencia_maquina" ? "ocorrencia_maquina" as const : "manual" as const,
     }));
 
     const esg = await supabase.from("escala_producao_eventos").select("id", { count: "exact", head: true }).eq("status", "erro").gte("tentativas", 3).neq("tipo", "apontamento_periodo");

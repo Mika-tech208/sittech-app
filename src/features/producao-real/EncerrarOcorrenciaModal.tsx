@@ -13,6 +13,7 @@ import type { OcorrenciaAberta } from "@/hooks/useProducaoRealPainel";
 import { mensagemErroOcorrencia } from "./calculations";
 import { formatarTempoDecorrido } from "@/lib/tempoDecorrido";
 import { notificarOcorrencia } from "@/lib/push/browserPush";
+import { dispararProcessamentoEscala } from "@/lib/escala/disparar";
 
 export interface EncerrarOcorrenciaModalProps {
   maquinaId: string;
@@ -53,6 +54,7 @@ export default function EncerrarOcorrenciaModal({ maquinaId, maquinaNome, ocorre
 
     setEtapa("confirmado");
     notificarOcorrencia(ocorrencia.id);
+    void dispararProcessamentoEscala(); // a Parada já tornou a máquina (in)disponível no banco: recalcula a Escala agora (best-effort; o outbox garante)
     onEncerrada(maquinaId);
   }
 

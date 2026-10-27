@@ -136,7 +136,8 @@ export interface Previsao {
   semanaInicio: string; // "AAAA-MM-DD", sempre segunda-feira
   itens: PrevisaoItem[];
   itensRealizados: PrevisaoItem[];
-  maquinasIndisponiveis?: string[];
+  maquinasIndisponiveis?: string[]; // EFETIVAS: marcadas na semana + com Parada/bloqueio aberto (semanas já encerradas: só as marcadas)
+  maquinasIndisponiveisManuais?: string[]; // só as marcadas na Previsão (o que o marcador manual da Capacidade regrava); ausente = iguais às efetivas
   // Datas ISO dos dias produtivos DESTA semana. undefined = semana sem
   // snapshot (ainda não gravada) — aí vale o padrão da empresa.
   diasProdutivos?: string[];
