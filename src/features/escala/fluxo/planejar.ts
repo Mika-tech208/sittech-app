@@ -14,7 +14,7 @@ import { contagensDoPlano, tabelaMarginal, varrerContagens } from "./otimizar";
 import { montarEstado, prepararFluxo, type CtxFluxo, type OpcoesInternas } from "./estado";
 import { verificarRestricoesDuras } from "./restricoes";
 import {
-  VERSAO_FLUXO, type AntesFluxo, type AvaliacaoPlano, type ChurnFluxo, type DadosProducaoReal, type DecisaoFluxo, type DepoisFluxo, type DiagnosticoFluxo, type DiagnosticoItem,
+  VERSAO_FLUXO, type AntesFluxo, type AvaliacaoPlano, type ChurnFluxo, type DadosProducaoReal, type DecisaoFluxo, type DepoisFluxo, type ResumoDecisao, type DiagnosticoFluxo, type DiagnosticoItem,
   type IteracaoFluxo, type PostoRef, type ResultadoFluxo, type TuplaObjetivo, type ViolacaoDura,
 } from "./tipos";
 
@@ -66,7 +66,7 @@ export function calcularChurn(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], retida
 
 export function tuplaObjetivo(aval: AvaliacaoPlano, churn: ChurnFluxo, ponderar: boolean): TuplaObjetivo {
   const t = aval.totais;
-  return [ponderar ? t.faltaPonderada : t.faltaFinalLo, t.faltaFinalHi, -t.capacidadeGargalo, t.wipLegadoResidual, t.excessoWip, churn.linhasAlteradas];
+  return [ponderar ? t.faltaPonderada : t.faltaFinalLo, t.faltaFinalHi, -t.capacidadeGargalo, t.wipLegadoResidual, t.excessoWip, t.capacidadeDesperdicada, churn.linhasAlteradas];
 }
 
 // lexicográfica; componentes 0–1 com tolerância mínima, os demais com tolerância de 1 peça (ruído numérico não decide)
@@ -193,7 +193,19 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     ...candidatos.map((c) => ({ indice: c.indice, tupla: c.tupla.map(r3), faltaFinalLo: c.aval.totais.faltaFinalLo, violacoes: c.violacoes.length, escolhida: usaFluxo && c.indice === final!.indice, hashPlano: c.hash })),
   ];
 
-  const decisoes = usaFluxo ? decidir(ctx, base.alocacoes, resultado.alocacoes, avBase, avFluxo) : [];
+  const todasDecisoes = usaFluxo ? decidir(ctx, base.alocacoes, resultado.alocacoes, avBase, avFluxo) : [];
+  const maxDec = Math.max(0, opcoes.maxDecisoes ?? 120);
+  const decisoes = todasDecisoes.length <= maxDec ? todasDecisoes : [...todasDecisoes].sort((a, b) => Math.abs(b.motivo.ganhoProdutoFinal) * b.quantidade - Math.abs(a.motivo.ganhoProdutoFinal) * a.quantidade || a.slot - b.slot).slice(0, maxDec).sort((a, b) => a.slot - b.slot);
+  const resumo = new Map<string, ResumoDecisao & { _s: Set<number> }>();
+  todasDecisoes.forEach((d) => {
+    const k = `${d.de.produtoId}|${d.de.etapaId}>${d.para.produtoId}|${d.para.etapaId}`;
+    const r = resumo.get(k) ?? { de: { produtoId: d.de.produtoId, etapaId: d.de.etapaId }, para: { produtoId: d.para.produtoId, etapaId: d.para.etapaId }, pessoasPeriodo: 0, slots: 0, ganhoProdutoFinal: 0, _s: new Set<number>() };
+    r.pessoasPeriodo += d.quantidade;
+    r.ganhoProdutoFinal = r3(r.ganhoProdutoFinal + d.motivo.ganhoProdutoFinal);
+    r._s.add(d.slot);
+    resumo.set(k, r);
+  });
+  const resumoDecisoes: ResumoDecisao[] = [...resumo.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([, r]) => ({ de: r.de, para: r.para, pessoasPeriodo: r.pessoasPeriodo, slots: r._s.size, ganhoProdutoFinal: r.ganhoProdutoFinal }));
   const antes = montarAntes(estado, avBase);
   const dep = (a: AvaliacaoPlano): DepoisFluxo => ({
     produtoFinalPrevisto: { lo: r3(a.totais.finalEntregueLo), hi: r3(a.totais.finalEntregueHi) },
@@ -202,7 +214,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     excessoWip: a.totais.excessoWip,
   });
   const diagnostico: DiagnosticoFluxo = {
-    versao: VERSAO_FLUXO, planoEscolhido: usaFluxo ? "fluxo" : "base", iteracaoEscolhida: usaFluxo ? final!.indice : null, theta, antes, decisoes,
+    versao: VERSAO_FLUXO, planoEscolhido: usaFluxo ? "fluxo" : "base", iteracaoEscolhida: usaFluxo ? final!.indice : null, theta, antes, decisoes, decisoesTotal: todasDecisoes.length, resumoDecisoes,
     depois: dep(avFluxo), depoisBase: dep(avBase), churn, iteracoes, violacoes, estado, avaliacaoBase: avBase, avaliacaoFluxo: avFluxo, diagnosticos: diag,
   };
   return { entradaFluxo, resultado, diagnostico };
@@ -249,7 +261,7 @@ function decidir(ctx: CtxFluxo, base: AlocacaoEscala[], novo: AlocacaoEscala[], 
         data: a.data, periodoId: a.periodoId, slot, de, para, quantidade: 0, funcionarios: [],
         motivo: {
           ganhoProdutoFinal: ganho, reducaoFalta: Math.max(0, ganho), wipConsumido: consome, wipEvitado: evita,
-          texto: `${a.data} ${a.periodoId}: ${acao}${de.maquinaId ? ` (de ${de.maquinaId} ${de.etapaId?.slice(0, 8)})` : ""}${para.maquinaId ? ` (para ${para.maquinaId} ${para.etapaId?.slice(0, 8)})` : ""}; ganho estimado ${ganho} peça(s) final(is)${consome > 0 ? `; consome ~${Math.round(consome)} de WIP existente` : ""}${evita > 0 ? `; evita ~${Math.round(evita)} de WIP excedente` : ""}`,
+          texto: `${acao}; ganho estimado ${ganho} peça(s) final(is)${consome > 0 ? `; consome ~${Math.round(consome)} de WIP existente` : ""}${evita > 0 ? `; evita ~${Math.round(evita)} de WIP excedente` : ""}`,
         },
       };
       grupos.set(k, d);

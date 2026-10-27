@@ -176,8 +176,14 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
     }
   });
 
-  // linhas congeladas (slots entre o último fechado e aPartirDe): capacidade das máquinas SEM linha apontada
-  const congeladasFut = [...entrada.congeladas, ...dados.planoVigente.filter((a) => (idxSlot.get(`${a.data}|${a.periodoId}`) ?? Infinity) >= 0 && (idxSlot.get(`${a.data}|${a.periodoId}`) ?? Infinity) < aPartirDe && !entrada.congeladas.some((c) => c.data === a.data && c.periodoId === a.periodoId && c.funcionarioId === a.funcionarioId))];
+  // linhas congeladas (slots entre o último fechado e aPartirDe): capacidade das máquinas SEM linha apontada.
+  // Fonte: entrada.congeladas + (se faltar) o plano vigente do mesmo (slot, pessoa).
+  const chaveLinha = (a: AlocacaoEscala) => `${a.data}|${a.periodoId}|${a.funcionarioId}`;
+  const jaCongeladas = new Set(entrada.congeladas.map(chaveLinha));
+  const congeladasFut = [
+    ...entrada.congeladas,
+    ...dados.planoVigente.filter((a) => (idxSlot.get(`${a.data}|${a.periodoId}`) ?? Number.POSITIVE_INFINITY) < aPartirDe && !jaCongeladas.has(chaveLinha(a))),
+  ];
   somarCapacidadeDeLinhas(capsFixas, grafo, poolsPorChave, idxSlot, congeladasFut, fator, ultimoFechado + 1, aPartirDe, ignorar);
 
   // ---- etapas (estado agregado por pool) ----
@@ -265,7 +271,7 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
       Object.assign(x, r.x);
       Object.assign(traj, r.traj);
     });
-    return { B, W, L, x, traj } as ResultadoSim;
+    return { B, W, L, x, traj, baseLeft: {}, bloqueadoPelaMeta: 0, desperdicioBase: 0 } as ResultadoSim;
   };
   const projLo = projetar(iniLo);
   const projHi = projetar(iniHi);
@@ -322,23 +328,25 @@ export function calcularDemanda(ctx: CtxFluxo): Record<string, DemandaNo> {
   Object.keys(grafo.nos).forEach((n) => (cap[n] = capacidadeFuturaDoNo(ctx, n)));
   grafo.grupos.forEach((g) => {
     const rev = [...g.nos].reverse();
-    // pipeline além do nó (estoque nas arestas à frente, repartido pelo peso do ramo)
-    const pipe: Record<string, { lo: number; hi: number }> = {};
-    const capDown: Record<string, number | null> = {};
+    // pipeline à frente do nó (estoque nas arestas à frente; sem partilha por peso: é limite superior conservador)
+    const pipeLo: Record<string, number> = {};
+    const pipeHi: Record<string, number> = {};
+    const capDown: Record<string, number | null> = {}; // capacidade (peças) das etapas seguintes, limitada pela mais lenta; ignora pessoas
     const need: Record<string, number> = {};
     rev.forEach((n) => {
       const no = grafo.nos[n];
       if (no.succ === null) {
-        pipe[n] = { lo: 0, hi: 0 };
+        pipeLo[n] = 0;
+        pipeHi[n] = 0;
         capDown[n] = null;
         need[n] = Math.max(0, no.quantidade - (ctx.iniAPartirDe.lo.B0[n] ?? 0));
         return;
       }
       const e = grafo.arestas[n];
       const s = no.succ;
-      pipe[n] = { lo: W(e.id, "lo") + e.peso * pipe[s].lo, hi: W(e.id, "hi") + e.peso * pipe[s].hi };
-      const baixo = capDown[s] === null ? cap[s].total : Math.min(cap[s].total, capDown[s] as number);
-      capDown[n] = baixo;
+      pipeLo[n] = W(e.id, "lo") + e.peso * pipeLo[s]; // para a DEMANDA a parte do estoque à frente é repartida pelo peso do ramo
+      pipeHi[n] = W(e.id, "hi") + pipeHi[s]; // para o TETO, o estoque à frente conta inteiro (conservador)
+      capDown[n] = capDown[s] === null ? cap[s].total : Math.min(cap[s].total, capDown[s] as number);
       need[n] = Math.max(0, e.peso * need[s] - W(e.id, "lo"));
     });
     rev.forEach((n) => {
@@ -348,11 +356,20 @@ export function calcularDemanda(ctx: CtxFluxo): Record<string, DemandaNo> {
         return;
       }
       const e = grafo.arestas[n];
-      const consumo = e.peso * (capDown[n] as number);
+      const m = no.succ;
+      const C = capDown[n] as number;
+      // ramos irmãos que também alimentam `m`: cada um reivindica o que consegue entregar (estoque + produção possível, limitada à sua demanda),
+      // no máximo a sua parte proporcional da capacidade. O que sobra é utilizável por este ramo (nunca menos que a sua parte proporcional).
+      let reivindicado = 0;
+      grafo.entradas[m].filter((o) => o !== e.id).forEach((o) => {
+        const eo = grafo.arestas[o];
+        reivindicado += Math.min(W(o, "hi") + Math.min(need[eo.origem], cap[eo.origem].total), eo.peso * C);
+      });
+      const consumo = Math.max(e.peso * C, C - reivindicado);
       const teto = cap[n].tetoPeriodo;
-      const allowed = Math.max(0, consumo + teto - pipe[n].hi);
+      const allowed = Math.max(0, consumo + teto - pipeHi[n]);
       const rem = Math.min(need[n], allowed);
-      out[n] = { need: need[n], allowed, consumoDownstream: consumo, teto, pipelineLo: pipe[n].lo, pipelineHi: pipe[n].hi, rem, limitadoPorUtilidade: allowed + 1e-9 < need[n] };
+      out[n] = { need: need[n], allowed, consumoDownstream: consumo, teto, pipelineLo: pipeLo[n], pipelineHi: pipeHi[n], rem, limitadoPorUtilidade: allowed + 1e-9 < need[n] };
     });
   });
   return out;
@@ -415,10 +432,12 @@ export function montarEstado(ctx: CtxFluxo): EstadoFluxo {
       const p = ctx.poolsPorChave.get(m) as PoolEscala;
       const frac = sink.quantidade > 0 ? p.quantidade / sink.quantidade : 1 / sink.membros.length;
       const R = Math.max(0, sink.quantidade - Blo);
+      void Bhi;
       produtos.push({
         produtoId: p.produtoId, etapaFinalId: p.etapaId, quantidadeFinal: p.quantidade,
         boasFinais: { lo: r1(bFech.lo.B0[g.sink] * frac), hi: r1(bFech.hi.B0[g.sink] * frac) },
-        demandaFinalRestante: r1(R * frac), demandaFinalRestanteMin: r1(Math.max(0, sink.quantidade - Bhi) * frac),
+        demandaFinalRestante: r1(Math.max(0, sink.quantidade - bFech.lo.B0[g.sink]) * frac), demandaFinalRestanteMin: r1(Math.max(0, sink.quantidade - bFech.hi.B0[g.sink]) * frac),
+        restanteEmAPartirDe: r1(R * frac),
       });
       if (R <= 1e-9) diagnosticos.push({ codigo: "DEMANDA_FINAL_ATENDIDA", severidade: "info", produtoId: p.produtoId, etapaId: p.etapaId, mensagem: "Demanda final já atendida pelo confirmado: nada a produzir" });
     });

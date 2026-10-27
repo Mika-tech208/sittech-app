@@ -78,7 +78,10 @@ function avaliarFusao(par: ParLegado, cadeias: Map<string, PoolEscala[]>, diag: 
     });
     return null;
   };
-  if (!conv || !auto) return legado("apenas um dos produtos do par está na Previsão");
+  if (!conv || !auto) {
+    diag.push({ codigo: "PRODUTO_EM_COMPORTAMENTO_LEGADO", severidade: "info", produtoId: (conv ?? auto)![0].produtoId, mensagem: `Par "${par.id}": apenas um dos produtos está na Previsão — nada a fundir, produto em comportamento legado`, detalhes: { parId: par.id } });
+    return null;
+  }
   const n = par.etapasComuns.length;
   if (n === 0) return legado("par sem etapas comuns configuradas");
   const tol = par.toleranciaMeta ?? 0.01;

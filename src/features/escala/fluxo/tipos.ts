@@ -78,6 +78,8 @@ export interface OpcoesFluxo {
   /** Inclui na avaliação a trajetória de WIP por par/slot e os marginais (mais pesado no jsonb). Default true / false. */
   incluirTrajetoria?: boolean;
   incluirMarginais?: boolean;
+  /** Máximo de decisões detalhadas no diagnóstico (default 120); o resumo agregado é sempre completo. */
+  maxDecisoes?: number;
   /** Produto único (F#CONV/F#AUTO/F#COMUM): a última etapa de `produtoOrigemId` alimenta a primeira de `produtoDestinoId`. */
   ligacoes?: LigacaoProdutos[];
   /** avaliarPlano: rem explícito (por chave do pool representante) com que o plano avaliado foi gerado (limita a produção do previsto). */
@@ -176,10 +178,12 @@ export interface EstadoProduto {
   etapaFinalId: string;
   quantidadeFinal: number; // Q_f
   boasFinais: Intervalo;
-  /** R_f = max(0, Q_f − B_f,lo) — conservador: só o confirmado reduz a meta final. */
+  /** R_f = max(0, Q_f − B_f,lo) NO CORTE (último período fechado) — conservador: só o confirmado reduz a meta final. */
   demandaFinalRestante: number;
-  /** max(0, Q_f − B_f,hi) — limite otimista (para a faixa de falta). */
+  /** max(0, Q_f − B_f,hi) no corte — limite otimista (para a faixa de falta). */
   demandaFinalRestanteMin: number;
+  /** R_f já projetado até aPartirDe (desconta o que as linhas congeladas — período em andamento/comprometido — ainda produzem): o que entra no motor. */
+  restanteEmAPartirDe: number;
 }
 
 /** Projeção do estado em `aPartirDe`: o fechado + o que as linhas congeladas (período em andamento/comprometido) ainda produzem. */
@@ -282,6 +286,8 @@ export interface TotaisAvaliacao {
   wipLegadoResidual: number;
   excessoWip: number; // Σ max(0, WIP previsto (hi) − teto derivado do par)
   capacidadeGargalo: number;
+  capacidadeDesperdicada: number; // capacidade de postos do previsto que não vira peça (sem material, sem demanda ou meta atendida) — desempate
+  excessoFinal: number; // peças do produto final que o plano produziria ALÉM da meta (capacidade desperdiçada, cenário pessimista)
 }
 
 export interface TrajetoriaWip {
@@ -354,6 +360,15 @@ export interface DecisaoFluxo {
   };
 }
 
+/** Visão compacta das decisões: por (pool de origem → pool de destino), somando todos os slots. */
+export interface ResumoDecisao {
+  de: { produtoId: string | null; etapaId: string | null };
+  para: { produtoId: string | null; etapaId: string | null };
+  pessoasPeriodo: number;
+  slots: number;
+  ganhoProdutoFinal: number;
+}
+
 export interface AntesFluxo {
   demandaRestante: Record<string, number>; // R_f por produto
   remLegado: Record<string, number>;
@@ -397,7 +412,9 @@ export interface DiagnosticoFluxo {
   iteracaoEscolhida: number | null;
   theta: number;
   antes: AntesFluxo;
-  decisoes: DecisaoFluxo[];
+  decisoes: DecisaoFluxo[]; // até `maxDecisoes` (default 120), as de maior |ganho|; ordem cronológica
+  decisoesTotal: number; // total antes do corte
+  resumoDecisoes: ResumoDecisao[]; // completo, agregado por pool de origem → destino
   depois: DepoisFluxo;
   /** Resumo do plano base avaliado pelo MESMO simulador (régua do critério E). */
   depoisBase: DepoisFluxo;
