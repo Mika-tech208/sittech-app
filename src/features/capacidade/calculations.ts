@@ -68,6 +68,21 @@ export function textoDiasPeriodos(manha: number, tarde: number): string {
   return `totalizando ${partes.join(" e mais ")}`;
 }
 
+// Horas disponíveis na semana POR máquina (id -> horas). Ausente/sem a chave = a máquina tem as horas nominais da semana (comportamento histórico, idêntico).
+export type HorasDisponiveisPorMaquina = Record<string, number>;
+export function horasDaMaquina(maquinaId: string, horasPorMaquinaSemana: number, horasPorMaquina?: HorasDisponiveisPorMaquina): number {
+  const h = horasPorMaquina?.[maquinaId];
+  return h === undefined ? horasPorMaquinaSemana : Math.max(0, h);
+}
+
+// Máquinas que podem de fato trabalhar na etapa: as com horas > 0. Se TODAS as selecionadas estão sem hora nenhuma, mantém todas (a carga aparece como gargalo total
+// em vez de sumir). Sem `horasPorMaquina` a seleção é a de sempre.
+export function idsUteis(ids: string[], horasPorMaquinaSemana: number, horasPorMaquina?: HorasDisponiveisPorMaquina): string[] {
+  if (!horasPorMaquina) return ids;
+  const uteis = ids.filter((id) => horasDaMaquina(id, horasPorMaquinaSemana, horasPorMaquina) > 0);
+  return uteis.length > 0 ? uteis : ids;
+}
+
 // Máquinas que efetivamente atendem uma etapa: as marcadas explicitamente
 // no roteiro do produto, ou — sem seleção específica — todas as ativas
 // daquela operação como reserva.
@@ -125,7 +140,8 @@ export function calcularHorasPorMaquina(
   itens: PrevisaoItem[],
   produtos: Produto[],
   periodosComDuracao: PeriodoComDuracao[],
-  horasPorMaquinaSemana: number
+  horasPorMaquinaSemana: number,
+  horasPorMaquina?: HorasDisponiveisPorMaquina // horas disponíveis na semana POR máquina (indisponibilidade efetiva); ausente = todas iguais a horasPorMaquinaSemana (comportamento anterior)
 ): HorasPorMaquina {
   interface Par {
     produtoId: string;
@@ -141,7 +157,7 @@ export function calcularHorasPorMaquina(
     (produto.roteiro || []).forEach((etapa) => {
       const tempoPorPeca = tempoPorPecaEtapa(etapa, periodosComDuracao);
       if (tempoPorPeca <= 0) return;
-      const idsSelecionadas = (it.maquinasPorEtapa || {})[etapa.id] || [];
+      const idsSelecionadas = idsUteis((it.maquinasPorEtapa || {})[etapa.id] || [], horasPorMaquinaSemana, horasPorMaquina);
       if (idsSelecionadas.length === 0) return;
       pares.push({ produtoId: it.produtoId, produtoNome: it.produtoNome, maquinasIds: idsSelecionadas, horasTotalEtapa: it.quantidade * tempoPorPeca, contribuicaoBootstrap: {} });
     });
@@ -178,7 +194,7 @@ export function calcularHorasPorMaquina(
     }
     const pesos = par.maquinasIds.map((id) => {
       const outrasCargas = (bootstrap[id] || 0) - par.contribuicaoBootstrap[id];
-      return Math.max(0.01, horasPorMaquinaSemana - outrasCargas);
+      return Math.max(0.01, horasDaMaquina(id, horasPorMaquinaSemana, horasPorMaquina) - outrasCargas);
     });
     const somaPesos = pesos.reduce((s, p) => s + p, 0);
     par.maquinasIds.forEach((id, i) => {
@@ -199,14 +215,16 @@ export function calcularAnaliseCapacidadeSemanal(
   produtos: Produto[],
   maquinas: Maquina[],
   periodosComDuracao: PeriodoComDuracao[],
-  horasPorMaquinaSemana: number
+  horasPorMaquinaSemana: number,
+  horasPorMaquina?: HorasDisponiveisPorMaquina
 ): AnaliseCapacidadeSemanal {
-  const porMaquina = calcularHorasPorMaquina(itens, produtos, periodosComDuracao, horasPorMaquinaSemana);
+  const porMaquina = calcularHorasPorMaquina(itens, produtos, periodosComDuracao, horasPorMaquinaSemana, horasPorMaquina);
 
   const listaMaquinas = Object.entries(porMaquina).map(([maquinaId, dados]) => {
     const maquina = maquinas.find((m) => m.id === maquinaId);
-    const horasDisponiveis = horasPorMaquinaSemana;
-    const pct = horasDisponiveis > 0 ? (dados.horasNecessarias / horasDisponiveis) * 100 : 0;
+    const horasDisponiveis = horasDaMaquina(maquinaId, horasPorMaquinaSemana, horasPorMaquina);
+    // máquina SEM nenhuma hora na semana (indisponibilidade efetiva) mas com carga: gargalo total (999%, sem Infinity na tela); sem horasPorMaquina o comportamento é o de sempre
+    const pct = horasDisponiveis > 0 ? (dados.horasNecessarias / horasDisponiveis) * 100 : (horasPorMaquina && dados.horasNecessarias > 0 ? 999 : 0);
     const deficit = Math.max(0, dados.horasNecessarias - horasDisponiveis);
     let status: StatusCapacidadeMaquina;
     if (pct > 100) status = "gargalo";
@@ -245,9 +263,10 @@ export function calcularCapacidadeMaximaSemana(
   produtos: Produto[],
   maquinas: Maquina[],
   periodosComDuracao: PeriodoComDuracao[],
-  horasPorMaquinaSemana: number
+  horasPorMaquinaSemana: number,
+  horasPorMaquina?: HorasDisponiveisPorMaquina
 ): CapacidadeMaximaSemana {
-  const porMaquinaCompartilhado = calcularHorasPorMaquina(itens, produtos, periodosComDuracao, horasPorMaquinaSemana);
+  const porMaquinaCompartilhado = calcularHorasPorMaquina(itens, produtos, periodosComDuracao, horasPorMaquinaSemana, horasPorMaquina);
   const horasNecessariasPorMaquina: Record<string, number> = {};
   Object.entries(porMaquinaCompartilhado).forEach(([id, dados]) => { horasNecessariasPorMaquina[id] = dados.horasNecessarias; });
 
@@ -263,7 +282,7 @@ export function calcularCapacidadeMaximaSemana(
 
   const razaoPorMaquina: Record<string, number> = {};
   maquinaIds.forEach((id) => {
-    razaoPorMaquina[id] = horasNecessariasPorMaquina[id] > 0 ? horasPorMaquinaSemana / horasNecessariasPorMaquina[id] : Infinity;
+    razaoPorMaquina[id] = horasNecessariasPorMaquina[id] > 0 ? horasDaMaquina(id, horasPorMaquinaSemana, horasPorMaquina) / horasNecessariasPorMaquina[id] : Infinity;
   });
 
   let fatorGlobal = Infinity;
@@ -284,7 +303,7 @@ export function calcularCapacidadeMaximaSemana(
     let fatorItem = 1;
     let etapaLimitante: string | null = null;
     produto.roteiro.forEach((etapa) => {
-      const idsSelecionadas = (it.maquinasPorEtapa || {})[etapa.id] || [];
+      const idsSelecionadas = idsUteis((it.maquinasPorEtapa || {})[etapa.id] || [], horasPorMaquinaSemana, horasPorMaquina);
       if (idsSelecionadas.length === 0) return;
       const fatorEtapa = Math.min(...idsSelecionadas.map((id) => (fatorReducaoPorMaquina[id] !== undefined ? fatorReducaoPorMaquina[id] : 1)));
       if (fatorEtapa < fatorItem) { fatorItem = fatorEtapa; etapaLimitante = etapa.operacao; }
@@ -297,7 +316,7 @@ export function calcularCapacidadeMaximaSemana(
   const capacidadeEstimadaReais = temGargalo ? maximoTotalReais : previstoTotalReais * fatorGlobal;
   const maquinaLimitante = maquinaLimitanteId ? maquinas.find((m) => m.id === maquinaLimitanteId) : null;
   const pctMaquinaLimitante = maquinaLimitanteId && horasNecessariasPorMaquina[maquinaLimitanteId]
-    ? (horasNecessariasPorMaquina[maquinaLimitanteId] / horasPorMaquinaSemana) * 100 : 0;
+    ? (horasNecessariasPorMaquina[maquinaLimitanteId] / Math.max(0.0001, horasDaMaquina(maquinaLimitanteId, horasPorMaquinaSemana, horasPorMaquina))) * 100 : 0;
 
   return {
     temDados: true, temGargalo, resultadosPorItem, previstoTotalReais, maximoTotalReais, capacidadeEstimadaReais,
@@ -340,7 +359,8 @@ export function calcularCapacidadeMaximaProduto(
   maquinasPorEtapa: Record<string, string[]> | undefined,
   produtos: Produto[],
   periodosComDuracao: PeriodoComDuracao[],
-  horasPorMaquinaSemana: number
+  horasPorMaquinaSemana: number,
+  horasPorMaquina?: HorasDisponiveisPorMaquina
 ): CapacidadeMaximaProduto {
   const produto = produtos.find((p) => p.id === produtoId);
   if (!produto || !(produto.roteiro || []).length) return { maxPecas: 0, gargalo: null };
@@ -350,7 +370,7 @@ export function calcularCapacidadeMaximaProduto(
     const tempoPorPeca = tempoPorPecaEtapa(etapa, periodosComDuracao);
     if (tempoPorPeca <= 0) return;
     const maquinasEscolhidas = (maquinasPorEtapa || {})[etapa.id] || [];
-    const capacidadeEtapa = maquinasEscolhidas.length * horasPorMaquinaSemana;
+    const capacidadeEtapa = maquinasEscolhidas.reduce((s, id) => s + horasDaMaquina(id, horasPorMaquinaSemana, horasPorMaquina), 0);
     const maxPorEtapa = capacidadeEtapa / tempoPorPeca;
     if (maxPorEtapa < maxPecas) {
       maxPecas = maxPorEtapa;
@@ -365,9 +385,10 @@ export function calcularViabilidadeItem(
   it: Pick<PrevisaoItem, "produtoId" | "maquinasPorEtapa" | "quantidade">,
   produtos: Produto[],
   periodosComDuracao: PeriodoComDuracao[],
-  horasPorMaquinaSemana: number
+  horasPorMaquinaSemana: number,
+  horasPorMaquina?: HorasDisponiveisPorMaquina
 ): ViabilidadeItem {
-  const { maxPecas, gargalo } = calcularCapacidadeMaximaProduto(it.produtoId, it.maquinasPorEtapa, produtos, periodosComDuracao, horasPorMaquinaSemana);
+  const { maxPecas, gargalo } = calcularCapacidadeMaximaProduto(it.produtoId, it.maquinasPorEtapa, produtos, periodosComDuracao, horasPorMaquinaSemana, horasPorMaquina);
   return {
     atingivel: maxPecas >= it.quantidade,
     maxPecas,
@@ -411,11 +432,12 @@ export function calcularItensSemanaAgregados(itens: PrevisaoItem[]): ItemSemanaA
 export function calcularCapacidadeInicialPorMaquina(
   maquinas: Maquina[],
   maquinasIndisponiveis: string[],
-  horasPorMaquinaSemana: number
+  horasPorMaquinaSemana: number,
+  horasPorMaquina?: HorasDisponiveisPorMaquina // indisponibilidade com janela (Parada/bloqueio): a máquina entra com as horas que REALMENTE tem na semana
 ): Record<string, number> {
   const map: Record<string, number> = {};
   maquinas.forEach((m) => {
-    if (m.ativo && !(maquinasIndisponiveis || []).includes(m.id)) map[m.id] = horasPorMaquinaSemana;
+    if (m.ativo && !(maquinasIndisponiveis || []).includes(m.id)) map[m.id] = horasDaMaquina(m.id, horasPorMaquinaSemana, horasPorMaquina);
   });
   return map;
 }

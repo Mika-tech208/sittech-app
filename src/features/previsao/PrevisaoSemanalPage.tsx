@@ -10,6 +10,8 @@ import { useOperacoesComId } from "@/hooks/useOperacoesComId";
 import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
+import { useCausasIndisponibilidadeSemana } from "@/hooks/useCausasIndisponibilidadeSemana";
+import { calcularHorasPorMaquinaDaSemana, periodosProdutivosDaSemana } from "@/features/capacidade/disponibilidadeSemana";
 import { useCustos } from "@/hooks/useCustos";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import LoginScreen from "@/components/shell/LoginScreen";
@@ -123,6 +125,20 @@ export default function PrevisaoSemanalPage() {
     [semanaAtualRec, diasUteisSemana]
   );
   const horasPorMaquinaSemana = calcularHorasPorMaquinaSemana(horasPorDiaCalc, diasProdutivos.length);
+  // Disponibilidade EFETIVA das máquinas na semana (mesma verdade da Escala): inativa/marcada na semana = 0 h; Parada/bloqueio = perde só os períodos que a causa intersecta;
+  // semana encerrada ou sem nenhuma indisponibilidade = undefined (números idênticos aos de sempre).
+  const causasSemana = useCausasIndisponibilidadeSemana(auth.autenticado, semanaAtual, previsoesHook.hoje);
+  const periodosProdutivos = useMemo(() => periodosProdutivosDaSemana(diasProdutivos, periodosComDuracao), [diasProdutivos, periodosComDuracao]);
+  const horasPorMaquina = useMemo(
+    () => (previsoesHook.hoje
+      ? calcularHorasPorMaquinaDaSemana({
+          maquinas, semanaInicio: semanaAtual, hojeIso: previsoesHook.hoje,
+          indisponiveisNaSemana: semanaAtualRec.maquinasIndisponiveisManuais ?? semanaAtualRec.maquinasIndisponiveis ?? [],
+          causas: causasSemana, periodos: periodosProdutivos, horasPorMaquinaSemana,
+        })
+      : undefined),
+    [previsoesHook.hoje, maquinas, semanaAtual, semanaAtualRec, causasSemana, periodosProdutivos, horasPorMaquinaSemana]
+  );
   const equipeProdutiva = useMemo(
     () => resolverEquipeProdutiva(semanaAtualRec, elegiveisHook.funcionarios),
     [semanaAtualRec, elegiveisHook.funcionarios]
@@ -177,12 +193,12 @@ export default function PrevisaoSemanalPage() {
 
   // ---- análise de capacidade (mesmas funções puras testadas no Checkpoint 1/1.5) ----
   const analiseCapacidadeSemana = useMemo(
-    () => calcularAnaliseCapacidadeSemanal(itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana),
-    [itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana]
+    () => calcularAnaliseCapacidadeSemanal(itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, horasPorMaquina),
+    [itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, horasPorMaquina]
   );
   const capacidadeMaximaSemana = useMemo(
-    () => calcularCapacidadeMaximaSemana(itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana),
-    [itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana]
+    () => calcularCapacidadeMaximaSemana(itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, horasPorMaquina),
+    [itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, horasPorMaquina]
   );
 
   // ---- consolidação por produto: Previsto / Possível / Apontado real / Falta / % ----
@@ -446,7 +462,7 @@ export default function PrevisaoSemanalPage() {
                 )}
                 <div>
                   <button className="stx-prev-pill-btn" onClick={() => baixarProgramacaoSemanaPDF({
-                    semanaAtual, semanaAtualRec, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana,
+                    semanaAtual, semanaAtualRec, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, horasPorMaquina,
                     duracaoMediaPeriodo, diasProdutivosSemana: diasProdutivos.length, equipeProdutivaCount, getLucroHora,
                   })}>Exportar PDF</button>
                   <p className="stx-prev-pdf-hint">Cmd/Ctrl+P → Salvar como PDF</p>
@@ -616,6 +632,7 @@ export default function PrevisaoSemanalPage() {
                   maquinas={maquinas}
                   periodosComDuracao={periodosComDuracao}
                   horasPorMaquinaSemana={horasPorMaquinaSemana}
+                  horasPorMaquina={horasPorMaquina}
                   semana={semanaAtualRec}
                   showForm={showPrevItemForm}
                   setShowForm={setShowPrevItemForm}

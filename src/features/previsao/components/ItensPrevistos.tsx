@@ -3,6 +3,7 @@
 import {
   calcularViabilidadeItem, calcularFuncionariosTotalSemana, calcularMaquinasDaEtapa, encontrarSelecoesInvalidas,
 } from "@/features/capacidade/calculations";
+import type { HorasDisponiveisPorMaquina } from "@/features/capacidade/calculations";
 import { toNumber } from "@/lib/format";
 import type { Produto, Maquina, Previsao, PrevisaoItem, PeriodoComDuracao } from "@/types/domain";
 import type { AnaliseCapacidadeSemanal } from "@/features/capacidade/types";
@@ -19,6 +20,7 @@ export interface ItensPrevistosProps {
   maquinas: Maquina[];
   periodosComDuracao: PeriodoComDuracao[];
   horasPorMaquinaSemana: number;
+  horasPorMaquina?: HorasDisponiveisPorMaquina; // disponibilidade efetiva por máquina (indisponibilidade); ausente = nominal
   semana: Previsao;
   showForm: boolean;
   setShowForm: (v: boolean) => void;
@@ -42,7 +44,7 @@ export interface ItensPrevistosProps {
 // "Itens previstos" — formulário (com viabilidade ao vivo, seleção de
 // máquina por etapa) + lista dos itens já lançados na semana.
 export default function ItensPrevistos({
-  loading, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, semana,
+  loading, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, horasPorMaquina, semana,
   showForm, setShowForm, editingId, form, onSelecionarProduto, onQuantidadeChange, onToggleMaquina,
   onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, equipeProdutivaCount, formatBRL,
 }: ItensPrevistosProps) {
@@ -52,7 +54,7 @@ export default function ItensPrevistos({
   const viabAoVivo = form.produtoId && produtoSel && roteiroSel.length > 0
     ? calcularViabilidadeItem(
         { produtoId: form.produtoId, quantidade: toNumber(form.quantidade), maquinasPorEtapa: form.maquinasPorEtapa },
-        produtos, periodosComDuracao, horasPorMaquinaSemana
+        produtos, periodosComDuracao, horasPorMaquinaSemana, horasPorMaquina
       )
     : null;
 
@@ -178,7 +180,7 @@ export default function ItensPrevistos({
         <div className="stx-empty">Nenhum item lançado nessa semana ainda.</div>
       ) : (
         semana.itens.map((it) => {
-          const viab = calcularViabilidadeItem(it, produtos, periodosComDuracao, horasPorMaquinaSemana);
+          const viab = calcularViabilidadeItem(it, produtos, periodosComDuracao, horasPorMaquinaSemana, horasPorMaquina);
           const maquinasDoItem = new Set(Object.values(it.maquinasPorEtapa || {}).flat());
           const gargalosQueAfetam = analise.gargalos.filter((g) => maquinasDoItem.has(g.maquinaId));
           const produtoDoItem = produtos.find((p) => p.id === it.produtoId);
