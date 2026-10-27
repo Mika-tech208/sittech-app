@@ -1,6 +1,8 @@
 // Progresso da semana na Previsão — Previsto / Possível / APONTADO REAL / Falta / % concluído / valores em R$. Funções puras.
 //
-// FONTE ÚNICA DO ANDAMENTO: o APONTADO REAL (Produção Real; só a produção boa da ÚLTIMA etapa válida do produto — ver apontadoReal.ts). O "Realizado" digitado à mão
+// VIGÊNCIA: estas funções valem SÓ para semanas >= APONTADO_REAL_PROGRESSO_DESDE (vigencia.ts); semanas anteriores usam progressoLegado.ts (Realizado manual).
+//
+// FONTE ÚNICA DO ANDAMENTO (nas semanas em vigência): o APONTADO REAL (Produção Real; só a produção boa da ÚLTIMA etapa válida do produto — ver apontadoReal.ts). O "Realizado" digitado à mão
 // (previsao_itens, tipo='realizado') NÃO entra em nenhum número daqui — nunca se soma um ao outro (uma peça final apontada entra uma única vez).
 // Possível (capacidade/atingibilidade) é outro conceito: vem pronto de calcularCapacidadeMaximaSemana e nunca se mistura com andamento.
 //
@@ -11,7 +13,9 @@
 // - Mesmo produto em dois itens da mesma semana: o apontado do produto é distribuído em sequência (cada item até o seu previsto; o excesso fica no último) — soma uma única vez.
 // - apontado indisponível (carregando/erro) => null: a tela mostra "—", nunca um 0 inventado.
 
-import type { PrevisaoItem } from "@/types/domain";
+import type { Previsao, PrevisaoItem } from "@/types/domain";
+import { calcularHistoricoSemanas } from "@/features/capacidade/calculations";
+import { metodologiaDaSemana, type MetodologiaSemana } from "@/features/previsao/vigencia";
 import type { ResultadoItemCapacidadeMaxima } from "@/features/capacidade/types";
 
 export type ApontadoPorProduto = Map<string, { apontadoReal: number; ambiguoPecas: number }>;
@@ -131,27 +135,28 @@ export function calcularProdutosNaoPrevistos(
     .sort((a, b) => a.produtoNome.localeCompare(b.produtoNome, "pt-BR"));
 }
 
-export interface HistoricoSemanaApontado {
+export interface HistoricoSemanaLinha {
   semanaInicio: string;
+  metodologia: MetodologiaSemana;
   previsto: number; // R$
-  realizado: number | null; // R$ (apontado real × preço congelado); null = ainda carregando/indisponível
+  realizado: number | null; // R$ — legado: Realizado manual; apontado_real: apontado real × preço congelado (null = ainda carregando/indisponível)
   pct: number | null; // R$ realizado / R$ previsto
 }
 
-// Histórico semanal: mesma regra da semana atual, semana a semana, com o preço congelado de cada semana.
-export function calcularHistoricoApontado(
-  semanas: { semanaInicio: string; itens: PrevisaoItem[] }[],
-  apontadoPorSemana: Map<string, ApontadoPorProduto>
-): HistoricoSemanaApontado[] {
-  return [...semanas]
-    .filter((s) => s.itens.length > 0)
-    .sort((a, b) => a.semanaInicio.localeCompare(b.semanaInicio))
-    .map((s) => {
-      const previsto = s.itens.reduce((t, it) => t + it.quantidade * it.valorUnitario, 0);
-      const mapa = apontadoPorSemana.get(s.semanaInicio);
-      if (!mapa) return { semanaInicio: s.semanaInicio, previsto, realizado: null, pct: null };
-      const alocado = alocarApontado(s.itens, mapa);
-      const realizado = s.itens.reduce((t, it) => t + (alocado.get(it.id) ?? 0) * it.valorUnitario, 0);
-      return { semanaInicio: s.semanaInicio, previsto, realizado, pct: previsto > 0 ? (realizado / previsto) * 100 : null };
-    });
+// Histórico semanal: CADA LINHA escolhe a metodologia pela PRÓPRIA semana (vigencia.ts), nunca pela data de hoje.
+// - semana < APONTADO_REAL_PROGRESSO_DESDE: a linha é exatamente a do cálculo histórico (calcularHistoricoSemanas, Realizado manual) — o passado não é reescrito
+//   e apontamentos lançados depois para essas semanas não a alteram (o Apontado real nem é consultado para elas).
+// - semana >= desde: apontado real × preço CONGELADO dos itens daquela semana.
+export function calcularHistoricoSemanal(previsoes: Previsao[], apontadoPorSemana: Map<string, ApontadoPorProduto>): HistoricoSemanaLinha[] {
+  const itensDaSemana = new Map(previsoes.map((p) => [p.semanaInicio, p.itens]));
+  return calcularHistoricoSemanas(previsoes).map((h) => {
+    const metodologia = metodologiaDaSemana(h.semanaInicio);
+    if (metodologia === "legado") return { ...h, metodologia };
+    const mapa = apontadoPorSemana.get(h.semanaInicio);
+    if (!mapa) return { semanaInicio: h.semanaInicio, metodologia, previsto: h.previsto, realizado: null, pct: null };
+    const itens = itensDaSemana.get(h.semanaInicio) ?? [];
+    const alocado = alocarApontado(itens, mapa);
+    const realizado = itens.reduce((t, it) => t + (alocado.get(it.id) ?? 0) * it.valorUnitario, 0);
+    return { semanaInicio: h.semanaInicio, metodologia, previsto: h.previsto, realizado, pct: h.previsto > 0 ? (realizado / h.previsto) * 100 : null };
+  });
 }

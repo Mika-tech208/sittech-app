@@ -1,0 +1,112 @@
+// METODOLOGIA HISTÓRICA (Realizado manual) — cópia fiel do cálculo anterior à feature do Apontado real, usada SOMENTE para semanas anteriores a
+// APONTADO_REAL_PROGRESSO_DESDE (ver vigencia.ts). Não editar: é o que preserva o histórico exatamente como era mostrado. O Apontado real aparece
+// aqui apenas como a coluna DIAGNÓSTICA de sempre e não participa de Falta, % nem do financeiro.
+// Consolidação por produto — Previsto / Possível / Realizado / Falta / %
+// concluído. Funções puras: nenhuma fórmula de capacidade é recalculada
+// aqui (Possível vem pronto de calcularCapacidadeMaximaSemana), nenhuma
+// fórmula de Performance é usada — só cruza previsão × realizado por
+// produto_id.
+//
+// Fonte do Realizado (decisão de negócio revertida — ver
+// PrevisaoSemanalPage.tsx): os "Itens realizados" (previsao_itens,
+// tipo='realizado') lançados manualmente na própria Previsão Semanal —
+// NÃO apontamentos_producao / Produção Real. `quantidade` ali já é peças
+// físicas (não R$ — R$ é quantidade × valor_unitario), ligado por
+// produto_id (nunca nome). Pode haver mais de um lançamento do mesmo
+// produto na mesma semana — soma todos.
+//
+// Falta e % concluído seguem a regra pedida:
+// - falta = max(0, previsto - realizado) — nunca negativo.
+// - concluidoPct = realizado / previsto * 100, SEM teto em 100 (produção
+//   acima do previsto aparece como >100%); previsto 0 -> null (N/A).
+
+import type { PrevisaoItem } from "@/types/domain";
+import type { ResultadoItemCapacidadeMaxima } from "@/features/capacidade/types";
+
+export interface ProdutoProgramadoLegado {
+  itemId: string;
+  produtoId: string;
+  produtoNome: string;
+  previsto: number;
+  possivel: number;
+  realizado: number;
+  falta: number;
+  concluidoPct: number | null;
+  // DIAGNÓSTICO (Produção Real, última etapa do roteiro): NÃO participa de falta, % nem de nenhum cálculo. null = ainda indisponível.
+  apontadoReal: number | null;
+  apontadoAmbiguoPecas: number; // peças de apontamentos com roteiro alterado (não contadas)
+}
+
+export function calcularProdutosProgramadosLegado(
+  itens: PrevisaoItem[],
+  resultadosCapacidade: ResultadoItemCapacidadeMaxima[],
+  realizadoPorProduto: Map<string, number>,
+  apontadoPorProduto: Map<string, { apontadoReal: number; ambiguoPecas: number }> | null = null
+): ProdutoProgramadoLegado[] {
+  return itens.map((it) => {
+    const resultado = resultadosCapacidade.find((r) => r.itemId === it.id);
+    const possivel = resultado ? resultado.maximoPossivel : it.quantidade;
+    const realizado = realizadoPorProduto.get(it.produtoId) || 0;
+    const falta = Math.max(0, it.quantidade - realizado);
+    const concluidoPct = it.quantidade > 0 ? (realizado / it.quantidade) * 100 : null;
+    const ap = apontadoPorProduto ? (apontadoPorProduto.get(it.produtoId) ?? { apontadoReal: 0, ambiguoPecas: 0 }) : null;
+    return { itemId: it.id, produtoId: it.produtoId, produtoNome: it.produtoNome, previsto: it.quantidade, possivel, realizado, falta, concluidoPct, apontadoReal: ap ? ap.apontadoReal : null, apontadoAmbiguoPecas: ap ? ap.ambiguoPecas : 0 };
+  });
+}
+
+export interface ResumoProgramacaoPecasLegado {
+  totalPrevisto: number;
+  totalPossivel: number;
+  totalRealizado: number;
+  totalFalta: number;
+  concluidoPct: number | null;
+  totalApontadoReal: number | null; // diagnóstico; produto distinto conta uma vez; null = indisponível
+  totalApontadoAmbiguoPecas: number;
+}
+
+// Soma simples de peças dos produtos PREVISTOS (não inclui produção fora
+// da previsão — ver calcularProdutosNaoPrevistosLegado) — indicador de
+// acompanhamento, não de capacidade (somar peças de produtos diferentes
+// não representa uso de capacidade fabril). totalPossivel/totalFalta
+// somam exatamente os mesmos campos por-produto que ProdutoProgramadoLegado já
+// carrega (nenhuma fórmula nova, mesmo reduce já usado em
+// totalPrevisto/totalRealizado) — só pra composição visual mostrar os
+// quatro totais lado a lado (Previsto/Possível/Realizado/Falta).
+export function calcularResumoProgramacaoPecasLegado(produtos: ProdutoProgramadoLegado[]): ResumoProgramacaoPecasLegado {
+  const totalPrevisto = produtos.reduce((s, p) => s + p.previsto, 0);
+  const totalPossivel = produtos.reduce((s, p) => s + p.possivel, 0);
+  const totalRealizado = produtos.reduce((s, p) => s + p.realizado, 0);
+  const totalFalta = produtos.reduce((s, p) => s + p.falta, 0);
+  const concluidoPct = totalPrevisto > 0 ? (totalRealizado / totalPrevisto) * 100 : null;
+  const comApontado = produtos.length > 0 && produtos.every((p) => p.apontadoReal !== null);
+  const unicos = new Map(produtos.map((p) => [p.produtoId, p])); // dois itens previstos do mesmo produto não duplicam o apontado
+  const totalApontadoReal = comApontado ? [...unicos.values()].reduce((s, p) => s + (p.apontadoReal ?? 0), 0) : null;
+  const totalApontadoAmbiguoPecas = [...unicos.values()].reduce((s, p) => s + p.apontadoAmbiguoPecas, 0);
+  return { totalPrevisto, totalPossivel, totalRealizado, totalFalta, concluidoPct, totalApontadoReal, totalApontadoAmbiguoPecas };
+}
+
+export interface ProdutoNaoPrevistoLegado {
+  produtoId: string;
+  produtoNome: string;
+  realizado: number;
+}
+
+// Produtos com item realizado na semana que não fazem parte da previsão
+// atual — puramente informativo (não atribui, não altera nenhum número
+// previsto). Ver relatório final: não existia regra de negócio definida
+// pra isso antes desta etapa. Vários lançamentos do mesmo produto fora da
+// previsão também são somados entre si.
+export function calcularProdutosNaoPrevistosLegado(
+  itensPrevistos: PrevisaoItem[],
+  itensRealizados: PrevisaoItem[]
+): ProdutoNaoPrevistoLegado[] {
+  const previstosIds = new Set(itensPrevistos.map((it) => it.produtoId));
+  const porProduto = new Map<string, ProdutoNaoPrevistoLegado>();
+  itensRealizados.forEach((it) => {
+    if (previstosIds.has(it.produtoId) || it.quantidade <= 0) return;
+    const atual = porProduto.get(it.produtoId);
+    if (atual) atual.realizado += it.quantidade;
+    else porProduto.set(it.produtoId, { produtoId: it.produtoId, produtoNome: it.produtoNome, realizado: it.quantidade });
+  });
+  return Array.from(porProduto.values());
+}
