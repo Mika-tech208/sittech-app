@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { calcularApontadoReal, totalApontadoReal, type LinhaApontadoEtapa } from "../apontadoReal";
-import { calcularProdutosProgramados, calcularResumoProgramacaoPecas } from "../realizado";
 import type { PrevisaoItem } from "@/types/domain";
 
 // roteiro A (3 etapas): e1 Cortar(0) > e2 Montar(1) > e3 Embalar(2). Linhas AGRUPADAS como o banco devolve (produto, etapa, operação gravada).
@@ -67,31 +66,7 @@ describe("roteiro alterado depois do lançamento: ambíguo é REPORTADO, nunca c
   });
 });
 
-describe("Previsão: a nova coluna NÃO muda Realizado, Falta nem %", () => {
-  const item = (id: string, produtoId: string, qtd: number): PrevisaoItem => ({ id, produtoId, produtoNome: produtoId, valorUnitario: 1, quantidade: qtd });
-  it("falta e % continuam usando o Realizado manual; apontado real é só informativo", () => {
-    const itens = [item("i1", "A", 1000), item("i2", "B", 500)];
-    const sem = calcularProdutosProgramados(itens, [], new Map([["A", 100]]));
-    const com = calcularProdutosProgramados(itens, [], new Map([["A", 100]]), new Map([["A", { apontadoReal: 800, ambiguoPecas: 0 }], ["B", { apontadoReal: 300, ambiguoPecas: 20 }]]));
-    expect(com.map((p) => [p.falta, p.concluidoPct, p.realizado])).toEqual(sem.map((p) => [p.falta, p.concluidoPct, p.realizado]));
-    expect(com.map((p) => p.apontadoReal)).toEqual([800, 300]);
-    expect(sem.every((p) => p.apontadoReal === null)).toBe(true); // indisponível => "—", nunca 0 inventado
-    const r = calcularResumoProgramacaoPecas(com);
-    expect(r.totalApontadoReal).toBe(1100);
-    expect(r.totalRealizado).toBe(100);
-    expect(r.totalFalta).toBe(900 + 500 - 0);
-    expect(r.totalApontadoAmbiguoPecas).toBe(20);
-  });
-  it("produto sem nenhuma linha de apontamento mostra 0 (e não entra como linha nova); o mesmo produto em 2 itens não duplica o total", () => {
-    const itens = [item("i1", "A", 10), item("i2", "A", 20)];
-    const mapa = new Map([["A", { apontadoReal: 80, ambiguoPecas: 0 }]]);
-    const prog = calcularProdutosProgramados(itens, [], new Map(), mapa);
-    expect(prog.map((p) => p.apontadoReal)).toEqual([80, 80]);
-    expect(calcularResumoProgramacaoPecas(prog).totalApontadoReal).toBe(80);
-    const sozinho = calcularProdutosProgramados([item("i9", "Z", 5)], [], new Map(), new Map());
-    expect(sozinho).toHaveLength(1);
-    expect(sozinho[0].apontadoReal).toBe(0);
-  });
+describe("totalApontadoReal", () => {
   it("totalApontadoReal soma por produto distinto", () => {
     const m = calcularApontadoReal([linha({ etapaId: "e3", etapaOrdem: 2, boas: 80 })]);
     expect(totalApontadoReal(["A", "A", "X"], m)).toEqual({ apontadoReal: 80, ambiguoPecas: 0 });
