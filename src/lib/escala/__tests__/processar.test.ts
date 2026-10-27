@@ -194,6 +194,8 @@ describe("processarSemana (orquestração)", () => {
     const p = chamadas.payloads[0];
     expect(p.removerDias).toEqual([D1]);
     expect(p.alocacoes.every((a) => a.data === D2)).toBe(true);
-    expect(p.aPartirDeData).toBe(D2);
+    // o corte é o 1º período que ainda não começou, inclusive os do dia removido (D1 às 09:00: M3 é o primeiro) — o futuro do dia removido some, o iniciado fica
+    expect(p.aPartirDeData).toBe(D1);
+    expect(p.aPartirDePeriodo).toBe("m3");
   });
 });
