@@ -17,7 +17,7 @@ import { NextResponse } from "next/server";
 import { criarClienteAdmin } from "@/lib/supabase-admin";
 import { autorizarWorker } from "@/lib/escala/autorizacaoWorker";
 import { drenarOutbox } from "@/lib/escala/supabaseIO";
-import { revalidarDisponibilidadeMaquinas } from "@/lib/escala/revalidarDisponibilidade";
+import { revalidarDisponibilidade } from "@/lib/escala/revalidarDisponibilidade";
 import { processarSombraDoServidor } from "@/lib/escala/sombraSupabase";
 import { executarFechamentoAutomatico, portaSupabase } from "@/lib/escala-relatorio/fechamentoAutomatico";
 
@@ -47,7 +47,7 @@ async function drenar(request: Request) {
     }
     // Disponibilidade das máquinas (Parada/bloqueio): reconcilia e, na janela de cada período, confere a invariante ANTES de drenar — o evento
     // que isto registrar é processado nesta mesma execução. Idempotente e sem mudança = nada; nunca lança.
-    const disponibilidade = await revalidarDisponibilidadeMaquinas(admin, Date.now());
+    const disponibilidade = await revalidarDisponibilidade(admin, Date.now());
     const resumo = await drenarOutbox(admin, Date.now());
     if (resumo.esgotados > 0) console.error(`escala/drenar: ${resumo.esgotados} evento(s) esgotaram as tentativas`);
     const sombra = await processarSombraDoServidor(admin, Date.now()); // fechamento de períodos (modo sombra); nunca lança

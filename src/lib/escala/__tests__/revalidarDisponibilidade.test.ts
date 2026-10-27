@@ -61,7 +61,7 @@ describe("revalidarDisponibilidadeMaquinas — idempotente, sem mudança = nada"
   it("12:55 sem violações e sem mudança: NO-OP (nenhum evento => nenhuma versão nova)", async () => {
     const { cliente, chamadas } = admin({});
     const r = await revalidarDisponibilidadeMaquinas(cliente, agora("12:55"));
-    expect(chamadas).toEqual(["escala_reconciliar_indisponibilidades", "escala_violacoes_disponibilidade"]);
+    expect(chamadas).toEqual(["escala_reconciliar_indisponibilidades", "escala_violacoes_disponibilidade", "escala_divergencias_funcionarios"]); // máquinas + funcionários na mesma janela
     expect(r).toMatchObject({ dentroDaJanela: true, violacoes: 0, eventosRegistrados: 0 });
   });
   it("checagem repetida (três vezes) sem mudança continua sem registrar nada", async () => {
@@ -79,10 +79,11 @@ describe("revalidarDisponibilidadeMaquinas — idempotente, sem mudança = nada"
     expect((await revalidarDisponibilidadeMaquinas(admin({}).cliente, agora("12:57"))).dentroDaJanela).toBe(true);
     expect((await revalidarDisponibilidadeMaquinas(admin({}).cliente, agora("13:20"))).dentroDaJanela).toBe(false);
   });
-  it("falha da reconciliação: não lança, registra o erro e NÃO registra nada que 'libere' máquina", async () => {
+  it("falha da reconciliação: não lança, registra o erro e as invariantes seguem sendo conferidas (nada é 'liberado' por falta de resposta)", async () => {
     const { cliente, chamadas } = admin({ erroReconciliar: true });
     const r = await revalidarDisponibilidadeMaquinas(cliente, agora("12:55"));
     expect(r.erro).toContain("escala_reconciliar_indisponibilidades");
-    expect(chamadas).toEqual(["escala_reconciliar_indisponibilidades"]);
+    expect(chamadas).toContain("escala_violacoes_disponibilidade");
+    expect(chamadas.filter((c) => c === "escala_registrar_evento")).toEqual([]);
   });
 });

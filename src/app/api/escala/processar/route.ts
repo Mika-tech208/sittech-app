@@ -18,7 +18,7 @@ import { criarClienteAdmin } from "@/lib/supabase-admin";
 import { autenticarRequisicaoIntelligence } from "@/features/intelligence/auth";
 import { processarEventosPendentes } from "@/lib/escala/supabaseIO";
 import { processarSombraDoServidor } from "@/lib/escala/sombraSupabase";
-import { revalidarDisponibilidadeMaquinas } from "@/lib/escala/revalidarDisponibilidade";
+import { revalidarDisponibilidade } from "@/lib/escala/revalidarDisponibilidade";
 
 export const runtime = "nodejs";
 
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
 
   try {
     const admin = criarClienteAdmin();
-    const disponibilidade = await revalidarDisponibilidadeMaquinas(admin, Date.now()); // idempotente; nunca lança; só age se algo mudou
+    const disponibilidade = await revalidarDisponibilidade(admin, Date.now()); // idempotente; nunca lança; só age se algo mudou
     const resumo = await processarEventosPendentes(admin, Date.now());
     const sombra = await processarSombraDoServidor(admin, Date.now()); // modo sombra: nunca altera a Escala oficial; nunca lança
     return NextResponse.json({ ok: true, ...resumo, disponibilidade, sombra });
