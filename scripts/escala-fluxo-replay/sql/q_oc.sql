@@ -1,0 +1,2 @@
+select o.id::text id, o.maquina_id::text maquina_id, m.nome maquina, o.tipo, extract(epoch from o.aberta_em)*1000 aberta_ms, extract(epoch from o.encerrada_em)*1000 encerrada_ms, to_char(o.aberta_em at time zone 'America/Sao_Paulo','MM-DD HH24:MI') aberta, to_char(o.encerrada_em at time zone 'America/Sao_Paulo','MM-DD HH24:MI') encerrada
+from ocorrencias_maquina o join maquinas m on m.id=o.maquina_id where o.aberta_em >= '2026-10-25' order by o.aberta_em;
