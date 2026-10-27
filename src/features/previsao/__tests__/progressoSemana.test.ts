@@ -27,6 +27,7 @@ describe("Falta, % e total — Apontado real é a fonte", () => {
     const r = calcularResumoProgramacaoPecas([p]);
     expect(r.totalFalta).toBe(0);
     expect(r.concluidoPct).toBe(105);
+    expect([p.excedente, r.totalExcedente, r.itensComExcedente]).toEqual([500, 500, 1]);
   });
   it("C) apontado 0 => falta = previsto, 0%", () => {
     const [p] = calcularProdutosProgramados([item("i", "A", 500)], [], ap({ A: 0 }));
@@ -40,7 +41,7 @@ describe("Falta, % e total — Apontado real é a fonte", () => {
     const r = calcularResumoProgramacaoPecas([p]);
     expect([r.totalApontadoReal, r.totalFalta, r.concluidoPct, r.valorRealizado, r.valorFalta]).toEqual([null, null, null, null, null]);
   });
-  it("totais da semana: previsto 335.775, apontado 62.359 => falta 273.416 e 18,6%", () => {
+  it("totais da semana: previsto 335.775, apontado 62.359 => falta 273.416 (soma das faltas) e 18,6%", () => {
     const itens = [item("1", "A", 200000), item("2", "B", 135775)];
     const r = calcularResumoProgramacaoPecas(calcularProdutosProgramados(itens, [], ap({ A: 40000, B: 22359 })));
     expect(r.totalPrevisto).toBe(335775);
@@ -53,12 +54,20 @@ describe("Falta, % e total — Apontado real é a fonte", () => {
     expect([p.previsto, p.possivel, p.apontadoReal]).toEqual([335775, 316649, 62359]);
     expect(p.falta).toBe(335775 - 62359); // não 316649 - 62359
   });
-  it("total: falta total = previsto total − apontado total (excesso de um produto abate o total, linhas continuam >= 0)", () => {
-    const prog = calcularProdutosProgramados([item("1", "A", 1000), item("2", "B", 1000)], [], ap({ A: 1500, B: 400 }));
-    expect(prog.map((p) => p.falta)).toEqual([0, 600]);
+  it("FALTA TOTAL = soma das faltas por produto: excesso de A NÃO compensa falta de B (10.000/12.000 e 10.000/5.000 => 5.000, não 3.000)", () => {
+    const prog = calcularProdutosProgramados([item("1", "A", 10000), item("2", "B", 10000)], [], ap({ A: 12000, B: 5000 }));
+    expect(prog.map((p) => p.falta)).toEqual([0, 5000]);
+    expect(prog.map((p) => p.excedente)).toEqual([2000, 0]);
     const r = calcularResumoProgramacaoPecas(prog);
-    expect(r.totalFalta).toBe(100);
-    expect(r.somaFaltasPorProduto).toBe(600);
+    expect(r.totalFalta).toBe(5000);
+    expect(r.totalApontadoReal).toBe(17000);
+    expect(r.concluidoPct).toBe(85); // % geral continua apontado total / previsto total
+    expect([r.totalExcedente, r.itensComExcedente]).toEqual([2000, 1]);
+  });
+  it("% geral pode passar de 100% (acima do previsto no total), e a falta total continua só dos itens que faltam", () => {
+    const r = calcularResumoProgramacaoPecas(calcularProdutosProgramados([item("1", "A", 10000), item("2", "B", 10000)], [], ap({ A: 20000, B: 5000 })));
+    expect(r.concluidoPct).toBe(125);
+    expect(r.totalFalta).toBe(5000);
   });
   it("L/16) nunca soma Realizado manual: o cálculo nem recebe o manual, e dois itens do mesmo produto contam o apontado UMA vez", () => {
     expect(calcularProdutosProgramados.length).toBe(3);
@@ -102,19 +111,26 @@ describe("regra de etapa final (cadeia banco -> apontado -> Previsão)", () => {
 });
 
 describe("valores em R$ — preço congelado do item da Previsão", () => {
-  it("I/K) R$ previsto = Σ qtd × preço congelado; realizado = Σ apontado × preço congelado; falta = max(prev − real, 0); preço do cadastro é irrelevante", () => {
+  it("I/K) R$ previsto = Σ qtd × preço congelado; realizado = Σ apontado × preço congelado; falta R$ = Σ (falta do item × preço congelado); preço do cadastro é irrelevante", () => {
     const itens = [item("1", "A", 1000, 0.18), item("2", "B", 500, 2)]; // preços congelados na Previsão
     const mapa = ap({ A: 400, B: 100 });
     const r = calcularResumoProgramacaoPecas(calcularProdutosProgramados(itens, [], mapa));
     expect(r.valorPrevisto).toBeCloseTo(180 + 1000, 6);
     expect(r.valorRealizado).toBeCloseTo(72 + 200, 6);
-    expect(r.valorFalta).toBeCloseTo(1180 - 272, 6);
+    expect(r.valorFalta).toBeCloseTo(600 * 0.18 + 400 * 2, 6);
     expect(r.concluidoValorPct).toBeCloseTo((272 / 1180) * 100, 6);
     // o cadastro do produto mudou depois (preço novo): a função nem recebe o cadastro => o histórico da semana não muda
     const depoisDeMudarCadastro = calcularResumoProgramacaoPecas(calcularProdutosProgramados(itens, [], mapa));
     expect(depoisDeMudarCadastro.valorRealizado).toBe(r.valorRealizado);
   });
-  it("R$ acima do previsto: realizado > previsto => falta R$ 0 (nunca negativa)", () => {
+  it("FALTA R$ total = soma das faltas financeiras por produto: excesso (em R$) de A não abate a falta de B", () => {
+    const prog = calcularProdutosProgramados([item("1", "A", 10000, 1), item("2", "B", 10000, 0.5)], [], ap({ A: 12000, B: 5000 }));
+    expect(prog.map((p) => p.valorFalta)).toEqual([0, 2500]);
+    const r = calcularResumoProgramacaoPecas(prog);
+    expect(r.valorFalta).toBe(2500); // não max(15000 - 14500, 0) = 500
+    expect(r.valorRealizado).toBe(12000 + 2500);
+  });
+  it("R$ acima do previsto num produto único: falta R$ 0 (nunca negativa)", () => {
     const r = calcularResumoProgramacaoPecas(calcularProdutosProgramados([item("1", "A", 100, 2)], [], ap({ A: 150 })));
     expect([r.valorRealizado, r.valorFalta]).toEqual([300, 0]);
   });
