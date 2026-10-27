@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { calcularApontadoReal, totalApontadoReal, type LinhaApontadoEtapa } from "../apontadoReal";
-import type { PrevisaoItem } from "@/types/domain";
 
 // roteiro A (3 etapas): e1 Cortar(0) > e2 Montar(1) > e3 Embalar(2). Linhas AGRUPADAS como o banco devolve (produto, etapa, operação gravada).
 const OP = { cortar: "op-cortar", montar: "op-montar", embalar: "op-embalar", etiq: "op-etiq" };

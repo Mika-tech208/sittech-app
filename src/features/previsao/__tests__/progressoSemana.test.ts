@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { calcularApontadoReal, type LinhaApontadoEtapa } from "../apontadoReal";
-import { calcularProdutosProgramados, calcularResumoProgramacaoPecas, calcularProdutosNaoPrevistos, calcularHistoricoApontado } from "../progressoSemana";
+import { calcularProdutosProgramados, calcularResumoProgramacaoPecas, calcularProdutosNaoPrevistos, calcularHistoricoSemanal } from "../progressoSemana";
 import { formatPct } from "../formatPct";
-import type { PrevisaoItem } from "@/types/domain";
+import { metodologiaDaSemana, APONTADO_REAL_PROGRESSO_DESDE } from "../vigencia";
+import { calcularHistoricoSemanas } from "@/features/capacidade/calculations";
+import { calcularProdutosProgramadosLegado, calcularResumoProgramacaoPecasLegado } from "../progressoLegado";
+import type { Previsao, PrevisaoItem } from "@/types/domain";
 
 const item = (id: string, produtoId: string, qtd: number, preco = 1): PrevisaoItem => ({ id, produtoId, produtoNome: produtoId, valorUnitario: preco, quantidade: qtd });
 const ap = (m: Record<string, number>) => new Map(Object.entries(m).map(([k, v]) => [k, { apontadoReal: v, ambiguoPecas: 0 }]));
@@ -134,12 +137,6 @@ describe("valores em R$ — preço congelado do item da Previsão", () => {
     const r = calcularResumoProgramacaoPecas(calcularProdutosProgramados([item("1", "A", 100, 2)], [], ap({ A: 150 })));
     expect([r.valorRealizado, r.valorFalta]).toEqual([300, 0]);
   });
-  it("histórico semanal: usa o preço congelado de cada semana e o apontado dela; semana sem dados => null", () => {
-    const semanas = [{ semanaInicio: "2026-10-19", itens: [item("1", "A", 100, 2)] }, { semanaInicio: "2026-10-26", itens: [item("2", "A", 100, 3)] }];
-    const h = calcularHistoricoApontado(semanas, new Map([["2026-10-19", ap({ A: 50 })]]));
-    expect(h[0]).toMatchObject({ semanaInicio: "2026-10-19", previsto: 200, realizado: 100, pct: 50 });
-    expect(h[1]).toMatchObject({ semanaInicio: "2026-10-26", previsto: 300, realizado: null, pct: null });
-  });
 });
 
 describe("produzido fora da previsão", () => {
@@ -150,5 +147,70 @@ describe("produzido fora da previsão", () => {
     expect(fora).toEqual([{ produtoId: "B", produtoNome: "Produto B", apontadoReal: 40 }]);
     expect(calcularResumoProgramacaoPecas(calcularProdutosProgramados(itens, [], mapa)).totalApontadoReal).toBe(5);
     expect(calcularProdutosNaoPrevistos(itens, null, new Map())).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------
+// VIGÊNCIA: semanas < 26/10/2026 = metodologia histórica (Realizado manual); semana 26/10 e futuras = Apontado real. Nunca "semana atual".
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------
+const previsao = (semanaInicio: string, itens: PrevisaoItem[], manual: PrevisaoItem[] = []): Previsao => ({ semanaInicio, itens, itensRealizados: manual, maquinasIndisponiveis: [] });
+
+describe("vigência: regra explícita por semana", () => {
+  it("constante documentada e corte exato", () => {
+    expect(APONTADO_REAL_PROGRESSO_DESDE).toBe("2026-10-26");
+    expect(metodologiaDaSemana("2026-08-24")).toBe("legado");
+    expect(metodologiaDaSemana("2026-10-19")).toBe("legado");
+    expect(metodologiaDaSemana("2026-10-26")).toBe("apontado_real");
+    expect(metodologiaDaSemana("2026-11-02")).toBe("apontado_real");
+    expect(metodologiaDaSemana("2027-03-01")).toBe("apontado_real");
+  });
+});
+
+describe("Histórico semanal: cada linha escolhe a metodologia pela PRÓPRIA semana", () => {
+  const manual19 = [item("m1", "A", 6000, 2)]; // Realizado manual de 19/10: 6.000 × R$ 2
+  const prev = [
+    previsao("2026-10-19", [item("a1", "A", 10000, 2)], manual19),
+    previsao("2026-10-26", [item("b1", "A", 10000, 2)], [item("m2", "A", 9999, 2)]), // manual da semana nova existe mas NÃO conta
+    previsao("2026-11-02", [item("c1", "A", 1000, 3)]),
+  ];
+  const mapas = new Map([["2026-10-19", ap({ A: 9000 })], ["2026-10-26", ap({ A: 2500 })], ["2026-11-02", ap({ A: 400 })]]);
+
+  it("19/10 usa Realizado manual (idêntico ao cálculo histórico), 26/10 e futura usam Apontado real", () => {
+    const h = calcularHistoricoSemanal(prev, mapas);
+    expect(h[0]).toMatchObject({ semanaInicio: "2026-10-19", metodologia: "legado", previsto: 20000, realizado: 12000, pct: 60 }); // 6.000 × 2 manual, NÃO 9.000 × 2
+    expect(h[1]).toMatchObject({ semanaInicio: "2026-10-26", metodologia: "apontado_real", previsto: 20000, realizado: 5000, pct: 25 }); // 2.500 × 2 apontado
+    expect(h[2]).toMatchObject({ semanaInicio: "2026-11-02", metodologia: "apontado_real", previsto: 3000, realizado: 1200, pct: 40 });
+  });
+  it("as linhas legadas são EXATAMENTE as do cálculo histórico anterior à feature (mesma função, mesmos números)", () => {
+    const antigo = calcularHistoricoSemanas(prev);
+    const novo = calcularHistoricoSemanal(prev, mapas);
+    antigo.filter((x) => x.semanaInicio < APONTADO_REAL_PROGRESSO_DESDE).forEach((x) => {
+      const n = novo.find((y) => y.semanaInicio === x.semanaInicio)!;
+      expect([n.previsto, n.realizado, n.pct]).toEqual([x.previsto, x.realizado, x.pct]);
+    });
+  });
+  it("apontamentos lançados HOJE para uma semana antiga NÃO alteram o Histórico antigo", () => {
+    const antes = calcularHistoricoSemanal(prev, mapas);
+    const depois = calcularHistoricoSemanal(prev, new Map([...mapas, ["2026-10-19", ap({ A: 99999 })]]));
+    expect(depois[0]).toEqual(antes[0]);
+    const semMapaNenhum = calcularHistoricoSemanal(prev, new Map());
+    expect(semMapaNenhum[0]).toEqual(antes[0]); // o apontado nem é necessário para semanas antigas
+  });
+  it("semana em vigência sem apontado carregado => '—' (null), nunca 0 inventado; legado não depende disso", () => {
+    const h = calcularHistoricoSemanal(prev, new Map());
+    expect([h[1].realizado, h[1].pct]).toEqual([null, null]);
+    expect(h[0].realizado).toBe(12000);
+  });
+});
+
+describe("semanas anteriores à vigência: metodologia histórica preservada (Realizado manual; Apontado real só diagnóstico)", () => {
+  const itens = [item("i1", "A", 1000), item("i2", "B", 500)];
+  it("Falta e % continuam usando o Realizado manual; o apontado real não os altera", () => {
+    const sem = calcularProdutosProgramadosLegado(itens, [], new Map([["A", 100]]));
+    const com = calcularProdutosProgramadosLegado(itens, [], new Map([["A", 100]]), new Map([["A", { apontadoReal: 800, ambiguoPecas: 0 }], ["B", { apontadoReal: 300, ambiguoPecas: 20 }]]));
+    expect(com.map((p) => [p.falta, p.concluidoPct, p.realizado])).toEqual(sem.map((p) => [p.falta, p.concluidoPct, p.realizado]));
+    expect(com.map((p) => p.falta)).toEqual([900, 500]);
+    const r = calcularResumoProgramacaoPecasLegado(com);
+    expect([r.totalRealizado, r.totalFalta, r.totalApontadoReal]).toEqual([100, 1400, 1100]);
   });
 });
