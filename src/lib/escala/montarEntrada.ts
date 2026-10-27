@@ -18,8 +18,10 @@ import { wipDiasLimiteDaSemana } from "@/features/escala/parametros";
 import { calcularLimitesWip } from "@/features/escala/wip";
 import { dataNoFusoSP, planejamentoDaSemana, type PlanejamentoWip } from "@/features/escala/wipSaldo";
 import type { AvisoMontagem, EstadoBruto, SnapshotWipParaGravar } from "./estado";
+import { resolverRotas, type ResolucaoRotas } from "@/features/rotas/resolucao";
 
 export interface EntradaMontada {
+  rotas?: ResolucaoRotas;               // só quando a semana tem produto de rotas: divisão, rodadas do feedback e estado projetado
   entrada: EntradaEscala;
   periodosPorDia: Map<string, PeriodoEscala[]>;
   diasExistentesPorData: Map<string, { versao: number }>;
@@ -28,7 +30,15 @@ export interface EntradaMontada {
   snapshotsWip: SnapshotWipParaGravar[]; // fotos de abertura a gravar (semana já aberta, ainda sem foto)
 }
 
+// Ponto único de entrada do motor. Semana só de produtos LINEARES (sem `estado.rotas`): vai direto à montagem de sempre, sem nenhuma mudança. Semana com produto de ROTAS: a divisão AUTO/CONV
+// é resolvida (planejador + feedback do motor) e o motor recebe as cadeias virtuais; assim TODOS os consumidores (orquestrador, simulação de cobertura, sombra, limites de WIP) tratam F do mesmo jeito.
 export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): EntradaMontada {
+  const rotas = estado.rotas ? resolverRotas(estado, agoraMs) : null;
+  if (!rotas) return montarEntradaBase(estado, agoraMs);
+  return { ...montarEntradaBase(rotas.estadoVirtual, agoraMs), rotas };
+}
+
+export function montarEntradaBase(estado: EstadoBruto, agoraMs: number): EntradaMontada {
   const avisos: AvisoMontagem[] = [];
   const existentes = new Map(estado.diasExistentes.map((d) => [d.data, d]));
   const produtivos = new Set(estado.diasProdutivos);

@@ -1,0 +1,1 @@
+finais=2 | k=indicadores_sintetico | linhas=7 | nulos=0 | v=166803dbe96ccdb1c08635f014faae74

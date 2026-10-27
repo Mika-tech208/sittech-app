@@ -11,7 +11,8 @@ import { PERIODOS_DO_DIA, type AnaliseCapacidadeRotas, type CapacidadeEtapa, typ
 const EPS = 1e-9;
 
 // horas de calendário de UMA máquina na semana = Σ durações dos períodos × dias produtivos
-export function horasMaquinaSemana(ctx: Pick<ContextoCapacidade, "periodos" | "diasProdutivos">): number {
+export function horasMaquinaSemana(ctx: Pick<ContextoCapacidade, "periodos" | "diasProdutivos" | "ocorrenciasPorPeriodo">): number {
+  if (ctx.ocorrenciasPorPeriodo) return ctx.periodos.reduce((s, p) => s + (p.minutos / 60) * (ctx.ocorrenciasPorPeriodo?.[p.id] ?? 0), 0);   // replanejamento: só os períodos que ainda vão acontecer
   return (ctx.periodos.reduce((s, p) => s + p.minutos, 0) / 60) * ctx.diasProdutivos;
 }
 
@@ -34,6 +35,12 @@ export function capacidadeEtapa(etapa: EtapaCadastro, ctx: ContextoCapacidade, m
   const maquinas = (maquinasSelecionadas ?? etapa.maquinasIds).filter((m) => etapa.maquinasIds.includes(m) && !indisp.has(m));
   const livres = maquinas.map((m) => Math.max(0, horas - (ctx.horasComprometidasPorMaquina?.[m] ?? 0)));
   const porMaquina: Record<string, number> = {};
+  if (ctx.ocorrenciasPorPeriodo) {
+    // semana PARCIAL: peças por máquina = Σ meta do período × ocorrências restantes (exato, sem supor períodos uniformes), proporcional à folga da máquina
+    const cheia = PERIODOS_DO_DIA.reduce((s, id) => s + Number(etapa.metas[id] ?? 0) * (ctx.ocorrenciasPorPeriodo?.[id] ?? 0), 0);
+    maquinas.forEach((m, i) => { porMaquina[m] = horas > 0 ? cheia * (livres[i] / horas) : 0; });
+    return { etapaId: etapa.id, operacao: etapa.operacao, pecas: maquinas.reduce((s, m) => s + porMaquina[m], 0), porMaquina };
+  }
   maquinas.forEach((m, i) => { porMaquina[m] = t > 0 ? livres[i] / t : 0; });
   // aritmética idêntica à do legado (n × horas ÷ tempo/peça) quando todas as máquinas têm a mesma folga — a equivalência é EXATA, não aproximada
   const horasTotais = livres.length > 0 && livres.every((x) => x === livres[0]) ? livres.length * livres[0] : livres.reduce((s, x) => s + x, 0);

@@ -157,7 +157,10 @@ function linhaParaProduto(p: ProdutoRow): Produto {
 export async function buscarProdutos(supabase: SupabaseClient): Promise<Produto[] | ErroConsulta> {
   const { data, error } = await supabase.from("produtos").select(PRODUTO_COM_ROTEIRO_SELECT).eq("ativo", true);
   if (error) return { erro: error.message };
-  return ((data || []) as unknown as ProdutoRow[]).map(linhaParaProduto);
+  // Produto de ROTAS não é lido como cadeia linear (duplicaria demanda e custo): fica fora destas leituras até haver versão por rota. Sem a tabela/sem produtos de rotas, o filtro é vazio.
+  const rotas = await supabase.from("produto_rota").select("produto_id");
+  const comRotas = new Set(rotas.error ? [] : (rotas.data || []).map((r) => r.produto_id as string));
+  return ((data || []) as unknown as ProdutoRow[]).filter((p) => !comRotas.has(p.id)).map(linhaParaProduto);
 }
 
 // ---------------------------------------------------------------------

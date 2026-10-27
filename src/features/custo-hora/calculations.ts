@@ -6,6 +6,7 @@
 // Previsão e Capacidade importam calcularCustoHoraEOperacoes (e
 // calcularMargemProduto) DAQUI — não duplicar a fórmula em outro arquivo.
 
+import { custoDoProdutoDeRotas } from "@/features/rotas/produtoCusto";
 import { toNumber } from "@/lib/format";
 import type { FixedCost, Funcionario, Produto, PeriodoComDuracao } from "@/types/domain";
 import type { ResumoOperacao, CustoHoraEOperacoes } from "@/features/custo-hora/types";
@@ -144,11 +145,16 @@ export interface IndicadoresProducao {
 }
 
 export function calcularIndicadoresProducao(
-  produto: Pick<Produto, "roteiro">,
+  produto: Pick<Produto, "roteiro"> & Partial<Pick<Produto, "estruturaRotas" | "valorUnitario">>,
   custoHoraPorOperacao: Record<string, number>,
   custoHoraEmpresa: number,
   periodosComDuracao: PeriodoComDuracao[]
 ): IndicadoresProducao {
+  // Produto de ROTAS: o roteiro NÃO é uma cadeia (somar todas as etapas somaria CONV + AUTO + comum). Custo = rota de referência (maior custo final) = exclusivo da rota + comum, uma vez.
+  if (produto.estruturaRotas) {
+    const c = custoDoProdutoDeRotas({ roteiro: produto.roteiro, estruturaRotas: produto.estruturaRotas, valorUnitario: produto.valorUnitario ?? 0 }, custoHoraPorOperacao, custoHoraEmpresa, periodosComDuracao);
+    if (c) return { custo: c.referencia.final, tempoTotalHoras: c.tempoPorPecaReferencia };
+  }
   const roteiro = produto.roteiro || [];
   let custo = 0;
   let tempoTotalHoras = 0;

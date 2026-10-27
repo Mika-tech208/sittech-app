@@ -3,6 +3,8 @@
 // outbox de eventos. Nada de regra de negócio aqui — só I/O.
 
 import { carregarRotasDoEstado, gravarDivisaoRotas } from "./rotasIO";
+import { producaoBoas } from "./wipIO";
+import { carregarCustoHora } from "@/lib/custo/custoHoraDados";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { agregarHistoricoEquidade, JANELA_EQUIDADE_DIAS } from "@/features/escala/equidade";
 import { lerParametros } from "@/features/escala/parametros";
@@ -153,6 +155,14 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
 
       // produtos de ROTAS na semana (M3): só existe quando algum item da Previsão for de rotas; semana linear = undefined (nenhuma mudança)
       const rotas = await carregarRotasDoEstado(admin, [...new Set(itensBrutos.map((i) => i.produtoId))]);
+      // custo/hora REAL (mesma fonte e mesma fórmula da tela): a divisão AUTO/CONV por custo no servidor decide igual à prévia. Só é lido quando há produto de rotas.
+      if (rotas) { const c = await carregarCustoHora(admin); rotas.custoHoraPorOperacao = c.custoHoraPorOperacao; rotas.custoHoraPadrao = c.custoHoraEmpresa;
+        // Produção Real BOA da semana por etapa (feedback do replanejamento): só etapas que já têm apontamento; as demais valem o planejado congelado
+        const etapasF = Object.values(rotas.estruturas).flatMap((e) => [...e.rotas.flatMap((r) => r.etapas), ...(e.poolComum?.etapas ?? [])]);
+        const real = await producaoBoas(admin, etapasF, prev.semana_inicio);
+        const fim = somarDias(prev.semana_inicio, 6); const pr: Record<string, number> = {};
+        real.filter((x) => x.data >= prev.semana_inicio && x.data <= fim).forEach((x) => { pr[x.etapaId] = (pr[x.etapaId] ?? 0) + x.boas; });
+        rotas.producaoReal = pr; }
 
       return {
         previsaoId,

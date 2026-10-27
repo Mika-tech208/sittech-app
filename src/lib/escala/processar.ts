@@ -9,7 +9,7 @@
 import { gerarEscala } from "@/features/escala/gerarEscala";
 import { AVISO_PRIMEIRA_GERACAO, type AlertaEscala } from "@/features/escala/types";
 import { reverterResultado } from "@/features/rotas/adaptador";
-import { registrosDeDivisao, resolverRotas, type RegistroDivisao } from "@/features/rotas/resolucao";
+import { registrosDeDivisao, type RegistroDivisao } from "@/features/rotas/resolucao";
 import { montarEntradaEscala } from "./montarEntrada";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento, type SnapshotWipParaGravar } from "./estado";
 
@@ -50,8 +50,8 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
     }
 
     // PRODUTO DE ROTAS (M3): divisão AUTO/CONV com feedback da Escala; o motor recebe cadeias virtuais e tudo volta ao produto real. Semana sem produto de rotas: `null` — nada muda.
-    const rotas = resolverRotas(estado, opcoes.agoraMs);
-    const montada = montarEntradaEscala(rotas ? rotas.estadoVirtual : estado, opcoes.agoraMs);
+    const montada = montarEntradaEscala(estado, opcoes.agoraMs);
+    const rotas = montada.rotas ?? null;
     const { entrada } = montada;
 
     if (entrada.pools.length === 0 && estado.diasExistentes.length === 0) {

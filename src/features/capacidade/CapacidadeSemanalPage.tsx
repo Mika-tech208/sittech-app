@@ -1,5 +1,7 @@
 "use client";
 
+import { expandirItensDeRotas, ehItemVirtual } from "@/features/rotas/dominio";
+import ResumoProdutoRotas from "@/features/rotas/ResumoProdutoRotas";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthSession } from "@/hooks/useAuthSession";
@@ -104,17 +106,22 @@ export default function CapacidadeSemanalPage() {
   const metaSemanalUsaPrevisto = resumoSemana.valorPrevisto > 0;
   const metaSemanalFinal = metaSemanalUsaPrevisto ? resumoSemana.valorPrevisto : faturamentoSemanalNecessario;
 
-  const itensSemanaAgregados = useMemo(() => calcularItensSemanaAgregados(semanaAtualRec.itens), [semanaAtualRec]);
+  // Produto de ROTAS: cadeias consistentes só para o cálculo (a conta legada o veria duplicado); sem produto de rotas devolve as mesmas referências
+  const expansaoRotas = useMemo(
+    () => expandirItensDeRotas({ itens: semanaAtualRec.itens, produtos, periodosComDuracao, diasProdutivos: diasProdutivosSemana.length, maquinasIndisponiveis: semanaAtualRec.maquinasIndisponiveis, custoHoraPorOperacao, custoHoraEmpresa }),
+    [semanaAtualRec, produtos, periodosComDuracao, diasProdutivosSemana.length, custoHoraPorOperacao, custoHoraEmpresa]
+  );
+  const itensSemanaAgregados = useMemo(() => calcularItensSemanaAgregados(expansaoRotas.itens), [expansaoRotas]);
   const capacidadeInicialPorMaquina = useMemo(
     () => calcularCapacidadeInicialPorMaquina(maquinas, semanaAtualRec.maquinasIndisponiveis || [], horasPorMaquinaSemana),
     [maquinas, horasPorMaquinaSemana, semanaAtualRec]
   );
   const alocacaoSemanal = useMemo(
     () => calcularAlocacaoSemanal(
-      itensSemanaAgregados, semanaAtualRec.itens, produtos, capacidadeInicialPorMaquina, periodosComDuracao, maquinas, operacoes,
+      itensSemanaAgregados, expansaoRotas.itens, expansaoRotas.produtos, capacidadeInicialPorMaquina, periodosComDuracao, maquinas, operacoes,
       horasPorMaquinaSemana, duracaoMediaPeriodo, getLucroHora
     ),
-    [itensSemanaAgregados, semanaAtualRec, produtos, capacidadeInicialPorMaquina, periodosComDuracao, custoHoraPorOperacao, custoHoraEmpresa, maquinas, operacoes, horasPorMaquinaSemana, duracaoMediaPeriodo]
+    [itensSemanaAgregados, expansaoRotas, capacidadeInicialPorMaquina, periodosComDuracao, custoHoraPorOperacao, custoHoraEmpresa, maquinas, operacoes, horasPorMaquinaSemana, duracaoMediaPeriodo]
   );
 
   // ---- estatísticas do resumo — puras contagens/somas sobre alocacaoSemanal
@@ -123,11 +130,16 @@ export default function CapacidadeSemanalPage() {
   // alocada (subconjunto mais severo de comDeficit, mesmo dado já presente
   // em resultados[].quantidadeAlocada/quantidade). "Horas ociosas" = soma
   // do restante>0 de usoPorOperacao, já calculado por operação.
-  const capAtendidosCount = alocacaoSemanal.resumo.atendidos.length;
-  const capComDeficitCount = alocacaoSemanal.resumo.comDeficit.length;
+  // as cadeias internas do produto de rotas NÃO aparecem como produtos: ele tem o seu painel próprio (ResumoProdutoRotas)
+  const resultadosVisiveis = useMemo(() => alocacaoSemanal.resultados.filter((r) => !ehItemVirtual(r.produtoId)), [alocacaoSemanal]);
+  const atendidosVisiveis = alocacaoSemanal.resumo.atendidos.filter((r) => !ehItemVirtual(r.produtoId));
+  const comDeficitVisiveis = alocacaoSemanal.resumo.comDeficit.filter((r) => !ehItemVirtual(r.produtoId));
+  const previasRotas = [...expansaoRotas.previas.entries()].map(([itemId, previa]) => ({ item: semanaAtualRec.itens.find((i) => i.id === itemId), previa })).filter((x) => x.item);
+  const capAtendidosCount = atendidosVisiveis.length + previasRotas.filter((x) => x.previa.plano.falta <= 0).length;
+  const capComDeficitCount = comDeficitVisiveis.length + previasRotas.filter((x) => x.previa.plano.falta > 0).length;
   const capForaDaAlocacaoCount = useMemo(
-    () => alocacaoSemanal.resultados.filter((r) => r.quantidade > 0 && r.quantidadeAlocada === 0).length,
-    [alocacaoSemanal]
+    () => resultadosVisiveis.filter((r) => r.quantidade > 0 && r.quantidadeAlocada === 0).length,
+    [resultadosVisiveis]
   );
   const capHorasOciosas = useMemo(
     () => alocacaoSemanal.usoPorOperacao.reduce((s, u) => s + Math.max(0, u.restante), 0),
@@ -267,15 +279,15 @@ export default function CapacidadeSemanalPage() {
           ) : (
             <>
               <div className="stx-cap-resumo">
-                {alocacaoSemanal.resumo.atendidos.length > 0 && (
+                {atendidosVisiveis.length > 0 && (
                   <p className="stx-cap-resumo-linha">
                     <span className="stx-cap-resumo-icone on">✓</span>
                     <span>
-                      <b>{alocacaoSemanal.resumo.atendidos.map((r) => r.produtoNome).join(", ")}</b> {alocacaoSemanal.resumo.atendidos.length > 1 ? "foram priorizados" : "foi priorizado"} e saem 100% da previsão — {alocacaoSemanal.resumo.atendidos.length > 1 ? "são" : "é"} quem dá mais lucro por hora de máquina usada.
+                      <b>{atendidosVisiveis.map((r) => r.produtoNome).join(", ")}</b> {atendidosVisiveis.length > 1 ? "foram priorizados" : "foi priorizado"} e saem 100% da previsão — {alocacaoSemanal.resumo.atendidos.length > 1 ? "são" : "é"} quem dá mais lucro por hora de máquina usada.
                     </span>
                   </p>
                 )}
-                {alocacaoSemanal.resumo.comDeficit.map((r) => (
+                {comDeficitVisiveis.map((r) => (
                   <p className="stx-cap-resumo-linha" key={r.produtoId}>
                     <span className="stx-cap-resumo-icone danger">✕</span>
                     <span>
@@ -294,7 +306,7 @@ export default function CapacidadeSemanalPage() {
                     </span>
                   </p>
                 )}
-                {alocacaoSemanal.resumo.comDeficit.length === 0 && alocacaoSemanal.resumo.operacoesComSobra.length === 0 && (
+                {comDeficitVisiveis.length === 0 && previasRotas.every((x) => x.previa.plano.falta <= 0) && alocacaoSemanal.resumo.operacoesComSobra.length === 0 && (
                   <p className="stx-cap-resumo-linha">
                     <span className="stx-cap-resumo-icone on">✓</span>
                     <span>Capacidade batendo certinho com a previsão dessa semana, sem sobra nem falta relevante.</span>
@@ -321,6 +333,8 @@ export default function CapacidadeSemanalPage() {
                 </div>
               </div>
 
+              {previasRotas.map((x) => <ResumoProdutoRotas key={x.item!.id} nome={x.item!.produtoNome} previsto={x.item!.quantidade} previa={x.previa} />)}
+
               <div className="stx-cap-grid">
                 <div className="stx-cap-primary">
                   <div className="stx-cap-section">
@@ -335,7 +349,7 @@ export default function CapacidadeSemanalPage() {
                       <span className="num">Alocado</span>
                       <span className="num">Situação</span>
                     </div>
-                    {alocacaoSemanal.resultados.map((r) => (
+                    {resultadosVisiveis.map((r) => (
                       <div className="stx-cap-table-row" key={r.produtoId}>
                         <span>{r.produtoNome}</span>
                         <span className="num">{r.produto ? `R$ ${getLucroHora(r.produto).toFixed(0)}` : "—"}</span>

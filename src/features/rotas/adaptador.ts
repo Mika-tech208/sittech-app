@@ -10,6 +10,7 @@ import type { EstruturaProduto } from "./tipos";
 
 export const SEPARADOR_VIRTUAL = "#";
 export const CADEIA_COMUM = "COMUM";
+export const ROTULO_CADEIA: Record<string, string> = { CONV: "rota convencional", AUTO: "rota automática", COMUM: "fluxo comum" };   // só rótulo discreto: a cadeia nunca é produto
 export const idVirtual = (produtoId: string, cadeia: string) => `${produtoId}${SEPARADOR_VIRTUAL}${cadeia}`;
 export const ehVirtual = (produtoId: string | null | undefined) => !!produtoId && produtoId.includes(SEPARADOR_VIRTUAL);
 export const produtoRealDe = (produtoId: string) => (ehVirtual(produtoId) ? produtoId.slice(0, produtoId.indexOf(SEPARADOR_VIRTUAL)) : produtoId);
@@ -23,8 +24,10 @@ export function cadeiasDe(estrutura: EstruturaProduto): CadeiaVirtual[] {
 }
 
 export interface PlanoDoProduto {
-  alvo: Record<string, number>;   // entrega de cada rota ao pool comum
-  final: number;                   // produto final planejado (= quantidade da cadeia comum)
+  alvo: Record<string, number>;   // entrega de cada rota ao pool comum (do que AINDA falta planejar; semana inteira quando nada foi executado)
+  final: number;                   // produto final planejado (do que AINDA falta)
+  comum?: number;                  // quanto a cadeia comum precisa processar (≥ final quando há saldo entre etapas); ausente = final
+  base?: Record<string, number>;   // replanejamento: créditos JÁ congelados de cada cadeia (o motor subtrai por etapa) — somam-se ao que falta
 }
 
 // estado do motor com os produtos de rotas projetados em cadeias virtuais; sem produto de rotas devolve o MESMO objeto (linear intacto)
@@ -48,22 +51,30 @@ export function projetarEstado(estado: EstadoBruto, planos: Record<string, Plano
     const valorUnitario = Math.max(...doProduto.map((i) => i.valorUnitario));
     const etapasDoProduto = new Map(estado.etapas.filter((e) => e.produtoId === pid).map((e) => [e.id, e]));
     cadeiasDe(estr).forEach((c) => {
-      const quantidade = c.cadeia === CADEIA_COMUM ? plano.final : plano.alvo[c.cadeia] ?? 0;
+      const futuro = c.cadeia === CADEIA_COMUM ? plano.comum ?? plano.final : plano.alvo[c.cadeia] ?? 0;
+      const quantidade = futuro <= 1e-9 ? 0 : (plano.base?.[c.cadeia] ?? 0) + futuro;   // o motor desconta os créditos congelados de cada etapa: o total da cadeia = congelado + o que falta
       c.etapas.forEach((id, indice) => virtualDaEtapa.set(`${pid}|${id}`, { produto: idVirtual(pid, c.cadeia), cadeia: c.cadeia, indice }));
       if (quantidade <= 1e-9) return;                                     // cadeia sem entrega planejada: nem entra no motor
       const maquinasPorEtapa: Record<string, string[]> = {};
       c.etapas.forEach((id) => { if ((selecao[id] ?? []).length > 0) maquinasPorEtapa[id] = selecao[id]; });
       itens.push({ produtoId: idVirtual(pid, c.cadeia), quantidade, valorUnitario, maquinasPorEtapa });   // sem adicional: o adicional/WIP de F fica para o M4
       c.etapas.forEach((id, indice) => { const e = etapasDoProduto.get(id); if (e) etapas.push({ ...e, produtoId: idVirtual(pid, c.cadeia), ordem: indice }); });
-      nomesProdutos[idVirtual(pid, c.cadeia)] = `${estado.nomesProdutos?.[pid] ?? pid} (cadeia interna ${c.cadeia})`;
+      nomesProdutos[idVirtual(pid, c.cadeia)] = `${estado.nomesProdutos?.[pid] ?? pid} · ${ROTULO_CADEIA[c.cadeia] ?? c.cadeia}`;
     });
   });
 
+  // limite de estoque pela necessidade da PRÓXIMA semana: as cadeias virtuais herdam a do produto real
+  let proximaSemana = estado.proximaSemana;
+  if (proximaSemana) {
+    const q = { ...proximaSemana.quantidadePorProduto };
+    produtosDeRotas.forEach((pid) => cadeiasDe(estruturas[pid]).forEach((c) => { if (q[pid] !== undefined) q[idVirtual(pid, c.cadeia)] = q[pid]; }));
+    proximaSemana = { ...proximaSemana, quantidadePorProduto: q };
+  }
   const alocacoes = estado.alocacoes.map((a) => {
     const v = a.produtoId && a.etapaId ? virtualDaEtapa.get(`${a.produtoId}|${a.etapaId}`) : undefined;
     return v ? { ...a, produtoId: v.produto } : a;
   });
-  return { ...estado, itens, etapas, alocacoes, nomesProdutos };
+  return { ...estado, itens, etapas, alocacoes, nomesProdutos, ...(proximaSemana ? { proximaSemana } : {}) };
 }
 
 // devolve ao produto real tudo o que o motor produziu em cadeias virtuais (a interface e o banco só conhecem F)

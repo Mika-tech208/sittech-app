@@ -33,7 +33,8 @@ export interface EntradaPlanejador {
   equipe?: EquipeDisponivel;
   capacidadeRealizavelEscala?: Record<string, number>;   // teto por etapa já calculado pela Escala (revezamento duro, mesma operação não consecutiva): vale o MENOR entre ele e o nominal×equipe
   fatorDesempenho?: Record<string, number>;       // desempenho observado ÷ meta, por etapa (1 = meta; 39.000/35.625 = 1,0947)
-  wipInicial?: { porRota?: Record<string, number>; pool?: number };   // semiacabado PRONTO para Etiquetar (CONV pronta, AUTO pronta)
+  // semiacabado PRONTO para Etiquetar (CONV pronta, AUTO pronta, saldo inicial do pool) e, no fluxo comum, o que já passou por uma etapa e espera a seguinte (ex.: etiquetado aguardando Embalar)
+  wipInicial?: { porRota?: Record<string, number>; pool?: number; entreEtapasComuns?: Record<string, number> };
   limiteWip?: number;                             // teto do saldo do pool ao fim do horizonte
   divisaoAnterior?: Record<string, number>;       // entrega por rota da rodada anterior (estabilidade)
   limiteMaximoPorRota?: Record<string, number>;   // V1: só MÁXIMO por rota (previsao_rota_limite)
@@ -154,18 +155,25 @@ export function planejarRotas(i: EntradaPlanejador): SaidaPlanejador | SaidaNaoA
   // capacidade do pool comum: cada etapa comum UMA vez (Etiquetar, Embalar); o mínimo limita o produto final
   const comuns = est.poolComum.etapas.map((id) => capacidadeOperacional(i.etapas.get(id) as EtapaCadastro, i));
   const limComum = menor(comuns);
-  const L = limComum ? limComum.realizavel : Infinity;
   const entradaTotal = Object.values(capRotas).reduce((s, c) => s + c.realizavel, 0);
 
   // WIP inicial (pronto para Etiquetar). Só vale até a demanda.
   const wipPorRota = i.wipInicial?.porRota ?? {};
   const wipPool = i.wipInicial?.pool ?? 0;
   const W = Object.values(wipPorRota).reduce((s, v) => s + v, 0) + wipPool;
+  // fluxo comum EM SÉRIE com saldos entre etapas: M_1 = min(cap_1, W + entrada); M_(k+1) = min(cap_(k+1), saldo_k + M_k). Sem saldos: min(caps, W + entrada) — igual ao M2.
+  const buf = (idx: number) => i.wipInicial?.entreEtapasComuns?.[est.poolComum!.etapas[idx]] ?? 0;
+  const cadeia = (entrada: number) => comuns.reduce((m, c, idx) => (idx === 0 ? Math.min(c.realizavel, entrada) : Math.min(c.realizavel, buf(idx - 1) + m)), Infinity);
+  const L = comuns.length ? cadeia(Infinity) : Infinity;                      // capacidade do fluxo comum (sem limite de entrada)
+  const Fmax = comuns.length ? cadeia(W + entradaTotal) : W + entradaTotal;
 
   // 1) produto final atingível
-  const F = Math.max(0, Math.min(D, L, W + entradaTotal));
-  // 3) entregas das rotas: exatamente o necessário (sem WIP inútil)
-  const E = Math.max(0, F - W);
+  const F = Math.max(0, Math.min(D, Fmax));
+  // 3) entregas das rotas: exatamente o necessário (sem WIP inútil): do fim para o começo, cada etapa só precisa processar o que a seguinte não tem em saldo
+  let precisa = F; const ncomum: number[] = [];
+  for (let idx = comuns.length - 1; idx >= 0; idx--) { ncomum[idx] = precisa; precisa = Math.max(0, precisa - (idx > 0 ? buf(idx - 1) : 0)); }
+  const consumoPool = comuns.length ? ncomum[0] : F;                          // quanto a PRIMEIRA etapa comum (Etiquetar) retira do pool
+  const E = Math.max(0, consumoPool - W);
   if (W > 0 && E < D) motivos.push({ codigo: "WIP_INICIAL_USADO", texto: `${Math.round(Math.min(W, F)).toLocaleString("pt-BR")} peças já prontas para Etiquetar reduzem o que as rotas precisam entregar.` });
   if (D < entradaTotal + W - EPS && F >= D - EPS) motivos.push({ codigo: "SEM_EXCESSO_DE_PRODUCAO", texto: "A capacidade das rotas supera a demanda: nada é produzido além do necessário." });
 
@@ -204,7 +212,7 @@ export function planejarRotas(i: EntradaPlanejador): SaidaPlanejador | SaidaNaoA
     }
   } else motivos.push({ codigo: "DEMANDA_ATENDIDA", texto: "A demanda final cabe nas rotas e no fluxo comum." });
 
-  const wip = projetarPool(wipPorRota, wipPool, alvo, F, i.limiteWip);
+  const wip = projetarPool(wipPorRota, wipPool, alvo, consumoPool, i.limiteWip);
   if (wip.acimaDoLimite) motivos.push({ codigo: "WIP_ACIMA_DO_LIMITE", texto: `O saldo projetado do pool (${Math.round(wip.saldoFinal).toLocaleString("pt-BR")}) passa do limite de WIP.` });
 
   // custo estimado e economia da AUTO (até a convergência)

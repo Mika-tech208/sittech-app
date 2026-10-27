@@ -12,6 +12,7 @@
 // Quando o previsto precisa de capacidade, o motor já tira primeiro o adicional/WIP futuro (camada 2 só usa o que a 1 deixa).
 // Nunca mexe no comprometido (já reparado) só para ganhar produção.
 
+import { CADEIA_COMUM, cadeiaDe } from "@/features/rotas/adaptador";
 import { chavePool, MOTIVO_REVEZAMENTO, type AlocacaoEscala, type PoolEscala } from "./types";
 
 export type Situacao = "OK" | "A" | "B→C" | "B→D";
@@ -59,7 +60,11 @@ export function faltaProjetada(pools: PoolEscala[], restante: Record<string, num
 // restante do ACABADO (última etapa de cada produto) — base da tolerância
 export function restanteAcabado(pools: PoolEscala[], restante: Record<string, number>): number {
   const ultima = new Map<string, PoolEscala>();
-  pools.forEach((p) => { const u = ultima.get(p.produtoId); if (!u || p.ordemEtapa > u.ordemEtapa) ultima.set(p.produtoId, p); });
+  pools.forEach((p) => {
+    const cadeia = cadeiaDe(p.produtoId);
+    if (cadeia !== null && cadeia !== CADEIA_COMUM) return;   // produto de ROTAS: só a cadeia do fluxo comum (Etiquetar → Embalar) tem o acabado; a última etapa de CONV/AUTO é semiacabado
+    const u = ultima.get(p.produtoId); if (!u || p.ordemEtapa > u.ordemEtapa) ultima.set(p.produtoId, p);
+  });
   return [...ultima.values()].reduce((s, p) => s + (restante[chavePool(p.produtoId, p.etapaId)] ?? 0), 0);
 }
 export const toleranciaFalta = (restanteAcabadoTotal: number, relativa = 0.01) => Math.max(1, relativa * restanteAcabadoTotal);

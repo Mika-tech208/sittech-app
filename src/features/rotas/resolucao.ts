@@ -8,8 +8,9 @@
 import { gerarEscala } from "@/features/escala/gerarEscala";
 import { jsonCanonico, sha256Hex } from "@/features/escala/hashCanonico";
 import { chavePool } from "@/features/escala/types";
+import { dataNoFusoSP, planejamentoDaSemana } from "@/features/escala/wipSaldo";
 import type { EstadoBruto } from "@/lib/escala/estado";
-import { montarEntradaEscala } from "@/lib/escala/montarEntrada";
+import { montarEntradaBase } from "@/lib/escala/montarEntrada";
 import { CADEIA_COMUM, idVirtual, projetarEstado, type PlanoDoProduto } from "./adaptador";
 import { previaComCompartilhamento, type EntradaPrevia, type ItemSelecionado, type MetasDaEtapa, type PreviaRotas } from "./compartilhada";
 import type { ContextoCusto } from "./custo";
@@ -32,6 +33,7 @@ export interface RodadaProduto {
   realizadoPorEtapa: Record<string, { alvo: number; realizado: number }>;
   finalRealizavel: number; faltaDeEntrega: boolean;
   gargalo: GargaloPlano; motivos: Motivo[];
+  restante: { parcial: boolean; demandaRestante: number; produtoFinalExecutado: number; entregueAoPool: number; consumidoPeloPool: number; saldoDoPool: number };   // replanejamento: de onde partiu o plano
 }
 export interface ResolucaoProduto {
   produtoId: string; rodadas: RodadaProduto[]; parada: MotivoParada; convergiu: boolean;
@@ -39,13 +41,64 @@ export interface ResolucaoProduto {
 }
 export interface ResolucaoRotas { estadoVirtual: EstadoBruto; produtos: Record<string, ResolucaoProduto> }
 
+// ---------- REPLANEJAMENTO no meio da semana ----------
+// Passado: imutável (créditos congelados). Período em andamento e trocas manuais: preservados pela regra existente (aPartirDe). Futuro: o planejador recalcula AUTO/CONV só para o que FALTA,
+// com a capacidade dos períodos que ainda vão ocorrer, a Produção Real como feedback (ou o congelado quando ainda não há apontamento) e o saldo do pool — sempre com as máquinas JÁ selecionadas.
+export interface Restante {
+  parcial: boolean; demanda: number; ocorrencias?: Partial<Record<PeriodoId, number>>;
+  wipInicial?: { pool?: number; entreEtapasComuns?: Record<string, number> };
+  creditoPorEtapa: Record<string, number>; executadoPorEtapa: Record<string, number>;
+  entregueAoPool: number; consumidoPeloPool: number; produtoFinalExecutado: number;
+}
+// saldo inicial confirmado do WIP (só com wip_modo = 'ativo'): pool = Σ saldos alocados das ORIGENS que convergem; entre etapas comuns = saldo do controle daquela etapa
+export function wipInicialDoEstado(estado: EstadoBruto, produtoId: string, agoraMs: number): Restante["wipInicial"] {
+  const w = estado.wipControle;
+  const estr = estado.rotas?.estruturas[produtoId];
+  if (estado.parametros?.wipModo !== "ativo" || !w || !estr || w.controles.length === 0) return estado.rotas?.wipInicial?.[produtoId];
+  const q: Record<string, number> = {}; estado.itens.forEach((i) => { q[i.produtoId] = (q[i.produtoId] ?? 0) + i.quantidade; });
+  const semanas = [...w.semanas.filter((x) => x.semanaInicio !== estado.semanaInicio), { semanaInicio: estado.semanaInicio, quantidadePorProduto: q }];
+  const plan = planejamentoDaSemana({ ...w, semanas, hoje: dataNoFusoSP(agoraMs) }, estado.semanaInicio);
+  const origens = new Set((estr.convergencia?.origens ?? []).map((o) => o.etapaId));
+  const comuns = estr.poolComum?.etapas ?? [];
+  const mine = plan.saldos.filter((x) => x.produtoId === produtoId);
+  const pool = mine.filter((x) => origens.has(x.etapaOrigemId)).reduce((t, x) => t + x.saldo, 0);
+  const entre: Record<string, number> = {};
+  comuns.slice(0, -1).forEach((id) => { const v = mine.filter((x) => x.etapaOrigemId === id).reduce((t, x) => t + x.saldo, 0); if (v > 0) entre[id] = v; });
+  return { pool, entreEtapasComuns: entre };
+}
+
+export function calcularRestante(estado: EstadoBruto, produtoId: string, base: ReturnType<typeof montarEntradaBase>["entrada"], agoraMs = 0): Restante {
+  const cfg = estado.rotas!; const estr = cfg.estruturas[produtoId];
+  const D = estado.itens.filter((i) => i.produtoId === produtoId).reduce((s, i) => s + i.quantidade, 0);
+  const wip0 = wipInicialDoEstado(estado, produtoId, agoraMs);
+  const parcial = base.aPartirDe > 0 && base.aPartirDe < base.slots.length;
+  if (!parcial) return { parcial: false, demanda: D, wipInicial: wip0, creditoPorEtapa: {}, executadoPorEtapa: {}, entregueAoPool: 0, consumidoPeloPool: 0, produtoFinalExecutado: 0 };
+  const ocorrencias: Partial<Record<PeriodoId, number>> = {};
+  base.slots.slice(base.aPartirDe).forEach((sl) => { ocorrencias[sl.periodoId as PeriodoId] = (ocorrencias[sl.periodoId as PeriodoId] ?? 0) + 1; });
+  const credito: Record<string, number> = {};
+  base.congeladas.filter((a) => a.produtoId === produtoId && a.etapaId && a.maquinaId).forEach((a) => { credito[a.etapaId as string] = (credito[a.etapaId as string] ?? 0) + a.pecas; });
+  const executado = (etapaId: string) => cfg.producaoReal?.[etapaId] ?? credito[etapaId] ?? 0;
+  const comuns = estr.poolComum?.etapas ?? [];
+  const entregue = estr.rotas.filter((r) => r.ativa && r.etapas.length > 0).reduce((s, r) => s + executado(r.etapas[r.etapas.length - 1]), 0);
+  const consumido = comuns.length ? executado(comuns[0]) : 0;
+  const pool0 = Math.max(0, (wip0?.pool ?? 0) + entregue - consumido);
+  const entre: Record<string, number> = { ...(wip0?.entreEtapasComuns ?? {}) };
+  comuns.slice(0, -1).forEach((id, k) => { entre[id] = Math.max(0, (entre[id] ?? 0) + executado(id) - executado(comuns[k + 1])); });
+  const final = estr.etapaFinalId ? executado(estr.etapaFinalId) : 0;
+  return {
+    parcial: true, demanda: Math.max(0, D - final), ocorrencias, wipInicial: { pool: pool0, entreEtapasComuns: entre },
+    creditoPorEtapa: credito, executadoPorEtapa: Object.fromEntries([...Object.keys(credito), ...Object.keys(cfg.producaoReal ?? {})].map((id) => [id, executado(id)])),
+    entregueAoPool: entregue, consumidoPeloPool: consumido, produtoFinalExecutado: final,
+  };
+}
+
 export function produtosDeRotasDoEstado(estado: EstadoBruto): string[] {
   const est = estado.rotas?.estruturas ?? {};
   return Object.keys(est).filter((id) => estado.itens.some((i) => i.produtoId === id)).sort();
 }
 
 // ---------- entrada do planejador a partir do estado da Escala (uma só fonte: a seleção da Previsão) ----------
-export function entradaPrevia(estado: EstadoBruto, produtoId: string, tetos: Record<string, number>): EntradaPrevia {
+export function entradaPrevia(estado: EstadoBruto, produtoId: string, tetos: Record<string, number>, rest?: Restante, creditoOutros?: Record<string, Record<string, number>>): EntradaPrevia {
   const cfg = estado.rotas!;
   const estrutura = cfg.estruturas[produtoId];
   const nomeOp = (id: string) => estado.nomesOperacao[id] ?? id;
@@ -59,10 +112,10 @@ export function entradaPrevia(estado: EstadoBruto, produtoId: string, tetos: Rec
     selecao[etapaId] = [...new Set([...(selecao[etapaId] ?? []), ...validas])].sort();
   }));
   const periodos = estado.periodosAtuais.map((p) => ({ id: p.id as PeriodoId, minutos: min(p.fim) - min(p.inicio) }));
-  const ctx: ContextoCapacidade = { periodos, diasProdutivos: estado.diasProdutivos.length, maquinasIndisponiveis: [...new Set([...estado.maquinasIndisponiveisPrevisao, ...estado.maquinasInativas])].sort() };
+  const ctx: ContextoCapacidade = { periodos, diasProdutivos: estado.diasProdutivos.length, ...(rest?.ocorrencias ? { ocorrenciasPorPeriodo: rest.ocorrencias } : {}), maquinasIndisponiveis: [...new Set([...estado.maquinasIndisponiveisPrevisao, ...estado.maquinasInativas])].sort() };
   const outrosMapa = new Map<string, ItemSelecionado>();
   estado.itens.filter((i) => i.produtoId !== produtoId).forEach((i) => {
-    const o = outrosMapa.get(i.produtoId) ?? { itemId: i.produtoId, produtoNome: estado.nomesProdutos?.[i.produtoId], quantidade: 0, selecao: {} };
+    const o = outrosMapa.get(i.produtoId) ?? { itemId: i.produtoId, produtoNome: estado.nomesProdutos?.[i.produtoId], quantidade: 0, selecao: {}, creditoPorEtapa: creditoOutros?.[i.produtoId] };
     o.quantidade += i.quantidade;
     Object.entries(i.maquinasPorEtapa).forEach(([e, ms]) => { o.selecao[e] = [...new Set([...(o.selecao[e] ?? []), ...ms])].sort(); });
     outrosMapa.set(i.produtoId, o);
@@ -70,7 +123,7 @@ export function entradaPrevia(estado: EstadoBruto, produtoId: string, tetos: Rec
   const etapasDosOutros = new Map<string, MetasDaEtapa>(estado.etapas.map((e) => [e.id, { operacaoId: e.operacaoId, metas: e.metas as Record<PeriodoId, number> }]));
   const custo: ContextoCusto | undefined = cfg.custoHoraPorOperacao ? { periodos, custoHoraPorOperacao: cfg.custoHoraPorOperacao, custoHoraPadrao: cfg.custoHoraPadrao ?? 0 } : undefined;
   return {
-    itemId: produtoId, estrutura, etapas, demanda: itens.reduce((s, i) => s + i.quantidade, 0), ctx, selecao,
+    itemId: produtoId, estrutura, etapas, demanda: rest ? rest.demanda : itens.reduce((s, i) => s + i.quantidade, 0), ctx, selecao, ...(rest?.wipInicial ? { wipInicial: rest.wipInicial } : {}),
     capacidadeRealizavelEscala: Object.keys(tetos).length > 0 ? tetos : undefined,
     divisaoAnterior: cfg.divisaoAnterior?.[produtoId], toleranciaEstabilidade: cfg.toleranciaEstabilidade,
     custo, valorUnitario: Math.max(0, ...itens.map((i) => i.valorUnitario)),
@@ -91,27 +144,48 @@ export function resolverRotas(estado: EstadoBruto, agoraMs: number): ResolucaoRo
   const previas: Record<string, PreviaRotas> = {};
   let planosFinais: Record<string, PlanoDoProduto> = {};
 
+  // semana em andamento: slots futuros, créditos congelados e o que cada produto JÁ produziu (a base não depende do plano)
+  const baseEntrada = montarEntradaBase(estado, agoraMs).entrada;
+  const rest: Record<string, Restante> = Object.fromEntries(pids.map((p) => [p, calcularRestante(estado, p, baseEntrada, agoraMs)]));
+  const creditoOutros: Record<string, Record<string, number>> = {};
+  baseEntrada.congeladas.filter((a) => a.produtoId && a.etapaId && a.maquinaId && !pids.includes(a.produtoId)).forEach((a) => {
+    const m = (creditoOutros[a.produtoId as string] ??= {}); m[a.etapaId as string] = (m[a.etapaId as string] ?? 0) + a.pecas;
+  });
+  const baseDaCadeia = (p: string): Record<string, number> => {
+    const estr = estado.rotas!.estruturas[p]; const cr = rest[p].creditoPorEtapa; const out: Record<string, number> = {};
+    if (!rest[p].parcial) return out;
+    estr.rotas.filter((x) => x.ativa).forEach((x) => { out[x.codigo] = Math.max(0, ...x.etapas.map((id) => cr[id] ?? 0)); });
+    out[CADEIA_COMUM] = Math.max(0, ...(estr.poolComum?.etapas ?? []).map((id) => cr[id] ?? 0));
+    return out;
+  };
+
   for (let r = 1; r <= maxRodadas; r++) {
     const planos: Record<string, PlanoDoProduto> = {}; const entradas: Record<string, EntradaPrevia> = {};
-    pids.forEach((p) => { entradas[p] = entradaPrevia(estado, p, tetos[p]); previas[p] = previaComCompartilhamento(entradas[p]); planos[p] = { alvo: { ...previas[p].plano.alvo }, final: previas[p].plano.finalAtingivel }; });
+    pids.forEach((p) => {
+      entradas[p] = entradaPrevia(estado, p, tetos[p], rest[p], creditoOutros); previas[p] = previaComCompartilhamento(entradas[p]);
+      planos[p] = { alvo: { ...previas[p].plano.alvo }, final: previas[p].plano.finalAtingivel, comum: Math.max(previas[p].plano.finalAtingivel, previas[p].plano.wip.consumoPool), ...(rest[p].parcial ? { base: baseDaCadeia(p) } : {}) };
+    });
     if (planosAnt && pids.every((p) => igual(planos[p], (planosAnt as Record<string, PlanoDoProduto>)[p]))) { pids.forEach((p) => (paradas[p] = "estabilizou")); break; }   // sem compensação possível dentro da seleção
     planosFinais = planos; planosAnt = planos;
 
     const estadoV = projetarEstado(estado, planos);
-    const montada = montarEntradaEscala(estadoV, agoraMs);
+    const montada = montarEntradaBase(estadoV, agoraMs);
     const resultado = gerarEscala(montada.entrada);
     const hashEscala = h(montada.entrada);
     let algumaFalta = false;
     pids.forEach((p) => {
       const estr = estado.rotas!.estruturas[p]; const plano = planos[p]; const prev = previas[p].plano;
       const real: Record<string, { alvo: number; realizado: number }> = {};
+      // alvo e realizado são do FUTURO (o que ainda faltava planejar); o motor desconta o congelado de cada etapa
       const registrar = (cadeia: string, etapas: string[], q: number) => etapas.forEach((id) => {
         const virt = idVirtual(p, cadeia); const k = chavePool(virt, id);
-        const tem = montada.entrada.pools.some((x) => x.produtoId === virt && x.etapaId === id);
-        real[id] = { alvo: q, realizado: q <= 0 ? 0 : tem ? Math.max(0, q - (resultado.pecasRestantes[k] ?? 0)) : 0 };
+        const tem = montada.entrada.pools.find((x) => x.produtoId === virt && x.etapaId === id);
+        const qTotal = (plano.base?.[cadeia] ?? 0) + q;
+        const jaFeito = rest[p].creditoPorEtapa[id] ?? 0;
+        real[id] = { alvo: q, realizado: q <= 0 ? 0 : tem ? Math.max(0, qTotal - jaFeito - (resultado.pecasRestantes[k] ?? 0)) : 0 };
       });
       estr.rotas.filter((x) => x.ativa).forEach((x) => registrar(x.codigo, x.etapas, plano.alvo[x.codigo] ?? 0));
-      registrar(CADEIA_COMUM, estr.poolComum?.etapas ?? [], plano.final);
+      registrar(CADEIA_COMUM, estr.poolComum?.etapas ?? [], plano.comum ?? plano.final);
       const abaixo = Object.entries(real).filter(([, v]) => v.alvo > 0 && v.realizado < v.alvo - TOL_PECAS);
       const novosTetos = { ...tetos[p] }; abaixo.forEach(([id, v]) => { novosTetos[id] = Math.min(novosTetos[id] ?? Infinity, v.realizado); });
       const nominal = Object.fromEntries(estr.rotas.filter((x) => x.ativa).map((x) => [x.codigo, hist[p][0]?.capacidadeNominalPorRota[x.codigo] ?? prev.capacidadePorRota[x.codigo].realizavel]));
@@ -126,7 +200,7 @@ export function resolverRotas(estado: EstadoBruto, agoraMs: number): ResolucaoRo
       const falta = abaixo.length > 0;
       algumaFalta = algumaFalta || falta;
       hist[p].push({
-        rodada: r, produtoId: p, hashEntradaPlanejador: h({ ...entradaSerializavel(entradas[p]) }), hashEntradaEscala: hashEscala, tetos: { ...tetos[p] }, alvo: { ...plano.alvo }, finalPlanejado: plano.final,
+        rodada: r, produtoId: p, hashEntradaPlanejador: h({ ...entradaSerializavel(entradas[p]) }), hashEntradaEscala: hashEscala, tetos: { ...tetos[p] }, alvo: { ...plano.alvo }, finalPlanejado: plano.final, restante: { parcial: rest[p].parcial, demandaRestante: rest[p].demanda, produtoFinalExecutado: rest[p].produtoFinalExecutado, entregueAoPool: rest[p].entregueAoPool, consumidoPeloPool: rest[p].consumidoPeloPool, saldoDoPool: rest[p].wipInicial?.pool ?? 0 },
         capacidadeNominalPorRota: nominal, capacidadeRealizavelPorRota: realizavel, realizadoPorEtapa: real, finalRealizavel, faltaDeEntrega: falta, gargalo: prev.gargalo, motivos: prev.motivos,
       });
       tetos[p] = novosTetos;
@@ -150,9 +224,9 @@ export function resolverRotas(estado: EstadoBruto, agoraMs: number): ResolucaoRo
 // parte da entrada do planejador que identifica a rodada (sem funções nem Maps): mesma entrada => mesmo hash
 function entradaSerializavel(e: EntradaPrevia) {
   return {
-    produtoId: e.estrutura.produtoId, demanda: e.demanda, ctx: e.ctx, selecao: e.selecao, tetos: e.capacidadeRealizavelEscala ?? {}, tol: e.toleranciaEstabilidade ?? null, anterior: e.divisaoAnterior ?? null,
+    produtoId: e.estrutura.produtoId, demanda: e.demanda, ctx: e.ctx, selecao: e.selecao, tetos: e.capacidadeRealizavelEscala ?? {}, tol: e.toleranciaEstabilidade ?? null, anterior: e.divisaoAnterior ?? null, wip: e.wipInicial ?? null,
     etapas: [...e.etapas.values()].map((x) => ({ id: x.id, metas: x.metas })).sort((a, b) => (a.id < b.id ? -1 : 1)),
-    outros: e.outros.map((o) => ({ id: o.itemId, q: o.quantidade, s: o.selecao })).sort((a, b) => (a.id < b.id ? -1 : 1)), algoritmo: ALGORITMO_VERSAO,
+    outros: e.outros.map((o) => ({ id: o.itemId, q: o.quantidade, s: o.selecao, c: o.creditoPorEtapa ?? null })).sort((a, b) => (a.id < b.id ? -1 : 1)), algoritmo: ALGORITMO_VERSAO,
   };
 }
 
@@ -160,7 +234,7 @@ function entradaSerializavel(e: EntradaPrevia) {
 export interface RegistroDivisao {
   previsaoId: string; produtoId: string; semanaInicio: string; rotaId: string | null; rotaCodigo: string; rodada: number; rodadaFinal: boolean;
   quantidadeAlvo: number; capacidadeNominal: number; capacidadeRealizavel: number; algoritmoVersao: string; hashEntrada: string; hashEscala: string;
-  gargalo: GargaloPlano; motivo: { codigos: Motivo[]; parada: MotivoParada; convergiu: boolean; tetos: Record<string, number>; final: { planejado: number; realizavel: number }; diagnostico: string[] };
+  gargalo: GargaloPlano; motivo: { codigos: Motivo[]; parada: MotivoParada; convergiu: boolean; tetos: Record<string, number>; final: { planejado: number; realizavel: number }; restante: RodadaProduto["restante"]; diagnostico: string[] };
 }
 export function registrosDeDivisao(estado: EstadoBruto, res: ResolucaoRotas): RegistroDivisao[] {
   const out: RegistroDivisao[] = [];
@@ -170,7 +244,7 @@ export function registrosDeDivisao(estado: EstadoBruto, res: ResolucaoRotas): Re
       previsaoId: estado.previsaoId, produtoId: p.produtoId, semanaInicio: estado.semanaInicio, rotaId: x.id, rotaCodigo: x.codigo, rodada: r.rodada, rodadaFinal: i === p.rodadas.length - 1,
       quantidadeAlvo: r.alvo[x.codigo] ?? 0, capacidadeNominal: r.capacidadeNominalPorRota[x.codigo], capacidadeRealizavel: r.capacidadeRealizavelPorRota[x.codigo], algoritmoVersao: ALGORITMO_VERSAO,
       hashEntrada: r.hashEntradaPlanejador, hashEscala: r.hashEntradaEscala, gargalo: r.gargalo,
-      motivo: { codigos: r.motivos, parada: p.parada, convergiu: p.convergiu, tetos: r.tetos, final: { planejado: r.finalPlanejado, realizavel: r.finalRealizavel }, diagnostico: p.diagnostico },
+      motivo: { codigos: r.motivos, parada: p.parada, convergiu: p.convergiu, tetos: r.tetos, final: { planejado: r.finalPlanejado, realizavel: r.finalRealizavel }, restante: r.restante, diagnostico: p.diagnostico },
     })));
   });
   return out;

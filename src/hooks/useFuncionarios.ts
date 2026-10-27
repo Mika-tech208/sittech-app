@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import type { Funcionario, FuncionarioCusto } from "@/types/domain";
+import { FUNCIONARIOS_SELECT, mapearFuncionario, type FuncionarioRow } from "@/lib/custo/custoHoraDados";   // mesma fonte do servidor (custo/hora)
 
 interface FuncionarioCustoInput {
   descricao: string;
@@ -32,17 +33,6 @@ interface FuncionarioPayload {
   ativo?: boolean;
 }
 
-interface FuncionarioRow {
-  id: string;
-  nome: string;
-  created_at: string;
-  salario_base: number;
-  ativo: boolean;
-  desligado_em?: string | null;
-  operacoes: { nome: string } | null;
-  funcionario_custos: { id: string; descricao: string; valor: number }[] | null;
-}
-
 async function resolverOperacaoId(nome: string): Promise<string | null> {
   const { data, error } = await supabase.from("operacoes").select("id").eq("nome", nome).maybeSingle();
   if (error || !data) return null;
@@ -52,20 +42,11 @@ async function resolverOperacaoId(nome: string): Promise<string | null> {
 async function buscarFuncionarios(): Promise<{ lista: Funcionario[] | null }> {
   const { data, error } = await supabase
     .from("funcionarios")
-    .select("id, nome, created_at, salario_base, ativo, desligado_em, operacoes(nome), funcionario_custos(id, descricao, valor)")
+    .select(FUNCIONARIOS_SELECT)
     .order("created_at");
   if (error) return { lista: null };
   return {
-    lista: ((data || []) as unknown as FuncionarioRow[]).map((f) => ({
-      id: f.id,
-      nome: f.nome,
-      criadoEm: f.created_at,
-      operacao: f.operacoes?.nome || "",
-      salarioBase: Number(f.salario_base),
-      ativo: f.ativo,
-      desligadoEm: f.desligado_em ?? null,
-      custos: (f.funcionario_custos || []).map((c) => ({ id: c.id, descricao: c.descricao, valor: Number(c.valor) })),
-    })),
+    lista: ((data || []) as unknown as FuncionarioRow[]).map(mapearFuncionario),
   };
 }
 

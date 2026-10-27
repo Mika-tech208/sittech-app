@@ -4,6 +4,7 @@
 // ESTIMADO é só consulta; só o CONFIRMADO entra no planejamento (reduz o que a etapa origem precisa produzir).
 // Sem permissão específica (admin ou `escala_wip_confirmar`) a tela é somente leitura. Só aparece com o WIP ativo.
 
+import { arestasDoPercurso } from "@/features/rotas/wipRotas";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { acaoWip, consultarWip, type RespostaWip } from "@/lib/escala/wipCliente";
 import type { ResumoControleWip } from "@/features/escala/wipSaldo";
@@ -62,7 +63,14 @@ export default function EstoqueIntermediario({ semanaInicio, produtos }: Estoque
   }, [semanaInicio]);
 
   const pares = useMemo(
-    () => produtos.flatMap((p) => p.roteiro.slice(0, -1).map((e, k) => ({ chave: `${p.id}|${e.id}|${p.roteiro[k + 1].id}`, produtoId: p.id, origem: e.id, seguinte: p.roteiro[k + 1].id, rotulo: `${p.nome.trim()} — ${e.operacao} → ${p.roteiro[k + 1].operacao}` }))),
+    () => produtos.flatMap((p) => {
+      // produto de ROTAS: pares = arestas do PERCURSO (dentro da rota, convergência e fluxo comum), nunca "etapa seguinte por ordem"; produto linear: pares consecutivos de sempre
+      if (p.estruturaRotas) {
+        const op = (id: string) => p.roteiro.find((x) => x.id === id)?.operacao ?? id;
+        return arestasDoPercurso(p.estruturaRotas).map((a) => ({ chave: `${p.id}|${a.origemId}|${a.destinoId}`, produtoId: p.id, origem: a.origemId, seguinte: a.destinoId, rotulo: `${p.nome.trim()} — ${op(a.origemId)} → ${op(a.destinoId)}${a.grupo === "CONVERGENCIA" ? " (entrega ao pool)" : ""}` }));
+      }
+      return p.roteiro.slice(0, -1).map((e, k) => ({ chave: `${p.id}|${e.id}|${p.roteiro[k + 1].id}`, produtoId: p.id, origem: e.id, seguinte: p.roteiro[k + 1].id, rotulo: `${p.nome.trim()} — ${e.operacao} → ${p.roteiro[k + 1].operacao}` }));
+    }),
     [produtos]
   );
 

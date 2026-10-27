@@ -14,3 +14,7 @@ Após a correção do fluxo (trava de suporte, F inativo/invisível ao carregado
 
 ## M3 (26/10/2026)
 Repetido após o M3 (adaptador, resolução com feedback, divisão, UI da Previsão): `golden_ts_depois4_dev.json` e `sql*_depois4_dev.txt` **idênticos** aos de `depois3`. O script TS agora também confere, nas Previsões do DEV, que `processarSemana` produz exatamente as alocações do motor direto e que o estado de semana linear não carrega `rotas`.
+
+## M4 (26/10/2026)
+Repetido após o M4 (RPCs de indicadores/apontado real, WIP por percurso, custo servidor, replanejamento, telas): TS (`golden_ts_depois5_dev.json`) e SQL (`sql*_depois5_dev.txt`) **idênticos** aos de `depois4`.
+Novos golden SQL (função **antiga** definida dentro de uma transação desfeita × função **nova**): `indicadores.sql` (hash idêntico `166803db…`, sem o id gerado a cada execução) e `valor_atribuido.sql` (126 combinações produto×operação×período, todas não nulas, hash idêntico `d2aa9543…`). O hash dos indicadores do M3 (`23a5577f…`) divergia só porque incluía `apontamento_id` (uuid novo a cada execução): o script foi corrigido.

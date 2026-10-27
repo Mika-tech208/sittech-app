@@ -36,6 +36,7 @@ import {
 } from "@/features/capacidade/calculations";
 import { uid } from "@/lib/id";
 import ItensPrevistos, { type PrevItemFormState } from "@/features/previsao/components/ItensPrevistos";
+import { expandirItensDeRotas, resultadosVisiveis } from "@/features/rotas/dominio";
 import StatusProgramacao from "@/features/previsao/components/StatusProgramacao";
 import ProdutosProgramados from "@/features/previsao/components/ProdutosProgramados";
 import { useApontadoRealSemana } from "@/hooks/useApontadoRealSemana";
@@ -171,13 +172,18 @@ export default function PrevisaoSemanalPage() {
   const itensParaAnalise = modoSimulacao && itensSimulados ? itensSimulados : semanaAtualRec.itens;
 
   // ---- análise de capacidade (mesmas funções puras testadas no Checkpoint 1/1.5) ----
+  // Produto de ROTAS: as contas legadas (cadeia linear) o veriam duplicado; aqui ele vira cadeias consistentes com o planejador SÓ para o cálculo. Sem produto de rotas: mesmas referências.
+  const expansaoRotas = useMemo(
+    () => expandirItensDeRotas({ itens: itensParaAnalise, produtos, periodosComDuracao, diasProdutivos: diasProdutivos.length, maquinasIndisponiveis: semanaAtualRec.maquinasIndisponiveis, custoHoraPorOperacao, custoHoraEmpresa }),
+    [itensParaAnalise, produtos, periodosComDuracao, diasProdutivos.length, semanaAtualRec.maquinasIndisponiveis, custoHoraPorOperacao, custoHoraEmpresa]
+  );
   const analiseCapacidadeSemana = useMemo(
-    () => calcularAnaliseCapacidadeSemanal(itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana),
-    [itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana]
+    () => calcularAnaliseCapacidadeSemanal(expansaoRotas.itens, expansaoRotas.produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana),
+    [expansaoRotas, maquinas, periodosComDuracao, horasPorMaquinaSemana]
   );
   const capacidadeMaximaSemana = useMemo(
-    () => calcularCapacidadeMaximaSemana(itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana),
-    [itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana]
+    () => calcularCapacidadeMaximaSemana(expansaoRotas.itens, expansaoRotas.produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana),
+    [expansaoRotas, maquinas, periodosComDuracao, horasPorMaquinaSemana]
   );
 
   // ---- consolidação por produto: Previsto / Possível / Realizado / Falta / % ----
@@ -186,8 +192,8 @@ export default function PrevisaoSemanalPage() {
   // APONTADO REAL (diagnóstico): apontamentos da Produção Real, última etapa do roteiro; uma chamada por semana. NÃO entra em falta/%/financeiro/atingibilidade.
   const apontadoRealHook = useApontadoRealSemana(!!auth.autenticado, semanaAtual);
   const produtosProgramados = useMemo(
-    () => calcularProdutosProgramados(itensParaAnalise, capacidadeMaximaSemana.resultadosPorItem, realizadoPorProduto, apontadoRealHook.mapa),
-    [itensParaAnalise, capacidadeMaximaSemana, realizadoPorProduto, apontadoRealHook.mapa]
+    () => calcularProdutosProgramados(itensParaAnalise, resultadosVisiveis(capacidadeMaximaSemana.resultadosPorItem, expansaoRotas), realizadoPorProduto, apontadoRealHook.mapa),
+    [itensParaAnalise, capacidadeMaximaSemana, expansaoRotas, realizadoPorProduto, apontadoRealHook.mapa]
   );
   const produtosNaoPrevistos = useMemo(
     () => calcularProdutosNaoPrevistos(itensParaAnalise, semanaAtualRec.itensRealizados || []),

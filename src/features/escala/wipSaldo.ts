@@ -58,6 +58,8 @@ export interface SemanaPrevisaoWip {
 export interface RoteiroWip {
   produtoAtivo: Record<string, boolean>;
   etapasPorProduto: Record<string, { id: string; ordem: number }[]>; // roteiro ATUAL
+  // Produto de ROTAS: arestas do PERCURSO (origem → seguinte) no lugar de "ordem imediatamente posterior" (convergência: duas origens para a mesma etapa). Ausente/sem o produto = regra linear de sempre.
+  arestasPorProduto?: Record<string, { origemId: string; destinoId: string }[]>;
 }
 export interface EntradaWip {
   controles: ControleWip[];
@@ -98,10 +100,24 @@ export function somarDias(iso: string, dias: number): string {
 
 const soma = <T>(xs: T[], f: (x: T) => number) => xs.reduce((s, x) => s + f(x), 0);
 
+// Controles do MESMO produto que entregam à mesma etapa seguinte (convergência: Parafusar → Etiquetar e Rosquear + Parafusar → Etiquetar). Produto linear: sempre só ele.
+function irmaosDeConvergencia(c: ControleWip, e: EntradaWip): ControleWip[] {
+  const arestas = e.roteiro.arestasPorProduto?.[c.produtoId];
+  if (!arestas || arestas.filter((a) => a.destinoId === c.etapaSeguinteId).length < 2) return [c];
+  return e.controles.filter((x) => x.produtoId === c.produtoId && x.etapaSeguinteId === c.etapaSeguinteId && x.ativo);
+}
+
 function fluxos(c: ControleWip, e: EntradaWip, de: string, ate: string) {
   const noIntervalo = (d: string) => d >= de && d <= ate;
   const origem = soma(e.producao.filter((p) => p.etapaId === c.etapaOrigemId && noIntervalo(p.data)), (p) => p.boas);
-  const seguinte = soma(e.producao.filter((p) => p.etapaId === c.etapaSeguinteId && noIntervalo(p.data)), (p) => p.boas);
+  let seguinte = soma(e.producao.filter((p) => p.etapaId === c.etapaSeguinteId && noIntervalo(p.data)), (p) => p.boas);
+  // CONVERGÊNCIA: a etapa seguinte consome do POOL (uma só vez); a parte de cada origem é PROPORCIONAL ao que ela colocou no pool (saldo inicial + produzido) — nunca FIFO, nunca consumo duplicado
+  const irmaos = irmaosDeConvergencia(c, e);
+  if (irmaos.length > 1) {
+    const peso = (x: ControleWip) => Math.max(0, x.saldoInicial + soma(e.producao.filter((p) => p.etapaId === x.etapaOrigemId && p.data >= x.dataInicio && p.data <= ate), (p) => p.boas) + soma(e.ajustes.filter((a) => a.controleId === x.id && a.data <= ate), (a) => a.quantidade));
+    const total = soma(irmaos, peso);
+    seguinte = total > EPS ? (seguinte * peso(c)) / total : seguinte / irmaos.length;
+  }
   const ajustes = soma(e.ajustes.filter((a) => a.controleId === c.id && noIntervalo(a.data)), (a) => a.quantidade);
   return { origem, seguinte, ajustes };
 }
@@ -138,6 +154,13 @@ export function confirmadoDisponivelAte(c: ControleWip, e: EntradaWip, ate: stri
   return Math.max(0, Math.min(conf.quantidade, est));
 }
 
+// produto de ROTAS: o par precisa ser uma aresta do percurso; linear: etapas imediatamente consecutivas por ordem (regra de sempre)
+function consecutivo(e: EntradaWip, c: ControleWip, io: number, is: number): boolean {
+  const arestas = e.roteiro.arestasPorProduto?.[c.produtoId];
+  if (arestas) return arestas.some((a) => a.origemId === c.etapaOrigemId && a.destinoId === c.etapaSeguinteId);
+  return is === io + 1;
+}
+
 export function inconsistencias(c: ControleWip, e: EntradaWip): InconsistenciaWip[] {
   const lista: InconsistenciaWip[] = [];
   if (e.roteiro.produtoAtivo[c.produtoId] === false) lista.push({ codigo: "produto_inativo", mensagem: "O produto foi desativado — o saldo não entra no planejamento até alguém revisar.", bloqueante: true });
@@ -145,7 +168,7 @@ export function inconsistencias(c: ControleWip, e: EntradaWip): InconsistenciaWi
   const io = etapas.findIndex((x) => x.id === c.etapaOrigemId);
   const is = etapas.findIndex((x) => x.id === c.etapaSeguinteId);
   if (io < 0 || is < 0) lista.push({ codigo: "etapa_inexistente", mensagem: "Uma das etapas não existe mais no roteiro do produto.", bloqueante: true });
-  else if (is !== io + 1) lista.push({ codigo: "rota_alterada", mensagem: "O roteiro mudou: as etapas deixaram de ser consecutivas. Revise o controle antes de usar o saldo.", bloqueante: true });
+  else if (!consecutivo(e, c, io, is)) lista.push({ codigo: "rota_alterada", mensagem: "O roteiro mudou: as etapas deixaram de ser consecutivas. Revise o controle antes de usar o saldo.", bloqueante: true });
   const est = estimadoAte(c, e, e.hoje);
   if (est.valor < -EPS) lista.push({ codigo: "saldo_negativo", mensagem: `A etapa seguinte consumiu ${Math.round(-est.valor).toLocaleString("pt-BR")} peças a mais do que a origem produziu. Confira os apontamentos ou ajuste o saldo.`, bloqueante: true });
   const ultima = ultimaConfirmacao(c, e, e.hoje);

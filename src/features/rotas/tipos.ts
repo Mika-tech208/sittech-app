@@ -41,6 +41,8 @@ export interface PeriodoDuracao { id: PeriodoId; minutos: number }
 export interface ContextoCapacidade {
   periodos: PeriodoDuracao[];
   diasProdutivos: number;
+  // REPLANEJAMENTO no meio da semana: quantas vezes cada período ainda vai ocorrer (slots FUTUROS). Ausente = semana inteira uniforme (diasProdutivos × períodos do dia) — comportamento de sempre.
+  ocorrenciasPorPeriodo?: Partial<Record<PeriodoId, number>>;
   maquinasIndisponiveis?: string[];                 // não produzem na semana
   // horas JÁ comprometidas por outros produtos em cada máquina (competição real por capacidade — nunca se assume uma máquina livre se ela está ocupada)
   horasComprometidasPorMaquina?: Record<string, number>;

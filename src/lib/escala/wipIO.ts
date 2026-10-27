@@ -17,7 +17,7 @@ function somarDias(iso: string, dias: number): string {
 }
 
 // "boas" = produzida − refugo, por etapa e dia — agregado no banco (função com acesso restrito à Produção Real)
-async function producaoBoas(admin: SupabaseClient, etapaIds: string[], desde: string): Promise<EntradaWip["producao"]> {
+export async function producaoBoas(admin: SupabaseClient, etapaIds: string[], desde: string): Promise<EntradaWip["producao"]> {
   const linhas = ok(await admin.rpc("wip_producao_boas", { p_etapa_ids: etapaIds, p_desde: desde }), "wip_producao_boas") as { etapa_id: string; data: string; boas: number }[];
   return linhas.map((l) => ({ etapaId: l.etapa_id, data: String(l.data), boas: Number(l.boas ?? 0) }));
 }
@@ -48,6 +48,15 @@ export async function carregarWipControle(admin: SupabaseClient, semanaInicio: s
   const produtoAtivo: Record<string, boolean> = {};
   (ok(produtos, "produtos") as { id: string; ativo: boolean }[]).forEach((p) => (produtoAtivo[p.id] = p.ativo));
 
+  // produto de ROTAS: o percurso (arestas) substitui "ordem imediatamente posterior". Banco sem a função (antes do M4) ou produto linear: nada é adicionado.
+  const arestasPorProduto: Record<string, { origemId: string; destinoId: string }[]> = {};
+  for (const id of produtoIds) {
+    const r = await admin.rpc("produto_arestas_rotas", { p_produto: id });
+    if (r.error) { if (/does not exist|schema cache/i.test(r.error.message)) break; throw new Error(`produto_arestas_rotas: ${r.error.message}`); }
+    const linhas = (r.data ?? []) as { origem_id: string; destino_id: string }[];
+    if (linhas.length > 0) arestasPorProduto[id] = linhas.map((l) => ({ origemId: l.origem_id, destinoId: l.destino_id }));
+  }
+
   return {
     controles: controlesRows.map((c) => ({ id: c.id, produtoId: c.produto_id, etapaOrigemId: c.etapa_origem_id, etapaSeguinteId: c.etapa_seguinte_id, dataInicio: String(c.data_inicio), saldoInicial: Number(c.saldo_inicial), ativo: c.ativo })),
     ajustes: (ok(ajustes, "wip_ajustes") as { controle_id: string; data: string; quantidade: number; motivo: string; criado_em?: string }[]).map((a) => ({ controleId: a.controle_id, data: String(a.data), quantidade: Number(a.quantidade), motivo: a.motivo, ...(a.criado_em ? { criadoEm: a.criado_em } : {}) })),
@@ -63,7 +72,7 @@ export async function carregarWipControle(admin: SupabaseClient, semanaInicio: s
       (p.previsao_itens ?? []).filter((i) => i.tipo === "previsto").forEach((i) => (q[i.produto_id] = (q[i.produto_id] ?? 0) + Number(i.quantidade)));
       return { semanaInicio: String(p.semana_inicio), quantidadePorProduto: q };
     }),
-    roteiro: { produtoAtivo, etapasPorProduto },
+    roteiro: { produtoAtivo, etapasPorProduto, ...(Object.keys(arestasPorProduto).length > 0 ? { arestasPorProduto } : {}) },
   };
 }
 

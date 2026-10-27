@@ -12,7 +12,7 @@ import type { ContextoCapacidade, EstruturaProduto, EtapaCadastro, PeriodoId } f
 const EPS = 1e-9;
 
 export interface Reivindicacao { itemId: string; horas: number }
-export interface ItemSelecionado { itemId: string; produtoNome?: string; quantidade: number; selecao: Record<string, string[]> }
+export interface ItemSelecionado { itemId: string; produtoNome?: string; quantidade: number; selecao: Record<string, string[]>; creditoPorEtapa?: Record<string, number> /* replanejamento: o que cada etapa JÁ produziu (só o que falta pede máquina) */ }
 export interface MetasDaEtapa { operacaoId: string; metas: Record<PeriodoId, number> }
 
 export function repartirMaquina(horasMaquina: number, pedidos: Reivindicacao[]): Map<string, number> {
@@ -55,7 +55,7 @@ export function reivindicacoesPorMaquina(itens: ItemSelecionado[], etapas: Map<s
     const e = etapas.get(etapaId);
     if (!e || maquinas.length === 0) return;
     const t = tempoPorPeca({ metas: e.metas }, ctx);
-    const dist = distribuirPedido(it.quantidade, maquinas, t, horasMaquina, disputadas);
+    const dist = distribuirPedido(Math.max(0, it.quantidade - (it.creditoPorEtapa?.[etapaId] ?? 0)), maquinas, t, horasMaquina, disputadas);
     Object.entries(dist).forEach(([m, horas]) => (out[m] ??= []).push({ itemId: it.itemId, horas }));
   }));
   return out;

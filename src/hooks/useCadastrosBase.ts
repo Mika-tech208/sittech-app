@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
+import { mapearPeriodo } from "@/lib/custo/custoHoraDados";   // mesma fonte do servidor (custo/hora)
 import type { Periodo } from "@/types/domain";
 
 // `pronto` deve ser true só quando já existe uma sessão Supabase Auth
@@ -57,7 +58,7 @@ export function useCadastrosBase(pronto: boolean) {
       // Postgres `time` volta como "HH:MM:SS" — o frontend sempre trabalhou
       // com "HH:MM" (ver Periodo.inicio/fim); adaptação de formato só aqui,
       // na camada de dados, sem mexer em nenhuma fórmula.
-      setPeriodos((perRes.data || []).map((p) => ({ id: p.id, nome: p.nome, inicio: String(p.inicio).slice(0, 5), fim: String(p.fim).slice(0, 5) })));
+      setPeriodos((perRes.data || []).map(mapearPeriodo));
       if (cfgRes.data) {
         setConfigId(cfgRes.data.id);
         setDiasUteisState(String(cfgRes.data.dias_uteis));

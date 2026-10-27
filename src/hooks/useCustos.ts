@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import type { FixedCost, VariableEntry } from "@/types/domain";
+import { FIXED_COSTS_SELECT, mapearFixedCost, type FixedCostRow } from "@/lib/custo/custoHoraDados";   // mesma fonte do servidor (custo/hora)
 
 interface FixedCostPayload {
   descricao: string;
@@ -22,14 +23,6 @@ interface VariableEntryPayload {
   descricao: string;
   categoria: string;
   valor: number;
-}
-
-interface FixedCostRow {
-  id: string;
-  descricao: string;
-  valor: number;
-  ativo: boolean;
-  categorias: { nome: string } | null;
 }
 
 interface VariableEntryRow {
@@ -57,7 +50,7 @@ export function useCustos(pronto: boolean) {
     let montado = true;
     (async () => {
       const [fixosRes, variaveisRes] = await Promise.all([
-        supabase.from("fixed_costs").select("id, descricao, valor, ativo, categorias(nome)").order("created_at"),
+        supabase.from("fixed_costs").select(FIXED_COSTS_SELECT).order("created_at"),
         supabase.from("variable_entries").select("id, mes, descricao, valor, categorias(nome)").order("created_at"),
       ]);
       if (!montado) return;
@@ -67,9 +60,7 @@ export function useCustos(pronto: boolean) {
         return;
       }
       setFixedCosts(
-        ((fixosRes.data || []) as unknown as FixedCostRow[]).map((f) => ({
-          id: f.id, descricao: f.descricao, categoria: f.categorias?.nome || "", valor: Number(f.valor), ativo: f.ativo,
-        }))
+        ((fixosRes.data || []) as unknown as FixedCostRow[]).map(mapearFixedCost)
       );
       setVariableEntries(
         ((variaveisRes.data || []) as unknown as VariableEntryRow[]).map((e) => ({

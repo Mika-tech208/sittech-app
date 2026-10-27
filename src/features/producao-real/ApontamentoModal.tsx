@@ -186,6 +186,7 @@ export default function ApontamentoModal({
                   <option key={p.id} value={p.id}>{p.nome}</option>
                 ))}
               </select>
+              {(() => { const g = produtos.find((p) => p.id === produtoId)?.rotaCodigo; return g ? <p className="stx-panel-sub" style={{ margin: "4px 0 0" }}>{g === "CONV" ? "Rota convencional" : g === "AUTO" ? "Rota automática" : "Fluxo comum"} — definido pela máquina; você não precisa escolher a rota.</p> : null; })()}
               {!produtosCarregando && produtos.length === 0 && (
                 <p className="stx-ap-error">Nenhum produto elegível cadastrado para esta máquina.</p>
               )}

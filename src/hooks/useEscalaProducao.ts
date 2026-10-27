@@ -46,6 +46,7 @@ export interface Nomes {
   produtos: Map<string, string>;
   operacoes: Map<string, string>;
   funcionarios: Map<string, string>;
+  etapaRota?: Map<string, string>;   // produto de ROTAS: etapa → "CONV" | "AUTO" | "COMUM" (rótulo discreto; ausente/vazio em semana só de produtos lineares)
 }
 
 export interface EstadoEscalaTela {
@@ -89,7 +90,16 @@ export function useEscalaProducao(pronto: boolean, semanaInicio: string) {
       supabase.from("operacoes").select("id, nome"),
       supabase.from("funcionarios_elegibilidade").select("id, nome"),
     ]);
+    // rótulo discreto de rota por etapa (só existe com produto de rotas; sem as tabelas, erro ou vazio = nenhum rótulo)
+    const [rotaEt, poolEt] = await Promise.all([
+      supabase.from("rota_etapas").select("etapa_id, produto_rota(codigo)"),
+      supabase.from("produto_pool_comum").select("etapa_id"),
+    ]);
+    const etapaRota = new Map<string, string>();
+    if (!rotaEt.error) (rotaEt.data || []).forEach((r: { etapa_id: string; produto_rota: { codigo: string } | { codigo: string }[] | null }) => { const c = Array.isArray(r.produto_rota) ? r.produto_rota[0]?.codigo : r.produto_rota?.codigo; if (c) etapaRota.set(r.etapa_id, c); });
+    if (!poolEt.error) (poolEt.data || []).forEach((r: { etapa_id: string }) => etapaRota.set(r.etapa_id, "COMUM"));
     const nomes: Nomes = {
+      etapaRota,
       maquinas: new Map((maq.data || []).map((r: { id: string; nome: string }) => [r.id, r.nome])),
       produtos: new Map((prod.data || []).map((r: { id: string; nome: string }) => [r.id, r.nome])),
       operacoes: new Map((ops.data || []).map((r: { id: string; nome: string }) => [r.id, r.nome])),

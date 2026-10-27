@@ -54,7 +54,9 @@ export function gerarValidacaoPrevisao(
   const producaoAcabadaPorProduto = calcularProducaoAcabadaObservadaPorProduto(apontamentosSemanaAtual);
 
   // ---- falta operacional por item -> alimenta o motor de capacidade já existente ----
-  const itensComFalta: PrevisaoItem[] = previsaoSemana.itens.map((it) => {
+  // Produto de ROTAS (estruturaRotas): esta validação por etapa lê o roteiro como cadeia linear e o veria duplicado; fica de FORA até ter versão por rota (a Capacidade mostra o produto corretamente)
+  const itensLineares = previsaoSemana.itens.filter((it) => !produtos.find((p) => p.id === it.produtoId)?.estruturaRotas);
+  const itensComFalta: PrevisaoItem[] = itensLineares.map((it) => {
     const producaoAcabadaObservada = producaoAcabadaPorProduto.get(it.produtoId) || 0;
     const faltaOperacional = calcularFaltaOperacional(it.quantidade, producaoAcabadaObservada);
     return { ...it, quantidade: faltaOperacional };
@@ -79,11 +81,11 @@ export function gerarValidacaoPrevisao(
   // fatorItem/etapaLimitante/maximoPossivel (isso continua só em capacidadeTeorica.ts).
   const { porMaquina, fatorReducaoPorMaquina } = calcularInsumosCompartilhamento(itensFiltradosIndisponiveis, produtos, periodosComDuracao, horasRestantes);
 
-  const produtosIdsPrevistos = new Set(previsaoSemana.itens.map((it) => it.produtoId));
+  const produtosIdsPrevistos = new Set(previsaoSemana.itens.map((it) => it.produtoId));   // produto de rotas continua 'previsto' (não vira 'fora da previsão')
   const produtosForaDaPrevisao = calcularProdutosForaDaPrevisao(apontamentosSemanaAtual, produtosIdsPrevistos);
   const evidenciasSemProducaoTodas = calcularEvidenciasSemProducao(apontamentosSemanaAtual);
 
-  const itens: ItemValidacaoPrevisao[] = previsaoSemana.itens.map((it) => {
+  const itens: ItemValidacaoPrevisao[] = itensLineares.map((it) => {
     const produto = produtos.find((p) => p.id === it.produtoId);
     const producaoAcabadaObservada = producaoAcabadaPorProduto.get(it.produtoId) || 0;
     const realizadoOficial = realizadoOficialPorProduto.get(it.produtoId) || 0;

@@ -22,6 +22,9 @@ export interface GradeEscalaProps {
   onEditar: (periodoId: string, funcionarioId: string) => void;
 }
 
+// produto de ROTAS: indicação discreta de onde a etapa está (nunca como produto separado). Etapa de produto linear: nada.
+const rotuloRota = (g?: string) => (g === "CONV" ? " · rota convencional" : g === "AUTO" ? " · rota automática" : g === "COMUM" ? " · fluxo comum" : "");
+
 export default function GradeEscala({ dia, alocacoes, funcionarios, nomes, agoraMs, onEditar }: GradeEscalaProps) {
   const porChave = new Map(alocacoes.map((a) => [`${a.periodoId}|${a.funcionarioId}`, a]));
   return (
@@ -62,7 +65,7 @@ export default function GradeEscala({ dia, alocacoes, funcionarios, nomes, agora
                       {a.maquinaId ? (
                         <>
                           <div className="maq">{nomes.maquinas.get(a.maquinaId) || "Máquina"}</div>
-                          <div className="det">{nomes.produtos.get(a.produtoId || "") || "Produto"} · {nomes.operacoes.get(a.operacaoId || "") || "Operação"}</div>
+                          <div className="det">{nomes.produtos.get(a.produtoId || "") || "Produto"} · {nomes.operacoes.get(a.operacaoId || "") || "Operação"}{rotuloRota(nomes.etapaRota?.get(a.etapaId || ""))}</div>
                           <div>
                             {a.excecaoRevezamento && <span className="stx-esc-badge exc" title={a.motivoExcecao || "Repete a operação do período anterior"}>⚠ repete operação</span>}
                             {a.origem === "manual" && <span className="stx-esc-badge man">manual</span>}

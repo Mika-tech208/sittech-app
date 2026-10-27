@@ -1,0 +1,14 @@
+k=produtos | v=bf6c5fea45e3d53d9ad708fcb2bd1882
+k=roteiro_etapas_legado | v=4be3be6d0015aeeb090626fcddb5867b
+k=roteiro_etapa_maquinas_legado | v=fb124f743256992b7b89d6f20b94445f
+k=previsao_itens_26_10 | v=b201140e98314e2a2bf2585de88fe17c
+k=previsao_item_maquinas_26_10 | v=fd2e9eaeba1d4f187f8ad4c681897250
+k=previsao_item_adicional_26_10 | v=d41d8cd98f00b204e9800998ecf8427e
+k=previsao_dias_equipe_26_10 | v=0c1a34adbd4ea5a4bd225a7f04534dbc
+k=escala_dias_26_10 | v=2ae1610d2eac7227fd224b8551eb15be
+k=escala_alocacoes_26_10 | v=f75fbf50dfc15f43579ad8d31a90d03f
+k=escala_plano_entrada_26_10 | v=162b1647ff01e958ed537d664e10f748
+k=previsoes_sem_coluna_nova | v=1d975991873464eed28a6ef039388d0d
+k=apontamentos_26_10 | v=d41d8cd98f00b204e9800998ecf8427e
+k=escala_parametros | v=83558217cb9e6e8efd2db1e7c77e456e
+k=tabelas_antigas_colunas | v=111a722f80601579b983e601e7235ba2

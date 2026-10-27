@@ -1,5 +1,6 @@
 "use client";
 
+import FluxoProdutoRotas from "@/features/rotas/FluxoProdutoRotas";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthSession } from "@/hooks/useAuthSession";
@@ -335,6 +336,9 @@ export default function ProdutosPage() {
                           {p.referencia && <span className="stx-prod-ref">{p.referencia}</span>}
                           {!p.ativo && <span className="stx-prod-ref">· pausado</span>}
                         </p>
+                        {p.estruturaRotas ? (
+                          <FluxoProdutoRotas produto={p} maquinas={maquinas} periodosComDuracao={periodosComDuracao} custoHoraPorOperacao={custoHoraPorOperacao} custoHoraEmpresa={custoHoraEmpresa} formatBRL={formatBRL} />
+                        ) : (
                         <p className="stx-prod-fluxo">
                           {temRoteiro
                             ? p.roteiro.map((e) => {
@@ -344,6 +348,7 @@ export default function ProdutosPage() {
                               }).join(" → ")
                             : "sem fluxo de produção cadastrado"}
                         </p>
+                        )}
                       </div>
                       <span className="num">{formatBRL(p.valorUnitario)}</span>
                       <span className="num" style={{ color: "var(--text-2)" }}>{temRoteiro ? formatBRL(custo) : "—"}</span>
@@ -361,7 +366,7 @@ export default function ProdutosPage() {
                         >
                           {p.ativo ? "⏸" : "▶"}
                         </button>
-                        <button className="stx-icon-btn" title="Editar" onClick={() => editProduto(p)}>✎</button>
+                        <button className="stx-icon-btn" title={p.estruturaRotas ? "Produto de rotas: a estrutura (rotas e fluxo comum) não é editada no formulário linear" : "Editar"} disabled={!!p.estruturaRotas} onClick={() => editProduto(p)}>✎</button>
                         <button className="stx-icon-btn danger" title="Excluir" onClick={() => deleteProduto(p.id)}>✕</button>
                       </span>
                     </div>

@@ -552,3 +552,48 @@ TS (`golden_ts_depois4_dev.json`) **idêntico**; SQL (apontado real, sintético,
 ### 20.6 Decisões e o que falta (M4)
 1. **Arbitragem global na E16:** manter o motor (faltas iguais) ou criar, só para semanas de rotas, uma regra "completar o que pode ser completado"? (exige aprovação; golden master deve continuar zero para semanas lineares).
 2. **M4:** apontado real/indicadores por etapa final explícita; `wip_controle_criar` e WIP entre rotas → pool comum; custo/hora no estado do servidor; tornar Capacidade/Produtos/relatórios conscientes de rotas; revisão da regra de congelamento da divisão no meio da semana; só então avaliar abrir `suporte_ativo`.
+
+## 21. M4 — consumidores do modelo de rotas (DEV/Preview, 26/10/2026) — nada em PROD; `suporte_ativo=false`; F `ativo=false`; sem Previsão 02/11
+
+**Decisão do usuário (motor):** mantido o comportamento atual (gargalo / faltas equilibradas / preço só desempata), sem exceção para produto de rotas. Documentado nos testes como caracterização.
+
+### 21.1 O que foi feito
+| Área | Mudança | Linear |
+|---|---|---|
+| **Apontado real** | RPC `obter_apontado_real_previsao_por_semana`: a "última" ordem de produto de rotas é a da **etapa final explícita** (Embalar), nunca `max(ordem)`; boas = produzido − refugo | idêntico (ramo antigo é o `else`) |
+| **Indicadores** | RPC `obter_indicadores_producao`: `is_ultima_etapa` por `produto_etapa_final` para produto de rotas; todo consumidor TS (`isUltimaEtapa`) fica certo (acabado, receita, margem) | idêntico (hash igual à função antiga) |
+| **Valor atribuído (paradas)** | `calcular_valor_atribuido_operacao` usa só o **percurso** da peça (trecho da rota + fluxo comum) — nunca as duas rotas | idêntico (126 combinações) |
+| **WIP** | `wip_controle_criar`: produto de rotas valida contra as **arestas do percurso** (`produto_arestas_rotas`), nunca `ordem+1`; modelo puro `wipRotas.ts` (rota → pool → fluxo comum); `wipSaldo.ts`: convergência com consumo de Etiquetar **proporcional** entre origens (sem FIFO, sem consumo duplicado) e checagem por aresta | idêntico (sem `arestasPorProduto`) |
+| **Pool comum** | disponível p/ Etiquetar = Σ saídas prontas das rotas + saldo inicial válido − consumo; saldo = o que sobra (8.000 + 5.000 − 12.000 = 1.000); depois de Etiquetar não há origem por rota | — |
+| **Custo no servidor** | `src/lib/custo/custoHoraDados.ts`: mesmos SELECTs, mesmos mapeadores e a mesma fórmula (`calcularCustoHoraEOperacoes`) para **tela e servidor** (hooks refatorados para usar os mapeadores); `supabaseIO` carrega o custo real para semana com rotas; grants de leitura ao `service_role`; nada hardcoded | — |
+| **Replanejamento no meio da semana** | `resolucao.ts`: passado imutável (créditos congelados), período em andamento e trocas manuais preservados pela regra existente (`aPartirDe`), futuro recalculado só para o que **falta**, com a capacidade dos períodos que ainda vão ocorrer, Produção Real como feedback (ou o congelado se ainda não há apontamento) e o saldo do pool; máquinas **sempre** as da Previsão; falta aparece quando a CONV não tem recurso | — |
+| **Capacidade** | produto de rotas aparece **uma vez** (Previsto, Possível, AUTO/CONV nominal × realizável, Etiquetar, Embalar, gargalo); contas legadas recebem cadeias consistentes (`dominio.ts`) para somar cada etapa uma vez | refs idênticas se não há rotas |
+| **Previsão** | itens previstos/viabilidade/pdf: F por rota + fluxo comum; sem duplicar demanda | — |
+| **Produtos** | F mostrado como CONV / AUTO / FLUXO COMUM, com custo da rota, comum e final via CONV/AUTO (nunca somadas); edição pelo formulário linear bloqueada; custo único (lucro/hora, margem) = rota de maior custo final | — |
+| **Escala** | UI mostra o produto real + rótulo discreto "rota convencional / rota automática / fluxo comum"; cadeias virtuais nunca aparecem como produto; `restanteAcabado` só conta a cadeia do fluxo comum | — |
+| **Produção Real (apontamento)** | a rota vem da etapa (operador não escolhe; rótulo informativo no modal); gatilho recusa apontamento de produto de rotas com etapa de outro produto | gatilho não age em linear |
+| **Adicional / WIP planejado** | pertencimento decidido pela **etapa** (`grupoDaEtapa`); o banco **recusa** adicional de produto de rotas (a regra por ordem é falsa para ele) até o WIP oficial de F | — |
+
+### 21.2 Auditoria de relatórios e consumidores (agente de auditoria + verificação)
+- **Sem risco (usam o apontamento gravado ou a Escala, não o roteiro):** relatórios da Escala (PDF semanal), `/relatorios`, TV, indicadores/desvios/paradas/funcionários/visão geral, intelligence/tools.
+- **Corrigidos nesta rodada:** simulação de cobertura/sombra/limites de WIP (passam a projetar F via `montarEntradaEscala`), capacidade/horas/alocação legadas (expansão), PDF da Previsão, custo/margem, lista de pares de estoque intermediário, `restanteAcabado`, valor atribuído a paradas, `dataFetchers` da inteligência (ignora produto de rotas).
+- **Mantidos FORA de propósito (documentado):** validação da Previsão por etapa (`validacao-previsao`) ignora produto de rotas (a Capacidade mostra o produto corretamente); `obter_realizado_previsao_por_semana` (RPC sem consumidor).
+- **Nenhum relatório duplica F nem lê as duas rotas como sequência.**
+
+### 21.3 Riscos restantes
+- Planejamento e realizável de **máquina compartilhada** continuam estimativa (prévia) + motor (verdade); em contenção pesada 3 rodadas podem não convergir ("não convergiu" com diagnóstico; não se aumenta o nº de rodadas).
+- Produção Real: etapa **sem apontamento** vale o planejado congelado; apontamentos atrasados podem fazer o replanejamento supor produção que não houve.
+- Adicional/WIP planejado de F: recusado pelo banco (fora de escopo).
+- Validação da Previsão por etapa e RPC de realizado ignoram produto de rotas.
+- Máquina elegível a duas etapas de F deixaria o apontamento ambíguo (diagnóstico `produto_rotas_maquinas_ambiguas` deve dar 0 linhas — vale no DEV; **conferir no PROD** antes de ativar).
+- O M1 copia metas/máquinas por valor no momento em que é aplicado: o cadastro de F no PROD sai do cadastro legado de PROD (diferente do DEV).
+- Custo/hora de uma operação sem funcionário ativo cai no custo/hora da empresa (regra existente).
+
+### 21.4 Plano exato de ativação futura (nada executado)
+1. **Revisão** do resultado completo no Preview (este relatório) e aprovação explícita.
+2. **Pré-voo em PROD (somente leitura):** confirmar que não existem `produto_rota`/`rotas_config`; Etiquetar/Embalar iguais entre P e Máquina Automática; `produto_rotas_maquinas_ambiguas(F)` = 0 depois da M1; custo/hora carrega; golden SQL de linear em PROD (hashes anotados antes).
+3. **Migrations em PROD, na ordem:** `20261106100000` (M0) → `20261106110000` (M1, F criado inativo) → `20261107100000` (sombra) → `20261108100000` (divisão) → `20261109100000` (RPCs/WIP) → `20261109110000` (custo servidor/apontamento/adicional/valor atribuído). Após cada uma: golden SQL linear (idêntico) e `suporte_ativo=false`.
+4. **Deploy da aplicação (main)** com a trava fechada: golden TS igual; telas lineares idênticas; F invisível (inativo + trava).
+5. **Sombra em PROD:** `rotas-planejador-sombra` (leitura) com os dados de 26/10; conferir 97.500 / falta 19.125 / gargalo Etiquetar e o custo/hora real.
+6. **Abertura controlada (somente após novo OK):** `produtos.ativo=true` de F → `rotas_config.suporte_ativo=true` → a pessoa cria a Previsão 02/11 (F = 1 item, máquinas marcadas à mão) → gerar Escala (conferir rodadas/convergência) → liberar apontamento de F.
+7. **Reversão:** `suporte_ativo=false`, F `ativo=false`; semana 02/11 sem apontamentos pode voltar ao legado; P/A legados seguem para semanas anteriores.

@@ -9,15 +9,16 @@ import { epochMsNoFuso } from "@/features/escala/tempo";
 import type { LinhasRotas } from "@/features/rotas/dados";
 import { resolverRotas } from "@/features/rotas/resolucao";
 import { estadoDeSimulacao, type EntradaSimulacao } from "@/features/rotas/simulacao";
+import { carregarCustoHora } from "@/lib/custo/custoHoraDados";
 
 for (const l of readFileSync(new URL("../.env.local", import.meta.url), "utf8").split("\n")) { const m = l.match(/^([A-Z0-9_]+)=(.*)$/); if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^"|"$/g, ""); }
-const CUSTO_HORA_REFERENCIA = 30.6;   // referência uniforme: o custo/hora real por operação vem da UI (/produtos/rotas)
 const SEMANA = "2026-11-02";
 
 async function main() {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL!.includes("zjwcomwjmhsloyxfypax")) throw new Error("NÃO É DEV");
   const gravar = process.argv.includes("--gravar");
   const admin = criarClienteAdmin();
+  const custoReal = await carregarCustoHora(admin);   // MESMA fonte e fórmula da tela: nada de custo fixo no script
   const q = async <T>(p: PromiseLike<{ data: T | null; error: { message: string } | null }>) => { const r = await p; if (r.error) throw new Error(r.error.message); return (r.data ?? []) as T; };
   const [rotas, rotaEtapas, poolComum, etapas, etapaMaquinas, operacoes, maquinas, periodos, produtos] = await Promise.all([
     q<LinhasRotas["rotas"]>(admin.from("produto_rota").select("id, produto_id, codigo, nome, ativa, preferencia")),
@@ -41,7 +42,7 @@ async function main() {
   const BASE = { Rosquear: ["Rosqueadeira 6"], Parafusar: ["Parafusadeira 9", "Parafusadeira 10"], "Rosquear + Parafusar": ["Maquina Automatica 8"], Etiquetar: ["Etiquetadora 15"], Embalar: ["Embalagem 17"] };
   const base = (o: Partial<EntradaSimulacao> = {}): EntradaSimulacao => ({
     produtoId: produtoF, nomeProduto: F.nome, valorUnitario: Number(F.valor_unitario), linhas, todasEtapas: etapas, todasEtapaMaquinas: etapaMaquinas, periodos, semanaInicio: SEMANA, dias: 5,
-    demanda: 116625, selecao: marcar(BASE), maquinasIndisponiveis: [], outros: [], pessoas: 20, custoHoraPadrao: CUSTO_HORA_REFERENCIA, ...o,
+    demanda: 116625, selecao: marcar(BASE), maquinasIndisponiveis: [], outros: [], pessoas: 20, custoHoraPorOperacao: custoReal.custoHoraPorOperacao, custoHoraPadrao: custoReal.custoHoraEmpresa, ...o,
   });
   const caixa = (q: number, ms: string[]) => ({ produtoId: "00000000-0000-4000-8000-00000000cafe", nome: "Caixa Amarela (simulada)", quantidade: q, valorUnitario: 0.35, maquinasPorEtapa: {} as Record<string, string[]>, _ms: ms });
   void caixa;

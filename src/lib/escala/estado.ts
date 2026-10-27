@@ -83,6 +83,10 @@ export interface RotasDoEstado {
   toleranciaEstabilidade?: number;                                     // opcional (SEM valor = estabilidade desligada)
   divisaoAnterior?: Record<string, Record<string, number>>;            // produtoId -> rota -> entrega da rodada anterior
   maxRodadas?: number;                                                 // padrão 3
+  // REPLANEJAMENTO no meio da semana: Produção Real BOA acumulada da semana por etapa (apontamentos). Etapa sem chave = ainda sem apontamento ⇒ vale o planejado congelado.
+  producaoReal?: Record<string, number>;
+  // WIP inicial confirmado por produto (só com o WIP ativo): saldo do pool (pronto para a 1ª etapa comum) no início da semana
+  wipInicial?: Record<string, { pool?: number; entreEtapasComuns?: Record<string, number> }>;
 }
 
 export interface EstadoBruto {

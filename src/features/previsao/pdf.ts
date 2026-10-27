@@ -4,6 +4,7 @@
 // máquinas, período, semana etc.) agora explícitas como parâmetros em vez
 // de vir do closure do componente.
 
+import { expandirItensDeRotas } from "@/features/rotas/dominio";
 import {
   calcularAnaliseCapacidadeSemanal, calcularUsoPorMaquina, calcularObservacoesSetup, calcularViabilidadeItem,
   calcularFuncionariosTotalSemana, calcularPeriodosEtapa, textoDiasPeriodos,
@@ -34,7 +35,9 @@ export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): stri
     duracaoMediaPeriodo, diasProdutivosSemana, equipeProdutivaCount, getLucroHora,
   } = params;
 
-  const analiseCapacidade = calcularAnaliseCapacidadeSemanal(semanaAtualRec.itens, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana);
+  // produto de ROTAS: cadeias consistentes só para o cálculo (nunca duplica demanda nem soma CONV + AUTO como sequência); sem produto de rotas devolve as mesmas referências
+  const expansao = expandirItensDeRotas({ itens: semanaAtualRec.itens, produtos, periodosComDuracao, diasProdutivos: diasProdutivosSemana, maquinasIndisponiveis: semanaAtualRec.maquinasIndisponiveis });
+  const analiseCapacidade = calcularAnaliseCapacidadeSemanal(expansao.itens, expansao.produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana);
   const usoMaquinas = calcularUsoPorMaquina(analiseCapacidade, duracaoMediaPeriodo);
   const maquinasExcedidas = usoMaquinas.filter((u) => u.excedeu);
   const observacoesSetupPDF = calcularObservacoesSetup(analiseCapacidade, produtos, getLucroHora);
@@ -45,7 +48,17 @@ export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): stri
   const linhasItens = semanaAtualRec.itens.map((it) => {
     const produto = produtos.find((p) => p.id === it.produtoId);
     const roteiro = produto?.roteiro || [];
-    const viab = calcularViabilidadeItem(it, produtos, periodosComDuracao, horasPorMaquinaSemana);
+    const previaRotas = expansao.previas.get(it.id);
+    const estrutura = produto?.estruturaRotas;
+    // quantidade que CADA etapa processa: rota = a entrega planejada dela; fluxo comum = o produto final possível (nunca a demanda inteira em todas as etapas)
+    const qtdDaEtapa = (etapaId: string): number => {
+      if (!previaRotas || !estrutura) return it.quantidade;
+      const rota = estrutura.rotas.find((r) => r.etapas.includes(etapaId));
+      return rota ? previaRotas.plano.alvo[rota.codigo] ?? 0 : previaRotas.plano.finalAtingivel;
+    };
+    const viab = previaRotas
+      ? { atingivel: previaRotas.plano.falta <= 0, maxPecas: Math.floor(previaRotas.plano.finalAtingivel), funcionariosNecessarios: new Set(Object.values(it.maquinasPorEtapa || {}).flat()).size }
+      : calcularViabilidadeItem(it, produtos, periodosComDuracao, horasPorMaquinaSemana);
     let etapaGargalo: { nome: string; periodos: ReturnType<typeof calcularPeriodosEtapa> } | null = null;
     let maiorHoras = -1;
     const linhasEtapas = roteiro.map((etapa) => {
@@ -58,9 +71,10 @@ export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): stri
       const tempoPorPeca = totalPecasMeta > 0 ? totalHorasMeta / totalPecasMeta : 0;
       const idsSelecionadas = (it.maquinasPorEtapa || {})[etapa.id] || [];
       const nomesMaquinas = idsSelecionadas.map((id) => maquinas.find((m) => m.id === id)?.nome).filter(Boolean);
-      const periodos = calcularPeriodosEtapa(it.quantidade, tempoPorPeca, idsSelecionadas.length, duracaoMediaPeriodo);
+      const periodos = calcularPeriodosEtapa(qtdDaEtapa(etapa.id), tempoPorPeca, idsSelecionadas.length, duracaoMediaPeriodo);
       if (periodos.horasCalendario > maiorHoras) { maiorHoras = periodos.horasCalendario; etapaGargalo = { nome: etapa.operacao, periodos }; }
-      return `<tr><td>${etapa.operacao}</td><td>${nomesMaquinas.length > 0 ? nomesMaquinas.join(", ") : "—"}</td><td>${periodos.manha}</td><td>${periodos.tarde}</td></tr>`;
+      const grupo = estrutura ? (estrutura.rotas.find((r) => r.etapas.includes(etapa.id))?.codigo === "CONV" ? "Rota convencional" : estrutura.rotas.find((r) => r.etapas.includes(etapa.id))?.codigo === "AUTO" ? "Rota automática" : "Fluxo comum") : "";
+      return `<tr><td>${grupo ? `<small>${grupo}</small> ` : ""}${etapa.operacao}</td><td>${nomesMaquinas.length > 0 ? nomesMaquinas.join(", ") : "—"}</td><td>${periodos.manha}</td><td>${periodos.tarde}</td></tr>`;
     }).join("");
     return `
       <div class="item">
