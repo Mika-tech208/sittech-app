@@ -35,7 +35,7 @@ Intervalos semiabertos `[início, fim)`. Uma causa afeta um período se `desde <
 | fim NULL (aberta) | sim, todos os períodos futuros até encerrar |
 
 Passado e período em andamento nunca são reescritos (o horizonte congela; a invariante só olha períodos que COMEÇAM depois de agora). O período em que a Parada
-começou (ex.: M2 08:48–10:24 com Parada 09:34) aparece como afetado nos diagnósticos (`maquinaDisponivelNoSlot` = false) sem reescrever a alocação.
+começou (ex.: M2 08:48–10:24 com Parada 09:34) aparece como afetado nos diagnósticos (`maquinaDisponivelNoSlot` = false) sem reescrever a alocação; o painel de recursos da Escala mostra "afeta a partir de M2 27/10 (já em andamento: não é reescrito)" (`primeiroPeriodoAfetado`).
 
 ## Eventos
 `escala_evento_recurso` registra `recurso_bloqueado` (abrir) / `recurso_liberado` (encerrar ou apagar a Parada) **na mesma transação** da Parada, para as semanas com
@@ -54,7 +54,7 @@ Camadas (nenhuma é a única garantia):
    calculados da tabela `periodos`, America/Sao_Paulo) chama o endpoint idempotente; ao voltar de suspensão/aba oculta dispara na hora.
 3. **Servidor**: `/api/escala/drenar` e `/api/escala/processar` chamam `revalidarDisponibilidadeMaquinas` antes de drenar: (a) reconcilia; (b) dentro da janela de um período
    (início −6 min … +15 min) confere a **invariante** "nenhuma alocação futura numa máquina com causa ativa que intersecte o período". Violação sem evento de bloqueio da causa → registra o
-   evento (recuperação de evento perdido); evento ainda na fila → aguarda a drenagem; evento já processado e plano ainda viola → só alerta (`persistentes`), **nunca** repete (sem laço de recálculo).
+   evento (recuperação de evento perdido); evento ainda na fila → aguarda a drenagem; evento já processado e plano ainda viola → só alerta (`persistentes`), **nunca** repete (sem laço de recálculo). O evento é associado à causa por identidade (`payload.indisponibilidade_id`), não por horário.
 4. **Agendadores**: o GitHub `*/5` continua; foram acrescentados os 6 horários pré-período (UTC−3, seg–sáb) como redundância; o cron diário da Vercel (plano Hobby = 1×/dia) permanece.
    **Limite conhecido**: no plano Hobby não há agendador de minuto preciso garantido; o GitHub atrasa. Garantia total exigiria Vercel Pro (cron por minuto) ou `pg_cron + pg_net` no Supabase — decisão do dono do produto.
 
@@ -68,3 +68,9 @@ Apagar: a causa some e, se estava aberta, gera `recurso_liberado`. Editar `abert
 ## Testes
 - Banco: `supabase/tests/escala_parada_maquina.test.sql` (DEV, transação com rollback; nunca em PROD).
 - TS: `paradaMaquina.test.ts`, `preChecagem.test.ts`, `indisponibilidadeEfetiva.test.ts`, `revalidarDisponibilidade.test.ts`.
+
+## Validação (DEV, 27/10/2026)
+- SQL: 14 verificações (abrir, retry, múltiplas causas, encerrar, apagar, edição, reconciliação/backfill, relevância, fronteiras A–F, período em andamento) — ok.
+- E2E contra o DEV com o processador real: Parada aberta numa máquina com 15 períodos futuros → evento → recálculo → 0 períodos futuros na máquina; passado idêntico; 3 revalidações sem mudança = versões inalteradas;
+  evento perdido (apagado) é recuperado pela checagem da janela (12:56) e a segunda checagem é NO-OP; encerrar → `recurso_liberado` → máquina elegível de novo (o motor a usou em 15 períodos).
+- Suíte completa: 1330 testes iguais ao main (13 falhas preexistentes do meu runner) + testes novos; golden/semanas reais inalterados.

@@ -150,6 +150,20 @@ begin
   select count(*) into v_n from escala_violacoes_disponibilidade(v_ini + interval '1 minute') where maquina_id = v_maq and data = v_data and periodo_id = v_pid;
   if v_n <> 0 then raise exception 'T15 falhou: período já iniciado entrou como violação'; end if;
   insert into t_res(res) values ('ok T15 período já iniciado (atual/passado) não é reescrito nem acusado');
+
+  -- 13) a Escala NUNCA impede registrar uma Parada: mesmo com falha na sincronização, a ocorrência é gravada e a reconciliação repara
+  delete from escala_recurso_indisponivel;
+  alter table escala_recurso_indisponivel add constraint t_falha_forcada check (false) not valid;
+  insert into ocorrencias_maquina (maquina_id, tipo, motivo_id, produto_id, etapa_id, operacao_id, funcionario_id, periodo_id_abertura, descricao, criado_por)
+  values (v_maq, 'manutencao', v_mot_m, v_prod, v_etapa, v_op, v_func, v_per, 'falha forçada', v_user) returning id into v_oc2;
+  alter table escala_recurso_indisponivel drop constraint t_falha_forcada;
+  select count(*) into v_n from ocorrencias_maquina where id = v_oc2;
+  select count(*) into v_n2 from escala_recurso_indisponivel where origem_id = v_oc2;
+  if v_n <> 1 or v_n2 <> 0 then raise exception 'T16 falhou: ocorrência=% espelho=%', v_n, v_n2; end if;
+  v_r := escala_reconciliar_indisponibilidades();
+  select count(*) into v_n from escala_recurso_indisponivel where origem_id = v_oc2 and liberada_em is null;
+  if v_n <> 1 then raise exception 'T16b falhou: reconciliação não reparou (%)', v_r; end if;
+  insert into t_res(res) values ('ok T16 falha na sincronização NUNCA bloqueia a Parada; a reconciliação repara depois');
 end $$;
 
 select res from t_res order by n;
