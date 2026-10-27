@@ -98,6 +98,7 @@ export interface ResumoSombra {
   recusadas: number;
   conflitos: number;
   reavaliacoes: number;
+  reavaliacoesDispensadas: number; // pendentes cuja região-alvo já iniciou: registradas como recusa SEM rodar o motor
   eventos: number;
   aguardando: number;
   processadas: number;
@@ -224,6 +225,16 @@ export async function prepararDecisao(
   return { pronto: true, snapshot, corteMs, tardios, par, decisao, proposta };
 }
 
+// A reavaliação de um período `c` só pode regravar de c+1 (reparo do comprometido) ou c+2 em diante. Se o período c+2 já INICIOU, nenhuma região possível é
+// regravável: a decisão seria recusada de qualquer forma. Devolve a região-alvo (c+2) quando já iniciou; null quando ainda há o que avaliar (ou não há c+2).
+export function regiaoAlvoJaIniciada(estado: EstadoBruto, ev: { data: string; periodoId: string }, agoraMs: number): { alvo: { data: string; periodoId: string }; slotOrigem: number } | null {
+  const slots = montarEntradaEscala(estado, agoraMs).entrada.slots;
+  const origem = slots.find((s) => s.data === ev.data && s.periodoId === ev.periodoId);
+  if (!origem) return null;
+  const alvo = slots.find((s) => s.indice === origem.indice + 2);
+  return alvo && alvo.inicioMs <= agoraMs ? { alvo: { data: alvo.data, periodoId: alvo.periodoId }, slotOrigem: origem.indice } : null;
+}
+
 const MAX_TENTATIVAS_APLICACAO = 3;
 
 type Contexto = { estado: EstadoBruto; apontamentos: ApontamentoBanco[] };
@@ -303,7 +314,7 @@ export async function avaliarEAplicar(
 export async function processarSombra(io: SombraIO, agoraMs: number): Promise<ResumoSombra> {
   const modo = await io.lerModo();
   const efetivo = modoEfetivoReplanejamento(modo);
-  const resumo: ResumoSombra = { modo, modoEfetivo: efetivo, avisoAtivoNaoImplementado: modo === "ativo", aplicadas: 0, semMudanca: 0, recusadas: 0, conflitos: 0, reavaliacoes: 0, eventos: 0, aguardando: 0, processadas: 0, duplicadas: 0, ignoradas: 0, concorrencia: 0, erros: 0 };
+  const resumo: ResumoSombra = { modo, modoEfetivo: efetivo, avisoAtivoNaoImplementado: modo === "ativo", aplicadas: 0, semMudanca: 0, recusadas: 0, conflitos: 0, reavaliacoes: 0, reavaliacoesDispensadas: 0, eventos: 0, aguardando: 0, processadas: 0, duplicadas: 0, ignoradas: 0, concorrencia: 0, erros: 0 };
   if (resumo.modoEfetivo === "desligado") return resumo;
   const semanasAtivas = efetivo === "ativo_restrito" && io.lerSemanasAtivas ? await io.lerSemanasAtivas() : [];
   const contabilizar = (r: ResultadoAvaliacao) => {
@@ -354,6 +365,21 @@ export async function processarSombra(io: SombraIO, agoraMs: number): Promise<Re
     try {
       for (const p of await io.reavaliacoesPendentes(semanasAtivas)) {
         const ctx = await carregar(p.previsaoId);
+        // outra invocação concorrente pode ter avaliado/registrado enquanto carregávamos: só segue se continua pendente (a idempotência final está no banco)
+        const mesmo = (x: { previsaoId: string; data: string; periodoId: string }) => x.previsaoId === p.previsaoId && x.data === p.data && x.periodoId === p.periodoId;
+        if (!(await io.reavaliacoesPendentes(semanasAtivas)).some(mesmo)) { resumo.concorrencia++; continue; }
+        // região-alvo já iniciada: a decisão seria recusada de qualquer forma ("decisão defasada") — não roda o motor nem grava nova decisão; só registra (uma vez) a recusa
+        const iniciada = regiaoAlvoJaIniciada(ctx.estado, p, agoraMs);
+        if (iniciada && io.registrarAvaliacao && io.proximaRevisao) {
+          const revisao = Math.max(0, (await io.proximaRevisao(p.previsaoId, p.data, p.periodoId)) - 1);
+          await io.registrarAvaliacao({
+            previsaoId: p.previsaoId, decisaoId: null, corte: { semanaInicio: ctx.estado.semanaInicio, data: p.data, periodoId: p.periodoId, slot: iniciada.slotOrigem, revisao, motivo: "reavaliacao" },
+            resultado: "recusado", motivo: `região já iniciada (${iniciada.alvo.data} ${iniciada.alvo.periodoId}): decisão defasada (reavaliação dispensada)`, aPartir: iniciada.alvo, hashProposta: null,
+          });
+          resumo.reavaliacoesDispensadas++;
+          contabilizar("recusado");
+          continue;
+        }
         resumo.reavaliacoes++;
         contabilizar(await avaliarEAplicar(io, { id: null, ...p }, ctx, carregar, agoraMs, "reavaliacao"));
       }
