@@ -11,6 +11,7 @@ import { useWakeLockTv } from "@/hooks/useWakeLockTv";
 import LoginScreen from "@/components/shell/LoginScreen";
 import { temPermissao } from "@/lib/permissoes";
 import { dataHoraNoFuso, epochMsNoFuso } from "@/features/escala/tempo";
+import { usePreChecagemEscala } from "@/hooks/usePreChecagemEscala";
 import { linhasDoPeriodo, situacaoTv, type LinhaTv } from "@/features/escala/tv";
 
 const ESTILOS_TV = `
@@ -81,6 +82,7 @@ export default function EscalaTvPage() {
   const tv = useEscalaTv(auth.autenticado && permitido && simulacao !== undefined, simulacao);
   const { snapshot, agoraMs } = tv;
   const wakeLock = useWakeLockTv(auth.autenticado && permitido);
+  usePreChecagemEscala(auth.autenticado && permitido && !tv.simulando ? snapshot?.periodos : undefined); // revalida a disponibilidade das máquinas 5 min antes de cada período
 
   // refaz a leitura quando o dia vira (a TV fica ligada o dia todo)
   const diaLocal = dataHoraNoFuso(agoraMs).data;

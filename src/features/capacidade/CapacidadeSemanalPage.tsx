@@ -147,7 +147,7 @@ export default function CapacidadeSemanalPage() {
   );
 
   async function toggleMaquinaIndisponivelSemana(maquinaId: string) {
-    const atuais = semanaAtualRec.maquinasIndisponiveis || [];
+    const atuais = semanaAtualRec.maquinasIndisponiveisManuais ?? semanaAtualRec.maquinasIndisponiveis ?? []; // só o gravado na Previsão (a Parada nunca é regravada aqui)
     const novos = atuais.includes(maquinaId) ? atuais.filter((id) => id !== maquinaId) : [...atuais, maquinaId];
     await previsoesHook.upsertSemana(semanaAtual, { maquinasIndisponiveis: novos });
   }
@@ -413,10 +413,11 @@ export default function CapacidadeSemanalPage() {
                           <p className="stx-cap-ref" style={{ marginBottom: 6 }}>{op}</p>
                           {maquinasDaOp.map((m) => {
                             const indisponivel = (semanaAtualRec.maquinasIndisponiveis || []).includes(m.id);
+                            const emParada = previsoesHook.maquinasEmParada.has(m.id) && !(semanaAtualRec.maquinasIndisponiveisManuais ?? []).includes(m.id);
                             return (
-                              <label className="stx-cap-toggle-row" key={m.id}>
-                                <span style={indisponivel ? { color: "var(--text-3)" } : undefined}>{m.nome}</span>
-                                <span className={`stx-cap-toggle ${!indisponivel ? "on" : ""}`} onClick={() => toggleMaquinaIndisponivelSemana(m.id)}>
+                              <label className="stx-cap-toggle-row" key={m.id} title={emParada ? "Máquina com Parada aberta: volta sozinha quando a Parada for encerrada em Produção Real" : undefined}>
+                                <span style={indisponivel ? { color: "var(--text-3)" } : undefined}>{m.nome}{emParada ? " — em Parada" : ""}</span>
+                                <span className={`stx-cap-toggle ${!indisponivel ? "on" : ""}`} onClick={() => { if (!emParada) toggleMaquinaIndisponivelSemana(m.id); }}>
                                   <span className="stx-cap-toggle-dot" />
                                 </span>
                               </label>
