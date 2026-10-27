@@ -50,7 +50,10 @@ import {
   diasDaSemana, resolverDiasProdutivos, alternarDia, resolverEquipeProdutiva, alternarMembro, marcarTodos, definirOperacao,
 } from "@/features/capacidade/diasEEquipe";
 import { baixarProgramacaoSemanaPDF } from "@/features/previsao/pdf";
-import { calcularProdutosProgramados, calcularProdutosNaoPrevistos, calcularResumoProgramacaoPecas, calcularHistoricoApontado } from "@/features/previsao/progressoSemana";
+import { calcularProdutosProgramados, calcularProdutosNaoPrevistos, calcularResumoProgramacaoPecas, calcularHistoricoSemanal } from "@/features/previsao/progressoSemana";
+import { calcularProdutosProgramadosLegado, calcularProdutosNaoPrevistosLegado, calcularResumoProgramacaoPecasLegado } from "@/features/previsao/progressoLegado";
+import { metodologiaDaSemana, APONTADO_REAL_PROGRESSO_DESDE } from "@/features/previsao/vigencia";
+import ProdutosProgramadosLegado from "@/features/previsao/components/ProdutosProgramadosLegado";
 import { formatPct } from "@/features/previsao/formatPct";
 import Recolhivel from "@/features/previsao/components/Recolhivel";
 import type { Produto, PrevisaoItem, Previsao } from "@/types/domain";
@@ -133,14 +136,22 @@ export default function PrevisaoSemanalPage() {
   const operacaoCadastroPorId = useMemo(() => new Map<string, string | null>(elegiveisHook.funcionarios.map((f) => [f.id, f.operacaoId])), [elegiveisHook.funcionarios]);
   const [salvandoConfigSemana, setSalvandoConfigSemana] = useState(false);
 
-  // ---- ANDAMENTO da semana = APONTADO REAL (Produção Real, última etapa válida; peças boas). O "Itens realizados" digitado à mão continua gravado e editável
-  // (fluxo legado / Validação da Previsão), mas NÃO entra em Falta, %, R$ nem Histórico — nunca soma com o apontado. ----
-  const semanasHistorico = useMemo(() => previsoes.filter((p) => p.itens.length > 0).map((p) => p.semanaInicio), [previsoes]);
+  // ---- METODOLOGIA POR SEMANA (vigencia.ts): semanas < APONTADO_REAL_PROGRESSO_DESDE usam o REALIZADO MANUAL (histórico preservado, nunca recalculado);
+  // a partir dela o andamento é o APONTADO REAL. Nunca depende de "semana atual". O Histórico escolhe a metodologia linha a linha, pela própria semana,
+  // e só consulta apontado real das semanas em vigência. ----
+  const metodologia = metodologiaDaSemana(semanaAtual);
+  const semanasHistorico = useMemo(() => previsoes.filter((p) => p.itens.length > 0 && metodologiaDaSemana(p.semanaInicio) === "apontado_real").map((p) => p.semanaInicio), [previsoes]);
   const apontadoHistorico = useApontadoRealSemanas(!!auth.autenticado, semanasHistorico);
-  const historicoSemanas = useMemo(
-    () => calcularHistoricoApontado(previsoes.map((p) => ({ semanaInicio: p.semanaInicio, itens: p.itens })), apontadoHistorico),
-    [previsoes, apontadoHistorico]
-  );
+  const historicoSemanas = useMemo(() => calcularHistoricoSemanal(previsoes, apontadoHistorico), [previsoes, apontadoHistorico]);
+
+  // Realizado manual da semana (metodologia histórica): Itens realizados da própria Previsão, somados por produto_id.
+  const realizadoPorProduto = useMemo(() => {
+    const mapa = new Map<string, number>();
+    (semanaAtualRec.itensRealizados || []).forEach((it) => {
+      mapa.set(it.produtoId, (mapa.get(it.produtoId) || 0) + it.quantidade);
+    });
+    return mapa;
+  }, [semanaAtualRec.itensRealizados]);
 
   // Semana sem snapshot: ao gravar pela primeira vez, persiste junto o que a
   // tela está mostrando (dias + equipe padrão), pra o histórico ficar
@@ -211,6 +222,16 @@ export default function PrevisaoSemanalPage() {
     () => calcularResumoProgramacaoPecas(calcularProdutosProgramados(semanaAtualRec.itens, [], apontadoRealHook.mapa)),
     [semanaAtualRec.itens, apontadoRealHook.mapa]
   );
+  // metodologia histórica (semanas < vigência): cálculo anterior à feature, inalterado
+  const produtosProgramadosLegado = useMemo(
+    () => calcularProdutosProgramadosLegado(itensParaAnalise, capacidadeMaximaSemana.resultadosPorItem, realizadoPorProduto, apontadoRealHook.mapa),
+    [itensParaAnalise, capacidadeMaximaSemana, realizadoPorProduto, apontadoRealHook.mapa]
+  );
+  const produtosNaoPrevistosLegado = useMemo(
+    () => calcularProdutosNaoPrevistosLegado(itensParaAnalise, semanaAtualRec.itensRealizados || []),
+    [itensParaAnalise, semanaAtualRec.itensRealizados]
+  );
+  const resumoProgramacaoPecasLegado = useMemo(() => calcularResumoProgramacaoPecasLegado(produtosProgramadosLegado), [produtosProgramadosLegado]);
   const observacoesSetup = useMemo(
     () => calcularObservacoesSetup(analiseCapacidadeSemana, produtos, getLucroHora),
     [analiseCapacidadeSemana, produtos, custoHoraPorOperacao, custoHoraEmpresa, periodosComDuracao]
@@ -477,7 +498,33 @@ export default function PrevisaoSemanalPage() {
               </div>
             )}
 
-            {produtosProgramados.length > 0 && (
+            {metodologia === "legado" && produtosProgramadosLegado.length > 0 && (
+              <>
+                <div className="stx-prev-hero-row">
+                  <div>
+                    <p className="stx-prev-hero-label">Previsto</p>
+                    <p className="stx-prev-hero-value">{formatQtd(resumoProgramacaoPecasLegado.totalPrevisto)}</p>
+                  </div>
+                  <div>
+                    <p className="stx-prev-hero-label">Possível</p>
+                    <p className="stx-prev-sec-value" style={{ color: "var(--warning)" }}>{formatQtd(resumoProgramacaoPecasLegado.totalPossivel)}</p>
+                  </div>
+                  <div>
+                    <p className="stx-prev-hero-label">Realizado</p>
+                    <p className="stx-prev-sec-value" style={{ color: "var(--accent)" }}>{formatQtd(resumoProgramacaoPecasLegado.totalRealizado)}</p>
+                  </div>
+                  <div>
+                    <p className="stx-prev-hero-label">Falta</p>
+                    <p className="stx-prev-sec-value">{formatQtd(resumoProgramacaoPecasLegado.totalFalta)}</p>
+                  </div>
+                </div>
+                <p className="stx-prev-hero-caption">
+                  <b>{resumoProgramacaoPecasLegado.concluidoPct === null ? "N/A" : `${resumoProgramacaoPecasLegado.concluidoPct.toFixed(0)}%`}</b> concluído da previsão em peças — soma simples entre produtos, indicador de acompanhamento, não de capacidade fabril.
+                </p>
+              </>
+            )}
+
+            {metodologia === "apontado_real" && produtosProgramados.length > 0 && (
               <>
                 <div className="stx-prev-hero-row">
                   <div>
@@ -505,12 +552,20 @@ export default function PrevisaoSemanalPage() {
 
             <div className="stx-prev-grid">
               <div className="stx-prev-primary">
-                <ProdutosProgramados
-                  produtos={produtosProgramados}
-                  naoPrevistos={produtosNaoPrevistos}
-                  resumoPecas={resumoProgramacaoPecas}
-                  apontadoIndisponivel={apontadoRealHook.erro}
-                />
+                {metodologia === "apontado_real" ? (
+                  <ProdutosProgramados
+                    produtos={produtosProgramados}
+                    naoPrevistos={produtosNaoPrevistos}
+                    resumoPecas={resumoProgramacaoPecas}
+                    apontadoIndisponivel={apontadoRealHook.erro}
+                  />
+                ) : (
+                  <ProdutosProgramadosLegado
+                    produtos={produtosProgramadosLegado}
+                    naoPrevistos={produtosNaoPrevistosLegado}
+                    resumoPecas={resumoProgramacaoPecasLegado}
+                  />
+                )}
 
                 <div className="stx-prev-section">
                   <div className="stx-prev-section-head">
@@ -604,22 +659,35 @@ export default function PrevisaoSemanalPage() {
                   custoHoraEmpresa={custoHoraEmpresa}
                 />
 
-                <div className="stx-panel">
-                <Recolhivel
-                  id="itens-realizados-legado"
-                  titulo="Realizado manual (legado)"
-                  resumo="· não conta no acompanhamento: o andamento vem do Apontado real"
-                >
+                {metodologia === "apontado_real" ? (
+                  <div className="stx-panel">
+                    <Recolhivel
+                      id="itens-realizados-legado"
+                      titulo="Realizado manual (legado)"
+                      resumo="· não conta no acompanhamento: o andamento vem do Apontado real"
+                    >
+                      <ItensRealizados
+                        loading={previsoesHook.loading}
+                        produtos={produtos}
+                        semana={semanaAtualRec}
+                        upsertSemana={upsertSemana}
+                        valorRealizadoSemana={resumoSemana.valorRealizado}
+                        formatBRL={formatBRL}
+                        historico={false}
+                      />
+                    </Recolhivel>
+                  </div>
+                ) : (
                   <ItensRealizados
                     loading={previsoesHook.loading}
                     produtos={produtos}
                     semana={semanaAtualRec}
                     upsertSemana={upsertSemana}
-                    valorRealizadoSemana={(semanaAtualRec.itensRealizados || []).reduce((t, it) => t + it.quantidade * it.valorUnitario, 0)}
+                    valorRealizadoSemana={resumoSemana.valorRealizado}
                     formatBRL={formatBRL}
+                    historico
                   />
-                </Recolhivel>
-                </div>
+                )}
               </div>
 
               <div className="stx-prev-context">
@@ -634,6 +702,34 @@ export default function PrevisaoSemanalPage() {
                   />
                 )}
 
+                {metodologia === "legado" && (
+                <div className="stx-prev-section" style={{ marginTop: 0 }}>
+                  <div className="stx-prev-section-head">
+                    <h2 className="stx-prev-section-title">Resultado da semana</h2>
+                  </div>
+                  <div className="stx-rateio-line">
+                    <span className="l">Previsto</span>
+                    <span className="v">{formatBRL(resumoSemana.valorPrevisto)}</span>
+                  </div>
+                  <div className="stx-rateio-line">
+                    <span className="l">Realizado</span>
+                    <span className="v">{formatBRL(resumoSemana.valorRealizado)}</span>
+                  </div>
+                  <div className="stx-rateio-line">
+                    <span className="l">Diferença</span>
+                    <span className="v" style={resumoSemana.diferenca < 0 ? { color: "var(--danger)" } : { color: "var(--blueprint)" }}>
+                      {resumoSemana.diferenca >= 0 ? "+" : ""}{formatBRL(resumoSemana.diferenca)}
+                    </span>
+                  </div>
+                  <div className="stx-destaque-box" style={{ marginTop: 12 }}>
+                    <p className="stx-destaque-label">Concluído da previsão</p>
+                    <p className="stx-destaque-value">{resumoSemana.percentualConcluido.toFixed(1)}%</p>
+                    <p className="stx-destaque-sub">{formatBRL(resumoSemana.valorRealizado)} de {formatBRL(resumoSemana.valorPrevisto)} previstos</p>
+                  </div>
+                </div>
+                )}
+
+                {metodologia === "apontado_real" && (
                 <div className="stx-prev-section" style={{ marginTop: 0 }}>
                   <div className="stx-prev-section-head">
                     <h2 className="stx-prev-section-title">Resultado da semana</h2>
@@ -660,6 +756,7 @@ export default function PrevisaoSemanalPage() {
                     <p className="stx-destaque-sub">Apontado real (Produção Real, última etapa) × preço congelado na Previsão. % em peças.</p>
                   </div>
                 </div>
+                )}
 
                 <div className="stx-prev-section" style={{ marginTop: 0 }}>
                   <div className="stx-prev-section-head">
@@ -676,11 +773,14 @@ export default function PrevisaoSemanalPage() {
                         <div className="stx-hist-row" key={h.semanaInicio} onClick={() => setSemanaAtual(h.semanaInicio)} style={{ gridTemplateColumns: "1.4fr 1fr 1fr 0.7fr" }}>
                           <span>{weekLabel(h.semanaInicio).replace("Semana de ", "")}</span>
                           <span>{formatBRL(h.previsto)}</span>
-                          <span>{h.realizado === null ? "—" : formatBRL(h.realizado)}</span>
+                          <span title={h.metodologia === "apontado_real" ? "Apontado real × preço congelado da Previsão" : "Realizado manual (metodologia histórica)"}>{h.realizado === null ? "—" : formatBRL(h.realizado)}{h.metodologia === "apontado_real" ? " *" : ""}</span>
                           <span className={h.pct === null ? "" : h.pct >= 100 ? "positivo" : h.pct >= 70 ? "" : "negativo"}>{h.pct === null ? "—" : `${h.pct.toFixed(0)}%`}</span>
                         </div>
                       ))}
                     </div>
+                  )}
+                  {historicoSemanas.some((h) => h.metodologia === "apontado_real") && (
+                    <p className="stx-prev-ref" style={{ margin: "8px 0 0" }}>* A partir da semana de {APONTADO_REAL_PROGRESSO_DESDE.split("-").reverse().join("/")} o realizado vem do Apontado real (preço congelado da Previsão). Semanas anteriores seguem o Realizado manual, como sempre foram.</p>
                   )}
                 </div>
               </div>
@@ -716,13 +816,14 @@ export default function PrevisaoSemanalPage() {
 
 // ---- "Itens realizados" — pequeno o bastante pra ficar junto do orquestrador ----
 function ItensRealizados({
-  loading, produtos, semana, upsertSemana, valorRealizadoSemana, formatBRL,
+  loading, produtos, semana, upsertSemana, valorRealizadoSemana, formatBRL, historico,
 }: {
   loading: boolean;
   produtos: Produto[];
   semana: ReturnType<typeof selecionarSemana>;
   upsertSemana: (campos: Partial<ReturnType<typeof selecionarSemana>>) => Promise<boolean>;
   valorRealizadoSemana: number;
+  historico: boolean; // semana anterior à vigência do Apontado real: o Realizado manual É a metodologia da semana (painel como sempre foi)
   formatBRL: (v: number) => string;
 }) {
   const emptyForm = { produtoId: "", quantidade: "" };
@@ -754,11 +855,15 @@ function ItensRealizados({
   }
 
   return (
-    <div>
+    <div className={historico ? "stx-panel" : undefined}>
       <div className="stx-panel-title-row">
         <p className="stx-panel-title">Itens realizados</p>
       </div>
-      <p className="stx-panel-sub">Lançamento manual antigo (produto e quantidade que a supervisora faturou). Continua gravado e usado na Validação da Previsão, mas <b>não entra</b> em Falta, % nem nos valores desta tela — o acompanhamento usa o Apontado real.</p>
+      {historico ? (
+        <p className="stx-panel-sub">Produto e quantidade que a supervisora realmente faturou nessa semana.</p>
+      ) : (
+        <p className="stx-panel-sub">Lançamento manual antigo (produto e quantidade que a supervisora faturou). Continua gravado e usado na Validação da Previsão, mas <b>não entra</b> em Falta, % nem nos valores desta tela — o acompanhamento usa o Apontado real.</p>
+      )}
 
       {produtos.filter((p) => p.ativo).length === 0 ? (
         <p className="stx-panel-sub">Cadastre produtos na aba &quot;Produtos&quot; antes de lançar itens aqui.</p>
