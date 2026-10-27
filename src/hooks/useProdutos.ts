@@ -16,6 +16,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import type { Produto, RoteiroEtapa, Prioridade } from "@/types/domain";
 import { estruturaDoBanco } from "@/features/rotas/estrutura";
+import { garantirAtivacaoRotas } from "@/lib/rotas/ativacao";
 import type { EstruturaProduto } from "@/features/rotas/tipos";
 
 interface ProdutoPayload {
@@ -127,6 +128,7 @@ export function useProdutos(pronto: boolean) {
     if (!pronto) return;
     let montado = true;
     (async () => {
+      await garantirAtivacaoRotas(supabase);   // se o modelo está liberado, o produto de rotas fica ativo ANTES da leitura abaixo (idempotente; banco sem a função = nada)
       const { data, error } = await supabase
         .from("produtos")
         .select(PRODUTO_COM_ROTEIRO_SELECT)
@@ -145,8 +147,9 @@ export function useProdutos(pronto: boolean) {
       const comRotas = new Set(rotas.error ? [] : (rotas.data || []).map((r) => r.produto_id as string));
       let estruturas = new Map<string, EstruturaProduto>();
       if (comRotas.size > 0) {
-        const cfg = await supabase.from("rotas_config").select("suporte_ativo").maybeSingle();
-        if (!cfg.error && cfg.data?.suporte_ativo === true) {
+        // liberação PROGRAMADA (semana de início + validações, fail closed) decidida pelo banco; `garantirAtivacaoRotas` também deixa o produto ativo, de forma idempotente
+        const est = await garantirAtivacaoRotas(supabase);
+        if (est?.liberado) {
           const ents = await Promise.all([...comRotas].map(async (id) => {
             const r = await supabase.rpc("produto_estrutura_rotas", { p_produto: id });
             return r.error ? null : ([id, estruturaDoBanco(r.data as Parameters<typeof estruturaDoBanco>[0])] as const);

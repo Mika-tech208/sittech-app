@@ -37,6 +37,8 @@ import {
 import { uid } from "@/lib/id";
 import ItensPrevistos, { type PrevItemFormState } from "@/features/previsao/components/ItensPrevistos";
 import { expandirItensDeRotas, resultadosVisiveis } from "@/features/rotas/dominio";
+import AvisoModeloRotas from "@/features/rotas/AvisoModeloRotas";
+import { useEstadoRotas } from "@/hooks/useEstadoRotas";
 import StatusProgramacao from "@/features/previsao/components/StatusProgramacao";
 import ProdutosProgramados from "@/features/previsao/components/ProdutosProgramados";
 import { useApontadoRealSemana } from "@/hooks/useApontadoRealSemana";
@@ -177,6 +179,16 @@ export default function PrevisaoSemanalPage() {
     () => expandirItensDeRotas({ itens: itensParaAnalise, produtos, periodosComDuracao, diasProdutivos: diasProdutivos.length, maquinasIndisponiveis: semanaAtualRec.maquinasIndisponiveis, custoHoraPorOperacao, custoHoraEmpresa }),
     [itensParaAnalise, produtos, periodosComDuracao, diasProdutivos.length, semanaAtualRec.maquinasIndisponiveis, custoHoraPorOperacao, custoHoraEmpresa]
   );
+  const estadoRotas = useEstadoRotas(!!auth.autenticado, semanaAtual);
+  const itemDeRotas = semanaAtualRec.itens.find((i) => !!produtos.find((p) => p.id === i.produtoId)?.estruturaRotas) ?? null;
+  const resumoRotas = useMemo(() => {
+    if (!itemDeRotas) return null;
+    const est = produtos.find((p) => p.id === itemDeRotas.produtoId)?.estruturaRotas;
+    const sel = itemDeRotas.maquinasPorEtapa ?? {};
+    const tem = (ids: string[]) => ids.length > 0 && ids.every((id) => (sel[id] ?? []).length > 0);
+    return { quantidade: itemDeRotas.quantidade, previa: expansaoRotas.previas.get(itemDeRotas.id) ?? null, marcadas: {
+      CONV: !!est && tem(est.rotas.find((r) => r.codigo === "CONV")?.etapas ?? []), AUTO: !!est && tem(est.rotas.find((r) => r.codigo === "AUTO")?.etapas ?? []), COMUM: !!est && tem(est.poolComum?.etapas ?? []) } };
+  }, [itemDeRotas, produtos, expansaoRotas]);
   const analiseCapacidadeSemana = useMemo(
     () => calcularAnaliseCapacidadeSemanal(expansaoRotas.itens, expansaoRotas.produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana),
     [expansaoRotas, maquinas, periodosComDuracao, horasPorMaquinaSemana]
@@ -560,8 +572,9 @@ export default function PrevisaoSemanalPage() {
                   />
                 )}
 
-                <EstoqueIntermediario semanaInicio={semanaAtual} produtos={produtos} />
+                <EstoqueIntermediario semanaInicio={semanaAtual} produtos={produtos} aberturaVirada={estadoRotas?.liberado && estadoRotas.desdeData === semanaAtual ? { dataVirada: new Date(Date.parse(`${semanaAtual}T12:00:00Z`) - 86400000).toISOString().slice(0, 10) } : null} />
 
+                <AvisoModeloRotas estado={estadoRotas} semanaInicio={semanaAtual} item={resumoRotas} nomeProduto={'Conector 3/4" (Final)'} />
                 <ItensPrevistos
                   loading={previsoesHook.loading}
                   produtos={produtos}
@@ -586,6 +599,7 @@ export default function PrevisaoSemanalPage() {
                   equipeProdutivaCount={equipeProdutivaCount}
                   formatBRL={formatBRL}
                   diasProdutivosCount={diasProdutivos.length}
+                  modeloRotasDesde={estadoRotas?.desdeData ?? null}
                   custoHoraPorOperacao={custoHoraPorOperacao}
                   custoHoraEmpresa={custoHoraEmpresa}
                 />

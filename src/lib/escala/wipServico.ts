@@ -109,6 +109,22 @@ export async function criarControleWip(
   return { id };
 }
 
+// CONTAGEM FÍSICA DA VIRADA para o modelo de rotas: cria o controle NO DIA ANTERIOR ao início (a contagem é daquele dia) com o saldo físico e já o CONFIRMA com a mesma data. Assim o saldo vale
+// já na primeira semana do modelo (a confirmação de WIP vale a partir da semana seguinte à data de referência). Só entra o que foi contado: nada é inferido de adicionais nem de apontamentos.
+export async function abrirControleDaViradaWip(
+  db: WipDb,
+  usuario: UsuarioWip,
+  p: { produtoId: string; etapaOrigemId: string; etapaSeguinteId: string; dataVirada: string; saldoFisico: number; semanaInicio: string },
+  hoje: string
+): Promise<{ id: string }> {
+  exigir(usuario, "criar_controle");
+  exigir(usuario, "confirmar");
+  if (p.dataVirada > hoje) throw new WipErro("VALIDACAO", "A data da contagem da virada não pode ser futura.");
+  const { id } = await criarControleWip(db, usuario, { produtoId: p.produtoId, etapaOrigemId: p.etapaOrigemId, etapaSeguinteId: p.etapaSeguinteId, dataInicio: p.dataVirada, saldoInicial: p.saldoFisico });
+  await confirmarWip(db, usuario, { controleId: id, quantidade: p.saldoFisico, motivo: "Contagem física da virada para o modelo de rotas", dataReferencia: p.dataVirada, semanaInicio: p.semanaInicio }, hoje);
+  return { id };
+}
+
 export async function ativarControleWip(db: WipDb, usuario: UsuarioWip, p: { controleId: string; ativo: boolean }): Promise<void> {
   exigir(usuario, "ativar_controle");
   await db.ativarControle({ usuarioId: usuario.id, ...p });

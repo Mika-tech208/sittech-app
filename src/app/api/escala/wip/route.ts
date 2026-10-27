@@ -9,7 +9,7 @@ import { autenticarRequisicaoIntelligence } from "@/features/intelligence/auth";
 import { dataNoFusoSP, inicioDaSemana } from "@/features/escala/wipSaldo";
 import { criarWipDb } from "@/lib/escala/wipIO";
 import { limitesDaSemana } from "@/lib/escala/wipLimites";
-import { ajustarWip, ativarControleWip, confirmarWip, criarControleWip, verWip, WipErro } from "@/lib/escala/wipServico";
+import { ajustarWip, ativarControleWip, abrirControleDaViradaWip, confirmarWip, criarControleWip, verWip, WipErro } from "@/lib/escala/wipServico";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,6 +59,8 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true, ...(await ajustarWip(db, auth.usuario, { controleId: String(body.controle_id), quantidade: num(body.quantidade), motivo: String(body.motivo ?? ""), data: typeof body.data === "string" ? body.data : undefined, chave: typeof body.chave === "string" ? body.chave : null, semanaInicio }, hoje)) });
       case "criar_controle":
         return NextResponse.json({ ok: true, ...(await criarControleWip(db, auth.usuario, { produtoId: String(body.produto_id), etapaOrigemId: String(body.etapa_origem_id), etapaSeguinteId: String(body.etapa_seguinte_id), dataInicio: String(body.data_inicio ?? hoje), saldoInicial: num(body.saldo_inicial ?? 0) })) });
+      case "abrir_controle_virada":
+        return NextResponse.json({ ok: true, ...(await abrirControleDaViradaWip(db, auth.usuario, { produtoId: String(body.produto_id), etapaOrigemId: String(body.etapa_origem_id), etapaSeguinteId: String(body.etapa_seguinte_id), dataVirada: String(body.data_virada), saldoFisico: num(body.saldo_fisico), semanaInicio }, hoje)) });
       case "ativar_controle":
         await ativarControleWip(db, auth.usuario, { controleId: String(body.controle_id), ativo: body.ativo !== false });
         return NextResponse.json({ ok: true });

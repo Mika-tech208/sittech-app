@@ -39,6 +39,7 @@ export interface ItensPrevistosProps {
   equipeProdutivaCount: number;
   formatBRL: (v: number) => string;
   // só produto de ROTAS (M3): dias produtivos da semana e custo/hora para a prévia; ausentes = prévia sem custo
+  modeloRotasDesde?: string | null;   // 'AAAA-MM-DD' da 1ª semana do modelo de rotas; produto de rotas só aparece em semana >= esta data
   diasProdutivosCount?: number;
   custoHoraPorOperacao?: Record<string, number>;
   custoHoraEmpresa?: number;
@@ -50,7 +51,7 @@ export default function ItensPrevistos({
   loading, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, semana,
   showForm, setShowForm, editingId, form, onSelecionarProduto, onQuantidadeChange, onToggleMaquina,
   onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, equipeProdutivaCount, formatBRL,
-  diasProdutivosCount, custoHoraPorOperacao, custoHoraEmpresa,
+  diasProdutivosCount, custoHoraPorOperacao, custoHoraEmpresa, modeloRotasDesde,
 }: ItensPrevistosProps) {
   const produtoSel = produtos.find((p) => p.id === form.produtoId) || null;
   const roteiroSel = produtoSel?.roteiro || [];
@@ -87,7 +88,7 @@ export default function ItensPrevistos({
                 <label className="stx-label">Produto</label>
                 <select className="stx-select" value={form.produtoId} onChange={(e) => onSelecionarProduto(e.target.value)}>
                   <option value="">Selecione um produto…</option>
-                  {produtos.filter((p) => p.ativo).map((p) => (
+                  {produtos.filter((p) => p.ativo && (!p.estruturaRotas || (!!modeloRotasDesde && semana.semanaInicio >= modeloRotasDesde))).map((p) => (
                     <option key={p.id} value={p.id}>{p.nome} ({formatBRL(p.valorUnitario)})</option>
                   ))}
                 </select>

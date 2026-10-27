@@ -30,9 +30,11 @@ const COR_STATUS = { sem_saldo: "var(--text-muted)", estimado: "var(--warning)",
 export interface EstoqueIntermediarioProps {
   semanaInicio: string;
   produtos: Produto[];
+  // Primeira semana do modelo de rotas: o saldo FÍSICO contado na virada entra com a data do dia anterior ao início (e já confirmado). Sem contagem = WIP inicial 0.
+  aberturaVirada?: { dataVirada: string } | null;
 }
 
-export default function EstoqueIntermediario({ semanaInicio, produtos }: EstoqueIntermediarioProps) {
+export default function EstoqueIntermediario({ semanaInicio, produtos, aberturaVirada }: EstoqueIntermediarioProps) {
   const [dados, setDados] = useState<RespostaWip | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -181,7 +183,7 @@ export default function EstoqueIntermediario({ semanaInicio, produtos }: Estoque
                   </select>
                 </label>
                 <label>
-                  Saldo inicial (peças)
+                  {aberturaVirada && produtos.find((p) => p.id === novo.par.split("|")[0])?.estruturaRotas ? `Saldo FÍSICO contado em ${aberturaVirada.dataVirada.slice(8, 10)}/${aberturaVirada.dataVirada.slice(5, 7)} (peças)` : "Saldo inicial (peças)"}
                   <input className="stx-input stx-cob-input" type="number" inputMode="numeric" min={0} value={novo.saldo} onChange={(e) => setNovo({ ...novo, saldo: e.target.value })} />
                 </label>
                 <button
@@ -189,7 +191,9 @@ export default function EstoqueIntermediario({ semanaInicio, produtos }: Estoque
                   disabled={gravando || !novo.par}
                   onClick={() => {
                     const [produto_id, etapa_origem_id, etapa_seguinte_id] = novo.par.split("|");
-                    void enviar({ acao: "criar_controle", produto_id, etapa_origem_id, etapa_seguinte_id, data_inicio: dados.hoje, saldo_inicial: Math.max(0, toNumber(novo.saldo) || 0) }, "Controle criado.");
+                    const saldo = Math.max(0, toNumber(novo.saldo) || 0);
+                    if (aberturaVirada && produtos.find((p) => p.id === produto_id)?.estruturaRotas) void enviar({ acao: "abrir_controle_virada", produto_id, etapa_origem_id, etapa_seguinte_id, data_virada: aberturaVirada.dataVirada, saldo_fisico: saldo }, "Saldo físico da virada registrado e confirmado.");
+                    else void enviar({ acao: "criar_controle", produto_id, etapa_origem_id, etapa_seguinte_id, data_inicio: dados.hoje, saldo_inicial: saldo }, "Controle criado.");
                   }}
                 >
                   Criar controle

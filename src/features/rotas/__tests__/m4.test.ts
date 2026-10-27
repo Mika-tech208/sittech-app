@@ -222,3 +222,22 @@ describe("M4 — código novo contra banco SEM as tabelas de rotas (deploy antes
   });
 });
 
+describe("M4 — contagem física da virada: confirmada no dia anterior, vale JÁ na 1ª semana do modelo", () => {
+  const ctrl: ControleWip = { id: "c-pool", produtoId: F, etapaOrigemId: "f-para", etapaSeguinteId: "f-etiq", dataInicio: "2026-11-01", saldoInicial: 5000, ativo: true };
+  const base = (conf: { dataReferencia: string }[]): EntradaWip => ({
+    controles: [ctrl], ajustes: [], snapshots: [], producao: [], hoje: "2026-11-02",
+    confirmacoes: conf.map((c, i) => ({ id: `k${i}`, controleId: "c-pool", dataReferencia: c.dataReferencia, quantidade: 5000, saldoEstimado: 5000, motivo: "Contagem física da virada", criadoEm: "2026-11-02T09:00:00Z" })),
+    semanas: [{ semanaInicio: "2026-11-02", quantidadePorProduto: { [F]: 116625 } }],
+    roteiro: { produtoAtivo: { [F]: true }, etapasPorProduto: { [F]: [{ id: "f-rosq", ordem: 0 }, { id: "f-para", ordem: 1 }, { id: "f-rp", ordem: 2 }, { id: "f-etiq", ordem: 3 }, { id: "f-emb", ordem: 4 }] }, arestasPorProduto: { [F]: arestasDoPercurso(ESTRUTURA_F) } },
+  });
+  it("confirmação com data de referência = dia anterior ao início (01/11): o saldo físico é ALOCADO à semana 02/11", () => {
+    const e = base([{ dataReferencia: "2026-11-01" }]);
+    const a = alocacaoDaSemana(e.controles[0], e, "2026-11-02");
+    expect(a.alocado).toBe(5000); expect(a.origem).toBe("calculado");
+  });
+  it("sem confirmação o saldo NÃO entra (WIP inicial = 0, sem inventar); confirmar só no próprio dia 02/11 valeria apenas da semana seguinte", () => {
+    const sem = base([]); expect(alocacaoDaSemana(sem.controles[0], sem, "2026-11-02").alocado).toBe(0);
+    const tarde = base([{ dataReferencia: "2026-11-02" }]); expect(alocacaoDaSemana({ ...tarde.controles[0], dataInicio: "2026-11-02" }, tarde, "2026-11-02").alocado).toBe(0);
+  });
+});
+

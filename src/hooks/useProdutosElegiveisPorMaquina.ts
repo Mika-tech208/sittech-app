@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
+import { garantirAtivacaoRotas } from "@/lib/rotas/ativacao";
 
 export interface ProdutoElegivel {
   id: string;
@@ -39,6 +40,7 @@ export function useProdutosElegiveisPorMaquina(maquinaId: string | null) {
     setLoading(true);
     setErro(null);
     (async () => {
+      await garantirAtivacaoRotas(supabase);   // produto de rotas liberado fica ativo (idempotente)
       const { data, error } = await supabase
         .from("roteiro_etapa_maquinas")
         .select("roteiro_etapas(id, produto_id, produtos(id, nome, ativo))")
