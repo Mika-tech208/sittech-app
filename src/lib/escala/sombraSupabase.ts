@@ -11,9 +11,7 @@ import { carregarApontamentosBanco, registrarDiagnosticoFluxo } from "./fluxo/su
 import { CHAVE_PR_LIMIAR, CHAVE_PR_MODO, CHAVE_PR_PARES, CHAVE_PR_SEMANAS, lerConfigFluxo } from "./fluxo/parametrosFluxo";
 import { fluxoNoFechamento } from "./fluxo/fechamento";
 import { processarSemana } from "./processar";
-import { processarSombra, type AplicacaoRestrita, type ApontamentoBanco, type DecisaoParaGravar, type EventoSombra, type RegistroAvaliacao, type ResumoSombra, type SombraIO } from "./sombraServico";
-
-const ms = (v: string | null | undefined) => (v ? Date.parse(v) : null);
+import { processarSombra, type AplicacaoRestrita, type DecisaoParaGravar, type EventoSombra, type RegistroAvaliacao, type ResumoSombra, type SombraIO } from "./sombraServico";
 
 function linhaDecisao(d: DecisaoParaGravar) {
   const s: SnapshotSombra = d.snapshot;

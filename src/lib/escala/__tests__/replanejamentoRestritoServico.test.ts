@@ -10,6 +10,7 @@ import { ConflitoDeVersaoError, type EstadoBruto } from "../estado";
 import type { VersaoPlanoOficial } from "../planoVersionado";
 import { processarSombra, type AplicacaoRestrita, type ApontamentoBanco, type DecisaoParaGravar, type EventoSombra, type RegistroAvaliacao, type SombraIO } from "../sombraServico";
 import { estadoDeTeste, Mundo } from "./bancoMemoria";
+import type { ConfigFluxo } from "../fluxo/parametrosFluxo";
 
 const D1 = "2026-11-02";
 const DIAS = [D1, "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06"];
@@ -49,6 +50,8 @@ class BancoRestrito implements SombraIO {
   chamadasAplicar = 0;
   aoGravarDecisao: (() => void) | null = null; // intervenção "humana/operacional" entre a decisão e a gravação
   agoraMs = 0;
+  lerConfigFluxo?: SombraIO["lerConfigFluxo"]; // Escala Inteligente (fluxo): ausente = comportamento anterior
+  aoFechamento?: SombraIO["aoFechamento"];
   constructor(public mundo: Mundo) { this.registrarVersao(AGORA_GERACAO); }
   registrarVersao(validoDesdeMs: number) {
     const e = this.mundo.entradas;
@@ -257,5 +260,111 @@ describe("reavaliação por evento", () => {
     const r2 = await processarSombra(b, agoraDe("m1") + 2 * MIN);
     expect(r2.reavaliacoes).toBe(0);
     expect(b.auditoria.length).toBe(depois + 1);
+  });
+});
+
+// ESCALA INTELIGENTE (fluxo) — INTERLOCK: nas semanas em que o fluxo é ATIVO o replanejamento restrito NÃO aplica (em sombra do fluxo, segue como está)
+describe("interlock com o fluxo (producao_real_modo)", () => {
+  const cfg = (modo: ConfigFluxo["modo"], semanas: string[]): ConfigFluxo => ({ modo, semanasAtivas: semanas, limiar: null, paresLegado: [] });
+  it("fluxo ATIVO na semana: o restrito NÃO aplica (decisão sombra gravada, Escala intacta, parâmetro do restrito intocado)", async () => {
+    const { m, b } = await cenario(0.5);
+    b.agoraMs = agoraDe("m1");
+    b.lerConfigFluxo = async () => cfg("ativo", [D1]);
+    const antes = Mundo.assinatura(m.alocacoes, true);
+    const r = await processarSombra(b, agoraDe("m1"));
+    expect(r).toMatchObject({ processadas: 1, aplicadas: 0, interlockFluxo: [D1] });
+    expect(b.chamadasAplicar).toBe(0);
+    expect(b.modo).toBe("ativo_restrito"); // o parâmetro do restrito não é alterado
+    expect(b.semanas).toEqual([D1]);
+    expect(Mundo.assinatura(m.alocacoes, true)).toBe(antes);
+    expect(b.decisoes).toHaveLength(1);
+    expect(b.decisoes[0].modo).toBe("sombra");
+  });
+  it("fluxo ATIVO só em OUTRA semana: o restrito aplica normalmente na semana autorizada", async () => {
+    const { b } = await cenario(0.5);
+    b.agoraMs = agoraDe("m1");
+    b.lerConfigFluxo = async () => cfg("ativo", ["2026-11-09"]);
+    const r = await processarSombra(b, agoraDe("m1"));
+    expect(r.aplicadas).toBe(1);
+    expect(r.interlockFluxo).toEqual(["2026-11-09"]);
+  });
+  it("fluxo em SOMBRA (ou desligado): o restrito segue exatamente como está", async () => {
+    for (const modo of ["sombra", "desligado"] as const) {
+      const { b } = await cenario(0.5);
+      b.agoraMs = agoraDe("m1");
+      b.lerConfigFluxo = async () => cfg(modo, [D1]);
+      const r = await processarSombra(b, agoraDe("m1"));
+      expect(r.aplicadas).toBe(1);
+      expect(r.interlockFluxo).toBeUndefined();
+    }
+  });
+  it("sem configuração do fluxo (io antigo): resumo idêntico ao anterior, sem campos novos", async () => {
+    const { b } = await cenario(0.5);
+    b.agoraMs = agoraDe("m1");
+    const r = await processarSombra(b, agoraDe("m1"));
+    expect(r.aplicadas).toBe(1);
+    expect(r.fluxo).toBeUndefined();
+    expect(r.interlockFluxo).toBeUndefined();
+  });
+  it("a reavaliação por evento também respeita o interlock", async () => {
+    const { m, b } = await cenario(0.5);
+    b.agoraMs = agoraDe("m1");
+    await processarSombra(b, agoraDe("m1")); // aplica uma vez
+    m.dias.get(D1)!.versao += 1; // a Escala muda depois (evento)
+    m.alocacoes = m.alocacoes.map((a, i) => (i === m.alocacoes.length - 1 ? { ...a, pecas: a.pecas + 1 } : a));
+    const aplicadasAntes = b.auditoria.filter((x) => x.resultado === "aplicado").length;
+    b.lerConfigFluxo = async () => cfg("sombra", [D1]); // controle: com o fluxo em sombra a reavaliação ocorre
+    const controle = await processarSombra(b, agoraDe("m1") + 4 * MIN);
+    expect(controle.reavaliacoes).toBe(1);
+    m.dias.get(D1)!.versao += 1;
+    m.alocacoes = m.alocacoes.map((a, i) => (i === m.alocacoes.length - 1 ? { ...a, pecas: a.pecas + 1 } : a));
+    b.lerConfigFluxo = async () => cfg("ativo", [D1]);
+    const aplicadasAntes2 = b.auditoria.filter((x) => x.resultado === "aplicado").length;
+    const r = await processarSombra(b, agoraDe("m1") + 5 * MIN);
+    expect(r.reavaliacoes).toBe(0);
+    expect(b.auditoria.filter((x) => x.resultado === "aplicado")).toHaveLength(aplicadasAntes2);
+    expect(aplicadasAntes2).toBeGreaterThanOrEqual(aplicadasAntes);
+  });
+  it("hook de fechamento: chamado 1x quando o fluxo está ligado; nunca com o fluxo desligado; falha do hook não muda o status do evento", async () => {
+    const { b } = await cenario(0.5);
+    b.agoraMs = agoraDe("m1");
+    b.modo = "sombra";
+    let chamadas = 0;
+    b.aoFechamento = async () => { chamadas++; return { modo: "sombra", resultado: "erro", erro: "x" }; };
+    b.lerConfigFluxo = async () => cfg("desligado", [D1]);
+    await processarSombra(b, agoraDe("m1"));
+    expect(chamadas).toBe(0);
+    const { b: b2 } = await cenario(0.5);
+    b2.agoraMs = agoraDe("m1");
+    b2.modo = "sombra";
+    b2.aoFechamento = b.aoFechamento;
+    b2.lerConfigFluxo = async () => cfg("sombra", [D1]);
+    const r = await processarSombra(b2, agoraDe("m1"));
+    expect(chamadas).toBe(1);
+    expect(r.fluxo).toMatchObject({ fechamentos: 1, erros: 1, semanasAtivas: [D1] });
+    expect([...b2.eventos.values()][0].status).toBe("processado");
+  });
+  it("replanejamento DESLIGADO + fluxo ligado: o fechamento é detectado e o hook roda (sem proposta restrita, Escala intacta)", async () => {
+    const { m, b } = await cenario(0.5);
+    b.agoraMs = agoraDe("m1");
+    b.modo = "desligado";
+    let chamadas = 0;
+    b.aoFechamento = async () => { chamadas++; return null; };
+    b.lerConfigFluxo = async () => cfg("sombra", [D1]);
+    const antes = Mundo.assinatura(m.alocacoes, true);
+    const r = await processarSombra(b, agoraDe("m1"));
+    expect(r.processadas).toBe(1);
+    expect(chamadas).toBe(1);
+    expect(b.chamadasAplicar).toBe(0);
+    expect(Mundo.assinatura(m.alocacoes, true)).toBe(antes);
+    expect(b.decisoes[0].snapshot.diagnostico.restrito).toBeUndefined();
+  });
+  it("replanejamento desligado + fluxo desligado: retorna cedo, sem tocar em nada (comportamento anterior)", async () => {
+    const { b } = await cenario(0.5);
+    b.modo = "desligado";
+    b.lerConfigFluxo = async () => cfg("desligado", []);
+    const r = await processarSombra(b, agoraDe("m1"));
+    expect(r).toMatchObject({ modoEfetivo: "desligado", eventos: 0, processadas: 0 });
+    expect(b.decisoes).toHaveLength(0);
   });
 });
