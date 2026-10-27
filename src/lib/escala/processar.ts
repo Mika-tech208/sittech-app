@@ -12,6 +12,7 @@ import { epochMsNoFuso } from "@/features/escala/tempo";
 import { reverterResultado } from "@/features/rotas/adaptador";
 import { registrosDeDivisao, type RegistroDivisao } from "@/features/rotas/resolucao";
 import { montarEntradaEscala } from "./montarEntrada";
+import { assinaturaAlertas, planosIguais } from "./planoIgual";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento, type SnapshotWipParaGravar } from "./estado";
 
 export const MOTIVO_ESCALA_JA_EXISTE = "Escala da semana já existe";
@@ -110,6 +111,17 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
         periodos_snapshot: montada.periodosPorDia.get(data) ?? [],
       }));
 
+    // NO-OP do recálculo oficial: o plano resultante é semanticamente IDÊNTICO ao gravado na região afetada, não há dia novo/removido e os alertas do recálculo não mudaram =>
+    // nada é regravado, nenhuma `versao` sobe, nenhum evento 'recalculo' é gravado (o chamador dá os eventos como processados). Primeira geração e qualquer dia novo nunca são no-op.
+    const assinatura = assinaturaAlertas([...invalidas, ...resultado.alertas]);
+    if (montada.removerDias.length === 0 && estado.diasExistentes.length > 0 && diasAplicar.every((d) => d.versao_base !== null) && estado.ultimaAssinaturaAlertas === assinatura) {
+      const indice = new Map(entrada.slots.map((s) => [`${s.data}|${s.periodoId}`, s.indice]));
+      const atualNaRegiao = estado.alocacoes.filter((a) => (indice.get(`${a.data}|${a.periodoId}`) ?? -1) >= entrada.aPartirDe);
+      if (planosIguais(atualNaRegiao, resultado.alocacoes)) {
+        return { status: "sem_alteracao", tentativas: tentativa, alertas: [], alocacoesGravadas: 0 };
+      }
+    }
+
     const payload: PayloadAplicacao = {
       previsaoId: estado.previsaoId,
       dias: diasAplicar,
@@ -126,6 +138,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
         alertas: resultado.alertas.length + invalidas.length,
         alertasDetalhe: [...invalidas, ...resultado.alertas].slice(0, 300),
         selecoesInvalidas: invalidas.length, // histórico do módulo: a tela mostra os alertas do último recálculo
+        assinaturaAlertas: assinatura, // base do NO-OP do próximo recálculo
         primeiraGeracaoComSemanaEmAndamento: resultado.primeiraGeracaoComSemanaEmAndamento,
       },
     };
