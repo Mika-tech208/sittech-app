@@ -13,8 +13,8 @@ begin
   select e.id into v_rp from roteiro_etapas e join operacoes o on o.id = e.operacao_id where e.produto_id = F and o.nome = 'Rosquear + Parafusar';
   select e.id into v_etiq from roteiro_etapas e join operacoes o on o.id = e.operacao_id where e.produto_id = F and o.nome = 'Etiquetar';
   select e.id into v_emb from roteiro_etapas e join operacoes o on o.id = e.operacao_id where e.produto_id = F and o.nome = 'Embalar';
-  select m.id into v_e15 from maquinas m where m.nome like 'Etiquetadora 15%' limit 1;
-  select m.id into v_e16 from maquinas m where m.nome like 'Etiquetadora 16%' limit 1;
+  select m.id into v_e15 from maquinas m where btrim(m.nome) = 'Etiquetadora 15' limit 1;
+  select m.id into v_e16 from maquinas m where btrim(m.nome) = 'Etiquetadora 16' limit 1;
   if F is null or v_e15 is null or v_e16 is null then raise exception 'FALHOU (0) pré-requisitos F=% E15=% E16=%', F, v_e15, v_e16; end if;
   if not exists (select 1 from roteiro_etapa_maquinas where etapa_id = v_etiq and maquina_id = v_e16) then raise exception 'FALHOU (0) a E16 deveria ser COMPATÍVEL com Etiquetar de F no cadastro'; end if;
 
@@ -23,11 +23,11 @@ begin
   insert into previsao_itens (previsao_id, tipo, produto_id, produto_nome, valor_unitario, quantidade) values (v_prev, 'previsto', F, 'Conector 3/4" (Final)', 0.1825, 116625) returning id into v_item;
   -- UM item só para F (não existem itens CONV/AUTO); a pessoa marca máquinas por etapa: só a E15 em Etiquetar
   insert into previsao_item_maquinas (item_id, etapa_id, maquina_id)
-    select v_item, v_rosq, m.id from maquinas m where m.nome in ('Rosqueadeira 3', 'Rosqueadeira 6')
-    union all select v_item, v_para, m.id from maquinas m where m.nome in ('Parafusadeira 9', 'Parafusadeira 10')
-    union all select v_item, v_rp, m.id from maquinas m where m.nome like 'Maquina Automatica 8%'
+    select v_item, v_rosq, m.id from maquinas m where btrim(m.nome) in ('Rosqueadeira 3', 'Rosqueadeira 6')
+    union all select v_item, v_para, m.id from maquinas m where btrim(m.nome) in ('Parafusadeira 9', 'Parafusadeira 10')
+    union all select v_item, v_rp, m.id from maquinas m where btrim(m.nome) = 'Maquina Automatica 8'
     union all select v_item, v_etiq, v_e15
-    union all select v_item, v_emb, m.id from maquinas m where m.nome like 'Embalagem 17%';
+    union all select v_item, v_emb, m.id from maquinas m where btrim(m.nome) = 'Embalagem 17';
   if (select count(*) from previsao_itens where previsao_id = v_prev) <> 1 then raise exception 'FALHOU (1) F deve ser um único item da Previsão'; end if;
 
   -- (2) a rota/fluxo de cada máquina selecionada sai do etapa_id (sem coluna nova)

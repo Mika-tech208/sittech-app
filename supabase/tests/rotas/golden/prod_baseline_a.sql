@@ -1,10 +1,11 @@
 -- BASELINE PROD (SOMENTE LEITURA) — hashes/contagens congelados ANTES da 1ª migration e comparados depois de CADA migration/deploy.
 -- "fechado" = dados que não mudam mais (semanas < 2026-10-26): qualquer diferença é regressão. "vivo" = semana corrente (muda com o uso): comparar contagens/marcadores de tempo e explicar diferenças.
+-- Os cadastros EXCLUEM o produto novo 'Conector 3/4" (Final)' (pelo nome) para a comparação valer antes e depois da M1.
 -- Não menciona nenhuma tabela/coluna do modelo de rotas (existem só depois da M0); a lista de tabelas antigas EXCLUI as tabelas novas pelo nome.
 select 'marcador_t0' k, now()::text a, coalesce((select max(criado_em)::text from apontamentos_producao), '-') b, coalesce((select max(updated_at)::text from previsoes), '-') c
-union all select 'cadastros_produtos', count(*)::text, md5(coalesce(string_agg(to_jsonb(p)::text, '|' order by p.id),'')), '' from produtos p
-union all select 'cadastros_roteiro_etapas', count(*)::text, md5(coalesce(string_agg(to_jsonb(e)::text, '|' order by e.id),'')), '' from roteiro_etapas e
-union all select 'cadastros_roteiro_etapa_maquinas', count(*)::text, md5(coalesce(string_agg(to_jsonb(m)::text, '|' order by m.etapa_id, m.maquina_id),'')), '' from roteiro_etapa_maquinas m
+union all select 'cadastros_produtos', count(*)::text, md5(coalesce(string_agg(to_jsonb(p)::text, '|' order by p.id),'')), '' from produtos p where p.nome <> 'Conector 3/4" (Final)'
+union all select 'cadastros_roteiro_etapas', count(*)::text, md5(coalesce(string_agg(to_jsonb(e)::text, '|' order by e.id),'')), '' from roteiro_etapas e where e.produto_id not in (select id from produtos where nome = 'Conector 3/4" (Final)')
+union all select 'cadastros_roteiro_etapa_maquinas', count(*)::text, md5(coalesce(string_agg(to_jsonb(m)::text, '|' order by m.etapa_id, m.maquina_id),'')), '' from roteiro_etapa_maquinas m where m.etapa_id not in (select e.id from roteiro_etapas e join produtos p on p.id = e.produto_id where p.nome = 'Conector 3/4" (Final)')
 union all select 'cadastros_maquinas', count(*)::text, md5(coalesce(string_agg(to_jsonb(m)::text, '|' order by m.id),'')), '' from maquinas m
 union all select 'cadastros_operacoes', count(*)::text, md5(coalesce(string_agg(to_jsonb(o)::text, '|' order by o.id),'')), '' from operacoes o
 union all select 'cadastros_periodos', count(*)::text, md5(coalesce(string_agg(to_jsonb(p)::text, '|' order by p.id),'')), '' from periodos p
@@ -30,7 +31,7 @@ union all select 'apontamentos_26_10_vivo', count(*)::text, md5(coalesce(string_
 union all select 'wip_tabelas', (select count(*) from wip_controle)::text || '/' || (select count(*) from wip_ajustes)::text || '/' || (select count(*) from wip_confirmacoes)::text || '/' || (select count(*) from wip_saldo_semanal)::text, '', ''
 union all select 'funcionarios_custos', (select count(*) from funcionarios)::text || '/' || (select count(*) from funcionario_custos)::text || '/' || (select count(*) from fixed_costs)::text, md5((select string_agg(to_jsonb(f)::text, '|' order by f.id) from funcionarios f) || (select coalesce(string_agg(to_jsonb(c)::text, '|' order by c.id),'') from fixed_costs c)), ''
 union all select 'valor_atribuido_lineares', count(*)::text, md5(coalesce(string_agg(r::text, '|' order by r.produto_id, r.operacao_id, r.periodo_id), '')), ''
-  from (select p.id produto_id, e.operacao_id, per.id periodo_id, public.calcular_valor_atribuido_operacao(p.id, e.operacao_id, per.id) val from produtos p join roteiro_etapas e on e.produto_id = p.id cross join periodos per) r
+  from (select p.id produto_id, e.operacao_id, per.id periodo_id, public.calcular_valor_atribuido_operacao(p.id, e.operacao_id, per.id) val from produtos p join roteiro_etapas e on e.produto_id = p.id cross join periodos per where p.nome <> 'Conector 3/4" (Final)') r
 union all select 'tabelas_antigas_colunas', count(*)::text, md5(string_agg(c.relname||'.'||a.attname||':'||format_type(a.atttypid,a.atttypmod), '|' order by c.relname, a.attnum)), ''
   from pg_class c join pg_attribute a on a.attrelid=c.oid and a.attnum>0 and not a.attisdropped
  where c.relnamespace='public'::regnamespace and c.relkind='r' and c.relname not in ('produto_rota','rota_etapas','produto_pool_comum','previsao_rota_limite','escala_rota_divisao','produto_variante_legada','rotas_config','rotas_planejador_sombra','rotas_ativacao_log') and not (c.relname='previsoes' and a.attname='modelo_rotas')

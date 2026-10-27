@@ -14,5 +14,5 @@ begin
 end $$;
 select set_config('request.jwt.claims', json_build_object('sub', (select auth_user_id from usuarios where papel='admin' and ativo order by id limit 1), 'role', 'authenticated')::text, true);
 set local role authenticated;
-select 'apontado_real_sintetico' k, count(*) linhas, md5(string_agg(to_jsonb(r)::text, '|' order by r.produto_id, r.etapa_id)) v from public.obter_apontado_real_previsao_por_semana('2026-10-26') r;
+select 'apontado_real_sintetico' k, count(*) linhas, md5(string_agg(to_jsonb(r)::text, '|' order by r.produto_id, r.etapa_id, r.operacao_id)) v from public.obter_apontado_real_previsao_por_semana('2026-10-26') r;
 rollback;
