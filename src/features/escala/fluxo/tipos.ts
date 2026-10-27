@@ -78,6 +78,8 @@ export interface OpcoesFluxo {
   /** Inclui na avaliação a trajetória de WIP por par/slot e os marginais (mais pesado no jsonb). Default true / false. */
   incluirTrajetoria?: boolean;
   incluirMarginais?: boolean;
+  /** Máximo de decisões detalhadas no diagnóstico (default 120); o resumo agregado é sempre completo. */
+  maxDecisoes?: number;
   /** Produto único (F#CONV/F#AUTO/F#COMUM): a última etapa de `produtoOrigemId` alimenta a primeira de `produtoDestinoId`. */
   ligacoes?: LigacaoProdutos[];
   /** avaliarPlano: rem explícito (por chave do pool representante) com que o plano avaliado foi gerado (limita a produção do previsto). */
@@ -358,6 +360,15 @@ export interface DecisaoFluxo {
   };
 }
 
+/** Visão compacta das decisões: por (pool de origem → pool de destino), somando todos os slots. */
+export interface ResumoDecisao {
+  de: { produtoId: string | null; etapaId: string | null };
+  para: { produtoId: string | null; etapaId: string | null };
+  pessoasPeriodo: number;
+  slots: number;
+  ganhoProdutoFinal: number;
+}
+
 export interface AntesFluxo {
   demandaRestante: Record<string, number>; // R_f por produto
   remLegado: Record<string, number>;
@@ -401,7 +412,9 @@ export interface DiagnosticoFluxo {
   iteracaoEscolhida: number | null;
   theta: number;
   antes: AntesFluxo;
-  decisoes: DecisaoFluxo[];
+  decisoes: DecisaoFluxo[]; // até `maxDecisoes` (default 120), as de maior |ganho|; ordem cronológica
+  decisoesTotal: number; // total antes do corte
+  resumoDecisoes: ResumoDecisao[]; // completo, agregado por pool de origem → destino
   depois: DepoisFluxo;
   /** Resumo do plano base avaliado pelo MESMO simulador (régua do critério E). */
   depoisBase: DepoisFluxo;
