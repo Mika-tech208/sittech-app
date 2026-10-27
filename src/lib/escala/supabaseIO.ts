@@ -236,6 +236,8 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
 
     async gravarDivisaoRotas(registros) {
       await gravarDivisaoRotas(admin, registros);
+    },
+
     async registrarFluxo(registro) {
       await registrarDiagnosticoFluxo(admin, registro);
     },
