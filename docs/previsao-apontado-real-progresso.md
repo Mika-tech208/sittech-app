@@ -2,7 +2,13 @@
 
 Mudança independente do projeto de múltiplas rotas (nenhuma migration; não toca `suporte_ativo`, produto F nem a ativação de 02/11).
 
-## Regra
+## VIGÊNCIA (decisão de 27/10/2026)
+`APONTADO_REAL_PROGRESSO_DESDE = 2026-10-26` (`src/features/previsao/vigencia.ts`). **Nunca** "semana atual".
+- Semana **< 26/10/2026**: metodologia **histórica** = Realizado manual (peças, R$, %, diferença/falta, Histórico semanal, painel Resultado da semana). Código = `progressoLegado.ts` + `ProdutosProgramadosLegado.tsx`, cópia fiel do que existia antes da feature. Apontamentos lançados depois para essas semanas não alteram nada (o Apontado real nem é consultado para o Histórico delas).
+- Semana **>= 26/10/2026** (e futuras): Apontado real (regra abaixo). A linha 26/10 do Histórico é a primeira no método novo (marcada com `*`).
+- O Histórico escolhe a metodologia **linha a linha** (`calcularHistoricoSemanal`). Só leitura/apresentação: nenhum dado é alterado.
+
+## Regra (semanas em vigência)
 - **Fonte do andamento**: Apontado real (Produção Real) = produção **boa** (`produzido − refugo`) da **última etapa válida** do produto. Etapa intermediária e `sem_producao` não contam. Produto de uma operação: ela própria é a final. Roteiro alterado → ambíguo **não** vira quantidade (continua o aviso ⚠).
 - **Falta** = `max(Previsto − Apontado, 0)`; **%** = `Apontado / Previsto` (sem teto: 105% aparece como 105,0%).
 - **Falta por produto** = `max(previsto do item − apontado do item, 0)`. **Falta total** = soma das faltas dos produtos: o excesso de um produto **não** compensa a falta de outro (A 10.000/12.000 e B 10.000/5.000 → falta total 5.000, não 3.000). Previsto total = Σ previstos; Apontado total = Σ apontados; **% geral** = Apontado total / Previsto total (pode passar de 100%).
