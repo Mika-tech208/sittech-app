@@ -1,0 +1,1 @@
+select id::text id, previsao_id::text previsao_id, semana_inicio::text semana_inicio, valido_desde, origem, hash_plano, jsonb_array_length(linhas) nlinhas, length(linhas::text) bytes from escala_plano_versoes where semana_inicio='2026-10-26' order by valido_desde;

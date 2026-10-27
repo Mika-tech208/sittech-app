@@ -1,0 +1,2 @@
+select r.id::text id, r.maquina_id::text maquina_id, m.nome maquina, r.motivo, r.origem_tipo, extract(epoch from r.desde)*1000 desde_ms, extract(epoch from r.liberada_em)*1000 liberada_ms, to_char(r.desde at time zone 'America/Sao_Paulo','MM-DD HH24:MI') desde, to_char(r.liberada_em at time zone 'America/Sao_Paulo','MM-DD HH24:MI') liberada
+from escala_recurso_indisponivel r join maquinas m on m.id=r.maquina_id where r.desde >= '2026-10-25' or r.liberada_em is null order by r.desde;

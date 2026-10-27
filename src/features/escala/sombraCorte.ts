@@ -7,7 +7,7 @@
 import { desempenhoPorEtapa, type DesempenhoEtapa } from "./desempenho";
 import { calcularDinamica, type DinamicaCorte } from "./gargaloDinamico";
 import { aplicarTetosDinamicos } from "./tetosWip";
-import { classificarSituacao, compararPreenchimento, coberturaFutura, faltaProjetada, postosVaziosPorRevezamento, projetarProducao, resumirRecuperacao, restanteAcabado, somarProducao, toleranciaFalta, type FaltaProjetada, type ResumoPreenchimento, type ResumoRecuperacao, type Situacao } from "./execucao";
+import { classificarSituacao, compararPreenchimento, coberturaFutura, faltaProjetada, postosVaziosPorRevezamento, projetarProducao, projetarProducaoReescalada, fatorEmbutidoDoPlano, resumirRecuperacao, restanteAcabado, somarProducao, toleranciaFalta, type FaltaProjetada, type ResumoPreenchimento, type ResumoRecuperacao, type Situacao } from "./execucao";
 import { hashCanonico } from "./hashCanonico";
 import { hashAlocacoes, horizonteAposPeriodo, replanejarComHorizonte, type ResultadoSombraHorizonte } from "./horizonte";
 import { boasPorPool, linhasExecutadas, restantePorPool, visivelNoCorte, type ApontamentoReal, type ExposicaoPessoa, type IncertezaExposicao } from "./producaoReal";
@@ -120,8 +120,10 @@ export function executarCorteSombra(p: ParametrosCorte): DecisaoCorte {
 
   // projeções: oficial (plano oficial futuro, original) × sombra (comprometido efetivo + alterável)
   const oficialFuturo = p.planoOficial.filter((a) => idx(a) >= p.c + 1);
-  const predOficial = projetarProducao(oficialFuturo, fator);
-  const predSombra = somarProducao(projetarProducao(horizonte.comprometidas, fator), projetarProducao(horizonte.alteravel, null));
+  // o plano gravado por um replanejamento aplicado JÁ traz as metas × f daquela decisão: reescala por f novo / f embutido (plano nominal ⇒ f embutido = 1 ⇒ igual a antes)
+  const embutido = fatorEmbutidoDoPlano(oficialFuturo, ent.pools, slots);
+  const predOficial = projetarProducaoReescalada(oficialFuturo, fator, embutido);
+  const predSombra = somarProducao(projetarProducaoReescalada(horizonte.comprometidas, fator, embutido), projetarProducao(horizonte.alteravel, null));
   const faltaOficial = faltaProjetada(ent.pools, restante, predOficial);
   const faltaSombra = faltaProjetada(ent.pools, restante, predSombra);
   // WIP só ocupa quem ficaria ocioso: por período do futuro, postos de WIP × pessoas sem trabalho no MESMO replanejamento sem WIP
@@ -133,7 +135,7 @@ export function executarCorteSombra(p: ParametrosCorte): DecisaoCorte {
         return { indice: sl.indice, data: sl.data, periodoId: sl.periodoId, minutos: sl.fimMin - sl.inicioMin, wipPostos: wip.length, wipPecas: Math.round(wip.reduce((x, a) => x + (a.pecasAdicional ?? 0), 0)), ociososSemWip: semRows.filter((a) => !a.maquinaId).length, ociososComWip: comRows.filter((a) => !a.maquinaId).length };
       }).filter((x) => x.wipPostos > 0 || x.ociososSemWip > 0) }
     : null;
-  const faltaSemWip = semWip ? faltaProjetada(ent.pools, restante, somarProducao(projetarProducao(semWip.comprometidas, fator), projetarProducao(semWip.alteravel, null))) : null;
+  const faltaSemWip = semWip ? faltaProjetada(ent.pools, restante, somarProducao(projetarProducaoReescalada(semWip.comprometidas, fator, embutido), projetarProducao(semWip.alteravel, null))) : null;
   const situacao = classificarSituacao({ impossivelNaOrigem: !!p.impossivelNaOrigem, faltaOficial: faltaOficial.total, faltaSombra: faltaSombra.total, tolerancia: tol });
   const sombraFuturo = [...horizonte.comprometidas, ...horizonte.alteravel];
   const av = horizonte.avaliacaoCompromisso;

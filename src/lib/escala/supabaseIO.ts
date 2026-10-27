@@ -14,6 +14,8 @@ import { historicoDeSituacao } from "./situacaoFuncionario";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "./estado";
 import { processarSemana, type EscalaIO, type OpcoesProcessamento } from "./processar";
 import { carregarWipControle, gravarSnapshotsWip } from "./wipIO";
+import { lerConfigFluxo, modoEfetivoFluxo } from "./fluxo/parametrosFluxo";
+import { carregarApontamentosReais, registrarDiagnosticoFluxo } from "./fluxo/supabaseFluxo";
 import { classificarGeracao, gerarEscalaSemanal, type DepsGeracaoSemanal, type OpcoesGeracaoSemanal, type ResultadoGeracaoSemanal } from "./geracaoSemanal";
 import type { ResultadoProcessamento } from "./estado";
 
@@ -151,7 +153,19 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         };
       });
 
-      const parametros = lerParametros(ok(params, "escala_parametros") as { chave: string; valor: unknown }[]);
+      const parametrosRows = ok(params, "escala_parametros") as { chave: string; valor: unknown }[];
+      const parametros = lerParametros(parametrosRows);
+      // Escala Inteligente (fluxo): SÓ com o modo efetivo da semana em sombra/ativo. Desligado = nada é lido, nada muda. Falha na leitura = caminho oficial (log).
+      const cfgFluxo = lerConfigFluxo(parametrosRows);
+      const modoFluxo = modoEfetivoFluxo(cfgFluxo, prev.semana_inicio);
+      let producaoReal: EstadoBruto["producaoReal"];
+      if (modoFluxo === "sombra" || modoFluxo === "ativo") {
+        try {
+          producaoReal = { modoEfetivo: modoFluxo, limiar: cfgFluxo.limiar, paresLegado: cfgFluxo.paresLegado, apontamentos: await carregarApontamentosReais(admin, prev.semana_inicio) };
+        } catch (e) {
+          console.error("escala/fluxo: apontamentos indisponíveis; a semana segue pelo motor oficial:", e instanceof Error ? e.message : e);
+        }
+      }
       // estoque intermediário (Fase 3): só é lido com o WIP ativo; sem controles = undefined (comportamento anterior)
       const wipControle = parametros.wipModo === "ativo" ? await carregarWipControle(admin, prev.semana_inicio) : undefined;
 
@@ -211,6 +225,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         parametros,
         ...(wipControle ? { wipControle } : {}),
         ...(rotas ? { rotas } : {}),
+        ...(producaoReal ? { producaoReal } : {}),
         proximaSemana: proximaSemanaDe(ok(proxima, "previsoes (próxima semana)") as { previsao_itens: { produto_id: string; quantidade: number; tipo: string }[] | null } | null),
       };
     },
@@ -221,6 +236,8 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
 
     async gravarDivisaoRotas(registros) {
       await gravarDivisaoRotas(admin, registros);
+    async registrarFluxo(registro) {
+      await registrarDiagnosticoFluxo(admin, registro);
     },
 
     async aplicar(p: PayloadAplicacao) {

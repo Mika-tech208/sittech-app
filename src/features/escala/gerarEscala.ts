@@ -115,6 +115,13 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     }
   });
 
+  // HOOK (fluxo): demanda restante EXPLÍCITA por pool — substitui Q − créditos congelados. Ausente = regra acima, byte-idêntica.
+  if (entrada.remPorPool) {
+    Object.entries(entrada.remPorPool).forEach(([k, v]) => {
+      if (rem.has(k)) rem.set(k, Math.max(0, v));
+    });
+  }
+
   // ---- carga adicional restante (2ª camada) = adicionalMax − créditos adicionais já congelados ----
   const adicRem = new Map<string, number>();
   pools.forEach((p) => adicRem.set(chavePool(p.produtoId, p.etapaId), Math.max(0, p.adicionalMax ?? 0)));
@@ -308,22 +315,52 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     const maquinasUsadas = new Set<string>();
     const aceitos: { par: Par; pecas: number }[] = [];
     const maquinasCandidatas = new Set(pares.map((x) => x.m));
-    for (const par of pares) {
-      if (aceitos.length >= disponiveis.length) break;
-      if (maquinasUsadas.has(par.m)) continue;
-      if ((contagem.get(par.chave) ?? 0) >= (permitido.get(par.chave) as number)) continue;
+    // HOOK (fluxo): valor marginal (+ bônus de continuidade) como 1º critério. Sem o hook no slot, o laço abaixo é o de sempre.
+    const marginaisDoSlot = entrada.ordemPostos?.valorMarginal[String(t)];
+    const bonusDoSlot = entrada.bonusContinuidade?.[String(t)];
+    const tentar = (par: Par): boolean => {
+      // devolve false se o posto foi recusado (nunca altera o estado nesse caso, exceto o registro de corte por revezamento)
+      if (maquinasUsadas.has(par.m)) return false;
+      if ((contagem.get(par.chave) ?? 0) >= (permitido.get(par.chave) as number)) return false;
       const mu = metaNoSlot(par.pool, slot);
       const g = Math.min(mu, (rem.get(par.chave) as number) - (comprometido.get(par.chave) ?? 0));
-      if (g <= EPS) continue;
+      if (g <= EPS) return false;
       if (DURO && !viavel([...aceitos.map((a) => a.par), par], disponiveis.map((f) => f.id))) {
         cortadosPorRotacao.add(par.m);
         operacoesCortadas.add(par.pool.operacaoId);
-        continue;
+        return false;
       }
       aceitos.push({ par, pecas: g });
       maquinasUsadas.add(par.m);
       contagem.set(par.chave, (contagem.get(par.chave) ?? 0) + 1);
       comprometido.set(par.chave, (comprometido.get(par.chave) ?? 0) + g);
+      return true;
+    };
+    if (!marginaisDoSlot && !bonusDoSlot) {
+      for (const par of pares) {
+        if (aceitos.length >= disponiveis.length) break;
+        tentar(par);
+      }
+    } else {
+      const pendentes = [...pares]; // já na ordem legada (gargalo → folga → valor → continuidade → ordem da etapa → ids)
+      while (pendentes.length > 0 && aceitos.length < disponiveis.length) {
+        let melhor = -1;
+        let melhorV = Number.NEGATIVE_INFINITY;
+        for (let i = 0; i < pendentes.length; i++) {
+          const par = pendentes[i];
+          if (maquinasUsadas.has(par.m) || (contagem.get(par.chave) ?? 0) >= (permitido.get(par.chave) as number)) continue;
+          const n = contagem.get(par.chave) ?? 0;
+          const lista = marginaisDoSlot?.[par.chave];
+          const v = (lista ? lista[Math.min(n, lista.length - 1)] ?? 0 : 0) + (bonusDoSlot?.[`${par.m}|${par.chave}`] ?? 0);
+          if (v > melhorV + 1e-9) {
+            melhorV = v;
+            melhor = i;
+          }
+        }
+        if (melhor < 0) break;
+        const [par] = pendentes.splice(melhor, 1);
+        tentar(par);
+      }
     }
 
     const K = aceitos.length;

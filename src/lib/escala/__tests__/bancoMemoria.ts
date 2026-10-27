@@ -10,7 +10,8 @@ import { epochMsNoFuso } from "@/features/escala/tempo";
 import type { AlocacaoEscala } from "@/features/escala/types";
 import type { EstadoBruto, PayloadAplicacao } from "../estado";
 import { montarEntradaEscala } from "../montarEntrada";
-import { processarSemana, type EscalaIO } from "../processar";
+import { processarSemana, type EscalaIO, type OpcoesProcessamento } from "../processar";
+import type { RegistroFluxo } from "../fluxo/integracao";
 
 export type AlocacaoComOrigem = AlocacaoEscala & { origem?: "auto" | "manual" };
 
@@ -59,6 +60,9 @@ export class Mundo {
   aplicacoes = 0; // quantas vezes o recálculo REALMENTE gravou (no-op não grava)
   snapshotsGravados = 0;
   relogioMs = 0; // o now() do banco no instante do recálculo (para a guarda do histórico)
+  registrosFluxo: RegistroFluxo[] = []; // escala_fluxo_diagnosticos (idempotente pela mesma chave única do banco)
+  tentativasRegistroFluxo = 0; // chamadas a registrarFluxo (inclui as repetidas, que o banco ignora)
+  falharRegistroFluxo = false; // simula erro do banco ao registrar
 
   constructor(entradas: EstadoBruto) {
     this.entradas = entradas;
@@ -84,6 +88,12 @@ export class Mundo {
         snaps.forEach((x) => {
           if (!w.snapshots.some((y) => y.semanaInicio === semanaInicio && y.controleId === x.controleId)) w.snapshots.push({ semanaInicio, ...x });
         });
+      },
+      registrarFluxo: async (r: RegistroFluxo) => {
+        this.tentativasRegistroFluxo++;
+        if (this.falharRegistroFluxo) throw new Error("escala_fluxo_registrar: indisponível");
+        const chave = (x: RegistroFluxo) => [x.previsaoId, x.gatilho, x.hashEntrada, x.hashPlanoFluxo, x.modo].join("|");
+        if (!this.registrosFluxo.some((x) => chave(x) === chave(r))) this.registrosFluxo.push(JSON.parse(JSON.stringify(r)));
       },
       aplicar: async (p: PayloadAplicacao) => {
         const ordem = (periodoId: string, data: string) => (this.dias.get(data)?.snapshot ?? PERIODOS_REAIS).findIndex((x) => x.id === periodoId);
@@ -113,10 +123,10 @@ export class Mundo {
   }
 
   // Um recálculo no instante `agoraMs` (a 1ª chamada, com criarSeNaoExiste, gera a semana).
-  async recalcular(agoraMs: number, criar = false) {
+  async recalcular(agoraMs: number, criar = false, extra: Partial<OpcoesProcessamento> = {}) {
     this.recalculos++;
     this.relogioMs = agoraMs;
-    return processarSemana(this.io(), { agoraMs, criarSeNaoExiste: criar });
+    return processarSemana(this.io(), { agoraMs, criarSeNaoExiste: criar, ...extra });
   }
 
   // Troca manual (como a RPC escala_trocar_alocacoes): só o que ainda não começou.

@@ -131,6 +131,16 @@ export interface EntradaEscala {
   // (o realizado vem agregado, não por posto). Consome o teto restante e conta no equilíbrio da cadeia e no limite de estoque, exatamente
   // como o adicional congelado. Ausente (Escala oficial) = comportamento anterior, idêntico.
   adicionalRealizado?: Record<string, number>;
+  // ESCALA INTELIGENTE (fluxo) — hooks ADITIVOS. Todos ausentes (Escala oficial) = saída BYTE-IDÊNTICA à anterior (golden-master).
+  // `remPorPool`: demanda restante EXPLÍCITA (peças) por pool ("produto|etapa") no primeiro slot mutável; substitui Q − créditos congelados
+  // (não abate crédito planejado). Pool ausente do mapa = regra anterior.
+  remPorPool?: Record<string, number>;
+  // `ordemPostos`: valor marginal (peças finais entregues até o fim da semana) do n-ésimo posto (n = 0,1,…) de cada pool em cada slot
+  // (índice do slot -> "produto|etapa" -> valores). Passa a ser o 1º critério de seleção de postos (depois, gargalo/folga e o resto).
+  ordemPostos?: { valorMarginal: Record<string, Record<string, number[]>> };
+  // `bonusContinuidade`: bônus (em peças finais equivalentes) somado ao valor marginal do posto (máquina, pool) que já está ocupado no plano
+  // vigente (índice do slot -> "maquinaId|produto|etapa" -> bônus). Só tem efeito junto com `ordemPostos`.
+  bonusContinuidade?: Record<string, Record<string, number>>;
 }
 
 export type TipoAlerta =

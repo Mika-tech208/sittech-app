@@ -8,8 +8,9 @@ import { epochMsNoFuso } from "@/features/escala/tempo";
 import type { AlocacaoEscala } from "@/features/escala/types";
 import { ConflitoDeVersaoError, type EstadoBruto } from "../estado";
 import type { VersaoPlanoOficial } from "../planoVersionado";
-import { processarSombra, type AplicacaoRestrita, type ApontamentoBanco, type DecisaoParaGravar, type EventoSombra, type RegistroAvaliacao, type SombraIO } from "../sombraServico";
+import { processarSombra, regiaoAlvoJaIniciada, type AplicacaoRestrita, type ApontamentoBanco, type DecisaoParaGravar, type EventoSombra, type RegistroAvaliacao, type SombraIO } from "../sombraServico";
 import { estadoDeTeste, Mundo } from "./bancoMemoria";
+import type { ConfigFluxo } from "../fluxo/parametrosFluxo";
 
 const D1 = "2026-11-02";
 const DIAS = [D1, "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06"];
@@ -49,6 +50,8 @@ class BancoRestrito implements SombraIO {
   chamadasAplicar = 0;
   aoGravarDecisao: (() => void) | null = null; // intervenção "humana/operacional" entre a decisão e a gravação
   agoraMs = 0;
+  lerConfigFluxo?: SombraIO["lerConfigFluxo"]; // Escala Inteligente (fluxo): ausente = comportamento anterior
+  aoFechamento?: SombraIO["aoFechamento"];
   constructor(public mundo: Mundo) { this.registrarVersao(AGORA_GERACAO); }
   registrarVersao(validoDesdeMs: number) {
     const e = this.mundo.entradas;
@@ -259,3 +262,177 @@ describe("reavaliação por evento", () => {
     expect(b.auditoria.length).toBe(depois + 1);
   });
 });
+
+// ESCALA INTELIGENTE (fluxo) — INTERLOCK: nas semanas em que o fluxo é ATIVO o replanejamento restrito NÃO aplica (em sombra do fluxo, segue como está)
+describe("interlock com o fluxo (producao_real_modo)", () => {
+  const cfg = (modo: ConfigFluxo["modo"], semanas: string[]): ConfigFluxo => ({ modo, semanasAtivas: semanas, limiar: null, paresLegado: [] });
+  it("fluxo ATIVO na semana: o restrito NÃO aplica (decisão sombra gravada, Escala intacta, parâmetro do restrito intocado)", async () => {
+    const { m, b } = await cenario(0.5);
+    b.agoraMs = agoraDe("m1");
+    b.lerConfigFluxo = async () => cfg("ativo", [D1]);
+    const antes = Mundo.assinatura(m.alocacoes, true);
+    const r = await processarSombra(b, agoraDe("m1"));
+    expect(r).toMatchObject({ processadas: 1, aplicadas: 0, interlockFluxo: [D1] });
+    expect(b.chamadasAplicar).toBe(0);
+    expect(b.modo).toBe("ativo_restrito"); // o parâmetro do restrito não é alterado
+    expect(b.semanas).toEqual([D1]);
+    expect(Mundo.assinatura(m.alocacoes, true)).toBe(antes);
+    expect(b.decisoes).toHaveLength(1);
+    expect(b.decisoes[0].modo).toBe("sombra");
+  });
+  it("fluxo ATIVO só em OUTRA semana: o restrito aplica normalmente na semana autorizada", async () => {
+    const { b } = await cenario(0.5);
+    b.agoraMs = agoraDe("m1");
+    b.lerConfigFluxo = async () => cfg("ativo", ["2026-11-09"]);
+    const r = await processarSombra(b, agoraDe("m1"));
+    expect(r.aplicadas).toBe(1);
+    expect(r.interlockFluxo).toEqual(["2026-11-09"]);
+  });
+  it("fluxo em SOMBRA (ou desligado): o restrito segue exatamente como está", async () => {
+    for (const modo of ["sombra", "desligado"] as const) {
+      const { b } = await cenario(0.5);
+      b.agoraMs = agoraDe("m1");
+      b.lerConfigFluxo = async () => cfg(modo, [D1]);
+      const r = await processarSombra(b, agoraDe("m1"));
+      expect(r.aplicadas).toBe(1);
+      expect(r.interlockFluxo).toBeUndefined();
+    }
+  });
+  it("sem configuração do fluxo (io antigo): resumo idêntico ao anterior, sem campos novos", async () => {
+    const { b } = await cenario(0.5);
+    b.agoraMs = agoraDe("m1");
+    const r = await processarSombra(b, agoraDe("m1"));
+    expect(r.aplicadas).toBe(1);
+    expect(r.fluxo).toBeUndefined();
+    expect(r.interlockFluxo).toBeUndefined();
+  });
+  it("a reavaliação por evento também respeita o interlock", async () => {
+    const { m, b } = await cenario(0.5);
+    b.agoraMs = agoraDe("m1");
+    await processarSombra(b, agoraDe("m1")); // aplica uma vez
+    m.dias.get(D1)!.versao += 1; // a Escala muda depois (evento)
+    m.alocacoes = m.alocacoes.map((a, i) => (i === m.alocacoes.length - 1 ? { ...a, pecas: a.pecas + 1 } : a));
+    const aplicadasAntes = b.auditoria.filter((x) => x.resultado === "aplicado").length;
+    b.lerConfigFluxo = async () => cfg("sombra", [D1]); // controle: com o fluxo em sombra a reavaliação ocorre
+    const controle = await processarSombra(b, agoraDe("m1") + 4 * MIN);
+    expect(controle.reavaliacoes).toBe(1);
+    m.dias.get(D1)!.versao += 1;
+    m.alocacoes = m.alocacoes.map((a, i) => (i === m.alocacoes.length - 1 ? { ...a, pecas: a.pecas + 1 } : a));
+    b.lerConfigFluxo = async () => cfg("ativo", [D1]);
+    const aplicadasAntes2 = b.auditoria.filter((x) => x.resultado === "aplicado").length;
+    const r = await processarSombra(b, agoraDe("m1") + 5 * MIN);
+    expect(r.reavaliacoes).toBe(0);
+    expect(b.auditoria.filter((x) => x.resultado === "aplicado")).toHaveLength(aplicadasAntes2);
+    expect(aplicadasAntes2).toBeGreaterThanOrEqual(aplicadasAntes);
+  });
+  it("hook de fechamento: chamado 1x quando o fluxo está ligado; nunca com o fluxo desligado; falha do hook não muda o status do evento", async () => {
+    const { b } = await cenario(0.5);
+    b.agoraMs = agoraDe("m1");
+    b.modo = "sombra";
+    let chamadas = 0;
+    b.aoFechamento = async () => { chamadas++; return { modo: "sombra", resultado: "erro", erro: "x" }; };
+    b.lerConfigFluxo = async () => cfg("desligado", [D1]);
+    await processarSombra(b, agoraDe("m1"));
+    expect(chamadas).toBe(0);
+    const { b: b2 } = await cenario(0.5);
+    b2.agoraMs = agoraDe("m1");
+    b2.modo = "sombra";
+    b2.aoFechamento = b.aoFechamento;
+    b2.lerConfigFluxo = async () => cfg("sombra", [D1]);
+    const r = await processarSombra(b2, agoraDe("m1"));
+    expect(chamadas).toBe(1);
+    expect(r.fluxo).toMatchObject({ fechamentos: 1, erros: 1, semanasAtivas: [D1] });
+    expect([...b2.eventos.values()][0].status).toBe("processado");
+  });
+  it("replanejamento DESLIGADO + fluxo ligado: o fechamento é detectado e o hook roda (sem proposta restrita, Escala intacta)", async () => {
+    const { m, b } = await cenario(0.5);
+    b.agoraMs = agoraDe("m1");
+    b.modo = "desligado";
+    let chamadas = 0;
+    b.aoFechamento = async () => { chamadas++; return null; };
+    b.lerConfigFluxo = async () => cfg("sombra", [D1]);
+    const antes = Mundo.assinatura(m.alocacoes, true);
+    const r = await processarSombra(b, agoraDe("m1"));
+    expect(r.processadas).toBe(1);
+    expect(chamadas).toBe(1);
+    expect(b.chamadasAplicar).toBe(0);
+    expect(Mundo.assinatura(m.alocacoes, true)).toBe(antes);
+    expect(b.decisoes[0].snapshot.diagnostico.restrito).toBeUndefined();
+  });
+  it("replanejamento desligado + fluxo desligado: retorna cedo, sem tocar em nada (comportamento anterior)", async () => {
+    const { b } = await cenario(0.5);
+    b.modo = "desligado";
+    b.lerConfigFluxo = async () => cfg("desligado", []);
+    const r = await processarSombra(b, agoraDe("m1"));
+    expect(r).toMatchObject({ modoEfetivo: "desligado", eventos: 0, processadas: 0 });
+    expect(b.decisoes).toHaveLength(0);
+  });
+});
+describe("reavaliação por evento: região-alvo já iniciada e invocações concorrentes", () => {
+  // avalia m1 (aplica algo), muda a Escala oficial por uma ausência e devolve o banco pronto para a reavaliação por evento
+  async function pendente() {
+    const { m, b } = await cenario(0.5);
+    b.agoraMs = agoraDe("m1");
+    await processarSombra(b, agoraDe("m1"));
+    const ult = b.auditoria.at(-1);
+    expect(ult?.aPartir).toBeTruthy();
+    const [data, periodoId] = (ult?.aPartir as string).split(" ");
+    const aPartir = idxPeriodo(data, periodoId);
+    b.hashConhecido = ult?.hashDepois ?? hashAlocacoes(regiao(m, aPartir));
+    const alvo = m.alocacoes.find((a) => idxSlot(a) >= aPartir + 1 && a.maquinaId)!;
+    m.entradas.ausencias.push({ funcionarioId: alvo.funcionarioId, data: alvo.data, horarioInicio: null, horarioFim: null });
+    await m.recalcular(agoraDe("m1"));
+    b.registrarVersao(agoraDe("m1"));
+    return { m, b, tamanho: b.auditoria.length, decisoes: b.decisoes.length, aplicar: b.chamadasAplicar };
+  }
+
+  it("c+2 ainda não iniciou: reavalia normalmente (grava decisão nova)", async () => {
+    const { b, decisoes } = await pendente();
+    const r = await processarSombra(b, agoraDe("m1") + MIN);
+    expect(r.reavaliacoes).toBe(1);
+    expect(r.reavaliacoesDispensadas).toBe(0);
+    expect(b.decisoes.length).toBeGreaterThan(decisoes);
+  });
+
+  it("c+2 (M3) já iniciou: NÃO roda o motor nem grava decisão; registra UMA recusa 'região já iniciada' com a região-alvo e não toca a Escala", async () => {
+    const { m, b, tamanho, decisoes, aplicar } = await pendente();
+    const antes = Mundo.assinatura(m.alocacoes, true);
+    const r = await processarSombra(b, FIM("m2") + 6 * MIN); // M3 começou às 10:24
+    expect(r.reavaliacoes).toBe(0);
+    expect(r.reavaliacoesDispensadas).toBe(1);
+    expect(r.recusadas).toBe(1);
+    expect(b.decisoes.length).toBe(decisoes);
+    expect(b.chamadasAplicar).toBe(aplicar);
+    expect(Mundo.assinatura(m.alocacoes, true)).toBe(antes);
+    expect(b.auditoria.length).toBe(tamanho + 1);
+    const reg = b.auditoria.at(-1)!;
+    expect(reg).toMatchObject({ decisaoId: null, resultado: "recusado", aPartir: `${D1} m3` });
+    expect(reg.motivo).toContain("região já iniciada");
+  });
+
+  it("outra invocação já tratou o pendente enquanto esta carregava: não avalia nem registra de novo", async () => {
+    const { b, tamanho, decisoes } = await pendente();
+    let chamadas = 0;
+    const original = b.reavaliacoesPendentes.bind(b);
+    b.reavaliacoesPendentes = async () => (++chamadas === 1 ? original() : []); // 1ª leitura: pendente; na reconfirmação outro worker já registrou
+    const r = await processarSombra(b, agoraDe("m1") + MIN);
+    expect(r.reavaliacoes).toBe(0);
+    expect(r.reavaliacoesDispensadas).toBe(0);
+    expect(r.concorrencia).toBe(1);
+    expect(b.decisoes.length).toBe(decisoes);
+    expect(b.auditoria.length).toBe(tamanho);
+  });
+});
+
+describe("regiaoAlvoJaIniciada", () => {
+  it("só dispensa quando c+2 já começou (c+1 sozinho não basta: o reparo é avaliado)", async () => {
+    const m = await semana();
+    const estado = estadoDe(m);
+    expect(regiaoAlvoJaIniciada(estado, { data: D1, periodoId: "m1" }, FIM("m1") + 15 * MIN)).toBeNull(); // M2 começa 08:48, M3 só 10:24
+    expect(regiaoAlvoJaIniciada(estado, { data: D1, periodoId: "m1" }, FIM("m2") + MIN)).toMatchObject({ alvo: { data: D1, periodoId: "m3" }, slotOrigem: 0 });
+    expect(regiaoAlvoJaIniciada(estado, { data: D1, periodoId: "m1" }, FIM("m2") - MIN)).toBeNull();
+    expect(regiaoAlvoJaIniciada(estado, { data: D1, periodoId: "inexistente" }, FIM("m2") + MIN)).toBeNull();
+    expect(regiaoAlvoJaIniciada(estado, { data: "2026-11-06", periodoId: "t3" }, epochMsNoFuso("2026-11-07", "10:00"))).toBeNull(); // fim da semana: não há c+2
+  });
+});
+

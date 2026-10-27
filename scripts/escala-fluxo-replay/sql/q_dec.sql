@@ -1,0 +1,2 @@
+select id::text id, previsao_id::text previsao_id, semana_inicio::text semana_inicio, data::text data, periodo_id, slot, revisao, replanejamento_modo, corte_em, criado_em, motivo_fechamento, dados_completos, hash_decisao, hash_plano_sombra, hash_plano_oficial, hash_entrada, situacao, diagnostico->>'faltaOficial' falta_of, diagnostico->>'faltaSombra' falta_so, entrada
+from escala_sombra_decisoes where semana_inicio='2026-10-26' order by criado_em;

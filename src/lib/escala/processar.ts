@@ -7,13 +7,14 @@
 // em ESCALA_VERSAO_CONFLITO o estado é relido e tudo é recalculado.
 
 import { gerarEscala } from "@/features/escala/gerarEscala";
-import { AVISO_PRIMEIRA_GERACAO, type AlertaEscala, type EntradaEscala, type PeriodoEscala } from "@/features/escala/types";
+import { AVISO_PRIMEIRA_GERACAO, type AlertaEscala, type EntradaEscala, type PeriodoEscala, type ResultadoEscala } from "@/features/escala/types";
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import { reverterResultado } from "@/features/rotas/adaptador";
 import { registrosDeDivisao, type RegistroDivisao } from "@/features/rotas/resolucao";
 import { montarEntradaEscala } from "./montarEntrada";
 import { assinaturaAlertas, planosIguais } from "./planoIgual";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento, type SnapshotWipParaGravar } from "./estado";
+import { avaliarFluxoSombra, nucleoFluxo, tentarPlanoFluxo, type GatilhoFluxo, type NucleoFluxo, type RegistroFluxo } from "./fluxo/integracao";
 
 export const MOTIVO_ESCALA_JA_EXISTE = "Escala da semana já existe";
 
@@ -48,6 +49,8 @@ export interface EscalaIO {
   gravarSnapshotsWip?(semanaInicio: string, snapshots: SnapshotWipParaGravar[]): Promise<void>;
   // Divisão entre rotas (M3, append-only, idempotente por hash+rodada). Só é chamada quando a semana tem produto de rotas; semanas só com produtos lineares nunca passam por aqui.
   gravarDivisaoRotas?(registros: RegistroDivisao[]): Promise<void>;
+  // Escala Inteligente (fluxo): grava o diagnóstico (escala_fluxo_registrar, idempotente). Só é chamado com o modo efetivo sombra/ativo. NUNCA deve impedir o recálculo.
+  registrarFluxo?(registro: RegistroFluxo): Promise<void>;
 }
 
 export interface OpcoesProcessamento {
@@ -59,6 +62,10 @@ export interface OpcoesProcessamento {
   // acabou de criar — o retry após conflito relê o estado), nada é alterado. Idempotente.
   somenteSeNaoExiste?: boolean;
   maxTentativas?: number;
+  // Escala Inteligente (fluxo) — só têm efeito quando `estado.producaoReal` existe (modo efetivo sombra/ativo da semana).
+  nucleoFluxo?: NucleoFluxo; // injeção (testes); padrão = núcleo real
+  gatilhoFluxo?: GatilhoFluxo; // padrão: 'manual' (geração manual) ou 'evento'
+  corteFluxo?: { data: string; periodoId: string } | null; // período fechado que originou o recálculo (gatilho 'fechamento')
 }
 
 export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento): Promise<ResultadoProcessamento> {
@@ -89,7 +96,24 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
       return { status: "sem_alteracao", tentativas: tentativa, alertas: [], alocacoesGravadas: 0 };
     }
 
-    const resultado = rotas ? reverterResultado(gerarEscala(entrada)) : gerarEscala(entrada);
+    // ESCALA INTELIGENTE (fluxo). `estado.producaoReal` só existe com o modo EFETIVO da semana em sombra/ativo; com `desligado` este bloco é inerte e o
+    // caminho abaixo é exatamente o anterior (gerarEscala). Em ATIVO o plano vem do fluxo; qualquer falha (exceção, hard constraint, passado) CAI no oficial.
+    // semanas de produto de ROTAS (cadeias virtuais) ainda não passam pelo fluxo: caminho oficial/rotas inalterado
+    const pr = rotas ? undefined : estado.producaoReal;
+    const nucleo = opcoes.nucleoFluxo ?? nucleoFluxo;
+    const ctxFluxo = pr ? { nucleo, estado, entrada, agoraMs: opcoes.agoraMs, gatilho: opcoes.gatilhoFluxo ?? (opcoes.criarSeNaoExiste ? ("manual" as const) : ("evento" as const)), corte: opcoes.corteFluxo ?? null } : null;
+    let resultado: ResultadoEscala | undefined;
+    let registroAtivo: RegistroFluxo | null = null;
+    let fluxoUsado = false;
+    if (pr && ctxFluxo && pr.modoEfetivo === "ativo") {
+      const t = tentarPlanoFluxo(ctxFluxo);
+      registroAtivo = t.registro;
+      if (t.ok) {
+        resultado = { ...t.resultado, alocacoes: [...t.resultado.alocacoes] };
+        fluxoUsado = true;
+      } else console.error(`escala/fluxo: fallback para o motor oficial (${estado.semanaInicio}): ${t.motivo}`);
+    }
+    if (!resultado) resultado = rotas ? reverterResultado(gerarEscala(entrada)) : gerarEscala(entrada);
     // A troca manual que o motor manteve continua sendo "manual" (decisão de uma pessoa); o resto é
     // saída automática. Sem isso a marca se perderia no 1º recálculo e a troca viraria acaso.
     const chaveTroca = (x: { data: string; periodoId: string; funcionarioId: string; maquinaId: string | null }) => `${x.data}|${x.periodoId}|${x.funcionarioId}|${x.maquinaId ?? ""}`;
@@ -111,6 +135,22 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
         periodos_snapshot: montada.periodosPorDia.get(data) ?? [],
       }));
 
+    // Registro do diagnóstico do fluxo (idempotente no banco). Depois que o plano foi gravado (ou confirmado idêntico): nunca antes, nunca lança.
+    //  - ativo: aplicado = o plano gravado É o do fluxo; NO-OP e fallback não "aplicam" nada.
+    //  - sombra: avalia o plano oficial que ficou vigente × o plano de fluxo; não altera nada.
+    const registrarFluxo = async (aplicou: boolean): Promise<ResultadoProcessamento["fluxo"] | undefined> => {
+      if (!pr || !ctxFluxo) return undefined;
+      try {
+        const registro: RegistroFluxo = pr.modoEfetivo === "ativo" ? { ...(registroAtivo as RegistroFluxo), aplicado: aplicou && fluxoUsado } : avaliarFluxoSombra(ctxFluxo, resultado!.alocacoes);
+        if (pr.modoEfetivo === "ativo" && !aplicou && fluxoUsado) registro.replanejamento = { ...registro.replanejamento, aplicacao: "noop" };
+        if (io.registrarFluxo) await io.registrarFluxo(registro);
+        return { modo: pr.modoEfetivo, resultado: registro.resultado, usado: pr.modoEfetivo === "ativo" && fluxoUsado };
+      } catch (e) {
+        console.error("escala/fluxo: falha ao registrar o diagnóstico:", e instanceof Error ? e.message : e);
+        return undefined;
+      }
+    };
+
     // NO-OP do recálculo oficial: o plano resultante é semanticamente IDÊNTICO ao gravado na região afetada, não há dia novo/removido e os alertas do recálculo não mudaram =>
     // nada é regravado, nenhuma `versao` sobe, nenhum evento 'recalculo' é gravado (o chamador dá os eventos como processados). Primeira geração e qualquer dia novo nunca são no-op.
     const assinatura = assinaturaAlertas([...invalidas, ...resultado.alertas]);
@@ -118,7 +158,8 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
       const indice = new Map(entrada.slots.map((s) => [`${s.data}|${s.periodoId}`, s.indice]));
       const atualNaRegiao = estado.alocacoes.filter((a) => (indice.get(`${a.data}|${a.periodoId}`) ?? -1) >= entrada.aPartirDe);
       if (planosIguais(atualNaRegiao, resultado.alocacoes)) {
-        return { status: "sem_alteracao", tentativas: tentativa, alertas: [], alocacoesGravadas: 0 };
+        const fluxo = await registrarFluxo(false);
+        return { status: "sem_alteracao", tentativas: tentativa, alertas: [], alocacoesGravadas: 0, ...(fluxo ? { fluxo } : {}) };
       }
     }
 
@@ -140,6 +181,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
         selecoesInvalidas: invalidas.length, // histórico do módulo: a tela mostra os alertas do último recálculo
         assinaturaAlertas: assinatura, // base do NO-OP do próximo recálculo
         primeiraGeracaoComSemanaEmAndamento: resultado.primeiraGeracaoComSemanaEmAndamento,
+        ...(registroAtivo ? { fluxo: { modo: "ativo", resultado: registroAtivo.resultado, usado: fluxoUsado, versaoMotor: registroAtivo.versaoMotor, hashPlanoFluxo: registroAtivo.hashPlanoFluxo } } : {}),
       },
     };
 
@@ -148,6 +190,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
       if (montada.snapshotsWip.length > 0 && io.gravarSnapshotsWip) await io.gravarSnapshotsWip(estado.semanaInicio, montada.snapshotsWip);
       const { versoes } = await io.aplicar(payload);
       if (rotas && io.gravarDivisaoRotas) await io.gravarDivisaoRotas(registrosDeDivisao(estado, rotas));
+      const fluxo = await registrarFluxo(true);
       return {
         status: "processado",
         tentativas: tentativa,
@@ -155,6 +198,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
         alertas: [...resultado.alertas, ...montada.avisos],
         aviso: resultado.primeiraGeracaoComSemanaEmAndamento ? AVISO_PRIMEIRA_GERACAO : undefined,
         alocacoesGravadas: resultado.alocacoes.length,
+        ...(fluxo ? { fluxo } : {}),
       };
     } catch (e) {
       if (e instanceof ConflitoDeVersaoError) {

@@ -13,7 +13,7 @@
 // Nunca mexe no comprometido (já reparado) só para ganhar produção.
 
 import { CADEIA_COMUM, cadeiaDe } from "@/features/rotas/adaptador";
-import { chavePool, MOTIVO_REVEZAMENTO, type AlocacaoEscala, type PoolEscala } from "./types";
+import { chavePool, MOTIVO_REVEZAMENTO, type AlocacaoEscala, type PoolEscala, type SlotEscala } from "./types";
 
 export type Situacao = "OK" | "A" | "B→C" | "B→D";
 
@@ -27,6 +27,85 @@ export function projetarProducao(rows: AlocacaoEscala[], fator: Record<string, n
   });
   return r;
 }
+// ---- f EMBUTIDO no plano gravado ----------------------------------------------------------------------------------------------------
+// Um replanejamento aplicado grava o plano futuro JÁ com as metas × f (f = rendimento da decisão daquele momento). Projetar esse plano com o f
+// NOVO (`projetarProducao(plano, f)`) multiplicaria por f duas vezes. O f embutido de cada linha é peças / meta nominal do pool no período:
+//   • numa linha CHEIA (a imensa maioria) a razão é exatamente o f embutido (plano nominal ⇒ 1);
+//   • só a ÚLTIMA linha do pool no plano pode estar CORTADA pelo restante (peças = min(meta, restante)) — razão menor que o f embutido sem significar f;
+//   • por isso o estimador é por (pool, período): o máximo das razões das linhas automáticas do período; no último período do pool com UMA só linha
+//     (ambíguo) usa-se o período anterior do pool, ou, sem ele, max(1, razão) — nunca "descobre" um f < 1 numa linha possivelmente cortada;
+//   • linhas manuais não estimam (herdam o f do período/pool vizinho); meta ≤ 0, peças ≤ 0 ou razão fora de (0,05; 5] caem em 1 (comportamento legado).
+export interface FatorEmbutido { de(a: Pick<AlocacaoEscala, "data" | "periodoId" | "produtoId" | "etapaId">): number }
+
+const FATOR_EMBUTIDO_MIN = 0.05;
+const FATOR_EMBUTIDO_MAX = 5;
+const sanear = (f: number): number => (!Number.isFinite(f) || f <= FATOR_EMBUTIDO_MIN || f > FATOR_EMBUTIDO_MAX ? 1 : Math.abs(f - 1) < 1e-4 ? 1 : f);
+
+export function fatorEmbutidoDoPlano(plano: AlocacaoEscala[], pools: PoolEscala[], slots: SlotEscala[]): FatorEmbutido {
+  const indice = new Map(slots.map((s) => [`${s.data}|${s.periodoId}`, s.indice]));
+  const metaDe = new Map(pools.map((p) => [chavePool(p.produtoId, p.etapaId), p.metas]));
+  type Grupo = { auto: number[]; qualquer: number };
+  const porPool = new Map<string, Map<number, Grupo>>();
+  plano.forEach((a) => {
+    if (!a.maquinaId || !a.produtoId || !a.etapaId || !(a.pecas > 0)) return;
+    const i = indice.get(`${a.data}|${a.periodoId}`);
+    const k = chavePool(a.produtoId, a.etapaId);
+    if (i === undefined) return;
+    const grupos = porPool.get(k) ?? new Map<number, Grupo>();
+    porPool.set(k, grupos);
+    const g = grupos.get(i) ?? { auto: [], qualquer: 0 };
+    grupos.set(i, g);
+    g.qualquer++;
+    const meta = metaDe.get(k)?.[a.periodoId] ?? 0;
+    if (a.origem !== "manual" && meta > 0) g.auto.push(a.pecas / meta);
+  });
+  // estimativa por pool e índice de período
+  const estimativa = new Map<string, Map<number, number>>();
+  porPool.forEach((grupos, k) => {
+    const ordem = [...grupos.keys()].sort((x, y) => x - y);
+    const ultimo = ordem[ordem.length - 1];
+    const est = new Map<number, number>();
+    let anterior: number | null = null;
+    ordem.forEach((i) => {
+      const g = grupos.get(i) as Grupo;
+      if (g.auto.length > 0) {
+        const m = Math.max(...g.auto);
+        const ambiguo = i === ultimo && g.qualquer === 1; // única linha do último período do pool: pode ser o resto cortado
+        const f = ambiguo ? (anterior !== null ? anterior : Math.max(1, m)) : m;
+        est.set(i, sanear(f));
+        anterior = sanear(f);
+      }
+    });
+    estimativa.set(k, est);
+  });
+  const vizinho = (est: Map<number, number>, i: number): number => {
+    let ant: number | null = null, prox: number | null = null;
+    for (const [j, f] of [...est.entries()].sort((x, y) => x[0] - y[0])) { if (j <= i) ant = f; else if (prox === null) prox = f; }
+    return ant ?? prox ?? 1;
+  };
+  return {
+    de(a) {
+      if (!a.produtoId || !a.etapaId) return 1;
+      const k = chavePool(a.produtoId, a.etapaId);
+      const est = estimativa.get(k);
+      const i = indice.get(`${a.data}|${a.periodoId}`);
+      if (!est || i === undefined) return 1;
+      return est.get(i) ?? vizinho(est, i);
+    },
+  };
+}
+
+// Σ peças por pool × (f novo / f embutido na linha). Plano nominal (f embutido = 1) ⇒ idêntico a `projetarProducao(rows, fator)`.
+export function projetarProducaoReescalada(rows: AlocacaoEscala[], fator: Record<string, number>, embutido: FatorEmbutido): Record<string, number> {
+  const r: Record<string, number> = {};
+  rows.forEach((a) => {
+    if (!a.maquinaId || !a.produtoId || !a.etapaId) return;
+    const k = chavePool(a.produtoId, a.etapaId);
+    r[k] = (r[k] ?? 0) + ((a.pecas ?? 0) * (fator[k] ?? 1)) / embutido.de(a);
+  });
+  return r;
+}
+
 export const somarProducao = (...ps: Record<string, number>[]): Record<string, number> => {
   const r: Record<string, number> = {};
   ps.forEach((p) => Object.entries(p).forEach(([k, v]) => (r[k] = (r[k] ?? 0) + v)));
