@@ -11,7 +11,7 @@ export interface EntradaPrevisaoVersionada {
   maquinasIndisponiveisPrevisao: string[];
   itens: ItemPrevistoBruto[];
   // Configuração de WIP vigente quando a versão nasceu (versões antigas não têm: nesse caso vale a atual)
-  parametros?: { wipModo: string; wipDiasLimite: number; wipDiasLimitePorSemana: number | null };
+  parametros?: { wipModo: string; wipDiasLimite: number; wipDiasLimitePorSemana: number | null; producaoReal?: { modoEfetivo: "desligado" | "sombra" | "ativo"; limiar: number | null; paresLegado: unknown[] } }; // producaoReal: flag do fluxo vigente quando a versão nasceu (replay/auditoria)
 }
 
 export interface VersaoPlanoOficial {

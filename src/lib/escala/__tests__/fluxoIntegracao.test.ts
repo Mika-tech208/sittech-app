@@ -402,3 +402,74 @@ describe("fechamento de período (fluxoNoFechamento)", () => {
     expect(r).toMatchObject({ modo: "ativo", resultado: "erro", erro: "banco fora" });
   });
 });
+
+// ---- contra o NÚCLEO REAL (sem stub): o contrato é cumprido e a integração funciona ponta a ponta ----
+import { verificarRestricoesDuras } from "@/features/escala/fluxo";
+import type { ApontamentoReal } from "@/features/escala/producaoReal";
+
+describe("integração com o núcleo REAL", () => {
+  async function comApontamentos(rendimento: number) {
+    const base = await mundoBase("desligado");
+    await base.recalcular(GERA, true); // plano da semana inteira
+    const m = await mundoBase("desligado");
+    await m.recalcular(GERA, true);
+    const { entrada } = montarEntradaEscala({ ...m.entradas, diasExistentes: [...m.dias].map(([data, d]) => ({ data, versao: d.versao, periodosSnapshot: d.snapshot })), alocacoes: m.alocacoes }, AGORA);
+    const apontamentos: ApontamentoReal[] = [];
+    m.alocacoes.forEach((a) => {
+      const s = entrada.slots.find((x) => x.data === a.data && x.periodoId === a.periodoId);
+      if (!s || s.fimMs + 10 * 60_000 > AGORA || !a.maquinaId) return; // só períodos já FECHADOS
+      apontamentos.push({ data: a.data, periodoId: a.periodoId, funcionarioId: a.funcionarioId, maquinaId: a.maquinaId, produtoId: a.produtoId, etapaId: a.etapaId, operacaoId: a.operacaoId, boas: Math.round(a.pecas * rendimento), refugo: 0, meta: a.pecas, status: "produzindo", motivo: null, lancadoEmMs: s.fimMs + 120_000 });
+    });
+    return { m, apontamentos };
+  }
+
+  it("ATIVO com apontamentos reais: plano de fluxo válido, aplicado, passado intacto, diagnóstico completo e JSON puro", async () => {
+    const { m, apontamentos } = await comApontamentos(0.6);
+    expect(apontamentos.length).toBeGreaterThan(0);
+    const passado = Mundo.assinatura(m.alocacoes.filter((a) => a.data < "2026-11-03" || (a.data === "2026-11-03" && a.periodoId === "m1")), true);
+    m.editar((e) => { e.producaoReal = { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos }; });
+    const r = await m.recalcular(AGORA);
+    expect(r.fluxo).toMatchObject({ modo: "ativo", resultado: "ok" });
+    const reg = m.registrosFluxo.at(-1)!;
+    expect(reg).toMatchObject({ modo: "ativo", resultado: "ok", previsaoId: "prev1", versaoMotor: "fluxo-v1" });
+    expect(reg.hashEntrada).toMatch(/^[0-9a-f]{64}$/);
+    expect(reg.hashPlanoFluxo).toMatch(/^[0-9a-f]{64}$/);
+    ["remPorPool", "demanda", "produtos", "etapas", "celulas"].forEach((k) => expect(k in reg.demandaReal).toBe(true));
+    expect(reg.corte.c).toBe(7); // terça M2 (em andamento) é o último período iniciado: índice global do slot
+    expect(JSON.parse(JSON.stringify(reg))).toEqual(reg);
+    // passado (anterior ao corte) intacto
+    expect(Mundo.assinatura(m.alocacoes.filter((a) => a.data < "2026-11-03" || (a.data === "2026-11-03" && a.periodoId === "m1")), true)).toBe(passado);
+    // o plano GRAVADO passa no verificador independente de restrições duras
+    const montada = montarEntradaEscala({ ...m.entradas, diasExistentes: [...m.dias].map(([data, d]) => ({ data, versao: d.versao, periodosSnapshot: d.snapshot })), alocacoes: [] }, AGORA);
+    const futuras = m.futuras(AGORA);
+    expect(verificarRestricoesDuras(montada.entrada, futuras)).toEqual([]);
+  });
+
+  it("SOMBRA com o núcleo real: a Escala fica EXATAMENTE como o oficial e o diagnóstico traz oficial × fluxo", async () => {
+    const ref = await comApontamentos(0.6);
+    await ref.m.recalcular(AGORA); // oficial puro
+    const { m, apontamentos } = await comApontamentos(0.6);
+    m.editar((e) => { e.producaoReal = { modoEfetivo: "sombra", limiar: null, paresLegado: [], apontamentos }; });
+    await m.recalcular(AGORA);
+    expect(Mundo.assinatura(m.alocacoes, true)).toBe(Mundo.assinatura(ref.m.alocacoes, true));
+    const reg = m.registrosFluxo.at(-1)!;
+    expect(reg).toMatchObject({ modo: "sombra", aplicado: false, resultado: "ok" });
+    ["totais", "produtos"].forEach((k) => expect(k in reg.avaliacaoOficial).toBe(true));
+    ["totais", "depois", "iteracoes"].forEach((k) => expect(k in reg.avaliacaoFluxo).toBe(true));
+    expect(reg.violacoes).toEqual([]);
+    expect(typeof (reg.diff as { faltaFinalLo?: unknown }).faltaFinalLo).toBe("object");
+    // idempotente: repetir o MESMO cálculo não cria outra linha
+    const n = m.registrosFluxo.length;
+    await m.recalcular(AGORA);
+    expect(m.registrosFluxo).toHaveLength(n);
+  });
+
+  it("ATIVO nunca é pior que o oficial pelo mesmo simulador (falta final do fluxo ≤ falta do plano base do núcleo)", async () => {
+    const { m, apontamentos } = await comApontamentos(0.5);
+    m.editar((e) => { e.producaoReal = { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos }; });
+    await m.recalcular(AGORA);
+    const reg = m.registrosFluxo.at(-1)!;
+    const dep = (reg.avaliacaoFluxo as { depois: { faltaPrevista: { lo: number } }; planoBaseDoNucleo: { faltaPrevista: { lo: number } } });
+    expect(dep.depois.faltaPrevista.lo).toBeLessThanOrEqual(dep.planoBaseDoNucleo.faltaPrevista.lo + 1e-6);
+  });
+});
