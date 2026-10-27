@@ -51,6 +51,7 @@ export interface ResumoRevalidacao {
   aguardandoProcessamento: number;
   persistentes: number;
   funcionarios: ResumoFuncionarios;
+  cadastroMaquinas: ResumoFuncionarios; // máquina inativa / não autorizada no roteiro / fora da seleção da Previsão
   erro?: string;
 }
 
@@ -73,39 +74,40 @@ export const ORIGEM_REVALIDACAO_FUNCIONARIOS = "revalidacao_funcionarios";
 const TIPOS_QUE_RECALCULAM = ["ausencia", "previsao", "recurso_bloqueado", "recurso_liberado", "geracao_manual"];
 const JANELA_MEMORIA_MS = 6 * 60 * 60_000; // a mesma assinatura tentada há menos de 6 h é "persistente"
 
+export function assinaturaDeChaves(chaves: string[]): string {
+  return createHash("sha256").update([...chaves].sort().join(";")).digest("hex").slice(0, 16);
+}
+const chaveFuncionario = (d: DivergenciaFuncionario) => `${d.data}|${d.periodoId}|${d.funcionarioId}|${d.tipo}|${d.causaId ?? ""}`;
+// inclui a CAUSA (id da ausência): uma ausência nova com as mesmas datas/períodos é uma divergência nova, não a repetição de uma já tentada
 export function assinaturaDivergencias(lista: DivergenciaFuncionario[]): string {
-  // inclui a CAUSA (id da ausência): uma ausência nova com as mesmas datas/períodos é uma divergência nova, não a repetição de uma já tentada
-  const chaves = lista.map((d) => `${d.data}|${d.periodoId}|${d.funcionarioId}|${d.tipo}|${d.causaId ?? ""}`).sort().join(";");
-  return createHash("sha256").update(chaves).digest("hex").slice(0, 16);
+  return assinaturaDeChaves(lista.map(chaveFuncionario));
 }
 
-// Decisão pura (testável). Idempotência: com evento de replanejamento pendente => aguarda; sem divergência => nada; mesma assinatura já tentada => só alerta.
-export function decidirDivergenciasFuncionarios(divergencias: DivergenciaFuncionario[], eventos: EventoDaSemana[], agoraMs: number): DecisaoDivergencias {
-  const porSemana = new Map<string, DivergenciaFuncionario[]>();
+export interface DivergenciaComChave { previsaoId: string; chave: string; tipo: string }
+// Decisão pura e GENÉRICA (funcionários, cadastro de máquinas): idempotência com evento na fila => aguarda; sem divergência => nada; mesma assinatura já tentada => só alerta.
+export function decidirDivergenciasGenerico<T extends DivergenciaComChave>(divergencias: T[], eventos: EventoDaSemana[], agoraMs: number, origem: string): { registrar: DecisaoDivergencias["registrar"]; aguardando: string[]; persistentes: T[] } {
+  const porSemana = new Map<string, T[]>();
   divergencias.forEach((d) => porSemana.set(d.previsaoId, [...(porSemana.get(d.previsaoId) ?? []), d]));
-  const out: DecisaoDivergencias = { registrar: [], aguardando: [], persistentes: [] };
+  const out: { registrar: DecisaoDivergencias["registrar"]; aguardando: string[]; persistentes: T[] } = { registrar: [], aguardando: [], persistentes: [] };
   for (const [previsaoId, lista] of porSemana) {
     const daSemana = eventos.filter((e) => e.previsaoId === previsaoId);
     const naFila = daSemana.some((e) => TIPOS_QUE_RECALCULAM.includes(e.tipo) && (e.status === "pendente" || e.status === "processando" || (e.status === "erro" && e.tentativas < 3)));
     if (naFila) { out.aguardando.push(previsaoId); continue; }
-    const assinatura = assinaturaDivergencias(lista);
-    const jaTentada = daSemana.some((e) => e.origem === ORIGEM_REVALIDACAO_FUNCIONARIOS && e.assinatura === assinatura && (e.status === "processado" || e.status === "erro") && agoraMs - Date.parse(e.criadoEm) < JANELA_MEMORIA_MS);
+    const assinatura = assinaturaDeChaves(lista.map((d) => d.chave));
+    const jaTentada = daSemana.some((e) => e.origem === origem && e.assinatura === assinatura && (e.status === "processado" || e.status === "erro") && agoraMs - Date.parse(e.criadoEm) < JANELA_MEMORIA_MS);
     if (jaTentada) { out.persistentes.push(...lista); continue; }
     out.registrar.push({ previsaoId, assinatura, divergencias: lista.length, tipos: [...new Set(lista.map((d) => d.tipo))].sort() });
   }
   return out;
 }
 
-async function revalidarFuncionarios(admin: SupabaseClient, agoraMs: number): Promise<ResumoFuncionarios> {
-  const r: ResumoFuncionarios = { divergencias: 0, eventosRegistrados: 0, aguardandoProcessamento: 0, persistentes: 0 };
-  const dv = await admin.rpc("escala_divergencias_funcionarios", { p_agora: new Date(agoraMs).toISOString() });
-  if (dv.error) throw new Error(`escala_divergencias_funcionarios: ${dv.error.message}`);
-  const divergencias = ((dv.data ?? []) as { previsao_id: string; data: string; periodo_id: string; funcionario_id: string; tipo: TipoDivergenciaFuncionario; causa_id: string | null }[])
-    .map((d) => ({ previsaoId: d.previsao_id, data: d.data, periodoId: d.periodo_id, funcionarioId: d.funcionario_id, tipo: d.tipo, causaId: d.causa_id }));
-  r.divergencias = divergencias.length;
-  if (divergencias.length === 0) return r; // consistente: NO-OP
+export function decidirDivergenciasFuncionarios(divergencias: DivergenciaFuncionario[], eventos: EventoDaSemana[], agoraMs: number): DecisaoDivergencias {
+  const r = decidirDivergenciasGenerico(divergencias.map((d) => ({ ...d, chave: chaveFuncionario(d) })), eventos, agoraMs, ORIGEM_REVALIDACAO_FUNCIONARIOS);
+  return { registrar: r.registrar, aguardando: r.aguardando, persistentes: r.persistentes.map(({ chave: _c, ...d }) => d as DivergenciaFuncionario) };
+}
 
-  const semanas = [...new Set(divergencias.map((d) => d.previsaoId))];
+// eventos de replanejamento recentes/na fila das semanas (para a decisão acima)
+async function carregarEventosDaSemana(admin: SupabaseClient, semanas: string[], agoraMs: number): Promise<EventoDaSemana[]> {
   type Linha = { previsao_id: string; tipo: string; status: string; tentativas: number; criado_em: string; payload: { origem?: string; assinatura?: string } | null };
   const colunas = "previsao_id, tipo, status, tentativas, criado_em, payload";
   const [recentes, naFila] = await Promise.all([
@@ -121,8 +123,53 @@ async function revalidarFuncionarios(admin: SupabaseClient, agoraMs: number): Pr
       origem: e.payload?.origem ?? null, assinatura: e.payload?.assinatura ?? null,
     });
   });
+  return [...unicos.values()];
+}
 
-  const decisao = decidirDivergenciasFuncionarios(divergencias, [...unicos.values()], agoraMs);
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// CADASTRO DE MÁQUINAS (maquinas.ativo, roteiro_etapa_maquinas, seleção da Previsão): alocação FUTURA em máquina inativa / não autorizada
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+export type TipoDivergenciaCadastro = "maquina_inativa" | "roteiro_nao_autoriza" | "fora_da_selecao_previsao";
+export interface DivergenciaCadastroMaquina { previsaoId: string; data: string; periodoId: string; maquinaId: string; etapaId: string | null; tipo: TipoDivergenciaCadastro }
+export const ORIGEM_REVALIDACAO_CADASTRO_MAQUINAS = "revalidacao_cadastro_maquinas";
+const chaveCadastro = (d: DivergenciaCadastroMaquina) => `${d.data}|${d.periodoId}|${d.maquinaId}|${d.etapaId ?? ""}|${d.tipo}`;
+export function decidirDivergenciasCadastroMaquinas(divergencias: DivergenciaCadastroMaquina[], eventos: EventoDaSemana[], agoraMs: number) {
+  return decidirDivergenciasGenerico(divergencias.map((d) => ({ ...d, chave: chaveCadastro(d) })), eventos, agoraMs, ORIGEM_REVALIDACAO_CADASTRO_MAQUINAS);
+}
+
+async function revalidarCadastroMaquinas(admin: SupabaseClient, agoraMs: number): Promise<ResumoFuncionarios> {
+  const r: ResumoFuncionarios = { divergencias: 0, eventosRegistrados: 0, aguardandoProcessamento: 0, persistentes: 0 };
+  const dv = await admin.rpc("escala_divergencias_cadastro_maquinas", { p_agora: new Date(agoraMs).toISOString() });
+  if (dv.error) throw new Error(`escala_divergencias_cadastro_maquinas: ${dv.error.message}`);
+  const divergencias = ((dv.data ?? []) as { previsao_id: string; data: string; periodo_id: string; maquina_id: string; etapa_id: string | null; tipo: TipoDivergenciaCadastro }[])
+    .map((d) => ({ previsaoId: d.previsao_id, data: d.data, periodoId: d.periodo_id, maquinaId: d.maquina_id, etapaId: d.etapa_id, tipo: d.tipo }));
+  r.divergencias = divergencias.length;
+  if (divergencias.length === 0) return r;
+  const eventos = await carregarEventosDaSemana(admin, [...new Set(divergencias.map((d) => d.previsaoId))], agoraMs);
+  const decisao = decidirDivergenciasCadastroMaquinas(divergencias, eventos, agoraMs);
+  for (const d of decisao.registrar) {
+    await registrarEvento(admin, "recurso_bloqueado", d.previsaoId, { origem: ORIGEM_REVALIDACAO_CADASTRO_MAQUINAS, assinatura: d.assinatura, divergencias: d.divergencias, tipos: d.tipos }, null);
+    r.eventosRegistrados++;
+  }
+  r.aguardandoProcessamento = decisao.aguardando.length;
+  r.persistentes = decisao.persistentes.length;
+  if (decisao.persistentes.length > 0) {
+    console.error(`escala/revalidar: ${decisao.persistentes.length} alocação(ões) futura(s) em máquina inativa/não autorizada persistem após o replanejamento`, JSON.stringify(decisao.persistentes.slice(0, 5)));
+  }
+  return r;
+}
+
+async function revalidarFuncionarios(admin: SupabaseClient, agoraMs: number): Promise<ResumoFuncionarios> {
+  const r: ResumoFuncionarios = { divergencias: 0, eventosRegistrados: 0, aguardandoProcessamento: 0, persistentes: 0 };
+  const dv = await admin.rpc("escala_divergencias_funcionarios", { p_agora: new Date(agoraMs).toISOString() });
+  if (dv.error) throw new Error(`escala_divergencias_funcionarios: ${dv.error.message}`);
+  const divergencias = ((dv.data ?? []) as { previsao_id: string; data: string; periodo_id: string; funcionario_id: string; tipo: TipoDivergenciaFuncionario; causa_id: string | null }[])
+    .map((d) => ({ previsaoId: d.previsao_id, data: d.data, periodoId: d.periodo_id, funcionarioId: d.funcionario_id, tipo: d.tipo, causaId: d.causa_id }));
+  r.divergencias = divergencias.length;
+  if (divergencias.length === 0) return r; // consistente: NO-OP
+
+  const eventos = await carregarEventosDaSemana(admin, [...new Set(divergencias.map((d) => d.previsaoId))], agoraMs);
+  const decisao = decidirDivergenciasFuncionarios(divergencias, eventos, agoraMs);
   for (const d of decisao.registrar) {
     await registrarEvento(admin, "ausencia", d.previsaoId, { origem: ORIGEM_REVALIDACAO_FUNCIONARIOS, assinatura: d.assinatura, divergencias: d.divergencias, tipos: d.tipos }, null);
     r.eventosRegistrados++;
@@ -162,11 +209,13 @@ async function revalidarMaquinas(admin: SupabaseClient, agoraMs: number, resumo:
   }
 }
 
-// UMA revalidação para máquinas E funcionários. Cada parte falha sozinha (a outra continua); nunca lança.
-export async function revalidarDisponibilidade(admin: SupabaseClient, agoraMs: number): Promise<ResumoRevalidacao> {
+// UMA revalidação para máquinas (Parada/bloqueio + cadastro/roteiro) E funcionários. Cada parte falha sozinha (a outra continua); nunca lança.
+// `forcarJanela`: só para diagnóstico/testes (E2E com o relógio real fora da janela); nenhuma rota o aciona.
+export async function revalidarDisponibilidade(admin: SupabaseClient, agoraMs: number, opcoes: { forcarJanela?: boolean } = {}): Promise<ResumoRevalidacao> {
   const resumo: ResumoRevalidacao = {
     reconciliacao: null, dentroDaJanela: false, violacoes: 0, eventosRegistrados: 0, aguardandoProcessamento: 0, persistentes: 0,
     funcionarios: { divergencias: 0, eventosRegistrados: 0, aguardandoProcessamento: 0, persistentes: 0 },
+    cadastroMaquinas: { divergencias: 0, eventosRegistrados: 0, aguardandoProcessamento: 0, persistentes: 0 },
   };
   const erros: string[] = [];
   try {
@@ -181,7 +230,7 @@ export async function revalidarDisponibilidade(admin: SupabaseClient, agoraMs: n
     const per = await admin.from("periodos").select("inicio");
     if (per.error) throw new Error(`periodos: ${per.error.message}`);
     const periodos = ((per.data ?? []) as { inicio: string }[]).map((p) => ({ inicio: String(p.inicio).slice(0, 5) }));
-    resumo.dentroDaJanela = dentroDaJanelaPreChecagem(agoraMs, periodos);
+    resumo.dentroDaJanela = opcoes.forcarJanela === true || dentroDaJanelaPreChecagem(agoraMs, periodos);
   } catch (e) {
     erros.push(e instanceof Error ? e.message : String(e));
     if (erros.length > 0) { resumo.erro = erros.join(" | "); console.error("escala/revalidar:", resumo.erro); }
@@ -190,6 +239,7 @@ export async function revalidarDisponibilidade(admin: SupabaseClient, agoraMs: n
   if (resumo.dentroDaJanela) {
     try { await revalidarMaquinas(admin, agoraMs, resumo); } catch (e) { erros.push(e instanceof Error ? e.message : String(e)); }
     try { resumo.funcionarios = await revalidarFuncionarios(admin, agoraMs); } catch (e) { erros.push(e instanceof Error ? e.message : String(e)); }
+    try { resumo.cadastroMaquinas = await revalidarCadastroMaquinas(admin, agoraMs); } catch (e) { erros.push(e instanceof Error ? e.message : String(e)); }
   }
   if (erros.length > 0) { resumo.erro = erros.join(" | "); console.error("escala/revalidar:", resumo.erro); }
   return resumo;
