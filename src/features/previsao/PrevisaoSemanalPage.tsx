@@ -224,8 +224,8 @@ export default function PrevisaoSemanalPage() {
   );
   // metodologia histórica (semanas < vigência): cálculo anterior à feature, inalterado
   const produtosProgramadosLegado = useMemo(
-    () => calcularProdutosProgramadosLegado(itensParaAnalise, capacidadeMaximaSemana.resultadosPorItem, realizadoPorProduto, apontadoRealHook.mapa),
-    [itensParaAnalise, capacidadeMaximaSemana, realizadoPorProduto, apontadoRealHook.mapa]
+    () => calcularProdutosProgramadosLegado(itensParaAnalise, resultadosVisiveis(capacidadeMaximaSemana.resultadosPorItem, expansaoRotas), realizadoPorProduto, apontadoRealHook.mapa),
+    [itensParaAnalise, capacidadeMaximaSemana, expansaoRotas, realizadoPorProduto, apontadoRealHook.mapa]
   );
   const produtosNaoPrevistosLegado = useMemo(
     () => calcularProdutosNaoPrevistosLegado(itensParaAnalise, semanaAtualRec.itensRealizados || []),
