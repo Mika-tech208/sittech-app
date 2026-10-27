@@ -133,6 +133,9 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
 
       const periodosAtuais = (ok(periodos, "periodos") as PeriodoEscala[]).map((p) => ({ id: p.id, nome: p.nome, inicio: hhmm(p.inicio), fim: hhmm(p.fim) }));
       const historicoEquidade = await carregarHistoricoEquidade(admin, prev.semana_inicio, periodosAtuais, agoraMs);
+      // assinatura dos alertas do último recálculo gravado (base do NO-OP; ausente = recálculo anterior ao recurso => nunca no-op uma vez)
+      const ultimoRecalculo = await admin.from("escala_producao_eventos").select("payload").eq("previsao_id", previsaoId).eq("tipo", "recalculo").order("criado_em", { ascending: false }).limit(1);
+      const ultimaAssinaturaAlertas = ((ok(ultimoRecalculo, "escala_producao_eventos (último recálculo)") as { payload: { resumo?: { assinaturaAlertas?: string } } | null }[])[0]?.payload?.resumo?.assinaturaAlertas) ?? null;
 
       const itensBrutos = itensRows.map((i) => {
         const porEtapa: Record<string, string[]> = {};
@@ -192,6 +195,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         operacaoDaMaquina: Object.fromEntries((ok(maquinasNomes, "maquinas (operação)") as { id: string; operacao_id: string | null }[]).filter((m) => m.operacao_id).map((m) => [m.id, m.operacao_id as string])),
         nomesProdutos: Object.fromEntries((ok(produtosNomes, "produtos (nomes)") as { id: string; nome: string }[]).map((x) => [x.id, x.nome])),
         historicoEquidade,
+        ultimaAssinaturaAlertas,
         parametros,
         ...(wipControle ? { wipControle } : {}),
         proximaSemana: proximaSemanaDe(ok(proxima, "previsoes (próxima semana)") as { previsao_itens: { produto_id: string; quantidade: number; tipo: string }[] | null } | null),
@@ -247,7 +251,7 @@ export async function registrarEvento(admin: SupabaseClient, tipo: string, previ
 // Reivindica e processa os eventos pendentes/falhados (retry simples: até 3
 // tentativas, controlado pelo próprio banco). Um recálculo por semana mesmo
 // que haja vários eventos dela. Não depende de nenhuma tela aberta.
-export async function processarEventosPendentes(admin: SupabaseClient, agoraMs: number, limite = 50): Promise<{ semanas: number; processadas: number; ignoradas: number; erros: number }> {
+export async function processarEventosPendentes(admin: SupabaseClient, agoraMs: number, limite = 50): Promise<{ semanas: number; processadas: number; ignoradas: number; erros: number; semAlteracao: number }> {
   const { data, error } = await admin.rpc("escala_reivindicar_eventos", { p_limite: limite });
   if (error) throw new Error(`escala_reivindicar_eventos: ${error.message}`);
   const eventos = (data ?? []) as EventoOutbox[];
@@ -257,7 +261,7 @@ export async function processarEventosPendentes(admin: SupabaseClient, agoraMs: 
     porSemana.get(e.previsao_id)!.push(e);
   });
 
-  const resumo = { semanas: porSemana.size, processadas: 0, ignoradas: 0, erros: 0 };
+  const resumo = { semanas: porSemana.size, processadas: 0, ignoradas: 0, erros: 0, semAlteracao: 0 };
   for (const [previsaoId, lista] of porSemana) {
     // Eventos 'geracao_semanal' (geração automática que falhou e está sendo retomada):
     // não têm Previsão associada — tentam gerar a semana indicada no payload.
@@ -301,6 +305,11 @@ export async function processarEventosPendentes(admin: SupabaseClient, agoraMs: 
       });
       if (r.status === "processado") {
         resumo.processadas += ids.length; // a RPC de aplicação já baixou os eventos
+      } else if (r.status === "sem_alteracao") {
+        // NO-OP: o plano resultante é idêntico ao gravado — nenhuma versão nova, nenhuma regravação; os eventos são dados como processados
+        await admin.rpc("escala_concluir_eventos", { p_ids: ids, p_status: "processado", p_erro: null });
+        resumo.processadas += ids.length;
+        resumo.semAlteracao += ids.length;
       } else {
         await admin.rpc("escala_concluir_eventos", { p_ids: ids, p_status: r.status === "ignorado" ? "ignorado" : "processado", p_erro: r.motivoIgnorado ?? null });
         resumo.ignoradas += ids.length;
@@ -319,6 +328,7 @@ export interface ResumoDrenagem {
   processadas: number;
   ignoradas: number;
   erros: number;
+  semAlteracao: number; // eventos processados em NO-OP (plano idêntico: nenhuma versão nova)
   // Situação da fila DEPOIS da drenagem — o que a rotina agendada precisa enxergar.
   pendentesRestantes: number;
   esgotados: number; // eventos em erro que já gastaram as 3 tentativas (ficam parados até intervenção)
@@ -334,7 +344,7 @@ const MAX_LOTES = 10;
 const TAMANHO_LOTE = 50;
 
 export async function drenarOutbox(admin: SupabaseClient, agoraMs: number): Promise<ResumoDrenagem> {
-  const resumo: ResumoDrenagem = { lotes: 0, semanas: 0, processadas: 0, ignoradas: 0, erros: 0, pendentesRestantes: 0, esgotados: 0 };
+  const resumo: ResumoDrenagem = { lotes: 0, semanas: 0, processadas: 0, ignoradas: 0, erros: 0, semAlteracao: 0, pendentesRestantes: 0, esgotados: 0 };
   for (let i = 0; i < MAX_LOTES; i++) {
     const r = await processarEventosPendentes(admin, agoraMs, TAMANHO_LOTE);
     const tratados = r.processadas + r.ignoradas + r.erros;
@@ -344,6 +354,7 @@ export async function drenarOutbox(admin: SupabaseClient, agoraMs: number): Prom
     resumo.processadas += r.processadas;
     resumo.ignoradas += r.ignoradas;
     resumo.erros += r.erros;
+    resumo.semAlteracao += r.semAlteracao;
     if (r.erros > 0 || tratados < TAMANHO_LOTE) break;
   }
   const pend = await admin.from("escala_producao_eventos").select("id", { count: "exact", head: true }).in("status", ["pendente", "processando"]).neq("tipo", "apontamento_periodo");

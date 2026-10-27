@@ -104,6 +104,8 @@ export interface EstadoBruto {
   // Controle de estoque intermediário (Fase 3): dados BRUTOS (controles, ajustes, confirmações, Produção Real, fotos, previsões).
   // Só carregado com wip_modo = "ativo". `hoje` é derivado do relógio da execução. Ausente/vazio = nenhum saldo (comportamento anterior).
   wipControle?: Omit<EntradaWip, "hoje">;
+  // Assinatura dos alertas do ÚLTIMO recálculo gravado desta semana (resumo.assinaturaAlertas). Ausente/null = não conhecida => nunca é no-op (comportamento anterior).
+  ultimaAssinaturaAlertas?: string | null;
 }
 
 export interface DiaParaAplicar {

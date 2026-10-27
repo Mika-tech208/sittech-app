@@ -56,6 +56,7 @@ export class Mundo {
   alocacoes: AlocacaoComOrigem[] = [];
   dias = new Map<string, { versao: number; snapshot: typeof PERIODOS_REAIS }>();
   recalculos = 0;
+  aplicacoes = 0; // quantas vezes o recálculo REALMENTE gravou (no-op não grava)
   snapshotsGravados = 0;
   relogioMs = 0; // o now() do banco no instante do recálculo (para a guarda do histórico)
 
@@ -98,6 +99,8 @@ export class Mundo {
         // dias que deixaram de ser produtivos: o futuro some (a linha do dia também); o passado nunca é tocado
         p.removerDias.forEach((d) => { if (d > p.aPartirDeData || (d === p.aPartirDeData && corte === 0)) { this.dias.delete(d); this.alocacoes = this.alocacoes.filter((a) => a.data !== d); } });
         p.alocacoes.forEach((a) => this.alocacoes.push({ ...a, origem: (a as AlocacaoComOrigem).origem ?? "auto" }));
+        this.aplicacoes++;
+        this.entradas.ultimaAssinaturaAlertas = (p.resumo as { assinaturaAlertas?: string }).assinaturaAlertas ?? null; // como o loader lê do último 'recalculo'
         const versoes: Record<string, number> = {};
         p.dias.forEach((d) => {
           const dia = this.dias.get(d.data)!;
