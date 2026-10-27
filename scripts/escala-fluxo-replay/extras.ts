@@ -1,4 +1,5 @@
 // Extras por Rodada para os critérios F (Caixa Amarela), G (Conector), I (WIP ≤ teto) e J (explicabilidade).
+import { fatorEmbutidoDoPlano } from "@/features/escala/execucao";
 import type { AlocacaoEscala } from "@/features/escala/types";
 import type { Rodada } from "./rodar";
 
@@ -16,10 +17,11 @@ export const E17 = "ba7adcbd-835c-45a3-92c6-f93fa87d3775";
 type Linhas = AlocacaoEscala[];
 const idxOf = (r: Rodada) => new Map(r.cen.entrada.slots.map((s) => [`${s.data}|${s.periodoId}`, s.indice]));
 
-/** produção planejada (peças, × f) e nº de postos por pool e por slot (somente slots ≥ aPartirDe). */
+/** produção planejada EFETIVA (peças × f novo / f embutido na linha: nominal ⇒ × f; plano de fluxo já com f ⇒ como gravado) e nº de postos por pool e por slot (slots ≥ aPartirDe). */
 export function producaoPorPoolSlot(r: Rodada, linhas: Linhas) {
   const idx = idxOf(r);
-  const f = r.cen.opcoes.fatorPorPool ?? {};
+  const f = r.cen.fator;
+  const emb = fatorEmbutidoDoPlano(linhas, r.cen.entradaNominal.pools, r.cen.entrada.slots);
   const out: Record<string, Record<number, { pecas: number; postos: number }>> = {};
   linhas.forEach((a) => {
     if (!a.maquinaId || !a.produtoId || !a.etapaId) return;
@@ -27,7 +29,7 @@ export function producaoPorPoolSlot(r: Rodada, linhas: Linhas) {
     if (i < r.cen.aPartirDe) return;
     const k = `${a.produtoId}|${a.etapaId}`;
     const o = ((out[k] ??= {})[i] ??= { pecas: 0, postos: 0 });
-    o.pecas += (a.pecas ?? 0) * (f[k] ?? 1);
+    o.pecas += ((a.pecas ?? 0) * (f[k] ?? 1)) / emb.de(a);
     o.postos += 1;
   });
   return out;
@@ -45,7 +47,7 @@ const postos = (o: Record<number, { pecas: number; postos: number }> | undefined
 
 export interface ExtrasRodada {
   cx: { vigente: { E: number; M: number; postosE: number; postosM: number }; fluxo: { E: number; M: number; postosE: number; postosM: number }; base: { E: number; M: number; postosE: number; postosM: number }; porSlot: { slot: number; rot: string; vigE: number; vigM: number; fluE: number; fluM: number; baseE: number; baseM: number }[] };
-  conector: { poolsFundidos: number; demandaComum: number[]; remLegadoEtq: number | null; remLegadoEmb: number | null; m8: { vigente: number; fluxo: number }; e15: { vigente: Record<string, number>; fluxo: Record<string, number> }; duplicidadeE15: number; linhasPorPool: { vigente: Record<string, number>; fluxo: Record<string, number> } };
+  conector: { poolsFundidos: number; demandaComum: number[]; demandaComumEsperada: number[]; remLegadoEtq: number | null; remLegadoEmb: number | null; m8: { vigente: number; fluxo: number }; e15: { vigente: Record<string, number>; fluxo: Record<string, number> }; duplicidadeE15: number; linhasPorPool: { vigente: Record<string, number>; fluxo: Record<string, number> } };
   wipTeto: { chave: string; maxPipeHi: number; teto: number | null; ok: boolean | null; slotMax: number | null }[];
   pares: { chave: string; maxHi: number; slot: number }[];
   trajVigente: Record<string, [number, number, number][]>; // chave do par -> [slot, lo, hi]
@@ -94,7 +96,7 @@ export function extrasDe(r: Rodada): ExtrasRodada {
   return {
     cx: { vigente: cxs(pv), fluxo: cxs(pf), base: cxs(pb), porSlot },
     conector: {
-      poolsFundidos: st.poolsFundidos.length, demandaComum: st.poolsFundidos.map((x) => Math.round(x.demandaComum)),
+      poolsFundidos: st.poolsFundidos.length, demandaComum: st.poolsFundidos.map((x) => Math.round(x.demandaComum)), demandaComumEsperada: demandaComumEsperada(r),
       remLegadoEtq: dm(C_ETQ) && dm(A_ETQ) ? Math.round(dm(C_ETQ)!.remLegado + dm(A_ETQ)!.remLegado) : null,
       remLegadoEmb: dm(C_EMB) && dm(A_EMB) ? Math.round(dm(C_EMB)!.remLegado + dm(A_EMB)!.remLegado) : null,
       m8: { vigente: Math.round(soma(pv[A_ROS])), fluxo: Math.round(soma(pf[A_ROS])) },
@@ -109,11 +111,11 @@ export function extrasDe(r: Rodada): ExtrasRodada {
 
 // Etiquetadora 15 (atende Etiquetar convencional e automática): déficit = demanda restante das duas etapas − capacidade futura (meta × f) da máquina.
 function e15(r: Rodada, st: Rodada["res"]["diagnostico"]["estado"]) {
-  const f = r.cen.opcoes.fatorPorPool ?? {};
+  const f = r.cen.fator;
   let cap = 0;
   for (let t = r.cen.c + 1; t < r.cen.entrada.slots.length; t++) { // c+1 (em curso/comprometido) ainda não produziu no fechamento
     const s = r.cen.entrada.slots[t];
-    const pool = r.cen.entrada.pools.find((p) => `${p.produtoId}|${p.etapaId}` === C_ETQ);
+    const pool = r.cen.entradaNominal.pools.find((p) => `${p.produtoId}|${p.etapaId}` === C_ETQ);
     if (pool && pool.maquinasIds.includes(E15)) cap += (pool.metas[s.periodoId] ?? 0) * (f[C_ETQ] ?? 1);
   }
   const d = (k: string) => st.demanda.find((x) => x.chave === k);
@@ -129,4 +131,16 @@ function e15(r: Rodada, st: Rodada["res"]["diagnostico"]["estado"]) {
   const ocup = (l: AlocacaoEscala[]) => new Set(l.filter((a) => a.maquinaId === E15 && (idx.get(`${a.data}|${a.periodoId}`) ?? -1) >= r.cen.aPartirDe).map((a) => `${a.data}|${a.periodoId}`)).size;
   const extra = { demandaReal: Math.round(demandaReal), defReal: Math.round(demandaReal - cap), slotsMutaveis: Math.max(0, slots.length - r.cen.aPartirDe), ocupacaoVigente: ocup(r.cen.planoVigente), ocupacaoFluxo: ocup(r.planoFluxoFuturo) };
   return { capacidadeFutura: Math.round(cap), defLegado: Math.round(leg), defFundido: fus ? Math.round(fus.demandaComum - cap) : null, ...extra };
+}
+
+// R_f,total esperado dos pools fundidos (Etiquetar, Embalar), calculado dos apontamentos BRUTOS: Q_conv + Q_auto − boas confirmadas (conv + auto) em períodos FECHADOS lançados até o corte.
+function demandaComumEsperada(r: Rodada): number[] {
+  const slots = r.cen.entrada.slots;
+  const idx = new Map(slots.map((x, i) => [`${x.data}|${x.periodoId}`, i]));
+  const fechado = (i: number) => slots[i].fimMs + 10 * 60_000 <= r.cen.dec.corteMs;
+  const B: Record<string, number> = {};
+  r.cen.dados.apontamentos.filter((a) => a.status === "produzindo" && a.produtoId && a.etapaId && a.lancadoEmMs <= r.cen.dec.corteMs && (idx.get(`${a.data}|${a.periodoId}`) ?? 99) >= 0 && fechado(idx.get(`${a.data}|${a.periodoId}`) ?? 99)).forEach((a) => { const k = `${a.produtoId}|${a.etapaId}`; B[k] = (B[k] ?? 0) + Math.max(0, a.boas); });
+  const Q = (k: string) => r.cen.entrada.pools.find((p) => `${p.produtoId}|${p.etapaId}` === k)?.quantidade ?? 0;
+  const dem = (c: string, a: string) => Math.round(Math.max(0, Q(c) + Q(a) - (B[c] ?? 0) - (B[a] ?? 0)));
+  return [dem(C_ETQ, A_ETQ), dem(C_EMB, A_EMB)];
 }

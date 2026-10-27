@@ -1,6 +1,6 @@
 // Monta, para UMA decisão gravada (corte c), a entrada do motor no estilo da Escala oficial (aPartirDe = primeiro alterável) e os dados de Produção Real
 // disponíveis NAQUELE instante. Nada daqui olha o futuro: apontamentos ≥ corte ficam fora (e o núcleo ainda os filtra por lancadoEmMs ≤ agoraMs).
-import { desempenhoPorEtapa } from "@/features/escala/desempenho";
+import { embutirFatores, fatoresDeDesempenho } from "@/features/escala/fluxo/fatores";
 import { paraParametrosCorte, desempacotarLinha } from "@/features/escala/snapshotSombra";
 import { visaoNoCorte } from "@/features/escala/sombraCorte";
 import { chavePool, type AlocacaoEscala, type EntradaEscala } from "@/features/escala/types";
@@ -10,7 +10,12 @@ import type { DecisaoGravada } from "./dados";
 
 export interface Cenario {
   dec: DecisaoGravada;
+  /** Entrada do núcleo = a da integração (`insumosFluxo`): metas × f embutidas (f do realizado visível no corte; pools fundidos com f conjunto). */
   entrada: EntradaEscala;
+  /** Entrada NOMINAL (como a Escala oficial a monta): base do oficial regenerado, do simulador independente e da régua legada. */
+  entradaNominal: EntradaEscala;
+  /** f por pool (só ≠ 1) já embutido em `entrada` e informado em `opcoes.fatoresEmbutidos`. */
+  fator: Record<string, number>;
   dados: DadosProducaoReal;
   opcoes: OpcoesFluxo;
   c: number;
@@ -42,12 +47,7 @@ export function montarCenario(dec: DecisaoGravada, todos: ApontamentoReal[], oc:
   const planoVigente = oc.planoVigente ?? par.planoOficial;
   // entrada OFICIAL (montarEntradaEscala): pools como estão, sem tetos dinâmicos do modo restrito
   const poolsBase = par.base.pools;
-  const visiveis = (oc.apontamentos ?? todos).filter((a) => a.lancadoEmMs <= dec.corteMs);
-  // f de desempenho: mesma regra do replanejamento (apontamentos ≤ c lançados até o corte)
-  const doCorte = visaoNoCorte({ ...par, apontamentos: visiveis });
-  const desemp = desempenhoPorEtapa(par.base.pools, doCorte.apontamentos);
-  const fator = Object.fromEntries(Object.entries(desemp).map(([k, d]) => [k, d.f]));
-  const entrada: EntradaEscala = {
+  const entradaNominal: EntradaEscala = {
     ...par.base,
     pools: poolsBase,
     aPartirDe,
@@ -57,6 +57,11 @@ export function montarCenario(dec: DecisaoGravada, todos: ApontamentoReal[], oc:
     congeladas: planoVigente.filter((a) => idx(a) < aPartirDe),
     ...(par.restrito ? { trocasManuais: planoVigente.filter((a) => a.origem === "manual" && idx(a) >= aPartirDe) } : {}),
   };
+  // f de desempenho: a MESMA função da integração (src/features/escala/fluxo/fatores.ts) — realizado visível no corte, pools fundidos com f conjunto.
+  // FREPLAY_FATOR=0 desliga o f (configuração antiga da revisão anterior, para comparação).
+  const semFator = oc.semFator ?? process.env.FREPLAY_FATOR === "0";
+  const fator = semFator ? {} : fatoresDeDesempenho(entradaNominal, oc.apontamentos ?? todos, dec.corteMs, oc.paresLegado ?? []);
+  const entrada = embutirFatores(entradaNominal, fator);
   // saldo de WIP CONFIRMADO: a entrada gravada só tem `limites` (nenhum saldo/estoque confirmado em PROD nesses dias) -> lista vazia (tudo estimado)
   const wipConfirmado: SaldoWipConfirmadoPar[] = [];
   const st = e.wip as { saldo0?: Record<string, number>; estoqueConfirmado?: Record<string, number> } | undefined;
@@ -68,10 +73,9 @@ export function montarCenario(dec: DecisaoGravada, todos: ApontamentoReal[], oc:
     if (i >= 0 && etapas[i + 1] && saldo > 0) wipConfirmado.push({ produtoId, etapaOrigemId, etapaSeguinteId: etapas[i + 1].etapaId, saldo });
   });
   const dados: DadosProducaoReal = { apontamentos: oc.apontamentos ?? todos, agoraMs: dec.corteMs, fechamentoMinutos: 10, wipConfirmado, planoVigente };
-  // Configuração do INTEGRADOR (feat/escala-fluxo-io › opcoesFluxo): só paresLegado e θ — NENHUM fator de desempenho (metas nominais, f = 1). FREPLAY_FATOR=1 liga o f (sensibilidade).
-  const semFator = oc.semFator ?? process.env.FREPLAY_FATOR !== "1";
-  const opcoes: OpcoesFluxo = { ...(oc.paresLegado ? { paresLegado: oc.paresLegado } : {}), ...(semFator ? {} : { fatorPorPool: fator }), ...(oc.extraOpcoes ?? {}) };
-  return { dec, entrada, dados, opcoes, c, aPartirDe, planoVigente };
+  // Configuração da INTEGRAÇÃO (src/lib/escala/fluxo/integracao.ts › insumosFluxo): paresLegado + fatoresEmbutidos (f nas metas); θ = 0 e estabilização são o padrão do núcleo.
+  const opcoes: OpcoesFluxo = { ...(oc.paresLegado ? { paresLegado: oc.paresLegado } : {}), ...(Object.keys(fator).length > 0 ? { fatoresEmbutidos: fator } : {}), ...(oc.extraOpcoes ?? {}) };
+  return { dec, entrada, entradaNominal, fator, dados, opcoes, c, aPartirDe, planoVigente };
 }
 
 export const chaveDe = chavePool;

@@ -129,7 +129,8 @@ export function churnIndependente(entrada: EntradaEscala, novo: AlocacaoEscala[]
   const nv = new Map(novo.map((a) => [`${idx.get(chaveSlot(a))}|${a.funcionarioId}`, a]));
   const ap = entrada.aPartirDe;
   let linhas = 0, trocasPosto = 0, linhasPrimeiro = 0, trocasPrimeiro = 0;
-  const porOffset = [0, 0, 0, 0, 0]; // linhas alteradas no 1º, 2º, 3º, 4º período mutável e nos seguintes
+  const porOffset = [0, 0, 0, 0, 0]; // linhas alteradas (posto OU peças) no 1º, 2º, 3º, 4º período mutável e nos seguintes
+  const porOffsetPosto = [0, 0, 0, 0, 0]; // idem, só mudança de POSTO
   nv.forEach((a, k) => {
     const i = Number(k.split("|")[0]);
     if (i < ap) return;
@@ -137,11 +138,12 @@ export function churnIndependente(entrada: EntradaEscala, novo: AlocacaoEscala[]
     const trocou = post(a) !== post(b);
     const diff = trocou || Math.round(a.pecas ?? 0) !== Math.round(b?.pecas ?? 0);
     if (diff) { linhas++; if (i === ap) linhasPrimeiro++; porOffset[Math.min(4, i - ap)]++; }
-    if (trocou) { trocasPosto++; if (i === ap) trocasPrimeiro++; }
+    if (trocou) { trocasPosto++; if (i === ap) trocasPrimeiro++; porOffsetPosto[Math.min(4, i - ap)]++; }
   });
   const conj = (m: Map<string, AlocacaoEscala>) => { const s = new Set<string>(); m.forEach((a, k) => { const i = Number(k.split("|")[0]); if (i >= ap && a.maquinaId) s.add(`${i}|${post(a)}`); }); return s; };
   const A = conj(nv), B = conj(rf);
   let postosNovos = 0, postosNovosPrimeiro = 0;
   A.forEach((k) => { if (!B.has(k)) { postosNovos++; if (Number(k.split("|")[0]) === ap) postosNovosPrimeiro++; } });
-  return { linhas, trocasPosto, linhasPrimeiro, trocasPrimeiro, postosNovos, postosNovosPrimeiro, postosTotais: A.size, porOffset };
+  // `linhas` inclui diferença só de peças (ex.: f embutido nas peças do plano novo); `trocasPosto` = linhas cujo POSTO (máquina|produto|etapa) mudou — o churn operacional
+  return { linhas, trocasPosto, linhasSoPecas: linhas - trocasPosto, linhasPrimeiro, trocasPrimeiro, postosNovos, postosNovosPrimeiro, postosTotais: A.size, porOffset, porOffsetPosto };
 }

@@ -56,8 +56,11 @@ export function sensibilidade(offset = 2): CasoSens[] {
       [...st.diagnosticos, ...r.res.diagnostico.diagnosticos].forEach((x) => (codigos[x.codigo] = (codigos[x.codigo] ?? 0) + 1));
       const neg = st.pares.filter((p) => p.wip.lo < 0 || p.wip.hi < 0);
       const nan = naoSerializavel(r.res.diagnostico).slice(0, 5);
+      const dg = r.res.diagnostico;
+      const piorQueVigente = dg.vigente.valido && r.avFluxo.totais.faltaFinalLo > r.avVigente.totais.faltaFinalLo + 1;
       return {
-        ok: antes === depois && r.hashDeterminismoOk && neg.length === 0 && nan.length === 0 && r.viol.filter((v) => !v.aviso).length === 0,
+        ok: antes === depois && r.hashDeterminismoOk && neg.length === 0 && nan.length === 0 && r.viol.filter((v) => !v.aviso).length === 0 && !piorQueVigente && Math.abs(dg.reconciliacao.somaGanhos + dg.reconciliacao.residuo - dg.reconciliacao.diferenca) < 0.01,
+        planoEscolhido: dg.planoEscolhido, vigenteValido: dg.vigente.valido, piorQueVigente, faltaVigente: [Math.round(r.avVigente.totais.faltaFinalLo), Math.round(r.avVigente.totais.faltaFinalHi)],
         puro: antes === depois, determinismo: r.hashDeterminismoOk, wipNegativo: neg.length, naoSerializavel: nan, violacoes: r.viol.filter((v) => !v.aviso).length, codigos,
         faltaFluxo: [Math.round(r.avFluxo.totais.faltaFinalLo), Math.round(r.avFluxo.totais.faltaFinalHi)], faltaBase: [Math.round(r.avBaseRegenerado.totais.faltaFinalLo), Math.round(r.avBaseRegenerado.totais.faltaFinalHi)],
         celulasNaoConfirmadas: st.celulas.filter((x) => x.estado === "nao_confirmado").length, gargalos: r.res.diagnostico.antes.gargalosFluxo.length,
@@ -76,11 +79,38 @@ export function sensibilidade(offset = 2): CasoSens[] {
     casos.push(rodarCom("todos sem_producao falta_material no período c", (a) => a.map((x) => (idx(x) === c ? { ...x, status: "sem_producao" as const, motivo: "falta_material", boas: 0, refugo: 0 } : x))));
     casos.push(rodarCom("motivo sem_programacao (valor real fora da spec)", (a) => a.map((x) => (idx(x) === c && x.status === "sem_producao" ? { ...x, motivo: "sem_programacao" } : x))));
   }
+  // MUTAÇÃO do candidato "plano vigente": o vigente real vira inválido por uma restrição dura de HOJE; o núcleo tem que descartá-lo e o verificador independente tem que concordar
+  const dm = fechamentos.find((d) => d.data === "2026-10-27" && d.periodoId === "t1")!;
+  const mutarVigente = (nome: string, mut: (cen: ReturnType<typeof montarCenario>) => void, quer: (r: ReturnType<typeof rodarCenario>) => boolean) => casos.push(tentar(nome, () => {
+    const cen = montarCenario(dm, apontamentos, { offset, paresLegado: PARES_LEGADO_PROD });
+    mut(cen);
+    const r = rodarCenario(cen, paradas, {}, false);
+    const dg = r.res.diagnostico;
+    return {
+      ok: dg.vigente.valido === false && dg.planoEscolhido !== "vigente" && dg.diagnosticos.some((x) => x.codigo === "PLANO_VIGENTE_DESCARTADO") && r.viol.filter((v) => !v.aviso).length === 0 && quer(r),
+      vigenteValido: dg.vigente.valido, motivo: dg.vigente.motivo, planoEscolhido: dg.planoEscolhido, violacoesVigenteNucleo: r.violVigenteNucleo.length, violacoesVigenteIndependente: r.violVigente.filter((v) => !v.aviso && v.criterio !== "B").length, violacoesDoPlano: r.viol.filter((v) => !v.aviso).length,
+      faltaFluxo: [Math.round(r.avFluxo.totais.faltaFinalLo), Math.round(r.avFluxo.totais.faltaFinalHi)], faltaVigente: [Math.round(r.avVigente.totais.faltaFinalLo), Math.round(r.avVigente.totais.faltaFinalHi)],
+    };
+  }));
+  const idxS = (cen: ReturnType<typeof montarCenario>, a: { data: string; periodoId: string }) => cen.entrada.slots.findIndex((s) => s.data === a.data && s.periodoId === a.periodoId);
+  mutarVigente("MUTAÇÃO do vigente · máquina usada pelo vigente entra em Parada (restrição dura de hoje)", (cen) => {
+    const l = cen.planoVigente.find((a) => a.maquinaId && idxS(cen, a) >= cen.aPartirDe)!;
+    cen.entrada = { ...cen.entrada, indisponibilidades: [...cen.entrada.indisponibilidades, { maquinaId: l.maquinaId as string, desdeMs: 0, liberadaEmMs: null }] };
+  }, (r) => r.violVigente.some((v) => v.criterio === "A"));
+  mutarVigente("MUTAÇÃO do vigente · funcionário do vigente desativado (fora da equipe produtiva)", (cen) => {
+    const l = cen.planoVigente.find((a) => a.maquinaId && idxS(cen, a) >= cen.aPartirDe)!;
+    cen.entrada = { ...cen.entrada, funcionarios: cen.entrada.funcionarios.filter((f) => f.id !== l.funcionarioId) };
+  }, (r) => r.violVigente.some((v) => v.criterio === "A"));
+  mutarVigente("MUTAÇÃO do vigente · vigente incompleto (último período sem linhas)", (cen) => {
+    const ult = cen.entrada.slots[cen.entrada.slots.length - 1];
+    cen.planoVigente = cen.planoVigente.filter((a) => !(a.data === ult.data && a.periodoId === ult.periodoId));
+    cen.dados = { ...cen.dados, planoVigente: cen.planoVigente };
+  }, () => true);
   // `desligado`: o núcleo não lê a flag; "desligado" = chamador não usa o fluxo. Prova: motor oficial sem hooks idêntico, e todos os hashes gravados reproduzidos.
-  casos.push(tentar("desligado · golden-master: 36/36 decisões reproduzem hash gravado (motor modificado pelo núcleo)", () => {
-    let ok = 0; const falhas: string[] = [];
-    decisoes.forEach((d) => { const r = executarCorteSombra(paraParametrosCorte(d.entrada)); const hs = hashAlocacoes([...r.horizonte.comprometidas, ...r.horizonte.alteravel]); if (r.hashDecisao === d.hashDecisao && hs === d.hashPlanoSombra) ok++; else falhas.push(d.id.slice(0, 8)); });
-    return { ok: ok === decisoes.length, reproduzidas: ok, total: decisoes.length, falhas };
+  casos.push(tentar("desligado · golden-master da sombra: o PLANO de 36/36 decisões gravadas é reproduzido (hash_plano_sombra); hash_decisao muda onde a correção do f (Pacote G) alterou a falta", () => {
+    let plano = 0, decisao = 0; const falhasPlano: string[] = [];
+    decisoes.forEach((d) => { const r = executarCorteSombra(paraParametrosCorte(d.entrada)); const hs = hashAlocacoes([...r.horizonte.comprometidas, ...r.horizonte.alteravel]); if (hs === d.hashPlanoSombra) plano++; else falhasPlano.push(d.id.slice(0, 8)); if (r.hashDecisao === d.hashDecisao) decisao++; });
+    return { ok: plano === decisoes.length, reproduzidas: plano, total: decisoes.length, hashDecisaoReproduzidos: decisao, falhas: falhasPlano };
   }));
   casos.push(tentar("desligado · gerarEscala com hooks undefined explícitos == sem os campos (todos os cenários)", () => {
     const falhas: string[] = [];

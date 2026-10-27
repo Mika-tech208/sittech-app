@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // CLI do harness de replay da Escala Inteligente (fluxo).  Uso:
 //   npx tsx --tsconfig <tsconfig> scripts/escala-fluxo-replay/replay.ts <comando> [--offset=2] [--so-fechamentos]
-// Comandos: fechamentos | encadeado | theta | sensibilidade | tudo
+// Comandos: fechamentos | encadeado | theta | sensibilidade | estabilizacao | auditoria | contrafactual | tempo | tudo
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { carregarApontamentos, carregarDecisoes, carregarParadasReais, DIR } from "./dados";
@@ -15,7 +15,7 @@ const args = process.argv.slice(2);
 const cmd = args.find((a) => !a.startsWith("--")) ?? "fechamentos";
 const flag = (n: string, d?: string) => args.find((a) => a.startsWith(`--${n}=`))?.split("=")[1] ?? d;
 const OFFSET = Number(flag("offset", "2"));
-export const OUT = path.join(DIR, "out" + (process.env.FREPLAY_FATOR === "1" ? "_f" : "") + (OFFSET === 2 ? "" : `_off${OFFSET}`));
+export const OUT = path.join(DIR, "out" + (process.env.FREPLAY_FATOR === "0" ? "_semf" : "") + (OFFSET === 2 ? "" : `_off${OFFSET}`));
 fs.mkdirSync(OUT, { recursive: true });
 
 const decisoes = carregarDecisoes();
@@ -69,7 +69,7 @@ async function main() {
     const { varrerTheta } = await import("./theta");
     const t = varrerTheta(OFFSET);
     escrever("theta.json", t);
-    t.forEach((x) => console.log("θ", x.theta, "falta Σ", x.faltaLo, "linhas med/p90", x.medianaLinhas, x.p90Linhas, "trocas med/p90", x.medianaTrocas, x.p90Trocas, "1º período med/p90", x.medianaPrimeiro, x.p90Primeiro, JSON.stringify(x.escolha)));
+    t.forEach((x) => console.log("θ", x.rotulo, "falta Σ", x.faltaLo, "linhas med/p90", x.medianaLinhas, x.p90Linhas, "trocas med/p90", x.medianaTrocas, x.p90Trocas, "1º período med/p90", x.medianaPrimeiro, x.p90Primeiro, JSON.stringify(x.escolha)));
   }
   if (cmd === "sensibilidade" || todos) {
     const { sensibilidade } = await import("./sensibilidade");
@@ -81,7 +81,7 @@ async function main() {
     const { experimentoEstabilizacao } = await import("./estabilizacao");
     const e = experimentoEstabilizacao(OFFSET);
     escrever("estabilizacao.json", e);
-    (e as any[]).forEach((x) => console.log(x.rotulo, "θ0+est:", JSON.stringify(x.theta0), "θpadrão+est 1ºper:", x.thetaPadrao.linhasPrimeiro, "| linhas", x.linhasAntes, "→", x.linhasDepois, "| produtivas", x.produtivasAntes, "→", x.produtivasDepois, "| falta", x.faltaAntes, "→", x.faltaDepois, "| viol", x.violacoesDepois, x.estabilizou ? "" : "(não estabilizou)"));
+    (e as any[]).forEach((x) => console.log(x.rotulo, x.plano, "linhas", x.linhasAntes, "→", x.linhasDepois, "| 1º período", x.primeiroAntes, "→", x.primeiroDepois, "| produtivas", x.produtivasAntes, "→", x.produtivasDepois, "| falta", x.faltaAntes, "→", x.faltaDepois, "| viol", x.violacoesDepois, x.estabilizou ? "" : "(não estabilizou)"));
   }
   if (cmd === "auditoria" || todos) {
     const { auditarEstado } = await import("./auditoria");
@@ -89,6 +89,31 @@ async function main() {
     escrever("auditoria.json", a);
     console.log("auditoria do estado:", a.conferidos, "itens conferidos;", a.divergencias.length, "divergências");
     a.divergencias.slice(0, 40).forEach((x) => console.log("  ", x.fechamento, x.item, "esperado", x.esperado, "núcleo", x.nucleo));
+  }
+  if (cmd === "tempo" || todos) {
+    // Tempo de UM recálculo do fluxo, MEDIDO EM SÉRIE (um processo, sem paralelismo): planejarComFluxo (inclui candidatos, estabilização, avaliação, explicação) + verificação
+    // + serialização do diagnóstico (o que o caminho ativo/sombra faz por fechamento). 3 repetições por decisão gravada (36 decisões × 3).
+    const { planejarComFluxo, verificarRestricoesDuras } = await import("@/features/escala/fluxo");
+    const medidas: { id: string; rot: string; rev: number; planejar: number[]; total: number[] }[] = [];
+    for (const d of decisoes) {
+      const cen = montarCenario(d, apontamentos, { offset: OFFSET, paresLegado: PARES_LEGADO_PROD });
+      const m = { id: d.id, rot: `${d.data.slice(5)} ${d.periodoId}`, rev: d.revisao, planejar: [] as number[], total: [] as number[] };
+      for (let i = 0; i < 3; i++) {
+        const t0 = performance.now();
+        const r = planejarComFluxo(cen.entrada, cen.dados, cen.opcoes);
+        const t1 = performance.now();
+        verificarRestricoesDuras(cen.entrada, r.resultado.alocacoes);
+        JSON.stringify(r.diagnostico);
+        const t2 = performance.now();
+        m.planejar.push(t1 - t0); m.total.push(t2 - t0);
+      }
+      medidas.push(m);
+    }
+    const flat = (k: "planejar" | "total") => medidas.flatMap((m) => m[k]).sort((a, b) => a - b);
+    const q = (v: number[], p: number) => v[Math.min(v.length - 1, Math.ceil(p * v.length) - 1)];
+    const res = { amostras: medidas.length * 3, planejar: { p50: q(flat("planejar"), 0.5), p95: q(flat("planejar"), 0.95), max: Math.max(...flat("planejar")) }, total: { p50: q(flat("total"), 0.5), p95: q(flat("total"), 0.95), max: Math.max(...flat("total")) }, acimaDe10s: flat("total").filter((x) => x > 10_000).length, medidas };
+    escrever("tempo.json", res);
+    console.log("tempo (ms, em série): planejar p50/p95/max", Math.round(res.planejar.p50), Math.round(res.planejar.p95), Math.round(res.planejar.max), "| total p50/p95/max", Math.round(res.total.p50), Math.round(res.total.p95), Math.round(res.total.max), "| > 10 s:", res.acimaDe10s);
   }
   if (cmd === "contrafactual" || todos) {
     const { contrafactualCX } = await import("./contrafactual");

@@ -30,7 +30,7 @@ export function auditarEstado() {
       if (e.boas.hi + 0.5 < e.boas.lo) div.push({ fechamento: rot, item: `boas.hi<lo ${k}`, esperado: "hi ≥ lo", nucleo: `${e.boas.hi}<${e.boas.lo}` });
     });
     // projeção no corte = fechado confirmado + produção PLANEJADA (× f) das linhas congeladas posteriores ao último fechado e anteriores a aPartirDe
-    const f = cen.opcoes.fatorPorPool ?? {};
+    const f = cen.fator;
     const proj: Record<string, number> = { ...B };
     cen.entrada.congeladas.forEach((a) => {
       const i = idx(a);
