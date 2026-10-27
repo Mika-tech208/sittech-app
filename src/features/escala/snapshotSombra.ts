@@ -13,7 +13,7 @@ import type { ApontamentoReal } from "./producaoReal";
 import { construirSlotsDeDias } from "./tempo";
 import type { AlocacaoEscala, EntradaEscala, HistoricoEquidadeFuncionario, IndisponibilidadeRecursoEscala, JanelaAusenciaEscala, PeriodoEscala, PoolEscala } from "./types";
 
-export const VERSAO_MOTOR_SOMBRA = "4d.1";
+export const VERSAO_MOTOR_SOMBRA = "4d.2"; // 4d.2: projeção do plano gravado reescalada por f novo / f embutido (decisões 4d.1 com plano ×f não reproduzem o hash)
 
 // ---------- entrada canônica (JSON, compacta) ----------
 export interface EntradaCanonicaCorte {
