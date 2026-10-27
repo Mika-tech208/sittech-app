@@ -110,11 +110,16 @@ begin
   if m.id is null then
     insert into public.escala_recurso_indisponivel (maquina_id, motivo, observacao, desde, liberada_em, criado_por, liberado_por, origem_tipo, origem_id)
     values (o.maquina_id, v_motivo, v_obs, o.aberta_em, o.encerrada_em, o.criado_por, o.encerrado_por, 'ocorrencia_maquina', o.id)
+    on conflict (origem_tipo, origem_id) where origem_id is not null do nothing
     returning * into m;
-    if o.encerrada_em is null then
-      perform public.escala_evento_recurso('recurso_bloqueado', o.maquina_id, m.id, o.id);
+    if m.id is not null then
+      if o.encerrada_em is null then
+        perform public.escala_evento_recurso('recurso_bloqueado', o.maquina_id, m.id, o.id);
+      end if;
+      return 'criada';
     end if;
-    return 'criada';
+    -- outra transação (ex.: reconciliação) criou o espelho no mesmo instante: segue como atualização
+    select * into m from public.escala_recurso_indisponivel where origem_tipo = 'ocorrencia_maquina' and origem_id = p_ocorrencia_id;
   end if;
 
   if m.maquina_id is distinct from o.maquina_id or m.desde is distinct from o.aberta_em or m.liberada_em is distinct from o.encerrada_em
@@ -143,7 +148,13 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  perform public.escala_sincronizar_ocorrencia(case when tg_op = 'DELETE' then old.id else new.id end);
+  -- A Escala NUNCA pode impedir o registro/encerramento de uma Parada (operação crítica de chão de fábrica): qualquer falha aqui vira aviso
+  -- e é reparada pela reconciliação (executada a cada chamada do worker /api/escala/drenar e /processar).
+  begin
+    perform public.escala_sincronizar_ocorrencia(case when tg_op = 'DELETE' then old.id else new.id end);
+  exception when others then
+    raise warning 'escala_trg_ocorrencia_maquina: sincronização adiada (%): %', case when tg_op = 'DELETE' then old.id else new.id end, sqlerrm;
+  end;
   return null;
 end;
 $$;
