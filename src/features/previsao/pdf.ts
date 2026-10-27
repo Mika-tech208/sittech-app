@@ -9,6 +9,7 @@ import {
   calcularAnaliseCapacidadeSemanal, calcularUsoPorMaquina, calcularObservacoesSetup, calcularViabilidadeItem,
   calcularFuncionariosTotalSemana, calcularPeriodosEtapa, textoDiasPeriodos,
 } from "@/features/capacidade/calculations";
+import type { HorasDisponiveisPorMaquina } from "@/features/capacidade/calculations";
 import { weekLabel } from "@/lib/date";
 import { LOGO_LIGHT } from "@/lib/logos";
 import type { Produto, Maquina, PeriodoComDuracao, Previsao } from "@/types/domain";
@@ -22,6 +23,7 @@ export interface GerarProgramacaoParams {
   maquinas: Maquina[];
   periodosComDuracao: PeriodoComDuracao[];
   horasPorMaquinaSemana: number;
+  horasPorMaquina?: HorasDisponiveisPorMaquina;
   duracaoMediaPeriodo: number;
   // dias produtivos e equipe produtiva DESTA semana (não o padrão global)
   diasProdutivosSemana: number;
@@ -31,13 +33,13 @@ export interface GerarProgramacaoParams {
 
 export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): string {
   const {
-    semanaAtual, semanaAtualRec, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana,
+    semanaAtual, semanaAtualRec, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, horasPorMaquina,
     duracaoMediaPeriodo, diasProdutivosSemana, equipeProdutivaCount, getLucroHora,
   } = params;
 
   // produto de ROTAS: cadeias consistentes só para o cálculo (nunca duplica demanda nem soma CONV + AUTO como sequência); sem produto de rotas devolve as mesmas referências
   const expansao = expandirItensDeRotas({ itens: semanaAtualRec.itens, produtos, periodosComDuracao, diasProdutivos: diasProdutivosSemana, maquinasIndisponiveis: semanaAtualRec.maquinasIndisponiveis });
-  const analiseCapacidade = calcularAnaliseCapacidadeSemanal(expansao.itens, expansao.produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana);
+  const analiseCapacidade = calcularAnaliseCapacidadeSemanal(expansao.itens, expansao.produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, horasPorMaquina);
   const usoMaquinas = calcularUsoPorMaquina(analiseCapacidade, duracaoMediaPeriodo);
   const maquinasExcedidas = usoMaquinas.filter((u) => u.excedeu);
   const observacoesSetupPDF = calcularObservacoesSetup(analiseCapacidade, produtos, getLucroHora);
@@ -58,7 +60,7 @@ export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): stri
     };
     const viab = previaRotas
       ? { atingivel: previaRotas.plano.falta <= 0, maxPecas: Math.floor(previaRotas.plano.finalAtingivel), funcionariosNecessarios: new Set(Object.values(it.maquinasPorEtapa || {}).flat()).size }
-      : calcularViabilidadeItem(it, produtos, periodosComDuracao, horasPorMaquinaSemana);
+      : calcularViabilidadeItem(it, produtos, periodosComDuracao, horasPorMaquinaSemana, horasPorMaquina);
     let etapaGargalo: { nome: string; periodos: ReturnType<typeof calcularPeriodosEtapa> } | null = null;
     let maiorHoras = -1;
     const linhasEtapas = roteiro.map((etapa) => {

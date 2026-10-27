@@ -10,6 +10,8 @@ import { useFuncionarios } from "@/hooks/useFuncionarios";
 import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
+import { useCausasIndisponibilidadeSemana } from "@/hooks/useCausasIndisponibilidadeSemana";
+import { calcularHorasPorMaquinaDaSemana, periodosProdutivosDaSemana } from "@/features/capacidade/disponibilidadeSemana";
 import { useCustos } from "@/hooks/useCustos";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import LoginScreen from "@/components/shell/LoginScreen";
@@ -96,6 +98,19 @@ export default function CapacidadeSemanalPage() {
     [semanaAtualRec, diasUteisSemana]
   );
   const horasPorMaquinaSemana = calcularHorasPorMaquinaSemana(horasPorDiaCalc, diasProdutivosSemana.length);
+  // Disponibilidade EFETIVA por máquina (a mesma verdade da Escala): Parada/bloqueio perdem só os períodos que intersectam; inativa/marcada = 0 h; semana encerrada = histórico intacto.
+  const causasSemana = useCausasIndisponibilidadeSemana(auth.autenticado, semanaAtual, previsoesHook.hoje);
+  const periodosProdutivos = useMemo(() => periodosProdutivosDaSemana(diasProdutivosSemana, periodosComDuracao), [diasProdutivosSemana, periodosComDuracao]);
+  const horasPorMaquinaEfetivas = useMemo(
+    () => (previsoesHook.hoje
+      ? calcularHorasPorMaquinaDaSemana({
+          maquinas, semanaInicio: semanaAtual, hojeIso: previsoesHook.hoje,
+          indisponiveisNaSemana: semanaAtualRec.maquinasIndisponiveisManuais ?? semanaAtualRec.maquinasIndisponiveis ?? [],
+          causas: causasSemana, periodos: periodosProdutivos, horasPorMaquinaSemana,
+        })
+      : undefined),
+    [previsoesHook.hoje, maquinas, semanaAtual, semanaAtualRec, causasSemana, periodosProdutivos, horasPorMaquinaSemana]
+  );
   const resumoSemana = useMemo(() => calcularResumoSemana(semanaAtualRec), [semanaAtualRec]);
 
   const custoTotalMensalAtual = totalFixo + totalCustoFuncionariosAtivos;
@@ -113,8 +128,8 @@ export default function CapacidadeSemanalPage() {
   );
   const itensSemanaAgregados = useMemo(() => calcularItensSemanaAgregados(expansaoRotas.itens), [expansaoRotas]);
   const capacidadeInicialPorMaquina = useMemo(
-    () => calcularCapacidadeInicialPorMaquina(maquinas, semanaAtualRec.maquinasIndisponiveis || [], horasPorMaquinaSemana),
-    [maquinas, horasPorMaquinaSemana, semanaAtualRec]
+    () => calcularCapacidadeInicialPorMaquina(maquinas, semanaAtualRec.maquinasIndisponiveisManuais ?? semanaAtualRec.maquinasIndisponiveis ?? [], horasPorMaquinaSemana, horasPorMaquinaEfetivas),
+    [maquinas, horasPorMaquinaSemana, semanaAtualRec, horasPorMaquinaEfetivas]
   );
   const alocacaoSemanal = useMemo(
     () => calcularAlocacaoSemanal(
@@ -412,7 +427,7 @@ export default function CapacidadeSemanalPage() {
                         <div key={op} style={{ marginBottom: 14 }}>
                           <p className="stx-cap-ref" style={{ marginBottom: 6 }}>{op}</p>
                           {maquinasDaOp.map((m) => {
-                            const indisponivel = (semanaAtualRec.maquinasIndisponiveis || []).includes(m.id);
+                            const indisponivel = (semanaAtualRec.maquinasIndisponiveisManuais ?? semanaAtualRec.maquinasIndisponiveis ?? []).includes(m.id) || horasPorMaquinaEfetivas?.[m.id] === 0; // 0 h na semana (inativa/Parada que cobre todos os períodos)
                             const emParada = previsoesHook.maquinasEmParada.has(m.id) && !(semanaAtualRec.maquinasIndisponiveisManuais ?? []).includes(m.id);
                             return (
                               <label className="stx-cap-toggle-row" key={m.id} title={emParada ? "Máquina com Parada aberta: volta sozinha quando a Parada for encerrada em Produção Real" : undefined}>

@@ -199,7 +199,7 @@ export function usePrevisoes(pronto: boolean) {
     [previsoes, indisponiveis.ids, indisponiveis.hoje]
   );
 
-  return { previsoes: previsoesEfetivas, loading, erro, upsertSemana, maquinasEmParada: indisponiveis.emParada };
+  return { previsoes: previsoesEfetivas, loading, erro, upsertSemana, maquinasEmParada: indisponiveis.emParada, hoje: indisponiveis.hoje };
 }
 
 export type PrevisoesHook = ReturnType<typeof usePrevisoes>;
