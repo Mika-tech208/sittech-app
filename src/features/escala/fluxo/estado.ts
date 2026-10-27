@@ -176,8 +176,14 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
     }
   });
 
-  // linhas congeladas (slots entre o último fechado e aPartirDe): capacidade das máquinas SEM linha apontada
-  const congeladasFut = [...entrada.congeladas, ...dados.planoVigente.filter((a) => (idxSlot.get(`${a.data}|${a.periodoId}`) ?? Infinity) >= 0 && (idxSlot.get(`${a.data}|${a.periodoId}`) ?? Infinity) < aPartirDe && !entrada.congeladas.some((c) => c.data === a.data && c.periodoId === a.periodoId && c.funcionarioId === a.funcionarioId))];
+  // linhas congeladas (slots entre o último fechado e aPartirDe): capacidade das máquinas SEM linha apontada.
+  // Fonte: entrada.congeladas + (se faltar) o plano vigente do mesmo (slot, pessoa).
+  const chaveLinha = (a: AlocacaoEscala) => `${a.data}|${a.periodoId}|${a.funcionarioId}`;
+  const jaCongeladas = new Set(entrada.congeladas.map(chaveLinha));
+  const congeladasFut = [
+    ...entrada.congeladas,
+    ...dados.planoVigente.filter((a) => (idxSlot.get(`${a.data}|${a.periodoId}`) ?? Number.POSITIVE_INFINITY) < aPartirDe && !jaCongeladas.has(chaveLinha(a))),
+  ];
   somarCapacidadeDeLinhas(capsFixas, grafo, poolsPorChave, idxSlot, congeladasFut, fator, ultimoFechado + 1, aPartirDe, ignorar);
 
   // ---- etapas (estado agregado por pool) ----
@@ -265,7 +271,7 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
       Object.assign(x, r.x);
       Object.assign(traj, r.traj);
     });
-    return { B, W, L, x, traj, bloqueadoPelaMeta: 0 } as ResultadoSim;
+    return { B, W, L, x, traj, baseLeft: {}, bloqueadoPelaMeta: 0, desperdicioBase: 0 } as ResultadoSim;
   };
   const projLo = projetar(iniLo);
   const projHi = projetar(iniHi);

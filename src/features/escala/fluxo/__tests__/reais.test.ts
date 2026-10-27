@@ -4,6 +4,7 @@
 import { describe, it, expect } from "vitest";
 import { gerarEscala } from "../../gerarEscala";
 import { chavePool, type EntradaEscala } from "../../types";
+import { avaliarPlano } from "../avaliar";
 import { planejarComFluxo } from "../planejar";
 import { verificarRestricoesDuras } from "../restricoes";
 import type { ResultadoFluxo } from "../tipos";
@@ -23,7 +24,7 @@ function roda(k: string) {
   return cache.get(k)!;
 }
 const CAIXA = "238ca607", E16 = "c765eb93", MONTAR = "f75cc037";
-const prod = (al: { maquinaId: string | null; produtoId: string | null }[], pref: string) => al.filter((a) => a.maquinaId && a.produtoId?.startsWith(pref));
+const prod = <T extends { maquinaId: string | null; produtoId: string | null }>(al: T[], pref: string) => al.filter((a) => a.maquinaId && a.produtoId?.startsWith(pref));
 
 Object.keys(fx).forEach((k) => {
   describe(`replay real ${k} (${fx[k].criadoEm.slice(5, 16)} UTC)`, () => {
@@ -106,6 +107,15 @@ Object.keys(fx).forEach((k) => {
       const avB = r.diagnostico.avaliacaoBase.produtos.find((p) => p.produtoId.startsWith(CAIXA))!;
       expect(av.faltaFinal.lo).toBeLessThanOrEqual(avB.faltaFinal.lo + 1e-6);
       expect(r.diagnostico.antes.gargalosFluxo.some((g) => g.produtoId.startsWith(CAIXA))).toBe(true);
+    });
+
+    it("robustez do critério E: a conclusão não depende da suposição de fluxo no mesmo período (régua mais conservadora)", () => {
+      const { r, entrada, f } = roda(k);
+      const { dados, fatoresEmbutidos } = montarDeCanonica(f.entrada);
+      const op = { paresLegado: [parConectorProd(f.entrada)!], fatoresEmbutidos, fluxoMesmoPeriodo: false, incluirTrajetoria: false };
+      const base = avaliarPlano(entrada, dados, gerarEscala(entrada).alocacoes, op).totais.faltaFinalLo;
+      const flux = avaliarPlano(entrada, dados, r.resultado.alocacoes, { ...op, limitesRemPorPool: r.diagnostico.planoEscolhido === "fluxo" ? r.diagnostico.estado.remPorPool : undefined }).totais.faltaFinalLo;
+      expect(flux).toBeLessThanOrEqual(base + 1e-6);
     });
 
     it("determinismo + orçamento de tempo", () => {

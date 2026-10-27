@@ -284,6 +284,7 @@ export interface TotaisAvaliacao {
   wipLegadoResidual: number;
   excessoWip: number; // Σ max(0, WIP previsto (hi) − teto derivado do par)
   capacidadeGargalo: number;
+  capacidadeDesperdicada: number; // capacidade de postos do previsto que não vira peça (sem material, sem demanda ou meta atendida) — desempate
   excessoFinal: number; // peças do produto final que o plano produziria ALÉM da meta (capacidade desperdiçada, cenário pessimista)
 }
 

@@ -9,7 +9,6 @@ import { epochMsNoFuso } from "../../tempo";
 import { verificarRestricoesDuras } from "../restricoes";
 import { ap, apontarPlano, checarFluxo, equipe, MIN, montar, pool, realComoPlano, rodar } from "./helpersFluxo";
 
-const DIAS = ["2026-10-26", "2026-10-27"];
 const dois = () => [
   pool({ produto: "P", etapa: "P1", op: "opA", ordem: 1, q: 6000, maquinas: ["a1"], mu: 500 }),
   pool({ produto: "P", etapa: "P2", op: "opB", ordem: 2, q: 6000, maquinas: ["b1", "b2", "b3"], mu: 200 }),

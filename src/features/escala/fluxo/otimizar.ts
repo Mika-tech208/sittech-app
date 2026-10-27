@@ -62,37 +62,56 @@ export function contagensDoPlano(ctx: CtxFluxo, alocacoes: AlocacaoEscala[]): Co
   return cnt;
 }
 
+interface EstadoSim { B: Record<string, number>; W: Record<string, number>; L: Record<string, number>; baseLeft: Record<string, number> }
+
 class Avaliador {
   caps: Record<string, CapNo> = {};
+  private snap: EstadoSim[] = [];
+  cursor: number;
+  private Q: Record<string, number>;
   constructor(private ctx: CtxFluxo, private m: Modelo, private cnt: Contagens, private limites: Record<string, number>) {
     const T = ctx.entrada.slots.length;
+    this.cursor = ctx.aPartirDe;
+    this.Q = Object.fromEntries(Object.values(ctx.grafo.nos).map((n) => [n.id, n.quantidade]));
     Object.keys(ctx.grafo.nos).forEach((n) => {
       this.caps[n] = novaCap(T);
       for (let t = ctx.aPartirDe; t < T; t++) this.caps[n].base[t] = cnt[n][t] * m.mu[n][t];
     });
+    const ini = ctx.iniAPartirDe.lo;
+    this.snap = ctx.grafo.grupos.map((g) => ({
+      B: Object.fromEntries(g.nos.map((n) => [n, ini.B0[n] ?? 0])),
+      W: Object.fromEntries(g.arestas.map((e) => [e, ini.W0[e] ?? 0])),
+      L: Object.fromEntries(g.arestas.map((e) => [e, ini.L0[e] ?? 0])),
+      baseLeft: Object.fromEntries(g.nos.map((n) => [n, Math.max(0, limites[n] ?? Math.max(0, this.Q[n] - (ini.B0[n] ?? 0)))])),
+    }));
   }
   private pesoGrupo(gi: number): number {
     if (!this.ctx.opcoes.ponderarPorValor) return 1;
     const v = this.ctx.grafo.nos[this.ctx.grafo.grupos[gi].sink].valorUnitario;
     return v > 0 ? v : 1;
   }
-  /** valor do grupo: peças finais (pessimista) + 1e-3 × (otimista) — o otimista só desempata */
+  private rodar(gi: number, de: number, ate: number, st: EstadoSim) {
+    return simularGrupo(this.ctx.grafo, this.ctx.grafo.grupos[gi], {
+      tIni: de, tFim: ate, cap: this.caps, B0: st.B, W0: st.W, L0: st.L, Q: this.Q, baseLeft0: st.baseLeft, mesmoPeriodo: this.ctx.opcoes.fluxoMesmoPeriodo !== false,
+    });
+  }
+  /** valor do grupo a partir do cursor (cenário pessimista): peças finais entregues até o fim da semana */
   valor(gi: number): number {
-    const g = this.ctx.grafo.grupos[gi];
-    const T = this.ctx.entrada.slots.length;
-    const f = (cen: "lo" | "hi") => {
-      const ini = this.ctx.iniAPartirDe[cen];
-      const r = simularGrupo(this.ctx.grafo, g, {
-        tIni: this.ctx.aPartirDe, tFim: T, cap: this.caps, B0: ini.B0, W0: ini.W0, L0: ini.L0, Q: Object.fromEntries(Object.values(this.ctx.grafo.nos).map((n) => [n.id, n.quantidade])),
-        limiteFut: { desde: this.ctx.aPartirDe, valor: this.limites }, mesmoPeriodo: this.ctx.opcoes.fluxoMesmoPeriodo !== false,
-      });
-      return Math.min(this.ctx.grafo.nos[g.sink].quantidade, r.B[g.sink]);
-    };
-    return this.pesoGrupo(gi) * (f("lo") + 1e-3 * f("hi"));
+    const sink = this.ctx.grafo.grupos[gi].sink;
+    const r = this.rodar(gi, this.cursor, this.ctx.entrada.slots.length, this.snap[gi]);
+    return this.pesoGrupo(gi) * Math.min(this.Q[sink], r.B[sink]);
   }
   set(n: string, t: number, k: number) {
     this.cnt[n][t] = k;
     this.caps[n].base[t] = k * this.m.mu[n][t];
+  }
+  /** fixa o slot do cursor e avança o estado salvo */
+  avancar() {
+    this.ctx.grafo.grupos.forEach((_, gi) => {
+      const r = this.rodar(gi, this.cursor, this.cursor + 1, this.snap[gi]);
+      this.snap[gi] = { B: r.B, W: r.W, L: r.L, baseLeft: r.baseLeft };
+    });
+    this.cursor++;
   }
 }
 
@@ -105,53 +124,56 @@ export function varrerContagens(ctx: CtxFluxo, inicial: Contagens, limites: Reco
   const nos = Object.values(ctx.grafo.nos).map((n) => n.id).sort();
   const grupoIdx: Record<string, number> = {};
   ctx.grafo.grupos.forEach((g, gi) => g.nos.forEach((n) => (grupoIdx[n] = gi)));
-  const valorTotal = () => ctx.grafo.grupos.reduce((s, _, gi) => s + av.valor(gi), 0);
   let alterados = 0;
 
   for (let t = ctx.aPartirDe; t < T; t++) {
     const K = m.pessoas[t];
     const candidatos = nos.filter((n) => m.maquinas[n][t].length > 0);
-    if (candidatos.length === 0) continue;
-    const antigo: Record<string, number> = Object.fromEntries(candidatos.map((n) => [n, cnt[n][t]]));
-    const valorAntigo = valorTotal();
+    if (candidatos.length > 0) {
+      const antigo: Record<string, number> = Object.fromEntries(candidatos.map((n) => [n, cnt[n][t]]));
+      const grupos = [...new Set(candidatos.map((n) => grupoIdx[n]))];
+      const valorAntigo = Object.fromEntries(grupos.map((gi) => [gi, av.valor(gi)]));
 
-    // guloso: zera o slot e vai somando o posto de maior ganho (re-simulação exata do grupo)
-    candidatos.forEach((n) => av.set(n, t, 0));
-    const usadas = new Set<string>();
-    const novo: Record<string, number> = Object.fromEntries(candidatos.map((n) => [n, 0]));
-    const valorGrupo: number[] = ctx.grafo.grupos.map((_, gi) => av.valor(gi));
-    let escolhidos = 0;
-    const maquinaLivre = (n: string): string | null => {
-      const livres = m.maquinas[n][t].filter((x) => !usadas.has(x));
-      if (livres.length === 0 || novo[n] >= m.maquinas[n][t].length) return null;
-      // escolhe a máquina menos disputada por outros nós (para não bloquear quem só tem ela)
-      const disputa = (x: string) => candidatos.filter((o) => o !== n && m.maquinas[o][t].includes(x)).length;
-      return [...livres].sort((a, b) => disputa(a) - disputa(b) || (a < b ? -1 : 1))[0];
-    };
-    while (escolhidos < K) {
-      let melhor: { n: string; ganho: number; maq: string } | null = null;
-      for (const n of candidatos) {
-        const maq = maquinaLivre(n);
-        if (maq === null) continue;
-        const gi = grupoIdx[n];
-        av.set(n, t, novo[n] + 1);
-        const ganho = av.valor(gi) - valorGrupo[gi];
-        av.set(n, t, novo[n]);
-        if (ganho > EPS_G && (melhor === null || ganho > melhor.ganho + EPS_G)) melhor = { n, ganho, maq };
+      // guloso: zera o slot e vai somando o posto de maior ganho (re-simulação exata do grupo)
+      candidatos.forEach((n) => av.set(n, t, 0));
+      const usadas = new Set<string>();
+      const novo: Record<string, number> = Object.fromEntries(candidatos.map((n) => [n, 0]));
+      const valorGrupo: Record<number, number> = Object.fromEntries(grupos.map((gi) => [gi, av.valor(gi)]));
+      let escolhidos = 0;
+      const maquinaLivre = (n: string): string | null => {
+        const livres = m.maquinas[n][t].filter((x) => !usadas.has(x));
+        if (livres.length === 0 || novo[n] >= m.maquinas[n][t].length) return null;
+        // escolhe a máquina menos disputada por outros nós (para não bloquear quem só tem ela)
+        const disputa = (x: string) => candidatos.filter((o) => o !== n && m.maquinas[o][t].includes(x)).length;
+        return [...livres].sort((a, b) => disputa(a) - disputa(b) || (a < b ? -1 : 1))[0];
+      };
+      while (escolhidos < K) {
+        let melhor: { n: string; ganho: number; maq: string } | null = null;
+        for (const n of candidatos) {
+          const maq = maquinaLivre(n);
+          if (maq === null) continue;
+          const gi = grupoIdx[n];
+          av.set(n, t, novo[n] + 1);
+          const ganho = av.valor(gi) - valorGrupo[gi];
+          av.set(n, t, novo[n]);
+          if (ganho > EPS_G && (melhor === null || ganho > melhor.ganho + EPS_G)) melhor = { n, ganho, maq };
+        }
+        if (melhor === null) break;
+        novo[melhor.n] += 1;
+        usadas.add(melhor.maq);
+        av.set(melhor.n, t, novo[melhor.n]);
+        valorGrupo[grupoIdx[melhor.n]] += melhor.ganho;
+        escolhidos++;
       }
-      if (melhor === null) break;
-      novo[melhor.n] += 1;
-      usadas.add(melhor.maq);
-      av.set(melhor.n, t, novo[melhor.n]);
-      valorGrupo[grupoIdx[melhor.n]] += melhor.ganho;
-      escolhidos++;
+      const somaNovo = grupos.reduce((s, gi) => s + valorGrupo[gi], 0);
+      const somaAntigo = grupos.reduce((s, gi) => s + valorAntigo[gi], 0);
+      if (somaNovo > somaAntigo + 1e-6) {
+        if (candidatos.some((n) => novo[n] !== antigo[n])) alterados++;
+      } else {
+        candidatos.forEach((n) => av.set(n, t, antigo[n])); // nunca troca por algo pior (guloso não é ótimo)
+      }
     }
-    const valorNovo = valorTotal();
-    if (valorNovo > valorAntigo + 1e-6) {
-      if (candidatos.some((n) => novo[n] !== antigo[n])) alterados++;
-    } else {
-      candidatos.forEach((n) => av.set(n, t, antigo[n])); // nunca troca por algo pior (guloso não é ótimo)
-    }
+    av.avancar();
   }
   return { contagens: cnt, slotsAlterados: alterados };
 }

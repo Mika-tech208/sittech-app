@@ -32,6 +32,8 @@ export interface ParamsSim {
   limiteFut?: { desde: number; valor: Record<string, number> }; // limite da produção base a partir de `desde` (rem explícito do plano de fluxo)
   mesmoPeriodo: boolean;
   trajetoria?: boolean;
+  /** Restante do previsto por nó JÁ em curso (continuação a partir de um estado salvo); tem precedência sobre limiteFut/Q−B0. */
+  baseLeft0?: Record<string, number>;
 }
 
 export interface ResultadoSim {
@@ -40,6 +42,8 @@ export interface ResultadoSim {
   L: Record<string, number>;
   x: Record<string, number[]>; // produção por slot (índice t − tIni)
   traj: Record<string, number[]>; // W ao fim de cada slot (índice t − tIni)
+  baseLeft: Record<string, number>; // restante do previsto por nó ao fim (para continuar a simulação)
+  desperdicioBase: number; // capacidade de postos do PREVISTO que não produziu (sem material, sem demanda restante ou meta já atendida)
   bloqueadoPelaMeta: number; // peças do nó final que o plano produziria além da meta (capacidade desperdiçada)
 }
 
@@ -52,13 +56,14 @@ export function simularGrupo(grafo: Grafo, g: GrupoFluxo, p: ParamsSim): Resulta
     B[n] = p.B0[n] ?? 0;
     // restante do PREVISTO: Q − B0, ou o rem explícito com que o plano foi gerado (limiteFut; vale para tIni = desde)
     const lim = p.limiteFut?.valor[n];
-    baseLeft[n] = lim !== undefined ? Math.max(0, lim) : Math.max(0, (p.Q[n] ?? 0) - B[n]);
+    baseLeft[n] = p.baseLeft0?.[n] !== undefined ? (p.baseLeft0[n] as number) : lim !== undefined ? Math.max(0, lim) : Math.max(0, (p.Q[n] ?? 0) - B[n]);
   });
   g.arestas.forEach((e) => {
     W[e] = Math.max(0, p.W0[e] ?? 0);
     L[e] = Math.min(W[e], Math.max(0, p.L0[e] ?? 0));
   });
   let bloq = 0;
+  let desperdicio = 0;
   const x: Record<string, number[]> = {};
   const traj: Record<string, number[]> = {};
   g.nos.forEach((n) => (x[n] = []));
@@ -98,6 +103,7 @@ export function simularGrupo(grafo: Grafo, g: GrupoFluxo, p: ParamsSim): Resulta
         const sem = produzir(Number.POSITIVE_INFINITY, true);
         bloq += sem.xr + sem.xb + sem.xa - total; // produção que o plano queria mas a meta final já não aceita
       }
+      desperdicio += Math.max(0, base - xb);
       x[n].push(total);
       B[n] += total;
       // consome das arestas de entrada, proporcional ao disponível
@@ -114,7 +120,7 @@ export function simularGrupo(grafo: Grafo, g: GrupoFluxo, p: ParamsSim): Resulta
     });
     if (p.trajetoria) g.arestas.forEach((e) => traj[e].push(W[e]));
   }
-  return { B, W, L, x, traj, bloqueadoPelaMeta: bloq };
+  return { B, W, L, x, traj, baseLeft, bloqueadoPelaMeta: bloq, desperdicioBase: desperdicio };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
