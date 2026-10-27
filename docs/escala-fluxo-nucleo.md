@@ -1,6 +1,6 @@
 # Escala Inteligente (fluxo) — núcleo puro
 
-Implementa `docs/escala-fluxo-inteligente-spec.md` §1–§5 e §10. Código em `src/features/escala/fluxo/`, testes em `src/features/escala/fluxo/__tests__/`.
+Implementa `docs/escala-fluxo-inteligente-spec.md` §1–§5 e §10 (versão do contrato `VERSAO_FLUXO = 2`). Código em `src/features/escala/fluxo/`, testes em `src/features/escala/fluxo/__tests__/`.
 Regras de ouro do núcleo: **sem IO** (nada de Supabase/fetch), **sem relógio nem aleatório** (tudo por parâmetro), **sem regra por produto**, restrições duras do motor
 **invioláveis** e conferidas por um verificador independente. A flag (`producao_real_modo`), a persistência e o gatilho NÃO estão aqui (Pacote IO).
 
@@ -10,9 +10,13 @@ Regras de ouro do núcleo: **sem IO** (nada de Supabase/fetch), **sem relógio n
 estadoDaProducao(entrada, dados, opcoes?)            -> EstadoFluxo
 avaliarPlano(entrada, dados, alocacoes, opcoes?)     -> AvaliacaoPlano     // a régua única (oficial e inteligente)
 planejarComFluxo(entrada, dados, opcoes?)            -> { entradaFluxo, resultado, diagnostico }
-verificarRestricoesDuras(entrada, alocacoes)         -> ViolacaoDura[]     // independente do motor
+verificarRestricoesDuras(entrada, alocacoes, { somenteLinhasNovas?, aPartirDe? }?) -> ViolacaoDura[]   // independente do motor; o modo somenteLinhasNovas NÃO acusa linhas já congeladas
+fatoresDeDesempenho(entrada, apontamentos, agoraMs, paresLegado?) / embutirFatores(entrada, f)   // f de desempenho (mesma regra da sombra) embutido nas metas — usado pela integração
+explicarMudanca(ctx, referencia, novo, avRef, avNovo, "vigente"|"base")                         // decisões com ganho ADITIVO + reconciliação (usado por planejarComFluxo)
 construirGrafo(pools, { paresLegado, ligacoes })     -> Grafo               // modelo lógico dos pools (útil para depurar)
 ```
+
+**Fator de desempenho f (v2, integração)**: a integração calcula f por pool com `fatoresDeDesempenho` (a mesma regra de `desempenho.ts`/sombra: obs = Σ boas/Σ meta das linhas "produzindo" visíveis até o corte, clamp [0,30; 1,30], suavizado n/(n+6), n<3 ⇒ 1; pools FUNDIDOS do Conector recebem o MESMO f, calculado do realizado conjunto) e o EMBUTE nas metas (`embutirFatores`) informando `opcoes.fatoresEmbutidos`. O núcleo nunca reaplica f nesse caminho (`fatorPorPool` fica de fora): f é multiplicado UMA vez, o motor corta a última linha pelo restante com a capacidade efetiva, e planos gravados — que podem já trazer f embutido nas peças — são avaliados pela capacidade das metas, jamais pelas peças gravadas.
 
 **Convenção de entrada** (a mesma que a Escala oficial usa hoje): `entrada.pools[].quantidade` = Q **semanal previsto**; `entrada.congeladas` = linhas gravadas dos slots
 `< aPartirDe` (com o `pecas` planejado); `entrada.aPartirDe` = primeiro slot **não iniciado**; `dados.planoVigente` = todas as linhas gravadas da semana (base de churn/estabilidade e
@@ -20,11 +24,12 @@ dos postos "esperados" dos períodos passados); `dados.apontamentos` = tudo o qu
 **embutido nas metas** de `entrada.pools` (como `sombraCorte.ts` faz) — nesse caso informe `opcoes.fatoresEmbutidos` (só serve para a checagem de compatibilidade do Conector);
 ou passe `opcoes.fatorPorPool` para o núcleo aplicar `f` sobre as metas (não combine os dois).
 
-**Plano base** = `gerarEscala(entrada)` (o que a Escala oficial faria hoje). `planejarComFluxo` nunca devolve plano pior que ele pelo simulador.
+**Plano base** = `gerarEscala(entrada)` (o que a Escala oficial faria hoje, sobre a entrada recebida). **Plano vigente** = o futuro (slots ≥ `aPartirDe`) de `dados.planoVigente`.
+`planejarComFluxo` (v2) nunca devolve plano pior que o base NEM pior que o vigente VÁLIDO pelo simulador, e, se nada for estritamente melhor, devolve exatamente as linhas vigentes (zero churn).
 
 ### Opções (`OpcoesFluxo`)
-`paresLegado`, `ligacoes` (produto único), `limiarEstabilidadePecas` (θ), `maxIteracoes` (default 4), `fatorPorPool`, `fatoresEmbutidos`, `ponderarPorValor` (default false),
-`fluxoMesmoPeriodo` (default true), `incluirTrajetoria` (default true), `incluirMarginais` (default false), `maxDecisoes` (default 120), `limitesRemPorPool` (só `avaliarPlano`).
+`paresLegado`, `ligacoes` (produto único), `limiarEstabilidadePecas` (θ; **default 0 desde a v2**), `estabilizarPessoas` (default true), `maxIteracoes` (default 4), `fatorPorPool`, `fatoresEmbutidos`, `ponderarPorValor` (default false),
+`fluxoMesmoPeriodo` (default true), `incluirTrajetoria` (default true), `incluirMarginais` (default false), `maxDecisoes` (default **500**), `limitesRemPorPool` (só `avaliarPlano`).
 Campos acrescentados depois da FASE 0 (todos opcionais/aditivos): `fatoresEmbutidos`, `ligacoes`, `limitesRemPorPool`, `maxDecisoes`, `EstadoProduto.restanteEmAPartirDe`,
 `TotaisAvaliacao.{capacidadeDesperdicada, excessoFinal}`, `DiagnosticoFluxo.{decisoesTotal, resumoDecisoes}`, `ResumoDecisao`, `LigacaoProdutos`.
 
@@ -79,22 +84,24 @@ Dois cenários com a mesma função: **lo** (pessimista: boas e WIP no limite in
 (`potencial = (capacidade futura do plano + estoque) / peso do caminho + estoque além` ⇒ menor potencial; `folga = potencial − R_f`), `capacidadeDesperdicada`, `excessoFinal`,
 trajetória do WIP por slot, e `postos[]` = **peças finais atribuíveis a cada posto** (remoção marginal re-simulada; só os de contribuição > 0).
 
-## 5. Planejar com fluxo (`planejar.ts`, `otimizar.ts`)
+## 5. Planejar com fluxo (`planejar.ts`, `otimizar.ts`, `explicar.ts`)
 
-1. `base = gerarEscala(entrada)`; `P0 = gerarEscala(entrada + remPorPool)`.
+1. `base = gerarEscala(entrada)`; `P0 = gerarEscala(entrada + remPorPool)`; `vigente = linhas de dados.planoVigente em slots ≥ aPartirDe`.
 2. Iteração `i = 1..maxIteracoes`: **varredura cronológica por contagens** (`otimizar.ts`): para cada slot ≥ `aPartirDe`, dado o resto do plano (slots anteriores já atualizados),
    escolhe por guloso com re-simulação exata os postos (nó + máquina menos disputada) de maior ganho em peças finais (cenário lo) até acabar as pessoas disponíveis; só troca as contagens
    anteriores se o valor total do slot melhorar (nunca piora). Captura a complementaridade etapa anterior × seguinte. As contagens viram `ordemPostos.valorMarginal`
    (o k-ésimo posto do nó vale o ganho de removê-lo; fora das contagens 0) e o motor decide pessoas/rotação/máquinas. Para por convergência ou hash repetido.
-3. Candidato elegível = **0 violação dura** (`verificarRestricoesDuras`) **e** falta final lo ≤ falta do base. Escolhe-se a menor tupla J (lexicográfica, tolerância 1e-6 nas faltas, 1 peça nas demais):
-   `[falta_lo (ou ponderada), falta_hi, −capacidadeGargalo, wipLegadoResidual, excessoWip, capacidadeDesperdicada, churn]`. O base só é trocado se o candidato for **estritamente** melhor.
-4. **Estabilidade**: `bonusContinuidade[aPartirDe][maq|pool] = θ` para os postos do plano vigente no 1º período mutável (c+1); do segundo em diante livre. θ padrão =
-   `max(menor meta média ocupada, 0,5% · ΣR_f)` (a calibrar no replay; persistência em `escala_parametros` é do Pacote IO). `ESTABILIDADE_RETEVE_ALOCACAO` conta os postos mantidos só por causa do bônus.
-   Restrição dura ignora θ.
-5. Diagnóstico (item 35): `antes` (R_f, rem legado, WIP, gargalos, falta), `decisoes` (por slot e troca de→para, com `motivo`: ganho estimado em peças finais = contribuição(para) − contribuição(de),
-   WIP consumido/evitado — **estimativas, não aditivas**; até `maxDecisoes`) + `resumoDecisoes` (completo, por pool origem→destino), `depois` e `depoisBase` (final, WIP, falta, excesso),
-   `churn`, `iteracoes` (tuplas), `violacoes`, `estado`, `avaliacaoBase`, `avaliacaoFluxo`, `diagnosticos`. Tudo JSON puro (testado: sem NaN/Infinity). Tamanho típico ≈ 280 KB (c10 real);
-   `incluirTrajetoria:false` e `maxDecisoes` reduzem.
+3. **Candidatos** = plano vigente mantido (`indice -2`, só se VÁLIDO: 0 violação dura HOJE pelo `verificarRestricoesDuras` — funcionário desativado/ausente, máquina em Parada etc. descartam — e COMPLETO: as mesmas pessoas por slot mutável que o motor escalaria; senão `PLANO_VIGENTE_DESCARTADO`), base (`-1`), P0 e as iterações.
+4. **Estabilização de pessoas (v2)**: cada candidato gerado passa por `estabilizarPessoas` (o mesmo mecanismo do modo restrito, `estabilidade.ts`: atribuição de custo mínimo por período mantendo a pessoa no mesmo posto do vigente,
+   respeitando revezamento duro e trocas manuais) ANTES de ser avaliado; falta e restrições duras são **reavaliadas depois**, e a re-atribuição é descartada (`ESTABILIZACAO_DESCARTADA`) se piorar a falta ou criar violação. Mesmos postos, mesma falta, menos linhas alteradas.
+5. Elegível = **0 violação dura** **e** falta final lo ≤ min(falta do base, falta do vigente válido). Escolhe-se a menor tupla J (lexicográfica, tolerância 1e-6 nas faltas, 1 peça nas demais):
+   `[falta_lo (ou ponderada), falta_hi, −capacidadeGargalo, wipLegadoResidual, excessoWip, capacidadeDesperdicada, churn]`. Desempate: vigente (churn 0) > base > fluxo — só se troca por candidato **estritamente** melhor. O vigente escolhido
+   volta como as MESMAS linhas gravadas (sem churn, para o NO-OP do recálculo). Um candidato gerado cujas linhas são idênticas às vigentes É o vigente (`planoEscolhido = "vigente"`): seus `alertas`/`resumoSlots` são devolvidos junto, de modo que a assinatura de alertas do recálculo anterior se repete; se nenhum candidato coincide (vigente produzido por outra via), valem os do base.
+6. **θ**: `bonusContinuidade[aPartirDe][maq|pool] = θ` para os postos do plano vigente no 1º período mutável. **θ padrão = 0 (sem retenção)**: medido nos dados reais de PROD (docs/escala-fluxo-criterios-ativacao.md §4), reter por θ só custa peça final e quase não reduz o churn — o churn estava nas PESSOAS, e a re-atribuição resolve isso de graça. θ > 0 continua disponível (`limiarEstabilidadePecas`). Restrição dura ignora θ.
+7. **Diagnóstico (item 35, v2: CONTRA o plano vigente)**: `referencia` ("vigente", ou "base" se não há vigente futuro), `vigente` (disponível/válido/motivo/falta), `estabilizacao`, `antes` (R_f, rem legado, WIP, gargalos e falta DO VIGENTE),
+   `decisoes` (grupos período × posto de→para, ganho **aditivo** por marginal sequencial cronológico: o simulador é re-executado a cada decisão aplicada sobre a capacidade do vigente; `wipConsumido`/`wipEvitado`/`wipFinalVariacao` da mesma re-simulação),
+   `decisoesTotal` + `resumoDecisoes` (por pool de→para E por período `porSlot`; cobrem 100% das linhas alteradas mesmo se a lista for limitada por `maxDecisoes`), `reconciliacao` (final do plano − final do vigente = Σ ganhos + `residuo` explícito: teto de demanda `rem` e quantidades em postos mantidos),
+   `depois`, `depoisBase`, `depoisVigente`, `churn`, `iteracoes` (tuplas; `-2` = vigente, `-1` = base), `violacoes`, `estado`, `avaliacaoBase`, `avaliacaoFluxo`, `diagnosticos`. Tudo JSON puro (testado: sem NaN/Infinity). `incluirTrajetoria:false` e `maxDecisoes` reduzem o tamanho.
 
 ## 6. Grafo, Conector legado e produto único (`grafo.ts`)
 
@@ -102,7 +109,7 @@ Cada pool é um nó; o nó k liga ao k+1 do mesmo produto (aresta com `chavePar 
 
 * **Conector legado** (`ParLegado`, spec §5): as etapas comuns (Etiquetar, Embalar) dos dois produtos são **fundidas num nó** (membros[]) se, para cada uma: mesma `operacaoId`, mesmo conjunto
   de máquinas, metas compatíveis (tolerância 1%, comparadas sobre as metas **nominais** = meta / `fatoresEmbutidos`), e forem o **sufixo** das duas cadeias. Os trechos exclusivos
-  (Rosquear/Parafusar; Máquina 8) alimentam o nó comum com peso `Q_ramo/ΣQ`; demanda comum `R_f,total = Q_conv + Q_auto − boas Embalar (conv + auto)`; WIP por ramo
+  (Rosquear/Parafusar; Máquina 8) alimentam o nó comum com peso `Q_ramo/ΣQ`; demanda comum `R_f,total = Q_conv + Q_auto − boas (conv + auto)` no corte (`PoolFundido.demandaComum` desconta as boas desde a v2); WIP por ramo
   `W_b = f(B_exclusivo_b − s_b·B_comum)` (estimado, proporcional). Linhas do pool fundido saem no produto convencional (`remPorPool` do membro automática = 0). Qualquer condição falha ⇒
   **tudo legado** + `PRODUTO_EM_COMPORTAMENTO_LEGADO` (aviso; "info" se só um dos produtos está na Previsão). Nada altera apontamentos.
 * **Produto único** (F#CONV / F#AUTO / F#COMUM, desenho de 02/11, `src/features/rotas` ainda não existe nesta branch): `opcoes.ligacoes = [{produtoOrigemId, produtoDestinoId}]` liga a última
@@ -124,16 +131,18 @@ nos instantâneos reais de PROD e reproduz os `hash_decisao`/`hash_plano_sombra`
 * Estoque inicial de semana desconhecido ⇒ não inventado (WIP negativo ⇒ piso 0 + diagnóstico). Saldo confirmado é só piso.
 * Pool final = maior `ordemEtapa` (não consulta as RPCs do Apontado Real). Linhas congeladas entram pela capacidade, não pelo `pecas` (os congelados do sombra têm `pecas = 0`).
 * A camada de carga adicional/WIP do motor permanece como está; suas linhas entram na avaliação como capacidade adicional.
-* `thetaPadrao` é uma proposta; a calibração fina é por replay (Pacote Replay).
-* Desempenho: ≈ 0,5–2 s por `planejarComFluxo` (15 pessoas, 13 pools, 30 slots, 4 iterações) em Node.
+* θ padrão = 0 (v2); a calibração foi feita por replay de PROD.
+* Desempenho: ver docs/escala-fluxo-criterios-ativacao.md §8 (medido em série com a carga real; p50/p95/máx por recálculo).
+* O vigente é candidato "tudo ou nada": se uma só linha vigente viola a restrição dura de hoje, o vigente inteiro é descartado (o plano novo sempre respeita as restrições).
+* `sem_producao` com motivo `sem_programacao` (valor real de PROD fora da spec original) é zero confirmado com diagnóstico próprio `SEM_PRODUCAO_SEM_PROGRAMACAO`; não infere falta de material.
 
 ## 9. Como depurar um diagnóstico
 
-1. `diagnostico.planoEscolhido`: `base` = nenhum candidato foi estritamente melhor (ver `iteracoes[].tupla` e `diagnosticos` `PLANO_BASE_MANTIDO`); `fluxo` = `iteracaoEscolhida`.
+1. `diagnostico.planoEscolhido`: `vigente` = nenhum candidato foi estritamente melhor que o plano em vigor (`PLANO_VIGENTE_MANTIDO`, saída = linhas vigentes); `base` = o regenerado foi estritamente melhor (ou não há vigente futuro; ver `iteracoes[].tupla` e `PLANO_BASE_MANTIDO`); `fluxo` = `iteracaoEscolhida`.
 2. `estado.demanda[]`: por pool `remLegado` × `demandaFluxo` (Need) × `tetoUtilidade` (Allowed) × `remFluxo`. `limitadoPorUtilidade` + `TETO_UTILIDADE_APLICADO` explicam um pool "frio".
 3. `estado.pares[]`: WIP `lo/hi`, `origem`, `confianca`, `bruto` (antes do piso). `WIP_NEGATIVO_ESTIMADO` = dado inconsistente (investigar apontamento/estoque inicial).
 4. `estado.celulas[]` filtrando `estado = nao_confirmado` mostra o que ficou sem apontamento (a incerteza do `lo/hi`); `tardio = true` = lançamento atrasado.
 5. `avaliacaoBase` × `avaliacaoFluxo`: `totais`, `produtos[].gargaloFluxo`, `trajetoria` (WIP por slot) e `postos` (quem produz peça final). Rode `avaliarPlano(..., { incluirMarginais: true })` para ver o valor marginal por slot/pool/n.
-6. `decisoes[]` / `resumoDecisoes[]`: de→para e o motivo; `churn` e `ESTABILIDADE_RETEVE_ALOCACAO` explicam o que θ segurou.
+6. `decisoes[]` / `resumoDecisoes[]`: de→para (o `de` é o posto no plano VIGENTE) e o motivo; `reconciliacao` fecha a conta do ganho; `estabilizacao` mostra quantas linhas a re-atribuição de pessoas poupou; `vigente` explica por que o plano em vigor foi ou não candidato.
 7. `violacoes` deve ser vazio; qualquer item é bug (o candidato seria descartado — ver `VIOLACAO_RESTRICAO_DURA` nos diagnósticos).
 8. Reproduzir: o par `(entrada, dados, opcoes)` é determinístico — `planejarComFluxo` duas vezes dá o mesmo JSON.

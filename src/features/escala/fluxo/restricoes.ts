@@ -10,8 +10,20 @@ import type { ViolacaoDura } from "./tipos";
 
 const chaveSlot = (a: { data: string; periodoId: string }) => `${a.data}|${a.periodoId}`;
 
-export function verificarRestricoesDuras(entrada: EntradaEscala, alocacoes: AlocacaoEscala[]): ViolacaoDura[] {
+export interface OpcoesVerificacao {
+  /** Só confere as linhas NOVAS (slot ≥ aPartirDe): linhas já congeladas — gravadas sob outras condições (funcionário desativado depois, parada registrada depois) —
+   *  não são acusadas. O passado alterado (linha < aPartirDe diferente do congelado) continua sendo conferido. Default false (comportamento v1). */
+  somenteLinhasNovas?: boolean;
+  /** Primeiro slot "novo" no modo somenteLinhasNovas. Default `entrada.aPartirDe`. */
+  aPartirDe?: number;
+}
+
+export function verificarRestricoesDuras(entrada: EntradaEscala, alocacoesTodas: AlocacaoEscala[], opcoes: OpcoesVerificacao = {}): ViolacaoDura[] {
   const v: ViolacaoDura[] = [];
+  const ap = opcoes.aPartirDe ?? entrada.aPartirDe;
+  const idxDe = new Map(entrada.slots.map((s) => [chaveSlot(s), s.indice]));
+  // modo somenteLinhasNovas: as regras por linha/posto/revezamento valem só para slot ≥ aPartirDe; passado_alterado (abaixo) usa a lista completa
+  const alocacoes = opcoes.somenteLinhasNovas ? alocacoesTodas.filter((a) => (idxDe.get(chaveSlot(a)) ?? Number.POSITIVE_INFINITY) >= ap) : alocacoesTodas;
   const slotPor = new Map(entrada.slots.map((s) => [chaveSlot(s), s]));
   const equipe = new Set(entrada.funcionarios.map((f) => f.id));
   const inativas = new Set(entrada.maquinasInativas ?? []);
@@ -74,7 +86,7 @@ export function verificarRestricoesDuras(entrada: EntradaEscala, alocacoes: Aloc
 
   // ---- passado alterado ----
   const cong = new Map(entrada.congeladas.map((a) => [`${chaveSlot(a)}|${a.funcionarioId}`, a]));
-  alocacoes.forEach((a) => {
+  alocacoesTodas.forEach((a) => {
     const slot = slotPor.get(chaveSlot(a));
     if (!slot || slot.indice >= entrada.aPartirDe) return;
     const c = cong.get(`${chaveSlot(a)}|${a.funcionarioId}`);

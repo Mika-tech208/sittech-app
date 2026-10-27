@@ -163,6 +163,10 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
       if (motivo === "falta_material") {
         diagnosticos.push({ codigo: "SEM_PRODUCAO_FALTA_MATERIAL", severidade: "aviso", slot: t, ...dividirChave(k), mensagem: `Sem produção por falta de material em ${maquinaId} (${slot.data} ${slot.periodoId}): etapa temporariamente inviável`, detalhes: { maquinaId } });
       }
+      if (motivo === "sem_programacao") {
+        // valor real de PROD fora da spec original (6 linhas em 26–27/10): zero confirmado, sem programação — NÃO é falta de material nem de operador; nada a inferir sobre o estoque
+        diagnosticos.push({ codigo: "SEM_PRODUCAO_SEM_PROGRAMACAO", severidade: "info", slot: t, ...dividirChave(k), mensagem: `Sem produção por falta de programação em ${maquinaId} (${slot.data} ${slot.periodoId}): zero confirmado, sem efeito sobre o estoque estimado`, detalhes: { maquinaId } });
+      }
       if (tardio) tardiosPorEtapa[k] = (tardiosPorEtapa[k] ?? 0) + 1;
       return;
     }
@@ -443,12 +447,17 @@ export function montarEstado(ctx: CtxFluxo): EstadoFluxo {
     });
   });
   produtos.sort((a, b) => (a.produtoId < b.produtoId ? -1 : 1));
+  // demanda comum dos pools fundidos: contrato R_f,total = Q_conv + Q_auto − boas confirmadas (conv + auto) NO CORTE (o nó fundido acumula as boas dos dois membros)
+  const poolsFundidos = grafo.fusoes.map((f) => {
+    const n = grafo.noDoPool[f.chaveConvencional];
+    return { ...f, demandaComum: r1(Math.max(0, (grafo.nos[n]?.quantidade ?? f.demandaComum) - (ctx.iniBoundary.lo.B0[n] ?? 0))) };
+  });
   const proj: ProjecaoNoCorte = { aPartirDe: ctx.aPartirDe, boas: {}, wip: {} };
   Object.keys(grafo.nos).sort().forEach((n) => (proj.boas[n] = { lo: r1(ctx.iniAPartirDe.lo.B0[n] ?? 0), hi: r1(ctx.iniAPartirDe.hi.B0[n] ?? 0) }));
   Object.keys(grafo.arestas).sort().forEach((e) => (proj.wip[e] = { lo: r1(ctx.iniAPartirDe.lo.W0[e] ?? 0), hi: r1(ctx.iniAPartirDe.hi.W0[e] ?? 0) }));
   return {
     versao: VERSAO_FLUXO, agoraMs: ctx.dados.agoraMs, fechamentoMinutos: ctx.fechamentoMinutos, ultimoFechado: ctx.ultimoFechado, aPartirDe: ctx.aPartirDe,
-    celulas: ctx.celulas, etapas: ctx.etapas, produtos, pares: ctx.pares, projecao: proj, demanda, remPorPool, poolsFundidos: grafo.fusoes, diagnosticos,
+    celulas: ctx.celulas, etapas: ctx.etapas, produtos, pares: ctx.pares, projecao: proj, demanda, remPorPool, poolsFundidos, diagnosticos,
   };
 }
 

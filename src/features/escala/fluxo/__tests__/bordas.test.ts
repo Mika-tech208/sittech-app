@@ -53,9 +53,10 @@ describe("bordas", () => {
   it("maxIteracoes = 0 devolve base ou P0; maxIteracoes grande não passa de 4+2 candidatos por convergência", () => {
     const m = montar({ pools, funcionarios: equipe(3), c: 1 });
     const r0 = planejarComFluxo(m.entrada, m.dados, { maxIteracoes: 0 });
-    expect(r0.diagnostico.iteracoes.length).toBe(2);
+    expect(r0.diagnostico.iteracoes.length).toBeGreaterThanOrEqual(2); // base + P0 (+ o plano vigente, candidato desde a v2)
+    expect(r0.diagnostico.iteracoes.length).toBeLessThanOrEqual(3);
     const r9 = planejarComFluxo(m.entrada, m.dados, { maxIteracoes: 9 });
-    expect(r9.diagnostico.iteracoes.length).toBeLessThanOrEqual(11);
+    expect(r9.diagnostico.iteracoes.length).toBeLessThanOrEqual(12);
     expect(verificarRestricoesDuras(r9.entradaFluxo, r9.resultado.alocacoes)).toEqual([]);
   });
   it("ponderarPorValor usa o valor unitário da etapa final sem quebrar o critério de não-piora", () => {

@@ -21,7 +21,7 @@ Especificação: `docs/escala-fluxo-inteligente-spec.md` (§6 instrumentação/s
 |---|---|---|
 | `producao_real_modo` | `"desligado"` \| `"sombra"` \| `"ativo"` | `"desligado"` |
 | `producao_real_semanas_ativas` | array de segundas-feiras ISO, **nunca anteriores a 2026-10-26** (constraint) | `[]` |
-| `producao_real_limiar_estabilidade` | número ≥ 0 (θ, peças finais) ou `null` = derivado | `null` |
+| `producao_real_limiar_estabilidade` | número ≥ 0 (θ, peças finais) ou `null` = padrão do núcleo (v2: θ = 0; a estabilidade vem da re-atribuição de pessoas) | `null` |
 | `producao_real_pares_legado` | `ParLegado[]` (Conector 3/4" convencional × automática; Etiquetar e Embalar) | semeado |
 
 **Modo efetivo da semana** = `producao_real_modo` se a semana está em `producao_real_semanas_ativas`; senão `desligado`
@@ -44,6 +44,11 @@ O evento de fechamento de período (`apontamento_periodo`) passou a nascer tamb�
   `aplicado = true` só quando o plano gravado é o do fluxo (NO-OP e fallback gravam `aplicado = false`). O resumo do recálculo carrega `resumo.fluxo`.
 * **Interlock**: nas semanas com fluxo `ativo`, `processarSombraDoServidor` **não aplica o `ativo_restrito`** (decisão sombra continua gravada; o parâmetro do
   restrito não é alterado; `resumo.interlockFluxo` lista as semanas). Em `sombra` o restrito segue como está.
+
+**Insumos do núcleo (v2)** — `insumosFluxo(estado, entrada, agoraMs)`: o f de desempenho (realizado visível no corte, a mesma regra da sombra; pools fundidos do Conector com f conjunto) é EMBUTIDO nas metas da entrada passada ao núcleo e informado em `opcoes.fatoresEmbutidos`;
+`fatorPorPool` não é usado (f é aplicado uma só vez). Plano vigente gravado com f nas peças é avaliado pelas metas, nunca pelas peças. O plano **vigente** é candidato do núcleo: quando nada é estritamente melhor, o plano gravado volta idêntico
+(`planoEscolhido = "vigente"`, zero churn; `resultado.alertas` vêm do candidato idêntico às linhas vigentes — o que repete a assinatura de alertas e preserva o NO-OP — ou, se nenhum coincide, do `gerarEscala` sobre a entrada: nesse caso a assinatura pode diferir e só sobe a versão do dia, sem linhas novas). As pessoas são re-atribuídas (`estabilizarPessoas`) para manter o posto vigente.
+O registro (`escala_fluxo_diagnosticos`) traz, em `diff` e `replanejamento`: `referencia`, `reconciliacao` (Σ ganhos + resíduo = diferença), `resumoDecisoes` (por pool e por período — cobre 100% das linhas alteradas), `totalDecisoes`, `truncado`, `vigente`, `estabilizacao`, `depoisVigente`.
 
 ## 4. Ligar / desligar (SQL exato — rodar em PROD só com autorização)
 
@@ -127,4 +132,4 @@ select (criado_em at time zone 'America/Sao_Paulo')::date dia,
 * Escrita: somente `escala_fluxo_registrar(jsonb)` (service_role). O portão do banco recusa semana fora da lista, `ativo` sem autorização e `aplicado` sem `ativo`; `gatilho = 'replay'` é isento do portão da semana (histórico, nunca altera a Escala).
 * Idempotência: `unique (previsao_id, gatilho, hash_entrada, hash_plano_fluxo, modo)` + `on conflict do nothing`.
 * Se a leitura dos apontamentos falhar, a semana segue pelo motor oficial (log `escala/fluxo: apontamentos indisponíveis`).
-* Custo: o núcleo roda `gerarEscala` até 1 + 1 + 4 vezes por cálculo; o worker tem `maxDuration = 60 s`. Acompanhe a latência do ciclo ao ligar a sombra.
+* Custo: o núcleo roda `gerarEscala` até 1 + 1 + 4 vezes por cálculo, mais estabilização e avaliação de cada candidato e a explicação aditiva; o worker tem `maxDuration = 60 s`. Medido em série com a carga real (docs/escala-fluxo-criterios-ativacao.md §8). Acompanhe a latência do ciclo ao ligar a sombra.

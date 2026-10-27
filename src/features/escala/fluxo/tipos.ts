@@ -9,7 +9,7 @@
 import type { ApontamentoReal } from "../producaoReal";
 import type { AlocacaoEscala, EntradaEscala, ResultadoEscala } from "../types";
 
-export const VERSAO_FLUXO = 1;
+export const VERSAO_FLUXO = 2; // v2: plano vigente como candidato, estabilização de pessoas, explicação contra o vigente (aditiva) — ver docs/escala-fluxo-nucleo.md
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Entradas
@@ -62,8 +62,11 @@ export interface ParLegado {
 
 export interface OpcoesFluxo {
   paresLegado?: ParLegado[];
-  /** θ: ganho mínimo (peças finais) para trocar uma alocação já existente no PRIMEIRO período mutável. Default derivado (spec §4). */
+  /** θ: ganho mínimo (peças finais) para trocar uma alocação já existente no PRIMEIRO período mutável. Default = 0 (v2): a estabilidade vem da
+   *  re-atribuição de pessoas (`estabilizarPessoas`), que não custa peça final; retenção por θ só custa falta (medido no replay, docs/escala-fluxo-criterios-ativacao.md §4). */
   limiarEstabilidadePecas?: number;
+  /** Re-atribui as PESSOAS do plano escolhido para manter a pessoa no mesmo posto do plano vigente (mesmos postos, mesma falta). Default true. */
+  estabilizarPessoas?: boolean;
   /** Máximo de iterações de valor marginal. Default 4. */
   maxIteracoes?: number;
   /** Fator de desempenho por pool a APLICAR sobre entrada.pools[].metas (ausente = metas já efetivas). Não combinar com fatoresEmbutidos. */
@@ -78,7 +81,7 @@ export interface OpcoesFluxo {
   /** Inclui na avaliação a trajetória de WIP por par/slot e os marginais (mais pesado no jsonb). Default true / false. */
   incluirTrajetoria?: boolean;
   incluirMarginais?: boolean;
-  /** Máximo de decisões detalhadas no diagnóstico (default 120); o resumo agregado é sempre completo. */
+  /** Máximo de decisões detalhadas no diagnóstico (default 500); `decisoesTotal` e o resumo agregado (com `porSlot`) cobrem SEMPRE 100% das linhas alteradas. */
   maxDecisoes?: number;
   /** Produto único (F#CONV/F#AUTO/F#COMUM): a última etapa de `produtoOrigemId` alimenta a primeira de `produtoDestinoId`. */
   ligacoes?: LigacaoProdutos[];
@@ -110,6 +113,11 @@ export type CodigoDiagnosticoFluxo =
   | "PLANO_FLUXO_ESCOLHIDO"
   | "VIOLACAO_RESTRICAO_DURA" // o candidato violava hard constraint e foi descartado (nunca emitido para o plano escolhido)
   | "ESTABILIDADE_RETEVE_ALOCACAO" // ganho < θ: alocação do plano vigente mantida
+  | "PLANO_VIGENTE_MANTIDO" // o futuro do plano em vigor foi o candidato escolhido (nenhuma alternativa estritamente melhor): saída = linhas vigentes, sem churn
+  | "PLANO_VIGENTE_DESCARTADO" // o futuro do plano em vigor NÃO é candidato válido (violaria restrição dura hoje ou está incompleto)
+  | "ESTABILIZACAO_PESSOAS" // pessoas re-atribuídas para manter o posto do plano vigente
+  | "ESTABILIZACAO_DESCARTADA" // a re-atribuição piorou a falta ou violou restrição dura: descartada
+  | "SEM_PRODUCAO_SEM_PROGRAMACAO" // sem_producao com motivo sem_programacao (fora da spec original): zero confirmado, sem inferir material
   | "POOL_FUNDIDO"; // pools legados fundidos logicamente
 
 export interface DiagnosticoItem {
@@ -341,21 +349,30 @@ export interface PostoRef {
   maquinaId: string | null;
   produtoId: string | null;
   etapaId: string | null;
+  /** true = posto de carga ADICIONAL (2ª camada), não do previsto. Ausente = previsto. */
+  adicional?: boolean;
 }
 
 export interface DecisaoFluxo {
   data: string;
   periodoId: string;
   slot: number;
-  de: PostoRef; // plano base (oficial)
-  para: PostoRef; // plano de fluxo
+  de: PostoRef; // plano de REFERÊNCIA: o plano VIGENTE que o supervisor vê (ou o base, se não há plano vigente — ver DiagnosticoFluxo.referencia)
+  para: PostoRef; // plano proposto
   quantidade: number; // nº de alocações (pessoa-período) com esta mesma troca
   funcionarios: string[];
   motivo: {
-    ganhoProdutoFinal: number; // estimativa (peças finais) = contribuição(para) − contribuição(de); não é aditiva
+    /** ADITIVO (v2): variação do produto final previsto (peças, cenário pessimista) ao aplicar ESTA decisão sobre o plano de referência, em ordem
+     *  cronológica (marginal sequencial). Σ ganhos + `reconciliacao.residuo` = final previsto do plano − final previsto da referência. */
+    ganhoProdutoFinal: number;
+    /** = ganhoProdutoFinal (com sinal): redução da falta final. Negativo = esta decisão aumenta a falta (paga por outras que melhoram mais). */
     reducaoFalta: number;
+    /** WIP existente (estoque projetado no início da região mutável) consumido a mais por esta decisão (≥ 0). */
     wipConsumido: number;
+    /** Excesso de WIP no fim da semana evitado por esta decisão (≥ 0). */
     wipEvitado: number;
+    /** Variação do WIP total no fim da semana (peças, pessimista, com sinal; aditivo). */
+    wipFinalVariacao: number;
     texto: string;
   };
 }
@@ -367,9 +384,13 @@ export interface ResumoDecisao {
   pessoasPeriodo: number;
   slots: number;
   ganhoProdutoFinal: number;
+  /** Por período (slot): pessoas-período movidas e ganho — permite conferir que NENHUMA linha alterada fica sem explicação mesmo com a lista detalhada limitada. */
+  porSlot: { slot: number; pessoas: number; ganhoProdutoFinal: number }[];
 }
 
 export interface AntesFluxo {
+  /** Plano que o ANTES descreve: "vigente" (o que o supervisor vê) ou "base" (quando não há plano vigente futuro). */
+  referencia: "vigente" | "base";
   demandaRestante: Record<string, number>; // R_f por produto
   remLegado: Record<string, number>;
   wip: EstadoWipPar[];
@@ -396,7 +417,7 @@ export interface ChurnFluxo {
 export type TuplaObjetivo = number[];
 
 export interface IteracaoFluxo {
-  indice: number; // 0 = P0 (rem de fluxo, ordem legada); 1.. = com valor marginal
+  indice: number; // -2 = plano VIGENTE mantido; -1 = plano base; 0 = P0 (rem de fluxo, ordem legada); 1.. = com valor marginal
   tupla: TuplaObjetivo;
   faltaFinalLo: number;
   violacoes: number;
@@ -404,20 +425,55 @@ export interface IteracaoFluxo {
   hashPlano: string;
 }
 
-export type PlanoEscolhido = "base" | "fluxo";
+export type PlanoEscolhido = "base" | "fluxo" | "vigente";
+
+/** Reconciliação do ganho: Σ `decisoes[].motivo.ganhoProdutoFinal` (todas, não só as listadas) + residuo = diferenca. */
+export interface ReconciliacaoGanho {
+  referencia: "vigente" | "base";
+  finalReferencia: number; // produto final previsto (lo) do plano de referência
+  finalPlano: number; // idem, do plano devolvido (avaliado como no diagnóstico)
+  diferenca: number; // finalPlano − finalReferencia
+  somaGanhos: number; // Σ ganhos das decisões (aditivos)
+  /** diferenca − somaGanhos: efeito do teto de demanda (rem de fluxo) e de diferenças de quantidade em postos mantidos — explícito, nunca escondido. */
+  residuo: number;
+  explicacaoResiduo: string;
+}
+
+export interface SituacaoVigente {
+  disponivel: boolean; // há linhas vigentes em slots mutáveis
+  valido: boolean; // sem violação dura HOJE e completo (mesmas pessoas/slots que o motor geraria)
+  motivo: string | null; // por que não é candidato válido
+  violacoes: number;
+  falta: Intervalo | null; // falta final do futuro vigente pelo MESMO simulador
+}
+
+export interface EstabilizacaoPessoas {
+  aplicada: boolean;
+  periodosAjustados: number;
+  linhasAntes: number; // churn do plano escolhido ANTES da re-atribuição
+  linhasDepois: number;
+  motivoDescarte: string | null;
+}
 
 export interface DiagnosticoFluxo {
   versao: number;
   planoEscolhido: PlanoEscolhido;
+  /** Plano contra o qual `decisoes`, `antes` e `reconciliacao` são descritos. */
+  referencia: "vigente" | "base";
+  vigente: SituacaoVigente;
+  estabilizacao: EstabilizacaoPessoas;
+  reconciliacao: ReconciliacaoGanho;
   iteracaoEscolhida: number | null;
   theta: number;
   antes: AntesFluxo;
-  decisoes: DecisaoFluxo[]; // até `maxDecisoes` (default 120), as de maior |ganho|; ordem cronológica
+  decisoes: DecisaoFluxo[]; // até `maxDecisoes` (default 500; cobre todas nos casos reais), as de maior |ganho| se limitado; ordem cronológica
   decisoesTotal: number; // total antes do corte
   resumoDecisoes: ResumoDecisao[]; // completo, agregado por pool de origem → destino
   depois: DepoisFluxo;
   /** Resumo do plano base avaliado pelo MESMO simulador (régua do critério E). */
   depoisBase: DepoisFluxo;
+  /** Futuro do plano VIGENTE avaliado pelo MESMO simulador (null se não há plano vigente futuro). */
+  depoisVigente: DepoisFluxo | null;
   churn: ChurnFluxo;
   iteracoes: IteracaoFluxo[];
   violacoes: ViolacaoDura[];

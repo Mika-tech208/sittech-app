@@ -29,7 +29,7 @@ export const nucleoFluxo: NucleoFluxo = {
 };
 
 export const VERSAO_MOTOR_FLUXO = `fluxo-v${nucleoReal.VERSAO_FLUXO}`;
-const MAX_DECISOES = 300;
+const MAX_DECISOES = 600; // lista detalhada; `totalDecisoes` + `resumoDecisoes` (por período) cobrem SEMPRE 100% das linhas alteradas
 const MAX_VIOLACOES = 200;
 
 /** Linha de escala_fluxo_diagnosticos (camelCase; o adaptador Supabase converte). jsonb = JSON-serializável. */
@@ -89,9 +89,25 @@ export function dadosProducaoReal(estado: EstadoBruto, agoraMs: number): DadosPr
   return { apontamentos: estado.producaoReal?.apontamentos ?? [], agoraMs, planoVigente: estado.alocacoes, ...(wipConfirmado.length > 0 ? { wipConfirmado } : {}) };
 }
 
-export function opcoesFluxo(estado: EstadoBruto): OpcoesFluxo {
+/**
+ * Entrada e opções do núcleo. O f de desempenho (do realizado visível no corte, a mesma regra da sombra: desempenho.ts) entra EMBUTIDO nas metas da entrada e é
+ * informado em `fatoresEmbutidos` (compatibilidade do Conector). O núcleo NÃO reaplica f (`fatorPorPool` fica de fora): f é multiplicado UMA vez, e planos gravados
+ * (que podem já trazer f embutido nas peças) são avaliados pela capacidade das metas, nunca pelas peças gravadas. θ: parâmetro configurado; ausente ⇒ 0 do núcleo.
+ */
+export function insumosFluxo(estado: EstadoBruto, entrada: EntradaEscala, agoraMs: number): { entrada: EntradaEscala; opcoes: OpcoesFluxo } {
   const pr = estado.producaoReal;
-  return { ...(pr && pr.paresLegado.length > 0 ? { paresLegado: pr.paresLegado } : {}), ...(pr && pr.limiar !== null ? { limiarEstabilidadePecas: pr.limiar } : {}) };
+  const fator = pr ? nucleoReal.fatoresDeDesempenho(entrada, pr.apontamentos, agoraMs, pr.paresLegado) : {};
+  const comF = nucleoReal.embutirFatores(entrada, fator);
+  const opcoes: OpcoesFluxo = {
+    ...(pr && pr.paresLegado.length > 0 ? { paresLegado: pr.paresLegado } : {}),
+    ...(pr && pr.limiar !== null ? { limiarEstabilidadePecas: pr.limiar } : {}),
+    ...(Object.keys(fator).length > 0 ? { fatoresEmbutidos: fator } : {}),
+  };
+  return { entrada: comF, opcoes };
+}
+
+export function opcoesFluxo(estado: EstadoBruto, entrada: EntradaEscala, agoraMs: number): OpcoesFluxo {
+  return insumosFluxo(estado, entrada, agoraMs).opcoes;
 }
 
 // ---- utilitários ----------------------------------------------------------------------------------------------------------------
@@ -161,9 +177,15 @@ function preencher(reg: RegistroFluxo, d: DiagnosticoFluxo, avaliacaoOficial: Av
     gargalos: { antes: d.antes.gargalosFluxo, oficial: avaliacaoOficial?.produtos.map((p) => ({ produtoId: p.produtoId, gargalo: p.gargaloFluxo })) ?? [], fluxo: d.avaliacaoFluxo.produtos.map((p) => ({ produtoId: p.produtoId, gargalo: p.gargaloFluxo })) },
     avaliacaoOficial: resumoAvaliacao(avaliacaoOficial),
     avaliacaoFluxo: { ...resumoAvaliacao(d.avaliacaoFluxo), planoBaseDoNucleo: d.depoisBase, depois: d.depois, iteracoes: d.iteracoes, planoEscolhido: d.planoEscolhido, iteracaoEscolhida: d.iteracaoEscolhida, theta: d.theta },
-    diff: { totalDecisoes: d.decisoes.length, linhasAlteradas: d.churn.linhasAlteradas, decisoes: d.decisoes.slice(0, MAX_DECISOES) },
+    diff: {
+      referencia: d.referencia, totalDecisoes: d.decisoesTotal, decisoesListadas: Math.min(d.decisoes.length, MAX_DECISOES), truncado: d.decisoesTotal > Math.min(d.decisoes.length, MAX_DECISOES), linhasAlteradas: d.churn.linhasAlteradas,
+      reconciliacao: d.reconciliacao, resumoDecisoes: d.resumoDecisoes, decisoes: d.decisoes.slice(0, MAX_DECISOES),
+    },
     churn: d.churn as unknown as Record<string, unknown>,
-    replanejamento: { antes: d.antes, decisoes: d.decisoes.slice(0, MAX_DECISOES), depois: d.depois, depoisBase: d.depoisBase, planoEscolhido: d.planoEscolhido },
+    replanejamento: {
+      referencia: d.referencia, antes: d.antes, decisoes: d.decisoes.slice(0, MAX_DECISOES), decisoesTotal: d.decisoesTotal, resumoDecisoes: d.resumoDecisoes, reconciliacao: d.reconciliacao,
+      depois: d.depois, depoisBase: d.depoisBase, depoisVigente: d.depoisVigente, vigente: d.vigente, estabilizacao: d.estabilizacao, planoEscolhido: d.planoEscolhido,
+    },
     diagnosticos: d.diagnosticos,
   };
 }
@@ -185,12 +207,12 @@ export type TentativaFluxo =
  */
 export function tentarPlanoFluxo(ctx: ContextoFluxo): TentativaFluxo {
   const dados = dadosProducaoReal(ctx.estado, ctx.agoraMs);
-  const opcoes = opcoesFluxo(ctx.estado);
+  const { entrada: entradaF, opcoes } = insumosFluxo(ctx.estado, ctx.entrada, ctx.agoraMs);
   const base = registroBase(ctx, "ativo", dados, opcoes);
   const oficial = regiaoRecalculavel(ctx.entrada, ctx.estado.alocacoes);
   let out: ResultadoFluxo;
   try {
-    out = ctx.nucleo.planejarComFluxo(ctx.entrada, dados, opcoes);
+    out = ctx.nucleo.planejarComFluxo(entradaF, dados, opcoes);
   } catch (e) {
     const erro = `planejarComFluxo falhou: ${mensagemErro(e)}`;
     return { ok: false, motivo: erro, registro: registroDeErro(base, erro, "fallback", oficial) };
@@ -204,7 +226,7 @@ export function tentarPlanoFluxo(ctx: ContextoFluxo): TentativaFluxo {
   }
   let violacoes: ViolacaoDura[];
   try {
-    violacoes = ctx.nucleo.verificarRestricoesDuras(ctx.entrada, out.resultado.alocacoes);
+    violacoes = ctx.nucleo.verificarRestricoesDuras(entradaF, out.resultado.alocacoes);
   } catch (e) {
     const erro = `verificarRestricoesDuras falhou: ${mensagemErro(e)}`;
     return { ok: false, motivo: erro, registro: { ...registro, resultado: "fallback", erro, diagnosticos: [...registro.diagnosticos, { codigo: "ERRO_FLUXO", severidade: "erro", mensagem: erro }] } };
@@ -226,20 +248,20 @@ export function tentarPlanoFluxo(ctx: ContextoFluxo): TentativaFluxo {
  */
 export function avaliarFluxoSombra(ctx: ContextoFluxo, oficial: AlocacaoEscala[]): RegistroFluxo {
   const dados = dadosProducaoReal(ctx.estado, ctx.agoraMs);
-  const opcoes = opcoesFluxo(ctx.estado);
+  const { entrada: entradaF, opcoes } = insumosFluxo(ctx.estado, ctx.entrada, ctx.agoraMs);
   const base = registroBase(ctx, "sombra", dados, opcoes);
   try {
-    const out = ctx.nucleo.planejarComFluxo(ctx.entrada, dados, opcoes);
+    const out = ctx.nucleo.planejarComFluxo(entradaF, dados, opcoes);
     let avaliacaoOficial: AvaliacaoPlano | null = null;
     const extras: unknown[] = [];
     try {
-      avaliacaoOficial = ctx.nucleo.avaliarPlano(ctx.entrada, dados, oficial, opcoes);
+      avaliacaoOficial = ctx.nucleo.avaliarPlano(entradaF, dados, oficial, opcoes);
     } catch (e) {
       extras.push({ codigo: "ERRO_AVALIACAO_OFICIAL", severidade: "erro", mensagem: mensagemErro(e) });
     }
     let violacoes: ViolacaoDura[] = [];
     try {
-      violacoes = ctx.nucleo.verificarRestricoesDuras(ctx.entrada, out.resultado.alocacoes);
+      violacoes = ctx.nucleo.verificarRestricoesDuras(entradaF, out.resultado.alocacoes);
     } catch (e) {
       extras.push({ codigo: "ERRO_VERIFICADOR", severidade: "erro", mensagem: mensagemErro(e) });
     }

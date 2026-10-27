@@ -20,7 +20,7 @@ export interface OpcoesAvaliacao {
 
 interface RodadaGrupo { lo: ResultadoSim; hi: ResultadoSim }
 
-function capsDoPlano(ctx: CtxFluxo, futuras: AlocacaoEscala[]): Record<string, CapNo> {
+export function capsDoPlano(ctx: CtxFluxo, futuras: AlocacaoEscala[]): Record<string, CapNo> {
   const T = ctx.entrada.slots.length;
   const caps: Record<string, CapNo> = {};
   Object.keys(ctx.grafo.nos).forEach((n) => (caps[n] = novaCap(T)));
@@ -28,11 +28,11 @@ function capsDoPlano(ctx: CtxFluxo, futuras: AlocacaoEscala[]): Record<string, C
   return caps;
 }
 
-function quantidades(ctx: CtxFluxo): Record<string, number> {
+export function quantidades(ctx: CtxFluxo): Record<string, number> {
   return Object.fromEntries(Object.values(ctx.grafo.nos).map((n) => [n.id, n.quantidade]));
 }
 
-function rodar(ctx: CtxFluxo, gi: number, caps: Record<string, CapNo>, cen: "lo" | "hi", limites: Record<string, number> | undefined, trajetoria: boolean): ResultadoSim {
+export function rodar(ctx: CtxFluxo, gi: number, caps: Record<string, CapNo>, cen: "lo" | "hi", limites: Record<string, number> | undefined, trajetoria: boolean): ResultadoSim {
   const g = ctx.grafo.grupos[gi];
   const ini = ctx.iniAPartirDe[cen];
   return simularGrupo(ctx.grafo, g, {
@@ -41,10 +41,25 @@ function rodar(ctx: CtxFluxo, gi: number, caps: Record<string, CapNo>, cen: "lo"
   });
 }
 
-function pesoDoGrupo(ctx: CtxFluxo, gi: number): number {
+export function pesoDoGrupo(ctx: CtxFluxo, gi: number): number {
   if (!ctx.opcoes.ponderarPorValor) return 1;
   const sink = ctx.grafo.nos[ctx.grafo.grupos[gi].sink];
   return sink.valorUnitario > 0 ? sink.valorUnitario : 1;
+}
+
+/** Capacidade (peças) que UMA linha de alocação soma ao nó/slot — a mesma regra de `somarCapacidadeDeLinhas`, para aplicar/retirar linhas uma a uma. */
+export function capacidadeDaLinha(ctx: CtxFluxo, a: AlocacaoEscala): { no: string; t: number; tipo: "base" | "adic"; valor: number } | null {
+  if (!a.maquinaId || !a.produtoId || !a.etapaId) return null;
+  const t = ctx.idxSlot.get(`${a.data}|${a.periodoId}`);
+  if (t === undefined) return null;
+  const k = chavePool(a.produtoId, a.etapaId);
+  const no = ctx.grafo.noDoPool[k];
+  const pool = ctx.poolsPorChave.get(k);
+  if (!no || !pool) return null;
+  const mu = (pool.metas[a.periodoId] ?? 0) * (ctx.fator[k] ?? 1);
+  if (mu <= 0) return null;
+  if ((a.pecasAdicional ?? 0) > 0 && !((a.pecas ?? 0) > 0)) return { no, t, tipo: "adic", valor: Math.min(mu, a.pecasAdicional as number) };
+  return { no, t, tipo: "base", valor: mu };
 }
 
 export function selecionarFuturas(ctx: CtxFluxo, alocacoes: AlocacaoEscala[]): AlocacaoEscala[] {

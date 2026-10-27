@@ -59,7 +59,7 @@ Object.keys(fx).forEach((k) => {
       expect(d.decisoes.length).toBeGreaterThan(0);
       expect(d.decisoes.every((x) => x.motivo.texto.length > 0 && x.quantidade > 0)).toBe(true);
       expect(d.iteracoes.length).toBeGreaterThanOrEqual(2);
-      expect(d.iteracoes.length).toBeLessThanOrEqual(6); // base + P0 + até 4
+      expect(d.iteracoes.length).toBeLessThanOrEqual(7); // vigente + base + P0 + até 4
       expect(d.churn.linhasAlteradas).toBeGreaterThan(0);
       expect(JSON.stringify(JSON.parse(JSON.stringify(d)))).toBe(JSON.stringify(d));
       expect(d.estado.diagnosticos.length).toBeGreaterThan(0);
@@ -82,7 +82,8 @@ Object.keys(fx).forEach((k) => {
       });
       // R_f,total = Q_conv + Q_auto − boas Embalar (conv + auto) projetadas
       const fEmb = e.poolsFundidos[1];
-      expect(fEmb.demandaComum).toBe(81000 + 35625);
+      const boasEmbComum = e.etapas.filter((z) => z.etapaId.startsWith("b3db9629") || z.etapaId.startsWith("fb96d08d")).reduce((s, z) => s + z.boas.lo, 0);
+      expect(fEmb.demandaComum).toBeCloseTo(81000 + 35625 - boasEmbComum, 1); // desconta as boas confirmadas no corte (v2)
       const projEmb = e.projecao.boas[fEmb.chaveConvencional].lo;
       expect(e.remPorPool[fEmb.chaveConvencional]).toBeCloseTo(81000 + 35625 - projEmb, 0);
     });

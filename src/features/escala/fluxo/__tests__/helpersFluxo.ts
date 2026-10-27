@@ -83,6 +83,8 @@ export function checarFluxo(x: { r: ResultadoFluxo; entrada: EntradaEscala }): s
   if (v.length) erros.push(`${v.length} violação(ões) dura(s): ${v[0].tipo} ${v[0].detalhe}`);
   const d = x.r.diagnostico;
   if (d.depois.faltaPrevista.lo > d.depoisBase.faltaPrevista.lo + 1e-6) erros.push(`falta pior que a do base: ${d.depois.faltaPrevista.lo} > ${d.depoisBase.faltaPrevista.lo}`);
+  // v2: também nunca pior que o plano VIGENTE quando ele é um candidato válido (mesmo simulador)
+  if (d.depoisVigente && d.vigente.valido && d.depois.faltaPrevista.lo > d.depoisVigente.faltaPrevista.lo + 1e-6) erros.push(`falta pior que a do vigente válido: ${d.depois.faltaPrevista.lo} > ${d.depoisVigente.faltaPrevista.lo}`);
   if (d.violacoes.length) erros.push(`diagnóstico traz ${d.violacoes.length} violação(ões)`);
   return erros;
 }

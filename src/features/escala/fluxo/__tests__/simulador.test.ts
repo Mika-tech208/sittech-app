@@ -113,9 +113,10 @@ describe("estabilidade (θ) do primeiro período mutável", () => {
     expect(zero.x.r.diagnostico.diagnosticos.some((d) => d.codigo === "ESTABILIDADE_RETEVE_ALOCACAO")).toBe(false);
     expect(grande.x.r.diagnostico.diagnosticos.some((d) => d.codigo === "ESTABILIDADE_RETEVE_ALOCACAO")).toBe(true);
   });
-  it("θ padrão é derivado (≥ menor meta ocupada e ≥ 0,5% do R_f total) e fica no diagnóstico", () => {
+  it("θ padrão (v2) é 0: sem retenção por limiar — a estabilidade vem da re-atribuição de pessoas — e fica no diagnóstico", () => {
     const { x } = cenario(undefined as unknown as number);
-    expect(x.r.diagnostico.theta).toBeGreaterThanOrEqual(300);
+    expect(x.r.diagnostico.theta).toBe(0);
+    expect(x.r.diagnostico.diagnosticos.some((d) => d.codigo === "ESTABILIDADE_RETEVE_ALOCACAO")).toBe(false);
     const c = prepararFluxo(x.entrada, x.dados);
     expect(c.aPartirDe).toBe(x.entrada.aPartirDe);
   });

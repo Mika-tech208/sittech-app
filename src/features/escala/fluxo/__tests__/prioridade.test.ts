@@ -2,7 +2,8 @@
 // consumir; a etapa anterior é mantida quando não há WIP e ela é o gargalo de fluxo. O mesmo desenho com outros ids/nomes dá o mesmo comportamento.
 import { describe, it, expect } from "vitest";
 import { gerarEscala } from "../../gerarEscala";
-import { apontarPlano, checarFluxo, equipe, linhaPlano, pool, rodar } from "./helpersFluxo";
+import { planejarComFluxo } from "../planejar";
+import { apontarPlano, checarFluxo, equipe, linhaPlano, montar, pool, rodar } from "./helpersFluxo";
 
 function cenario(ids: { prod: string; e: string; m: string; filler: string }, boasE: number, boasM: number, pessoas: number) {
   const pools = [
@@ -64,12 +65,23 @@ function cenario(ids: { prod: string; e: string; m: string; filler: string }, bo
 });
 
 describe("nunca pior que o plano base", () => {
-  it("quando o motor atual já é ótimo pelo simulador, o plano base é mantido (PLANO_BASE_MANTIDO)", () => {
+  it("quando o motor atual já é ótimo pelo simulador, nada muda: plano vigente (= o que o motor gera) mantido, sem decisões nem churn (PLANO_VIGENTE_MANTIDO)", () => {
     const pools = [pool({ produto: "U", etapa: "U1", op: "opA", ordem: 1, q: 9000, maquinas: ["m1", "m2", "m3"], mu: 300 })];
     const x = rodar({ pools, funcionarios: equipe(3), c: 1 });
-    expect(x.r.diagnostico.planoEscolhido).toBe("base");
-    expect(x.r.diagnostico.diagnosticos.some((d) => d.codigo === "PLANO_BASE_MANTIDO")).toBe(true);
-    expect(JSON.stringify(x.r.resultado)).toBe(JSON.stringify(gerarEscala(x.entrada)));
+    expect(x.r.diagnostico.planoEscolhido).toBe("vigente");
+    expect(x.r.diagnostico.diagnosticos.some((d) => d.codigo === "PLANO_VIGENTE_MANTIDO")).toBe(true);
+    expect(x.r.diagnostico.decisoesTotal).toBe(0);
+    expect(x.r.diagnostico.churn.linhasAlteradas).toBe(0);
+    expect(JSON.stringify(x.r.resultado.alocacoes)).toBe(JSON.stringify(gerarEscala(x.entrada).alocacoes)); // aqui o vigente É o que o motor gera
     expect(JSON.stringify(x.r.entradaFluxo)).toBe(JSON.stringify(x.entrada));
+  });
+  it("sem plano vigente futuro (primeira geração) o candidato vigente não existe: o plano base é mantido (PLANO_BASE_MANTIDO)", () => {
+    const pools = [pool({ produto: "U", etapa: "U1", op: "opA", ordem: 1, q: 9000, maquinas: ["m1", "m2", "m3"], mu: 300 })];
+    const m = montar({ pools, funcionarios: equipe(3), c: 1 });
+    const r = planejarComFluxo(m.entrada, { ...m.dados, planoVigente: m.entrada.congeladas });
+    expect(r.diagnostico.vigente.disponivel).toBe(false);
+    expect(r.diagnostico.planoEscolhido).toBe("base");
+    expect(r.diagnostico.referencia).toBe("base");
+    expect(JSON.stringify(r.resultado)).toBe(JSON.stringify(gerarEscala(m.entrada)));
   });
 });

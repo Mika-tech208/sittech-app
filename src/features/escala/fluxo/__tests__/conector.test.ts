@@ -55,7 +55,9 @@ describe("Conector legado — fusão lógica dos pools comuns", () => {
     const proj = e.projecao.boas["CONV|C-emb"].lo; // inclui o que as linhas congeladas ainda produzem até aPartirDe
     expect(e.remPorPool["CONV|C-emb"]).toBeCloseTo(12000 - proj, 1);
     expect(proj).toBeGreaterThanOrEqual(boasEmb);
-    expect(e.poolsFundidos[1].demandaComum).toBe(12000);
+    expect(e.poolsFundidos[1].demandaComum).toBeCloseTo(12000 - boasEmb, 6); // desconta as boas (v2: o campo de diagnóstico seguia ΣQ)
+    expect(boasEmb).toBeGreaterThan(0);
+    expect(e.poolsFundidos[0].demandaComum).toBeLessThanOrEqual(12000);
     expect(e.diagnosticos.filter((d) => d.codigo === "POOL_FUNDIDO")).toHaveLength(2);
   });
 

@@ -7,7 +7,7 @@ import { hashAlocacoes } from "@/features/escala/horizonte";
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import { ConflitoDeVersaoError, type EstadoProducaoReal, type PayloadAplicacao } from "../estado";
 import { processarSemana } from "../processar";
-import { regiaoRecalculavel, type NucleoFluxo } from "../fluxo/integracao";
+import { insumosFluxo, nucleoFluxo, regiaoRecalculavel, type NucleoFluxo } from "../fluxo/integracao";
 import { fluxoNoFechamento } from "../fluxo/fechamento";
 import { CONFIG_FLUXO_PADRAO, lerConfigFluxo, lerParesLegado, modoEfetivoFluxo, semanasComFluxoAtivo } from "../fluxo/parametrosFluxo";
 import { montarEntradaEscala } from "../montarEntrada";
@@ -23,8 +23,11 @@ const aval = (): AvaliacaoPlano => ({ versao: 1, produtos: [], totais: { faltaFi
 function diagFalso(): DiagnosticoFluxo {
   const dep = { produtoFinalPrevisto: { lo: 0, hi: 0 }, wipPrevisto: { lo: 0, hi: 0 }, faltaPrevista: { lo: 0, hi: 0 }, excessoWip: 0 };
   return {
-    versao: 1, planoEscolhido: "fluxo", iteracaoEscolhida: 1, theta: 5,
-    antes: { demandaRestante: {}, remLegado: {}, wip: [], gargalosFluxo: [], faltaFinal: { lo: 0, hi: 0 } }, decisoes: [], depois: dep, depoisBase: dep,
+    versao: 2, planoEscolhido: "fluxo", referencia: "vigente", vigente: { disponivel: true, valido: true, motivo: null, violacoes: 0, falta: { lo: 0, hi: 0 } },
+    estabilizacao: { aplicada: false, periodosAjustados: 0, linhasAntes: 0, linhasDepois: 0, motivoDescarte: null },
+    reconciliacao: { referencia: "vigente", finalReferencia: 0, finalPlano: 0, diferenca: 0, somaGanhos: 0, residuo: 0, explicacaoResiduo: "" }, depoisVigente: null,
+    iteracaoEscolhida: 1, theta: 5,
+    antes: { referencia: "vigente", demandaRestante: {}, remLegado: {}, wip: [], gargalosFluxo: [], faltaFinal: { lo: 0, hi: 0 } }, decisoes: [], depois: dep, depoisBase: dep,
     churn: { linhasAlteradas: 0, trocasDePosto: 0, postosAlterados: 0, alteradasNoPrimeiroPeriodo: 0, retidasPorEstabilidade: 0 }, iteracoes: [], violacoes: [],
     estado: { versao: 1, agoraMs: 0, fechamentoMinutos: 10, ultimoFechado: -1, aPartirDe: 0, celulas: [], etapas: [], produtos: [], pares: [], projecao: { aPartirDe: 0, boas: {}, wip: {} }, demanda: [], remPorPool: {}, poolsFundidos: [], diagnosticos: [] },
     avaliacaoBase: aval(), avaliacaoFluxo: aval(), diagnosticos: [], decisoesTotal: 0, resumoDecisoes: [],
@@ -404,7 +407,8 @@ describe("fechamento de período (fluxoNoFechamento)", () => {
 });
 
 // ---- contra o NÚCLEO REAL (sem stub): o contrato é cumprido e a integração funciona ponta a ponta ----
-import { verificarRestricoesDuras } from "@/features/escala/fluxo";
+import { verificarRestricoesDuras, type OpcoesFluxo } from "@/features/escala/fluxo";
+import type { EntradaEscala } from "@/features/escala/types";
 import type { ApontamentoReal } from "@/features/escala/producaoReal";
 
 describe("integração com o núcleo REAL", () => {
@@ -431,7 +435,7 @@ describe("integração com o núcleo REAL", () => {
     const r = await m.recalcular(AGORA);
     expect(r.fluxo).toMatchObject({ modo: "ativo", resultado: "ok" });
     const reg = m.registrosFluxo.at(-1)!;
-    expect(reg).toMatchObject({ modo: "ativo", resultado: "ok", previsaoId: "prev1", versaoMotor: "fluxo-v1" });
+    expect(reg).toMatchObject({ modo: "ativo", resultado: "ok", previsaoId: "prev1", versaoMotor: "fluxo-v2" });
     expect(reg.hashEntrada).toMatch(/^[0-9a-f]{64}$/);
     expect(reg.hashPlanoFluxo).toMatch(/^[0-9a-f]{64}$/);
     ["remPorPool", "demanda", "produtos", "etapas", "celulas"].forEach((k) => expect(k in reg.demandaReal).toBe(true));
@@ -443,6 +447,54 @@ describe("integração com o núcleo REAL", () => {
     const montada = montarEntradaEscala({ ...m.entradas, diasExistentes: [...m.dias].map(([data, d]) => ({ data, versao: d.versao, periodosSnapshot: d.snapshot })), alocacoes: [] }, AGORA);
     const futuras = m.futuras(AGORA);
     expect(verificarRestricoesDuras(montada.entrada, futuras)).toEqual([]);
+  });
+
+  it("f de desempenho: metas × f EMBUTIDAS na entrada do núcleo (uma vez), `fatoresEmbutidos` informado, nunca `fatorPorPool`; verificador e avaliação veem a mesma entrada", async () => {
+    const { m, apontamentos } = await comApontamentos(0.6);
+    m.editar((e) => { e.producaoReal = { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos }; });
+    const visto: { entrada?: EntradaEscala; opcoes?: OpcoesFluxo; verif?: EntradaEscala } = {};
+    const nucleo: NucleoFluxo = {
+      ...nucleoFluxo,
+      planejarComFluxo: (e, d, o) => { visto.entrada = e; visto.opcoes = o; return nucleoFluxo.planejarComFluxo(e, d, o); },
+      verificarRestricoesDuras: (e, a) => { visto.verif = e; return nucleoFluxo.verificarRestricoesDuras(e, a); },
+    };
+    const r = await m.recalcular(AGORA, false, { nucleoFluxo: nucleo });
+    expect(r.fluxo).toMatchObject({ modo: "ativo", resultado: "ok" });
+    const f = visto.opcoes?.fatoresEmbutidos ?? {};
+    expect(Object.keys(f).length).toBeGreaterThan(0);
+    Object.values(f).forEach((v) => { expect(v).toBeLessThan(1); expect(v).toBeGreaterThanOrEqual(0.3); });
+    expect(visto.opcoes?.fatorPorPool).toBeUndefined();
+    expect(visto.verif).toBe(visto.entrada);
+    // metas da entrada do núcleo = nominais × f
+    const estado = { ...m.entradas, diasExistentes: [...m.dias].map(([data, d]) => ({ data, versao: d.versao, periodosSnapshot: d.snapshot })), alocacoes: m.alocacoes };
+    const nominal = montarEntradaEscala(estado, AGORA).entrada;
+    const ins = insumosFluxo({ ...estado, producaoReal: { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos } } as never, nominal, AGORA);
+    nominal.pools.forEach((p) => {
+      const k = `${p.produtoId}|${p.etapaId}`;
+      const emb = ins.entrada.pools.find((x) => x.produtoId === p.produtoId && x.etapaId === p.etapaId)!;
+      Object.entries(p.metas).forEach(([per, meta]) => expect(emb.metas[per]).toBeCloseTo(meta * (f[k] ?? 1), 8));
+    });
+    // sem apontamentos (ou n < 3 amostras) o f é 1: entrada idêntica à nominal e nenhuma opção de f
+    const sem = insumosFluxo({ ...estado, producaoReal: { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos: [] } } as never, nominal, AGORA);
+    expect(sem.entrada).toBe(nominal);
+    expect(sem.opcoes.fatoresEmbutidos).toBeUndefined();
+  });
+
+  it("ATIVO idempotente: repetir o recálculo com os mesmos dados é NO-OP (o plano vigente é candidato e volta idêntico — sem churn, sem nova versão)", async () => {
+    const { m, apontamentos } = await comApontamentos(0.6);
+    m.editar((e) => { e.producaoReal = { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos }; });
+    const r1 = await m.recalcular(AGORA);
+    expect(r1.status).toBe("processado");
+    expect(r1.fluxo).toMatchObject({ modo: "ativo", resultado: "ok", usado: true });
+    const depois1 = Mundo.assinatura(m.alocacoes, true);
+    const aplicacoes = m.aplicacoes;
+    const r2 = await m.recalcular(AGORA);
+    expect(r2.status).toBe("sem_alteracao");
+    expect(m.aplicacoes).toBe(aplicacoes);
+    expect(Mundo.assinatura(m.alocacoes, true)).toBe(depois1);
+    const reg = m.registrosFluxo.at(-1)!;
+    expect((reg.replanejamento as { planoEscolhido: string; aplicacao?: string }).planoEscolhido).toBe("vigente");
+    expect((reg.churn as { linhasAlteradas: number }).linhasAlteradas).toBe(0);
   });
 
   it("SOMBRA com o núcleo real: a Escala fica EXATAMENTE como o oficial e o diagnóstico traz oficial × fluxo", async () => {
