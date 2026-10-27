@@ -2,7 +2,7 @@
 // A Parada chega ao motor como indisponibilidade (espelho por trigger, testado em supabase/tests/escala_parada_maquina.test.sql);
 // aqui se prova o que o motor/horizonte fazem com ela. 27/10/2026, America/Sao_Paulo; períodos reais M1..T3.
 import { describe, it, expect } from "vitest";
-import { causaAfetaIntervalo, maquinaDisponivelNoSlot } from "../disponibilidade";
+import { causaAfetaIntervalo, maquinaDisponivelNoSlot, primeiroPeriodoAfetado } from "../disponibilidade";
 import { gerarEscala } from "../gerarEscala";
 import { replanejarComHorizonte } from "../horizonte";
 import { epochMsNoFuso } from "../tempo";
@@ -134,5 +134,22 @@ describe("horizonte: a indisponibilidade física vence a estabilidade do plano v
     const r = replanejarComHorizonte(e, plano, IDX.m3);
     expect(usadosM8(e, r.alteravel)).toEqual([]);
     expect(usadosM8(e, r.comprometidas)).toEqual([]);
+  });
+});
+
+describe("diagnóstico do período afetado", () => {
+  const e = cenario();
+  const lista = e.slots.map((s) => ({ data: s.data, periodoId: s.periodoId, nome: s.periodoId.toUpperCase(), inicioMs: s.inicioMs, fimMs: s.fimMs }));
+  it("Parada 09:34 (meio de M2): M2 é o primeiro afetado e estava em andamento — registrado, sem reescrever", () => {
+    expect(primeiroPeriodoAfetado(t("09:34"), lista)).toEqual({ data: DIA, periodoId: "m2", nome: "M2", emAndamentoNoInicio: true });
+  });
+  it("Parada exatamente no início de T1: T1, sem 'em andamento'", () => {
+    expect(primeiroPeriodoAfetado(t("13:00"), lista)).toMatchObject({ periodoId: "t1", emAndamentoNoInicio: false });
+  });
+  it("Parada no intervalo de almoço (12:00): o primeiro afetado é T1", () => {
+    expect(primeiroPeriodoAfetado(t("12:00"), lista)).toMatchObject({ periodoId: "t1", emAndamentoNoInicio: false });
+  });
+  it("Parada depois do último período do dia: nenhum período do dia é afetado", () => {
+    expect(primeiroPeriodoAfetado(t("17:30"), lista)).toBeNull();
   });
 });
