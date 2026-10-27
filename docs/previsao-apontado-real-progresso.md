@@ -5,8 +5,9 @@ Mudança independente do projeto de múltiplas rotas (nenhuma migration; não to
 ## Regra
 - **Fonte do andamento**: Apontado real (Produção Real) = produção **boa** (`produzido − refugo`) da **última etapa válida** do produto. Etapa intermediária e `sem_producao` não contam. Produto de uma operação: ela própria é a final. Roteiro alterado → ambíguo **não** vira quantidade (continua o aviso ⚠).
 - **Falta** = `max(Previsto − Apontado, 0)`; **%** = `Apontado / Previsto` (sem teto: 105% aparece como 105,0%).
-- **Totais**: Previsto total = Σ previstos; Apontado total = Σ apontados; Falta total = `max(Previsto total − Apontado total, 0)` (excesso em um produto abate o total; a tela avisa quando difere da soma das faltas por produto); % = Apontado total / Previsto total.
-- **R$**: `apontado × valor_unitario` **congelado em previsao_itens** (nunca o preço atual do cadastro). Previsto R$, Realizado R$, Falta R$ = `max(Previsto R$ − Realizado R$, 0)`; Concluído = % em peças (mostra também % em valor).
+- **Falta por produto** = `max(previsto do item − apontado do item, 0)`. **Falta total** = soma das faltas dos produtos: o excesso de um produto **não** compensa a falta de outro (A 10.000/12.000 e B 10.000/5.000 → falta total 5.000, não 3.000). Previsto total = Σ previstos; Apontado total = Σ apontados; **% geral** = Apontado total / Previsto total (pode passar de 100%).
+- **Excedente**: apontado acima do previsto é avisado por item ("+N acima") e no total (aviso sob a tabela), sem abater a falta.
+- **R$**: `apontado × valor_unitario` **congelado em previsao_itens** (nunca o preço atual do cadastro). Previsto R$ = Σ previsto × preço; Realizado R$ = Σ apontado × preço; **Falta realizar R$ = Σ (falta do item × preço congelado)**; Concluído = % em peças (mostra também % em valor).
 - **Possível** continua sendo capacidade/atingibilidade; alerta "PREVISÃO NÃO ATINGÍVEL" intocado.
 - **Sem dupla contagem**: `calcularProdutosProgramados` nem recebe o Realizado manual. Mesmo produto em dois itens da semana: o apontado é distribuído em sequência (cada item até o seu previsto; excesso no último) e soma uma única vez.
 - Apontado indisponível (carregando/erro) → "—" (nunca 0 inventado).
