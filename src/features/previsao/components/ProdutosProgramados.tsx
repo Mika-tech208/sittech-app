@@ -4,7 +4,7 @@
 // inalterado), Apontado real, Falta e % concluído.
 //
 // ANDAMENTO = APONTADO REAL (Produção Real; só produção boa da última etapa válida do produto — ver apontadoReal.ts). Falta = max(Previsto − Apontado, 0);
-// % = Apontado / Previsto, sem teto em 100. O Realizado digitado à mão NÃO aparece nem soma aqui (ver progressoSemana.ts). Possível é capacidade, não andamento.
+// % = Apontado / Previsto, sem teto em 100. Falta total = soma das faltas por produto (excedente de um não compensa falta de outro). O Realizado digitado à mão NÃO aparece nem soma aqui (ver progressoSemana.ts). Possível é capacidade, não andamento.
 // A barra representa Apontado/Previsto: passa de 100% no texto, e a barra visual para no limite do componente.
 
 import type { ProdutoProgramado, ProdutoNaoPrevisto, ResumoProgramacaoPecas } from "@/features/previsao/progressoSemana";
@@ -51,6 +51,9 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
                 <span title={`${formatQtd(p.apontadoAmbiguoPecas)} peças de apontamentos feitos antes de uma alteração do roteiro NÃO foram contadas (não dá para saber com segurança se eram da etapa final).`} style={{ color: "var(--warning)", marginRight: 4, cursor: "help" }}>⚠</span>
               )}
               {qtdOuTraco(p.apontadoReal)}
+              {p.excedente !== null && p.excedente > 0 && (
+                <span title={`Produção ${formatQtd(p.excedente)} peças acima do previsto deste item.`} style={{ color: "var(--warning)", marginLeft: 4, cursor: "help", fontSize: 11 }}>+{formatQtd(p.excedente)} acima</span>
+              )}
             </span>
             <span className="num" style={{ color: p.falta !== null && p.falta > 0 ? "var(--warning)" : "var(--text-3)" }}>{qtdOuTraco(p.falta)}</span>
             <span className="stx-prev-bar-cell">
@@ -73,9 +76,9 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
           <span className="num">{formatPct(resumoPecas.concluidoPct)}</span>
         </div>
       )}
-      {resumoPecas.totalFalta !== null && resumoPecas.somaFaltasPorProduto !== null && resumoPecas.somaFaltasPorProduto !== resumoPecas.totalFalta && (
-        <p className="stx-prev-ref" style={{ margin: "8px 0 0" }}>
-          Falta total = Previsto total − Apontado real total. Produto produzido acima do previsto abate a falta do total, por isso ela difere da soma das faltas por produto ({formatQtd(resumoPecas.somaFaltasPorProduto)}).
+      {resumoPecas.totalExcedente !== null && resumoPecas.totalExcedente > 0 && (
+        <p className="stx-prev-ref" style={{ margin: "8px 0 0", color: "var(--warning)" }}>
+          Produção acima do previsto em {resumoPecas.itensComExcedente} produto{resumoPecas.itensComExcedente === 1 ? "" : "s"} (+{formatQtd(resumoPecas.totalExcedente)} peças no total). O excedente não compensa a falta de outro produto: Falta total = soma das faltas por produto.
         </p>
       )}
 

@@ -5,7 +5,8 @@
 // Possível (capacidade/atingibilidade) é outro conceito: vem pronto de calcularCapacidadeMaximaSemana e nunca se mistura com andamento.
 //
 // - falta = max(previsto - apontado, 0) (nunca negativo); % = apontado / previsto, SEM teto em 100 (produção acima do previsto aparece >100%).
-// - Totais: falta total = max(Σ previsto - Σ apontado, 0), exatamente a definição pedida (excesso de um produto abate a falta do total).
+// - Falta total = Σ das faltas POR PRODUTO (cada uma max(previsto - apontado, 0)): excesso de um produto NÃO compensa a falta de outro. O % geral continua
+//   Σ apontado / Σ previsto (pode passar de 100%). Excedente (apontado acima do previsto) é reportado à parte, por item e no total.
 // - R$: usa o valor_unitario CONGELADO no item da Previsão (nunca o preço atual do cadastro): o histórico da semana não muda se o preço mudar depois.
 // - Mesmo produto em dois itens da mesma semana: o apontado do produto é distribuído em sequência (cada item até o seu previsto; o excesso fica no último) — soma uma única vez.
 // - apontado indisponível (carregando/erro) => null: a tela mostra "—", nunca um 0 inventado.
@@ -25,9 +26,11 @@ export interface ProdutoProgramado {
   apontadoReal: number | null; // peças boas da etapa final atribuídas a ESTE item; null = indisponível
   apontadoAmbiguoPecas: number; // peças de apontamentos com roteiro alterado (NÃO contadas); só no 1º item do produto
   falta: number | null;
+  excedente: number | null; // apontado acima do previsto deste item (aviso); 0 quando não passou
   concluidoPct: number | null; // sem teto; null = N/A (previsto 0) ou apontado indisponível
   valorPrevisto: number;
   valorRealizado: number | null;
+  valorFalta: number | null; // falta do item × preço congelado
 }
 
 // distribui o apontado de cada produto pelos itens dele (ordem da lista): cada item até o seu previsto, o excesso no último
@@ -62,9 +65,11 @@ export function calcularProdutosProgramados(
       apontadoReal: ap,
       apontadoAmbiguoPecas: apontadoPorProduto && primeiroDoProduto.get(it.produtoId) === it.id ? (apontadoPorProduto.get(it.produtoId)?.ambiguoPecas ?? 0) : 0,
       falta: ap === null ? null : Math.max(it.quantidade - ap, 0),
+      excedente: ap === null ? null : Math.max(ap - it.quantidade, 0),
       concluidoPct: ap === null || it.quantidade <= 0 ? null : (ap / it.quantidade) * 100,
       valorPrevisto: it.quantidade * it.valorUnitario,
       valorRealizado: ap === null ? null : ap * it.valorUnitario,
+      valorFalta: ap === null ? null : Math.max(it.quantidade - ap, 0) * it.valorUnitario,
     };
   });
 }
@@ -73,14 +78,15 @@ export interface ResumoProgramacaoPecas {
   totalPrevisto: number;
   totalPossivel: number;
   totalApontadoReal: number | null;
-  totalFalta: number | null; // max(previsto total - apontado total, 0)
+  totalFalta: number | null; // soma das faltas por produto (excesso de um produto não compensa falta de outro)
   concluidoPct: number | null; // apontado total / previsto total (sem teto)
   totalApontadoAmbiguoPecas: number;
-  somaFaltasPorProduto: number | null; // só para a tela avisar quando difere de totalFalta (excesso em um produto abate o total)
+  totalExcedente: number | null; // peças apontadas acima do previsto, somadas por item (aviso)
+  itensComExcedente: number;
   // R$ (preço congelado dos itens)
   valorPrevisto: number;
   valorRealizado: number | null;
-  valorFalta: number | null; // max(R$ previsto - R$ realizado, 0)
+  valorFalta: number | null; // soma das faltas financeiras por produto (falta × preço congelado)
   concluidoValorPct: number | null; // R$ realizado / R$ previsto
 }
 
@@ -94,12 +100,13 @@ export function calcularResumoProgramacaoPecas(produtos: ProdutoProgramado[]): R
   const valorRealizado = disponivel ? produtos.reduce((s, p) => s + (p.valorRealizado ?? 0), 0) : null;
   return {
     totalPrevisto, totalPossivel, totalApontadoReal,
-    totalFalta: totalApontadoReal === null ? null : Math.max(totalPrevisto - totalApontadoReal, 0),
+    totalFalta: disponivel ? produtos.reduce((s, p) => s + (p.falta ?? 0), 0) : null,
     concluidoPct: totalApontadoReal === null || totalPrevisto <= 0 ? null : (totalApontadoReal / totalPrevisto) * 100,
     totalApontadoAmbiguoPecas: produtos.reduce((s, p) => s + p.apontadoAmbiguoPecas, 0),
-    somaFaltasPorProduto: disponivel ? produtos.reduce((s, p) => s + (p.falta ?? 0), 0) : null,
+    totalExcedente: disponivel ? produtos.reduce((s, p) => s + (p.excedente ?? 0), 0) : null,
+    itensComExcedente: produtos.filter((p) => (p.excedente ?? 0) > 0).length,
     valorPrevisto, valorRealizado,
-    valorFalta: valorRealizado === null ? null : Math.max(valorPrevisto - valorRealizado, 0),
+    valorFalta: disponivel ? produtos.reduce((s, p) => s + (p.valorFalta ?? 0), 0) : null,
     concluidoValorPct: valorRealizado === null || valorPrevisto <= 0 ? null : (valorRealizado / valorPrevisto) * 100,
   };
 }
