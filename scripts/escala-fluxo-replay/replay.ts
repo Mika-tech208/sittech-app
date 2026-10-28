@@ -15,7 +15,7 @@ const args = process.argv.slice(2);
 const cmd = args.find((a) => !a.startsWith("--")) ?? "fechamentos";
 const flag = (n: string, d?: string) => args.find((a) => a.startsWith(`--${n}=`))?.split("=")[1] ?? d;
 const OFFSET = Number(flag("offset", "2"));
-export const OUT = path.join(DIR, "out" + (process.env.FREPLAY_FATOR === "0" ? "_semf" : "") + (OFFSET === 2 ? "" : `_off${OFFSET}`));
+export const OUT = path.join(DIR, "out" + (process.env.FREPLAY_FATOR === "0" ? "_semf" : "") + (process.env.FREPLAY_ESCOPO === "bloco" ? "_bloco" : "") + (OFFSET === 2 ? "" : `_off${OFFSET}`));
 fs.mkdirSync(OUT, { recursive: true });
 
 const decisoes = carregarDecisoes();

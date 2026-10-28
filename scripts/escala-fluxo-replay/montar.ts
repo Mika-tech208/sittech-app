@@ -1,5 +1,6 @@
 // Monta, para UMA decisão gravada (corte c), a entrada do motor no estilo da Escala oficial (aPartirDe = primeiro alterável) e os dados de Produção Real
 // disponíveis NAQUELE instante. Nada daqui olha o futuro: apontamentos ≥ corte ficam fora (e o núcleo ainda os filtra por lancadoEmMs ≤ agoraMs).
+import { exposicaoDeApontamentos } from "@/features/escala/exposicaoBloco";
 import { embutirFatores, fatoresDeDesempenho } from "@/features/escala/fluxo/fatores";
 import { paraParametrosCorte, desempacotarLinha } from "@/features/escala/snapshotSombra";
 import { visaoNoCorte } from "@/features/escala/sombraCorte";
@@ -52,6 +53,8 @@ export function montarCenario(dec: DecisaoGravada, todos: ApontamentoReal[], oc:
     pools: poolsBase,
     aPartirDe,
     revezamentoDuro: true,
+    // FREPLAY_ESCOPO=bloco: replay com o revezamento por bloco (manhã/tarde) — hotfix 28/10; evidência real = apontamentos já lançados no corte
+    ...(process.env.FREPLAY_ESCOPO === "bloco" ? { revezamentoEscopo: "bloco" as const, exposicaoExecutada: exposicaoDeApontamentos(oc.apontamentos ?? todos, slots, aPartirDe, dec.corteMs) } : {}),
     ausencias: v.ausencias,
     indisponibilidades: v.indisponibilidades,
     congeladas: planoVigente.filter((a) => idx(a) < aPartirDe),

@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { gerarEscala } from "../gerarEscala";
 import { blocoDoPeriodo, exposicaoDeApontamentos, MemoriaBloco, repeticoesPorBloco } from "../exposicaoBloco";
-import { estabilizarPessoas } from "../estabilidade";
+import { estabilizarPessoas, reatribuirPessoasBloco } from "../estabilidade";
 import { validarTroca, MENSAGEM_TROCA_BLOQUEADA_BLOCO, type LinhaRotacao } from "../rotacao";
 import { lerParametros } from "../parametros";
 import { verificarRestricoesDuras } from "../fluxo/restricoes";
@@ -235,5 +235,58 @@ describe("K) fluxo ativo (planejarComFluxo) respeita o bloco", () => {
     const r = planejarComFluxo(base, { apontamentos: [], agoraMs, planoVigente: [] });
     expect(verificarRestricoesDuras(r.entradaFluxo, r.resultado.alocacoes)).toEqual([]);
     expect(reps(base, r.resultado.alocacoes)).toEqual([]);
+  });
+});
+
+describe("vigente com pessoas re-atribuídas no bloco (mesmos postos, mesma falta)", () => {
+  const pools = [
+    pool({ produto: "P", op: "Mo", q: 1200, maquinas: ["m1", "m2"] }),
+    pool({ produto: "Q", op: "Et", q: 1200, maquinas: ["m3", "m4"] }),
+    pool({ produto: "R", op: "Pa", q: 1200, maquinas: ["m5", "m6"] }),
+  ];
+  const base = bloco(entrada({ funcionarios: equipe(6), pools }, [D1]));
+  const info: Record<string, { produto: string; etapa: string; maqs: string[] }> = { Mo: { produto: "P", etapa: "P-e1", maqs: ["m1", "m2"] }, Et: { produto: "Q", etapa: "Q-e1", maqs: ["m3", "m4"] }, Pa: { produto: "R", etapa: "R-e1", maqs: ["m5", "m6"] } };
+  const mk = (periodoId: string, grupos: [string, string, string][]): AlocacaoEscala[] => // [op, pessoa1, pessoa2]
+    grupos.flatMap(([op, p1, p2]) => [p1, p2].map((f, i) => ({ data: D1, periodoId, funcionarioId: f, maquinaId: info[op].maqs[i], produtoId: info[op].produto, etapaId: info[op].etapa, operacaoId: op, pecas: 100, motivoSemPosto: null, excecaoRevezamento: false, motivoExcecao: null })));
+  // manhã: M1 e M3 iguais (consecutivo-válido, mas repete no bloco)
+  const manha = [...mk("m1", [["Mo", "f01", "f02"], ["Et", "f03", "f04"], ["Pa", "f05", "f06"]]), ...mk("m2", [["Mo", "f03", "f04"], ["Et", "f05", "f06"], ["Pa", "f01", "f02"]]), ...mk("m3", [["Mo", "f01", "f02"], ["Et", "f03", "f04"], ["Pa", "f05", "f06"]])];
+  const padrao = (n: string) => manha.filter((a) => a.periodoId === n);
+  const tarde = [["m2", "t1"], ["m1", "t2"], ["m2", "t3"]].flatMap(([de, para]) => padrao(de).map((a) => ({ ...a, periodoId: para }))); // sem repetição consecutiva (inclusive M3→T1), mas repete no bloco
+  const vigente = [...manha, ...tarde];
+
+  it("reatribuirPessoasBloco elimina as repetições mantendo os postos de cada período", () => {
+    const r = reatribuirPessoasBloco(vigente, [], base.slots, { escopo: "bloco" });
+    expect(r).not.toBeNull();
+    expect(repeticoesPorBloco(vigente, base.slots).length).toBeGreaterThan(0);
+    expect(repeticoesPorBloco(r!.linhas, base.slots)).toEqual([]);
+    const postos = (l: AlocacaoEscala[]) => l.map((a) => `${a.periodoId}|${a.maquinaId}|${a.operacaoId}`).sort();
+    expect(postos(r!.linhas)).toEqual(postos(vigente));
+    // determinístico
+    expect(JSON.stringify(reatribuirPessoasBloco(vigente, [], base.slots, { escopo: "bloco" }))).toBe(JSON.stringify(r));
+  });
+  it("sem solução (1 pessoa, mesma operação em 2 períodos do bloco) devolve null — nunca viola", () => {
+    const e = bloco(entrada({ funcionarios: equipe(1), pools: [pool({ produto: "P", op: "Mo", q: 600, maquinas: ["m1"] })] }, [D1]));
+    const linhas = [linha(e, "m1", "f01", "Mo", "m1"), linha(e, "m2", "f01", "Mo", "m1")];
+    expect(reatribuirPessoasBloco(linhas, [], e.slots, { escopo: "bloco" })).toBeNull();
+  });
+  it("planejarComFluxo: vigente que só viola o bloco vira 'vigente re-atribuído' (mesmos postos, mesma falta, 0 violação)", () => {
+    const agoraMs = base.slots[0].inicioMs - 3600_000;
+    const r = planejarComFluxo(base, { apontamentos: [], agoraMs, planoVigente: vigente });
+    expect(r.diagnostico.vigente.valido).toBe(false);
+    expect(r.diagnostico.planoEscolhido).toBe("vigente");
+    expect(r.diagnostico.diagnosticos.some((x) => x.codigo === "PLANO_VIGENTE_REATRIBUIDO_BLOCO")).toBe(true);
+    expect(verificarRestricoesDuras(r.entradaFluxo, r.resultado.alocacoes)).toEqual([]);
+    expect(repeticoesPorBloco(r.resultado.alocacoes, base.slots)).toEqual([]);
+    const postos = (l: AlocacaoEscala[]) => l.map((a) => `${a.periodoId}|${a.maquinaId}|${a.operacaoId}|${a.pecas}`).sort();
+    expect(postos(r.resultado.alocacoes)).toEqual(postos(vigente));
+    expect(r.diagnostico.depois.faltaPrevista.lo).toBeCloseTo(r.diagnostico.depoisVigente!.faltaPrevista.lo, 6);
+    expect(r.diagnostico.violacoes).toEqual([]);
+  });
+  it("com o escopo consecutivo o mesmo vigente é válido e fica intacto (comportamento anterior)", () => {
+    const agoraMs = base.slots[0].inicioMs - 3600_000;
+    const r = planejarComFluxo({ ...base, revezamentoEscopo: "consecutivo" }, { apontamentos: [], agoraMs, planoVigente: vigente });
+    expect(r.diagnostico.vigente.valido).toBe(true);
+    expect(r.diagnostico.planoEscolhido).toBe("vigente");
+    expect(r.diagnostico.diagnosticos.some((x) => x.codigo === "PLANO_VIGENTE_REATRIBUIDO_BLOCO")).toBe(false);
   });
 });

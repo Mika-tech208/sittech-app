@@ -40,7 +40,7 @@ export interface ParametrosEscala {
   replanejamentoSemanasAtivas: string[];
 }
 
-export const PARAMETROS_PADRAO: ParametrosEscala = { wipModo: "desligado", wipDiasLimite: 1, wipDiasLimitePorSemana: {}, atingibilidadeMargem: 0.1, revezamentoModo: "duro", replanejamentoModo: "desligado", replanejamentoSemanasAtivas: [] };
+export const PARAMETROS_PADRAO: ParametrosEscala = { wipModo: "desligado", wipDiasLimite: 1, wipDiasLimitePorSemana: {}, atingibilidadeMargem: 0.1, revezamentoModo: "duro", revezamentoEscopo: "consecutivo", revezamentoEquivalencias: {}, replanejamentoModo: "desligado", replanejamentoSemanasAtivas: [] };
 
 // Chaves da tabela escala_parametros.
 export const CHAVE_WIP_MODO = "wip_modo";
