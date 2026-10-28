@@ -6,6 +6,7 @@ import { montarEstado, dataSP, slotsDa } from "./estado";
 import { analisarPlano, type Nomeador } from "./analise";
 import { detalhePar, tabela, tabelaA, tabelaD, n0 } from "./render";
 import { relatorioFechamento } from "./fechamento";
+import { verificarRestricoesDuras } from "@/features/escala/fluxo";
 
 const arg = (k: string) => { const i = process.argv.indexOf("--" + k); return i >= 0 ? (process.argv[i + 1]?.startsWith("--") ? "1" : process.argv[i + 1] ?? "1") : undefined; };
 const semana = arg("semana") ?? "2026-10-26";
@@ -14,9 +15,10 @@ if (!Number.isFinite(agoraMs)) throw new Error("--agora inválido (use ISO com f
 const fech = arg("fechamento");
 const data = arg("data") ?? dataSP(agoraMs);
 const antesIso = arg("antes-ate") ?? `${data}T08:50:00-03:00`;
+const depoisIso = arg("depois-ate") ?? "2999-01-01T00:00:00Z";
 const so = (arg("so") ?? "A,B,C,D,E").split(",").map((s) => s.trim().toUpperCase());
 
-const bruto = buscar({ semana, antesIso, usarCache: process.argv.includes("--cache") });
+const bruto = buscar({ semana, antesIso, depoisIso, usarCache: process.argv.includes("--cache") });
 const d = carregar(bruto);
 
 const opPorEtapa = new Map(d.decisao.entrada.pools.map((p) => [p.etapaId, p.operacaoId]));
@@ -39,6 +41,8 @@ if (!fech || so.some((s) => "ABCD".includes(s))) {
   L.push(`Gerado com agora = **${hora(agoraMs)}** (SP). Último período fechado: ${e.ufech >= 0 ? `${slots[e.ufech].data} ${slots[e.ufech].periodoId.toUpperCase()}` : "nenhum"}; primeiro período aberto (início da simulação): **${slots[e.aPartirDe].data} ${slots[e.aPartirDe].periodoId.toUpperCase()}**. Apontamentos da semana: ${d.apontamentos.length} (último lançado ${hora(ultAp)}). Plano vigente: ${d.planoAtual.length} linhas de escala_producao_alocacoes (${slots[0].data}..${slots[slots.length - 1].data}). Modo do fluxo: ${d.cfg.modo}; contagens físicas válidas lidas: ${d.cfg.contagensFisicas.length}.`);
   const usadas = e.ctx.diagnosticos.filter((x) => x.codigo === "CONTAGEM_FISICA_USADA").length;
   L.push(`Contagens físicas aplicadas pelo núcleo: ${usadas}; ignoradas: ${e.ctx.diagnosticos.filter((x) => x.codigo === "CONTAGEM_FISICA_IGNORADA").length}. f de desempenho embutido: ${Object.keys(e.fator).length} pool(s).`);
+  const violAtual = verificarRestricoesDuras(e.entrada, d.planoAtual.filter((x) => (slots.find((s) => s.data === x.data && s.periodoId === x.periodoId)?.indice ?? -1) >= e.aPartirDe));
+  L.push(`Sanidade: violações de restrição dura do plano vigente (de ${slots[e.aPartirDe].data} ${slots[e.aPartirDe].periodoId.toUpperCase()} em diante) contra a entrada reconstruída: **${violAtual.length}**${violAtual.length ? " (a entrada reconstruída pode estar defasada: ausências/paradas posteriores ao último snapshot não são vistas)" : ""}. Limite: ausências e paradas são as do último snapshot de decisão (${d.decisao.data} ${d.decisao.periodoId.toUpperCase()} rev ${d.decisao.revisao}).`);
   L.push("");
   const comWip = ps.filter((p) => p.w0.hi > 1 || p.picoSemana.hi > 1);
   const semWip = ps.filter((p) => !comWip.includes(p));
@@ -77,6 +81,6 @@ if (!fech || so.some((s) => "ABCD".includes(s))) {
     L.push("");
   }
 }
-if (fech && so.includes("E")) L.push(relatorioFechamento({ d, nm, agoraMs, fech, data, antesIso, slots }));
+if (fech && so.includes("E")) L.push(relatorioFechamento({ d, nm, agoraMs, fech, data, usarVersaoDepois: !!arg("depois-ate"), slots }));
 const txt = L.join("\n");
 if (arg("out")) fs.writeFileSync(arg("out") as string, txt); else console.log(txt);

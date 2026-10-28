@@ -1,0 +1,2 @@
+select id::text id, origem, extract(epoch from valido_desde)*1000 valido_ms, to_char(valido_desde at time zone 'America/Sao_Paulo','MM-DD HH24:MI:SS') valido, jsonb_array_length(linhas) n, linhas
+from escala_plano_versoes where semana_inicio='__SEMANA__' and valido_desde = (select max(valido_desde) from escala_plano_versoes where semana_inicio='__SEMANA__' and valido_desde < '__DEPOIS_ISO__'::timestamptz);

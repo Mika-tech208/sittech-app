@@ -15,7 +15,7 @@ export const CACHE = process.env.WIPCUSTO_CACHE ?? path.join(SCRATCH, "wcusto", 
 /** Executor de SELECT em PROD: `bash <exec> <arquivo.sql>` grava <arquivo.sql>.out com o JSON. Configurável por WIPCUSTO_RODAPROD. */
 export const RODAPROD = process.env.WIPCUSTO_RODAPROD ?? path.join(SCRATCH, "rodaprod.sh");
 
-export interface ParamsBusca { semana: string; antesIso: string; usarCache: boolean }
+export interface ParamsBusca { semana: string; antesIso: string; depoisIso: string; usarCache: boolean }
 
 const somaDias = (iso: string, n: number) => new Date(Date.parse(iso + "T12:00:00Z") + n * 86400000).toISOString().slice(0, 10);
 
@@ -36,7 +36,7 @@ export function buscar(p: ParamsBusca): Record<string, any[]> {
     let rows: any[] | null = null;
     if (p.usarCache) rows = lerOut(arq + ".out");
     if (!rows) {
-      const sql = fs.readFileSync(path.join(AQUI, "sql", nome + ".sql"), "utf8").replaceAll("__SEMANA_FIM__", somaDias(p.semana, 7)).replaceAll("__SEMANA__", p.semana).replaceAll("__ANTES_ISO__", p.antesIso);
+      const sql = fs.readFileSync(path.join(AQUI, "sql", nome + ".sql"), "utf8").replaceAll("__SEMANA_FIM__", somaDias(p.semana, 7)).replaceAll("__SEMANA__", p.semana).replaceAll("__ANTES_ISO__", p.antesIso).replaceAll("__DEPOIS_ISO__", p.depoisIso);
       fs.writeFileSync(arq, sql);
       for (let tent = 1; tent <= 4 && !rows; tent++) {
         try { fs.rmSync(arq + ".out", { force: true }); execFileSync("bash", [RODAPROD, arq], { stdio: "ignore", timeout: 170000 }); } catch { /* repete ("login role timed out") */ }
@@ -54,6 +54,7 @@ export interface DadosCarregados {
   apontamentos: (ApontamentoReal & { id: string })[];
   cfg: ConfigFluxo;
   planoAtual: AlocacaoEscala[];
+  versaoDepois: DadosCarregados["versaoAntes"];
   versaoAntes: { id: string; origem: string; validoMs: number; valido: string; linhas: AlocacaoEscala[] } | null;
   fluxo: any[];
   nomes: Record<string, string>;
@@ -79,9 +80,11 @@ export function carregar(b: Record<string, any[]>): DadosCarregados {
   }));
   const v = b.q_ver[0];
   const versaoAntes = v ? { id: v.id, origem: v.origem, validoMs: Math.round(Number(v.valido_ms)), valido: v.valido, linhas: (v.linhas as any[]).map(desempacotarLinha) } : null;
+  const v2 = b.q_ver_depois[0];
+  const versaoDepois = v2 ? { id: v2.id, origem: v2.origem, validoMs: Math.round(Number(v2.valido_ms)), valido: v2.valido, linhas: (v2.linhas as any[]).map(desempacotarLinha) } : null;
   const nomes: Record<string, string> = {};
   b.q_nomes.forEach((x) => (nomes[x.id] = x.nome));
   const parametrosAtualizadoMs: Record<string, number> = {};
   b.q_par.forEach((x) => (parametrosAtualizadoMs[x.chave] = Math.round(Number(x.atualizado_ms))));
-  return { decisao, apontamentos, cfg, planoAtual, versaoAntes, fluxo: b.q_fluxo, nomes, parametrosAtualizadoMs };
+  return { decisao, apontamentos, cfg, planoAtual, versaoAntes, versaoDepois, fluxo: b.q_fluxo, nomes, parametrosAtualizadoMs };
 }
