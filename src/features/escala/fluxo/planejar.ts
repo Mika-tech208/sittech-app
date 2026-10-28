@@ -6,7 +6,7 @@
 // Cada candidato é avaliado pelo MESMO simulador (avaliar.ts) e conferido por verificarRestricoesDuras. Escolhe-se o de menor tupla J
 // (lexicográfica); candidatos com violação dura ou com falta final PIOR que a do plano base são inelegíveis ⇒ nunca pior que o base.
 
-import { estabilizarPessoas } from "../estabilidade";
+import { estabilizarPessoas, reatribuirPessoasBloco } from "../estabilidade";
 import { gerarEscala } from "../gerarEscala";
 import { sobrepoe } from "../tempo";
 import { hashAlocacoes } from "../horizonte";
@@ -187,6 +187,8 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
 
   // ---- candidato "plano vigente mantido" (válido só se não violar restrição dura HOJE e estiver completo) ----
   let vigC: Candidato | null = null;
+  let vigReC: Candidato | null = null; // vigente com pessoas re-atribuídas (revezamento por bloco)
+  let vigenteReatribuidoPeriodos = 0;
   const vigente: SituacaoVigente = { disponivel: temVigente, valido: false, motivo: temVigente ? null : "sem linhas vigentes em períodos mutáveis", violacoes: 0, falta: avVigLeve ? { lo: avVigLeve.totais.faltaFinalLo, hi: avVigLeve.totais.faltaFinalHi } : null };
   if (temVigente && avVigLeve) {
     const violVig = verificarRestricoesDuras(entrada, vigFut);
@@ -198,6 +200,20 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
       vigente.valido = true;
       const churn0 = calcularChurn(ctx, vigFut);
       vigC = { indice: -2, entrada, resultado: { ...base, alocacoes: vigFut }, aval: avVigLeve, violacoes: [], churn: churn0, tupla: tuplaObjetivo(avVigLeve, churn0, ponderar), hash: hashAlocacoes(vigFut) };
+    }
+    // REVEZAMENTO POR BLOCO: vigente inválido SÓ por repetir operação no bloco (manhã/tarde) ⇒ candidato "vigente com pessoas re-atribuídas": os MESMOS postos (mesma falta,
+    // mesmo WIP), só QUEM os ocupa muda, até zerar as repetições. Sem solução ⇒ não é candidato (cai nos regenerados, que podem deixar posto vazio com diagnóstico).
+    if (!vigente.valido && !incompleto && entrada.revezamentoDuro && entrada.revezamentoEscopo === "bloco" && violVig.length > 0 && violVig.every((v) => v.tipo === "revezamento")) {
+      const rea = reatribuirPessoasBloco(vigFut, entrada.congeladas, entrada.slots, { escopo: "bloco", equivalencias: entrada.equivalenciaOperacoes, exposicaoExecutada: entrada.exposicaoExecutada });
+      if (rea) {
+        const linhasRea = marcarManuais(entrada, rea.linhas);
+        const violRea = verificarRestricoesDuras(entrada, linhasRea);
+        if (violRea.length === 0) {
+          const churnR = calcularChurn(ctx, linhasRea);
+          vigReC = { indice: -3, entrada, resultado: { ...base, alertas: base.alertas.filter((a) => a.tipo !== "rotacao_sem_solucao"), alocacoes: linhasRea }, aval: avVigLeve, violacoes: [], churn: churnR, tupla: tuplaObjetivo(avVigLeve, churnR, ponderar), hash: hashAlocacoes(linhasRea) };
+          vigenteReatribuidoPeriodos = rea.periodosAjustados;
+        }
+      }
     }
     if (!vigente.valido) diag.push({ codigo: "PLANO_VIGENTE_DESCARTADO", severidade: "aviso", mensagem: `Plano vigente não é candidato: ${vigente.motivo}`, detalhes: { violacoes: violVig.length } });
   }
@@ -219,7 +235,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
   }
 
   // ---- escolha: menor J entre os ELEGÍVEIS. Elegível = 0 violação dura E falta final nunca pior que a do plano base NEM a do plano vigente VÁLIDO (mesmo simulador) ----
-  const faltaRef = Math.min(baseC.aval.totais.faltaFinalLo, vigC ? vigC.aval.totais.faltaFinalLo : Number.POSITIVE_INFINITY);
+  const faltaRef = Math.min(baseC.aval.totais.faltaFinalLo, vigC ? vigC.aval.totais.faltaFinalLo : Number.POSITIVE_INFINITY, vigReC ? vigReC.aval.totais.faltaFinalLo : Number.POSITIVE_INFINITY);
   const elegivel = (c: Candidato) => c.violacoes.length === 0 && c.aval.totais.faltaFinalLo <= faltaRef + EPS_FALTA;
   candidatos.forEach((c) => {
     if (c.violacoes.length > 0) {
@@ -227,7 +243,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     }
   });
   // ordem de desempate (primeiro vence): vigente (zero churn) > base > fluxo — só se troca por candidato ESTRITAMENTE melhor pela tupla
-  const ordem: Candidato[] = [...(vigC ? [vigC] : []), baseC, ...candidatos];
+  const ordem: Candidato[] = [...(vigC ? [vigC] : []), ...(vigReC ? [vigReC] : []), baseC, ...candidatos];
   let escolhido: Candidato | null = null;
   ordem.filter(elegivel).forEach((c) => {
     if (escolhido === null || compararTuplas(c.tupla, (escolhido as Candidato).tupla) < 0) escolhido = c;
@@ -237,7 +253,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
   // com os alertas desse "gêmeo" (assim a assinatura de alertas do recálculo anterior se repete e o NO-OP do processar funciona).
   const gemeo: Candidato | null = vigC ? [baseC, ...candidatos].find((c) => c.hash !== undefined && hashAlocacoes(c.resultado.alocacoes) === vigC!.hash) ?? null : null;
   if (vigC && final.indice !== -2 && gemeo && hashAlocacoes(final.resultado.alocacoes) === vigC.hash) final = vigC;
-  const planoEscolhido: PlanoEscolhido = final.indice === -2 ? "vigente" : final.indice === -1 ? "base" : "fluxo";
+  const planoEscolhido: PlanoEscolhido = final.indice === -2 || final.indice === -3 ? "vigente" : final.indice === -1 ? "base" : "fluxo";
   const usaFluxo = planoEscolhido === "fluxo";
 
   // ---- estabilidade por θ (só se θ > 0): quantos postos do 1º período mutável o bônus reteve ----
@@ -268,12 +284,15 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     planoEscolhido === "fluxo"
       ? { codigo: "PLANO_FLUXO_ESCOLHIDO", severidade: "info", mensagem: `Plano de fluxo (iteração ${final.indice}) escolhido: falta final prevista ${faltaTxt(avFluxo)} × ${faltaTxt(avBase)} do plano base${avVig ? ` × ${faltaTxt(avVig)} do plano vigente` : ""}`, detalhes: { iteracao: final.indice, faltaFluxo: avFluxo.totais.faltaFinalLo, faltaBase: avBase.totais.faltaFinalLo, faltaVigente: avVig ? avVig.totais.faltaFinalLo : null } }
       : planoEscolhido === "vigente"
-        ? { codigo: "PLANO_VIGENTE_MANTIDO", severidade: "info", mensagem: "Nenhum plano (base ou de fluxo) foi estritamente melhor que o plano VIGENTE pelo simulador: plano vigente mantido (sem alterações)", detalhes: { faltaVigente: avVig ? avVig.totais.faltaFinalLo : null, faltaBase: avBase.totais.faltaFinalLo } }
+        ? final.indice === -3
+          ? { codigo: "PLANO_VIGENTE_REATRIBUIDO_BLOCO", severidade: "info", mensagem: `Postos do plano VIGENTE mantidos (mesma falta e WIP); pessoas re-atribuídas em ${vigenteReatribuidoPeriodos} período(s) para eliminar repetição de operação no bloco (manhã/tarde)`, detalhes: { periodosAjustados: vigenteReatribuidoPeriodos } }
+          : { codigo: "PLANO_VIGENTE_MANTIDO", severidade: "info", mensagem: "Nenhum plano (base ou de fluxo) foi estritamente melhor que o plano VIGENTE pelo simulador: plano vigente mantido (sem alterações)", detalhes: { faltaVigente: avVig ? avVig.totais.faltaFinalLo : null, faltaBase: avBase.totais.faltaFinalLo } }
         : { codigo: "PLANO_BASE_MANTIDO", severidade: "info", mensagem: "Nenhum plano de fluxo foi estritamente melhor que o plano base pelo simulador: plano base mantido", detalhes: { faltaBase: avBase.totais.faltaFinalLo } }
   );
 
   const iteracoes: IteracaoFluxo[] = [
     ...(vigC ? [{ indice: -2, tupla: vigC.tupla.map(r3), faltaFinalLo: vigC.aval.totais.faltaFinalLo, violacoes: 0, escolhida: final.indice === -2, hashPlano: vigC.hash }] : []),
+    ...(vigReC ? [{ indice: -3, tupla: vigReC.tupla.map(r3), faltaFinalLo: vigReC.aval.totais.faltaFinalLo, violacoes: 0, escolhida: final.indice === -3, hashPlano: vigReC.hash }] : []),
     { indice: -1, tupla: baseC.tupla.map(r3), faltaFinalLo: baseC.aval.totais.faltaFinalLo, violacoes: baseC.violacoes.length, escolhida: final.indice === -1, hashPlano: baseC.hash },
     ...candidatos.map((c) => ({ indice: c.indice, tupla: c.tupla.map(r3), faltaFinalLo: c.aval.totais.faltaFinalLo, violacoes: c.violacoes.length, escolhida: final.indice === c.indice, hashPlano: c.hash })),
   ];

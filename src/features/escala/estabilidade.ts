@@ -7,7 +7,7 @@
 // O resultado produtivo (postos, máquinas, produtos, peças) NÃO muda — só quem ocupa. Sem solução em algum período => devolve a proposta original.
 
 import { atribuicaoMinima } from "./matching";
-import { MemoriaBloco, registrarPassadoDoBloco, type EquivalenciaOperacoes, type ExposicaoExecutada } from "./exposicaoBloco";
+import { chaveBloco, MemoriaBloco, registrarPassadoDoBloco, type EquivalenciaOperacoes, type ExposicaoExecutada } from "./exposicaoBloco";
 import type { AlocacaoEscala, SlotEscala } from "./types";
 
 const PROIBIDO = 1_000_000;
@@ -70,3 +70,82 @@ export function classificarMudancas(oficial: AlocacaoEscala[], novo: AlocacaoEsc
   const produtivas = Math.min(linhasAlteradas, Math.max(adicionados, removidos));
   return { produtivas, trocasEquivalentes: linhasAlteradas - produtivas };
 }
+
+// ---------- REATRIBUIÇÃO DE PESSOAS NO BLOCO (revezamento por bloco) ----------
+// Mantém EXATAMENTE os postos (máquina/produto/etapa/peças) das `linhas` de cada período e só decide QUEM ocupa cada um, de modo que ninguém repita a operação (nem
+// equivalente) dentro da manhã/tarde. Os postos e a falta final não mudam — só as pessoas. Busca por bloco: atribuição de custo mínimo período a período (pessoa que mantém o
+// posto original custa 0, outra custa 1), com checagem de viabilidade dos períodos seguintes do bloco (lookahead) e reinícios determinísticos (PRNG semeado) para
+// desempatar. Sem solução em algum bloco ⇒ null (o chamador descarta o candidato). Determinístico.
+function prng(semente: number): () => number {
+  let a = (semente + 0x9e3779b9) >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function reatribuirPessoasBloco(linhas: AlocacaoEscala[], antes: AlocacaoEscala[], slots: SlotEscala[], regras: RegrasRevezamento, tentativas = 400): ResultadoEstabilidade | null {
+  const idx = (a: { data: string; periodoId: string }) => slots.find((s) => s.data === a.data && s.periodoId === a.periodoId)?.indice ?? -1;
+  const porSlot = new Map<number, AlocacaoEscala[]>();
+  linhas.forEach((a) => porSlot.set(idx(a), [...(porSlot.get(idx(a)) ?? []), a]));
+  const ordem = [...porSlot.keys()].sort((x, y) => x - y);
+  // blocos contíguos da região
+  const blocos: number[][] = [];
+  ordem.forEach((i) => {
+    const ult = blocos[blocos.length - 1];
+    if (ult && ult.length > 0 && chaveBlocoDe(slots[ult[ult.length - 1]]) === chaveBlocoDe(slots[i]) && ult[ult.length - 1] === i - 1) ult.push(i);
+    else blocos.push([i]);
+  });
+  const saida: AlocacaoEscala[] = [];
+  let ajustados = 0;
+  for (const bloco of blocos) {
+    let melhor: { linhas: AlocacaoEscala[]; custo: number } | null = null;
+    let viaveis = 0;
+    for (let t = 0; t < tentativas && viaveis < 40; t++) {
+      const rnd = prng(t + 1);
+      const jitter = t === 0 ? 0 : t < 100 ? 0.45 : 2.5;
+      const mem = new MemoriaBloco(regras.equivalencias);
+      registrarPassadoDoBloco(mem, slots, bloco[0], antes, regras.exposicaoExecutada);
+      const escolhido: AlocacaoEscala[] = [];
+      let ok = true;
+      let custoTotal = 0;
+      for (let k = 0; k < bloco.length && ok; k++) {
+        const rows = porSlot.get(bloco[k]) as AlocacaoEscala[];
+        const pessoas = rows.map((r) => r.funcionarioId);
+        const original = new Map(rows.map((r) => [r.funcionarioId, r]));
+        const custo = pessoas.map((p) => rows.map((tok) => {
+          if (tok.origem === "manual") return tok.funcionarioId === p ? 0 : PROIBIDO;
+          if (tok.maquinaId && tok.operacaoId && mem.proibido(p, tok.operacaoId)) return PROIBIDO;
+          const of = original.get(p);
+          return (of && chavePosto(of) === chavePosto(tok) ? 0 : CUSTO_TROCA) + (jitter > 0 ? rnd() * jitter : 0);
+        }));
+        const sol = atribuicaoMinima(custo);
+        if (sol.some((j, pi) => custo[pi][j] >= PROIBIDO)) { ok = false; break; }
+        const novo = rows.map((tok, j) => ({ ...tok, funcionarioId: pessoas[sol.indexOf(j)] }));
+        custoTotal += novo.filter((n, j) => n.funcionarioId !== rows[j].funcionarioId).length;
+        novo.forEach((n) => mem.registrar(n.funcionarioId, n.maquinaId ? n.operacaoId : null));
+        escolhido.push(...novo);
+        // lookahead: cada período seguinte do bloco ainda admite uma atribuição válida com a exposição atual?
+        for (let k2 = k + 1; k2 < bloco.length && ok; k2++) {
+          const r2 = porSlot.get(bloco[k2]) as AlocacaoEscala[];
+          const c2 = r2.map((r) => r2.map((tok) => (tok.origem === "manual" ? (tok.funcionarioId === r.funcionarioId ? 0 : PROIBIDO) : tok.maquinaId && tok.operacaoId && mem.proibido(r.funcionarioId, tok.operacaoId) ? PROIBIDO : 0)));
+          const s2 = atribuicaoMinima(c2);
+          if (s2.some((j, pi) => c2[pi][j] >= PROIBIDO)) ok = false;
+        }
+      }
+      if (!ok) continue;
+      viaveis++;
+      if (melhor === null || custoTotal < melhor.custo) melhor = { linhas: escolhido, custo: custoTotal };
+      if (custoTotal === 0) break;
+    }
+    if (melhor === null) return null;
+    if (melhor.custo > 0) ajustados += bloco.length;
+    saida.push(...melhor.linhas);
+  }
+  const ordenada = saida.sort((a, b) => idx(a) - idx(b) || (a.funcionarioId < b.funcionarioId ? -1 : 1));
+  return { linhas: ordenada, estabilizou: ajustados > 0, periodosAjustados: ajustados };
+}
+const chaveBlocoDe = (s: SlotEscala) => chaveBloco(s);
