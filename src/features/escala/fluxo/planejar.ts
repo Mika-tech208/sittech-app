@@ -158,7 +158,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     const linhasAntes = calcularChurn(ctx, linhas).linhasAlteradas;
     const info: EstabilizacaoPessoas = { aplicada: false, periodosAjustados: 0, linhasAntes, linhasDepois: linhasAntes, motivoDescarte: null };
     if (estabilizar && temVigente && linhas.length > 0) {
-      const est = estabilizarPessoas(linhas, vigFut, ent.congeladas, ent.slots);
+      const est = estabilizarPessoas(linhas, vigFut, ent.congeladas, ent.slots, { escopo: ent.revezamentoDuro ? ent.revezamentoEscopo : undefined, equivalencias: ent.equivalenciaOperacoes, exposicaoExecutada: ent.exposicaoExecutada });
       if (est.estabilizou) {
         const aval2 = avalia(est.linhas);
         const viol2 = verificarRestricoesDuras(ent, est.linhas);

@@ -34,6 +34,8 @@ export interface EntradaCanonicaCorte {
   planoOficial: LinhaPacote[]; // plano oficial vigente da semana no momento da leitura
   impossivelNaOrigem: boolean;
   modoHorizonte: "comprometido" | "antigo";
+  revezamentoEscopo?: "bloco"; // revezamento por bloco (manhã/tarde) vigente no corte; ausente = consecutivo (snapshots antigos reproduzem igual)
+  equivalenciaOperacoes?: Record<string, string[]>;
   restrito?: boolean; // replanejamento restrito: WIP flexível sem teto fixo + trocas manuais como preferência (ausente = regra da 4d original)
 }
 
@@ -53,6 +55,7 @@ export function paraParametrosCorte(e: EntradaCanonicaCorte): ParametrosCorte {
   const base: EntradaEscala = {
     slots, aPartirDe: 0, pools: e.pools, funcionarios: e.funcionarios.map((id) => ({ id })), ausencias: [], maquinasIndisponiveisPrevisao: e.maquinasIndisponiveisPrevisao,
     maquinasInativas: e.maquinasInativas, indisponibilidades: [], congeladas: [], historicoEquidade: e.historicoEquidade, revezamentoDuro: true, ...(e.wip ? { wip: e.wip } : {}),
+    ...(e.revezamentoEscopo === "bloco" ? { revezamentoEscopo: "bloco" as const, ...(e.equivalenciaOperacoes ? { equivalenciaOperacoes: e.equivalenciaOperacoes } : {}) } : {}),
   };
   return {
     base, ausencias: e.ausencias, indisponibilidades: e.indisponibilidades, apontamentos: e.apontamentos.map(desempacotarApontamento), planoOficial: e.planoOficial.map(desempacotarLinha),

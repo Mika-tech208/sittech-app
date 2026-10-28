@@ -211,9 +211,9 @@ export default function EscalaProducaoPage() {
     ? alocacoesDoDia.filter((a) => a.periodoId === edicao.periodoId && a.funcionarioId !== edicao.funcionarioId).map((a) => ({
         id: a.funcionarioId,
         rotulo: `${estado.nomes.funcionarios.get(a.funcionarioId) || "Funcionário"} — ${a.maquinaId ? estado.nomes.maquinas.get(a.maquinaId) || "posto" : "sem posto"}`,
-        // revezamento duro: a troca que repetiria a operação em períodos consecutivos é bloqueada já aqui (o servidor aplica a mesma regra)
+        // revezamento duro: a troca que repetiria a operação (em períodos consecutivos, ou na mesma manhã/tarde no escopo bloco) é bloqueada já aqui (o servidor aplica a mesma regra)
         bloqueio: (() => {
-          const r = validarTroca(alocacoesDoDia, ordemPeriodosDoDia, edicao.periodoId, edicao.funcionarioId, a.funcionarioId);
+          const r = validarTroca(alocacoesDoDia, ordemPeriodosDoDia, edicao.periodoId, edicao.funcionarioId, a.funcionarioId, estado.regrasRevezamento);
           return r.ok ? undefined : r.mensagem;
         })(),
       }))

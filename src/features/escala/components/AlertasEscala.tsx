@@ -58,7 +58,7 @@ export default function AlertasEscala({ alocacoes, alertas, nomes }: { alocacoes
         {rotacao.length > 0 && (
           <div className="stx-esc-linha">
             <span>
-              <b>Sem escala válida sem repetir operação consecutiva:</b> {rotacao.length} período(s) com posto sem operador por causa do revezamento obrigatório (regra ergonômica, sem exceção).
+              <b>Sem escala válida sem repetir a operação (revezamento):</b> {rotacao.length} período(s) com posto sem operador por causa do revezamento obrigatório (regra ergonômica, sem exceção).
               <div className="stx-esc-muted">{rotacao.slice(0, 5).map((a) => `${rotuloSlot(a.data, a.periodoId)}: ${a.motivo ?? ""}`).join(" | ")}{rotacao.length > 5 ? ` … e mais ${rotacao.length - 5}` : ""}</div>
               <div className="stx-esc-muted">Alternativas: habilitar mais pessoas nessa operação; selecionar máquina de outra operação; reduzir ou redistribuir os postos dessa operação; ou aceitar o posto vazio.</div>
             </span>

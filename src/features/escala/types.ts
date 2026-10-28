@@ -127,6 +127,14 @@ export interface EntradaEscala {
   // produto ou posto; M3→T1 conta; o primeiro período do dia zera). Solução que repete é eliminada do espaço de busca: sem solução válida o
   // posto fica sem operador e gera `rotacao_sem_solucao`. Ausente/false = comportamento anterior (repetição "inevitável" vira exceção).
   revezamentoDuro?: boolean;
+  // REVEZAMENTO POR BLOCO (hotfix 28/10): `revezamentoEscopo = "bloco"` (com o revezamento duro) troca a regra "mesma operação em períodos consecutivos" por
+  // "a mesma pessoa NÃO executa a mesma operacao_id mais de uma vez na mesma MANHÃ (M1-M3) nem na mesma TARDE (T1-T3)". Ausente/"consecutivo" = comportamento anterior,
+  // byte-idêntico. `equivalenciaOperacoes` (opcional, vazio por padrão): X -> operações que executar X também expõe. `exposicaoExecutada`: evidência real
+  // (apontamentos com funcionário) do que cada pessoa EXECUTOU em períodos já iniciados — substitui a alocação congelada daquele (período, pessoa).
+  // Ver docs/escala-revezamento-bloco.md.
+  revezamentoEscopo?: "consecutivo" | "bloco";
+  equivalenciaOperacoes?: Record<string, string[]>;
+  exposicaoExecutada?: { data: string; periodoId: string; funcionarioId: string; operacoes: string[] }[];
   // MODO SOMBRA (Fase 4d): adicional/WIP por etapa que a Produção Real JÁ realizou antes de `aPartirDe` e que NÃO está em linhas congeladas
   // (o realizado vem agregado, não por posto). Consome o teto restante e conta no equilíbrio da cadeia e no limite de estoque, exatamente
   // como o adicional congelado. Ausente (Escala oficial) = comportamento anterior, idêntico.

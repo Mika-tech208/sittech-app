@@ -20,6 +20,7 @@ import { ContadoresEquidade } from "./equidade";
 import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { sobrepoe } from "./tempo";
 import type { ExposicaoPessoa } from "./producaoReal";
+import { chaveBloco, expansaoOperacao } from "./exposicaoBloco";
 import type { AlertaEscala, AlocacaoEscala, EntradaEscala, SlotEscala } from "./types";
 
 export type StatusCompromisso =
@@ -98,12 +99,29 @@ function operacoesProibidas(entrada: EntradaEscala, plano: AlocacaoEscala[], slo
   const mapa = new Map<string, Set<string>>();
   const incerta = new Set<string>();
   const ant = entrada.slots[slot.indice - 1];
-  if (!ant || ant.data !== slot.data) return { mapa, incerta }; // novo dia zera o revezamento
+  const bloco = entrada.revezamentoDuro === true && entrada.revezamentoEscopo === "bloco";
+  if (!ant || (bloco ? chaveBloco(ant) !== chaveBloco(slot) : ant.data !== slot.data)) return { mapa, incerta }; // novo dia (ou, no escopo bloco, novo bloco manhã/tarde) zera o revezamento
   const add = (f: string, ops: string[], inc: boolean) => {
     if (!mapa.has(f)) mapa.set(f, new Set());
-    ops.forEach((o) => mapa.get(f)!.add(o));
+    ops.forEach((o) => (bloco ? expansaoOperacao(o, entrada.equivalenciaOperacoes) : [o]).forEach((x) => mapa.get(f)!.add(x)));
     if (inc) incerta.add(f);
   };
+  if (bloco) {
+    // ESCOPO BLOCO: tudo o que a pessoa executou/estava alocada em M1..(slot-1) (ou T1..) do mesmo bloco — não só o período imediatamente anterior
+    for (let u = slot.indice - 1; u >= 0 && chaveBloco(entrada.slots[u]) === chaveBloco(slot); u--) {
+      const su = entrada.slots[u];
+      if (exposicao) {
+        exposicao.filter((e) => e.slot === su.indice).forEach((e) => add(e.funcionarioId, e.operacoes, e.incerta));
+        continue;
+      }
+      doSlot(plano, su).forEach((a) => {
+        if (!a.maquinaId) return;
+        if (a.operacaoId) return void add(a.funcionarioId, [a.operacaoId], false);
+        add(a.funcionarioId, [...new Set(entrada.pools.filter((p) => p.maquinasIds.includes(a.maquinaId as string)).map((p) => p.operacaoId))], true);
+      });
+    }
+    return { mapa, incerta };
+  }
   if (exposicao) {
     exposicao.filter((e) => e.slot === ant.indice).forEach((e) => add(e.funcionarioId, e.operacoes, e.incerta));
     return { mapa, incerta };
@@ -158,7 +176,8 @@ export function avaliarCompromisso(entrada: EntradaEscala, planoVigente: Alocaca
   const equipe = new Set(entrada.funcionarios.map((f) => f.id));
   const presente = (id: string) => equipe.has(id) && !ausenteNoSlot(entrada, id, slot);
   const { mapa: proib, incerta } = operacoesProibidas(entrada, planoVigente, slot, opcoes.exposicaoAnterior);
-  const proibido = (id: string, op: string | null) => !!op && !!proib.get(id)?.has(op);
+  const blocoEq = entrada.revezamentoDuro === true && entrada.revezamentoEscopo === "bloco";
+  const proibido = (id: string, op: string | null) => !!op && (blocoEq ? expansaoOperacao(op, entrada.equivalenciaOperacoes).some((o) => !!proib.get(id)?.has(o)) : !!proib.get(id)?.has(op));
   const ant = entrada.slots[slot.indice - 1];
 
   // ---- detecção ----
