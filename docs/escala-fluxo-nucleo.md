@@ -146,3 +146,9 @@ nos instantâneos reais de PROD e reproduz os `hash_decisao`/`hash_plano_sombra`
 6. `decisoes[]` / `resumoDecisoes[]`: de→para (o `de` é o posto no plano VIGENTE) e o motivo; `reconciliacao` fecha a conta do ganho; `estabilizacao` mostra quantas linhas a re-atribuição de pessoas poupou; `vigente` explica por que o plano em vigor foi ou não candidato.
 7. `violacoes` deve ser vazio; qualquer item é bug (o candidato seria descartado — ver `VIOLACAO_RESTRICAO_DURA` nos diagnósticos).
 8. Reproduzir: o par `(entrada, dados, opcoes)` é determinístico — `planejarComFluxo` duas vezes dá o mesmo JSON.
+
+## 10. Fail-safe de estoque inicial desconhecido e contagem física (v2.1)
+
+* `EstadoWipPar.desconhecido` (aditivo): par sem saldo confirmado, confiança baixa e `bruto.lo < 0` ⇒ `WIP_INICIAL_DESCONHECIDO`. O WIP 0 derivado é "não sei". Física do simulador e demanda/Allowed inalterados; os postos do nó seguinte que o plano BASE usa por período ficam garantidos nos candidatos de valor marginal (`aplicarPisoDownstream` em `planejar.ts`).  Opção `failSafeWipDesconhecido` (default true; false = v2 anterior, byte-idêntico). Alternativa avaliada e descartada: tornar o consumo downstream ilimitado no simulador (infla o WIP a montante).
+* `DadosProducaoReal.contagensFisicas` (aditivo; `contagem.ts`): saldo físico no instante `contadoEmMs`; WIP posterior = saldo + Σ boas origem − Σ boas seguinte dos períodos posteriores (período em andamento: só o lançado depois). Origem `confirmado` / `fonteConfirmacao = contagem_fisica`; confiança alta até 6 períodos fechados, depois média; substitui o estimado (e o fail-safe). Runbook: docs/escala-fluxo-contagem-fisica.md.
+

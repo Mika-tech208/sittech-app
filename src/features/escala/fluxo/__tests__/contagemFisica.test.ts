@@ -1,13 +1,11 @@
 // CONTAGEM FÍSICA confirmada (docs/escala-fluxo-contagem-fisica.md).
 import { describe, it, expect } from "vitest";
-import { gerarEscala } from "../../gerarEscala";
 import { estadoDaProducao } from "../estado";
-import { avaliarPlano } from "../avaliar";
 import { planejarComFluxo } from "../planejar";
 import { acharAresta, acumuladoDesde, validarContagens } from "../contagem";
 import { construirGrafo } from "../grafo";
 import type { ContagemFisicaPar } from "../tipos";
-import { apontarPlano, checarFluxo, equipe, MIN, montar, pool, rodar, jsonSerializavel } from "./helpersFluxo";
+import { apontarPlano, checarFluxo, equipe, MIN, montar, pool, rodar } from "./helpersFluxo";
 
 const dois = () => [
   pool({ produto: "P", etapa: "P1", op: "opA", ordem: 1, q: 6000, maquinas: ["a1"], mu: 500 }),

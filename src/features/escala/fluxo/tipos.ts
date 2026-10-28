@@ -81,6 +81,10 @@ export interface OpcoesFluxo {
   limiarEstabilidadePecas?: number;
   /** Re-atribui as PESSOAS do plano escolhido para manter a pessoa no mesmo posto do plano vigente (mesmos postos, mesma falta). Default true. */
   estabilizarPessoas?: boolean;
+  /** FAIL-SAFE de estoque inicial desconhecido (default true). Par SEM saldo confirmado/contagem, confiança baixa e `bruto.lo < 0` ⇒ `desconhecido` (`WIP_INICIAL_DESCONHECIDO`): o WIP 0 derivado
+   *  significa "não sei", e os postos do elo SEGUINTE que o plano BASE usa ficam garantidos nos candidatos de fluxo (piso de postos por período). Física do simulador e demanda/Allowed inalterados.
+   *  `false` = comportamento anterior, byte-idêntico. */
+  failSafeWipDesconhecido?: boolean;
   /** Máximo de iterações de valor marginal. Default 4. */
   maxIteracoes?: number;
   /** Fator de desempenho por pool a APLICAR sobre entrada.pools[].metas (ausente = metas já efetivas). Não combinar com fatoresEmbutidos. */
@@ -132,6 +136,7 @@ export type CodigoDiagnosticoFluxo =
   | "ESTABILIZACAO_PESSOAS" // pessoas re-atribuídas para manter o posto do plano vigente
   | "ESTABILIZACAO_DESCARTADA" // a re-atribuição piorou a falta ou violou restrição dura: descartada
   | "SEM_PRODUCAO_SEM_PROGRAMACAO" // sem_producao com motivo sem_programacao (fora da spec original): zero confirmado, sem inferir material
+  | "WIP_INICIAL_DESCONHECIDO" // par sem saldo confirmado, confiança baixa e bruto.lo < 0: estoque inicial DESCONHECIDO (fail-safe: o consumo downstream não é limitado pelo WIP 0 derivado)
   | "CONTAGEM_FISICA_USADA" // contagem física válida usada como saldo inicial CONFIRMADO do par
   | "CONTAGEM_FISICA_IGNORADA" // item de contagem física inválido/substituído: ignorado (nunca derruba o recálculo)
   | "POOL_FUNDIDO"; // pools legados fundidos logicamente
@@ -195,6 +200,8 @@ export interface EstadoWipPar {
   wip: Intervalo; // com piso 0
   bruto: Intervalo; // antes do piso (pode ser negativo)
   negativo: boolean; // bruto.hi < 0 (negativo mesmo no melhor caso)
+  /** ADITIVO: true = ESTOQUE INICIAL DESCONHECIDO (fail-safe). Ausente = false. O wip 0 derivado não significa "sem material". */
+  desconhecido?: boolean;
   /** ADITIVO: de onde vem o saldo confirmado. Ausente quando estimado. */
   fonteConfirmacao?: "wip_controle" | "contagem_fisica";
   /** ADITIVO (contagem física): saldo informado, instante da contagem (ISO UTC) e nº de períodos fechados desde então. */

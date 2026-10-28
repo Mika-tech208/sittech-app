@@ -4,17 +4,20 @@ Runbook operacional. Sem migration: a chave `producao_real_contagens_fisicas` é
 
 ## 1. O que existe
 
-### 1.1 Fail-safe (automático, localizado por par) — PROPOSTA em commit separado, NÃO incluída nesta publicação
+### 1.1 Fail-safe (automático, localizado por par)
 Um par origem→seguinte vira **ESTOQUE INICIAL DESCONHECIDO** quando, ao mesmo tempo:
 (a) não tem saldo confirmado (nem `wip_controle`, nem contagem física), (b) a confiança é `baixa`, (c) o saldo bruto é negativo em algum cenário plausível (`bruto.lo < 0`).
+O WIP 0 derivado nesse caso significa "não sei", não "não há material".
 
-Efeito (só nesse par, só da etapa seguinte em diante):
+Efeito (só nesse par, só no elo seguinte):
 * diagnóstico `WIP_INICIAL_DESCONHECIDO` (aviso) com par, bruto e motivo; `pares[].desconhecido = true` em `escala_fluxo_diagnosticos.wip`;
-* a partir do primeiro período que o plano decide (`aPartirDe`), o consumo da etapa seguinte **não é limitado** pelo WIP 0 derivado: disponibilidade ilimitada até a capacidade da etapa e a demanda final. O WIP conhecido (produção da origem) continua sendo consumido primeiro;
-* o teto de utilidade (Allowed) e a demanda do **upstream** ficam exatamente como antes (a projeção até `aPartirDe` não usa o fail-safe);
-* pares com confiança média/alta (ex.: Caixa Amarela, +2.963) e pares com contagem/saldo confirmado **não mudam**.
+* a física do simulador e o teto de utilidade (Allowed) / demanda de TODOS os nós ficam exatamente como antes;
+* os postos do elo seguinte que o plano BASE (`gerarEscala`) aloca em cada período ficam **garantidos** nos candidatos de fluxo (piso na tabela de valor marginal): o WIP 0 derivado não retira a Embalagem do plano;
+* pares com confiança média/alta (ex.: Caixa Amarela) e pares com contagem/saldo confirmado **não mudam**.
 
-É temporário: some sozinho quando o par ganha uma contagem física. Reversão do fail-safe = redeploy do código anterior (não há chave de configuração).
+Alternativa avaliada e NÃO usada: tornar o consumo do elo seguinte ilimitado no simulador, em que o material do par deixa de limitar o consumo do elo seguinte no simulador. Reduz a falta modelada, mas libera produção a montante demais (a Rosqueadeira passa a valer zero e o motor a usa como enchimento, acumulando WIP: +42 mil peças somadas em 12 fechamentos na aresta Rosquear→Parafusar).
+
+É temporário: some sozinho quando o par ganha uma contagem física. Reversão = redeploy do código anterior, ou `failSafeWipDesconhecido: false` nas opções do núcleo (volta ao comportamento anterior, byte-idêntico).
 
 ### 1.2 Contagem física
 Substitui o estimado do par por um saldo inicial CONFIRMADO no instante da contagem.

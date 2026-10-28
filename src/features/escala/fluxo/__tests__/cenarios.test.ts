@@ -49,7 +49,8 @@ describe("linear — multietapa", () => {
     const pools = tres();
     const m0 = montar({ pools, funcionarios: equipe(5), c: 3 });
     const real = realComoPlano(m0.planoCompleto, pools, 3, m0.entrada.slots);
-    const x = rodar({ pools, funcionarios: equipe(5), c: 3, apontamentos: real });
+    // a mecânica D_k = R_f − pipeline é a do WIP CONHECIDO: o fail-safe de estoque desconhecido tem testes próprios (wipFailSafe.test.ts)
+    const x = rodar({ pools, funcionarios: equipe(5), c: 3, apontamentos: real, opcoes: { failSafeWipDesconhecido: false } });
     const e = x.r.diagnostico.estado;
     const Rf = demanda(e, "P3").demandaFluxo;
     expect(demanda(e, "P3").tetoUtilidade).toBeNull();
@@ -107,6 +108,7 @@ describe("downstream sem / com material", () => {
     const x = rodar({
       pools, funcionarios: equipe(4), c: 1,
       extra: { indisponibilidades: [{ maquinaId: "a1", desdeMs: epochMsNoFuso("2026-10-26", "00:00"), liberadaEmMs: null }] },
+      opcoes: { failSafeWipDesconhecido: false }, // aqui o WIP 0 é tratado como CONHECIDO (o fail-safe de estoque desconhecido tem testes próprios em wipFailSafe.test.ts)
     });
     expect(x.r.diagnostico.depois.produtoFinalPrevisto.lo).toBeLessThanOrEqual(1);
     expect(checarFluxo(x)).toEqual([]);

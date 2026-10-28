@@ -222,6 +222,7 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
 
   // ---- WIP por aresta no corte ----
   const confirmados = dados.wipConfirmado ?? [];
+  const failSafe = opcoes.failSafeWipDesconhecido !== false;
   const { validas: contagens, diagnosticos: diagContagens } = validarContagens(grafo, dados, entrada.slots);
   diagnosticos.push(...diagContagens);
   const periodosFechadosDesde = (T: number) => entrada.slots.filter((x) => x.indice <= ultimoFechado && x.inicioMs >= T).length;
@@ -284,9 +285,20 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
         mensagem: `WIP ${cont ? "pós-contagem" : "estimado"} negativo (${Math.round(bruto.hi)}) mesmo no melhor caso: piso 0. Causas possíveis: estoque inicial desconhecido, apontamento inconsistente ou lançamento atrasado`, detalhes: { brutoHi: r1(bruto.hi), brutoLo: r1(bruto.lo) },
       });
     }
+    // FAIL-SAFE: sem saldo confirmado (wip_controle ou contagem física), confiança baixa e saldo bruto negativo em algum cenário plausível (bruto.lo < 0) ⇒ ESTOQUE INICIAL DESCONHECIDO.
+    // O WIP 0 derivado não pode, sozinho, suprimir o posto do elo downstream: os postos do elo seguinte que o plano BASE usa ficam garantidos (piso, ver planejar.ts).
+    // O upstream segue com o teto de utilidade conservador de sempre.
+    const desconhecido = failSafe && !cont && !conf && confianca === "baixa" && bruto.lo < -EPS;
+    if (desconhecido) {
+      diagnosticos.push({
+        codigo: "WIP_INICIAL_DESCONHECIDO", severidade: "aviso", produtoId: e.produtoId, etapaId: e.etapaOrigemId,
+        mensagem: `Estoque inicial DESCONHECIDO no par (saldo bruto ${Math.round(bruto.lo)} a ${Math.round(bruto.hi)}, sem saldo confirmado, confiança baixa): o WIP 0 derivado NÃO significa falta de material; o consumo da etapa seguinte não é limitado pelo WIP (fail-safe temporário) e o teto do upstream segue conservador. Informe a contagem física para substituir`,
+        detalhes: { brutoLo: r1(bruto.lo), brutoHi: r1(bruto.hi), etapaSeguinteId: e.etapaSeguinteId, motivo: "sem saldo confirmado, confiança baixa e saldo bruto negativo (bruto.lo < 0)" },
+      });
+    }
     pares.push({
       produtoId: e.produtoId, etapaOrigemId: e.etapaOrigemId, etapaSeguinteId: e.etapaSeguinteId, origem, confianca, wip: { lo: r1(wip.lo), hi: r1(wip.hi) }, bruto: { lo: r1(bruto.lo), hi: r1(bruto.hi) }, negativo,
-      ...(fonte ? { fonteConfirmacao: fonte } : {}), ...(contagemInfo ? { contagem: contagemInfo } : {}),
+      ...(desconhecido ? { desconhecido: true } : {}), ...(fonte ? { fonteConfirmacao: fonte } : {}), ...(contagemInfo ? { contagem: contagemInfo } : {}),
     });
     iniLo.W0[e.id] = wip.lo;
     iniLo.L0[e.id] = wip.lo;

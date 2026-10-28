@@ -100,6 +100,19 @@ function bonusDoPlanoVigente(ctx: CtxFluxo, theta: number): Record<string, Recor
 }
 
 
+/** Piso de postos downstream (fail-safe de estoque desconhecido): o k-ésimo posto do nó seguinte, k < nº de postos que o plano BASE usa no período, passa a valer no mínimo o maior valor do período. */
+function aplicarPisoDownstream(ctx: CtxFluxo, tabela: Record<string, Record<string, number[]>>, contagensBase: Record<string, number[]>, nos: string[]): void {
+  nos.forEach((n) => {
+    for (let t = ctx.aPartirDe; t < ctx.entrada.slots.length; t++) {
+      const lista = tabela[String(t)]?.[n];
+      const nb = Math.min(contagensBase[n]?.[t] ?? 0, lista?.length ?? 0);
+      if (!lista || nb <= 0) continue;
+      const maximo = Math.max(1e-3, ...Object.values(tabela[String(t)]).flat());
+      for (let k = 0; k < nb; k++) lista[k] = Math.max(lista[k], maximo);
+    }
+  });
+}
+
 // ---- plano vigente como candidato ----------------------------------------------------------------------------------------------
 
 /** Troca manual vigente que o motor manteve continua "manual" (a re-atribuição de pessoas não pode movê-la). Mesma regra de processar.ts. */
@@ -175,6 +188,11 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     return { indice, entrada: ent, resultado: { ...res, alocacoes: linhas }, aval, violacoes, churn, tupla: tuplaObjetivo(aval, churn, ponderar), hash: hashAlocacoes(linhas) };
   };
 
+  // FAIL-SAFE (modo "piso", default): postos do elo SEGUINTE de cada par de estoque inicial desconhecido que o plano BASE usa por período ficam garantidos nos candidatos de valor marginal
+  const nosPiso = opcoes.failSafeWipDesconhecido !== false
+    ? [...new Set(estado.pares.filter((p) => p.desconhecido).map((p) => ctx.grafo.arestas[chavePool(p.produtoId, p.etapaOrigemId)]?.destino).filter((n): n is string => !!n))].sort()
+    : [];
+  const contagensBase = nosPiso.length > 0 ? contagensDoPlano(ctx, base.alocacoes) : {};
   const baseC = construir(-1, entrada, base);
   const hashes = new Set<string>([hashAlocacoes(base.alocacoes)]);
   const gerar = (indice: number, extra: Partial<EntradaEscala>): Candidato => {
@@ -211,6 +229,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     const varredura = varrerContagens(ctx, contagens, estado.remPorPool);
     contagens = varredura.contagens;
     const tabela = tabelaMarginal(ctx, contagens, estado.remPorPool);
+    aplicarPisoDownstream(ctx, tabela, contagensBase, nosPiso);
     const cand = gerar(i, { ordemPostos: { valorMarginal: tabela }, bonusContinuidade: bonusDoPlanoVigente(ctx, theta) });
     candidatos.push(cand);
     const repetido = hashes.has(cand.hash);
