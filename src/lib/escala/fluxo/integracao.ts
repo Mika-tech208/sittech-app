@@ -106,6 +106,7 @@ export function insumosFluxo(estado: EstadoBruto, entrada: EntradaEscala, agoraM
   const opcoes: OpcoesFluxo = {
     ...(pr && pr.paresLegado.length > 0 ? { paresLegado: pr.paresLegado } : {}),
     ...(pr && pr.limiar !== null ? { limiarEstabilidadePecas: pr.limiar } : {}),
+    ...(pr?.atingibilidade ? { preservarAtingibilidade: true } : {}),
     ...(Object.keys(fator).length > 0 ? { fatoresEmbutidos: fator } : {}),
   };
   return { entrada: comF, opcoes };

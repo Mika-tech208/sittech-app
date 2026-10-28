@@ -101,6 +101,10 @@ export interface OpcoesFluxo {
   ligacoes?: LigacaoProdutos[];
   /** avaliarPlano: rem explícito (por chave do pool representante) com que o plano avaliado foi gerado (limita a produção do previsto). */
   limitesRemPorPool?: Record<string, number>;
+  /** REGRA GERAL de preservação da atingibilidade da meta semanal (tier 1 da função objetivo): antes de maximizar peças finais, mantém os postos MÍNIMOS que
+   *  conservam alcançável a meta de cada produto (metas atingíveis primeiro); sem meta atingível ⇒ diagnóstico META_NAO_ATINGIVEL. Default false (byte-idêntico ao anterior).
+   *  Lida de escala_parametros `producao_real_atingibilidade` ∈ {desligado, ativo} pela integração. docs/escala-fluxo-atingibilidade.md */
+  preservarAtingibilidade?: boolean;
 }
 
 export interface LigacaoProdutos {
@@ -134,7 +138,9 @@ export type CodigoDiagnosticoFluxo =
   | "SEM_PRODUCAO_SEM_PROGRAMACAO" // sem_producao com motivo sem_programacao (fora da spec original): zero confirmado, sem inferir material
   | "CONTAGEM_FISICA_USADA" // contagem física válida usada como saldo inicial CONFIRMADO do par
   | "CONTAGEM_FISICA_IGNORADA" // item de contagem física inválido/substituído: ignorado (nunca derruba o recálculo)
-  | "POOL_FUNDIDO"; // pools legados fundidos logicamente
+  | "POOL_FUNDIDO" // pools legados fundidos logicamente
+  | "META_NAO_ATINGIVEL" // preservarAtingibilidade: nem com todas as máquinas em todos os períodos restantes (físico) ou não cabe junto das outras metas (conflito de recursos)
+  | "POSTOS_MINIMOS_APLICADOS"; // preservarAtingibilidade: postos mínimos (tier 1) mantidos no plano
 
 export interface DiagnosticoItem {
   codigo: CodigoDiagnosticoFluxo;
@@ -323,8 +329,32 @@ export interface TrajetoriaWip {
   porSlot: { slot: number; lo: number; hi: number }[];
 }
 
+/** Atingibilidade da meta semanal de um GRUPO (cadeia até o produto final; o Conector fundido tem os dois produtos). Peças finais acumuladas (cenário pessimista). */
+export interface AtingibilidadeGrupo {
+  grupo: string; // id do nó final
+  produtos: { produtoId: string; etapaFinalId: string; quantidade: number }[];
+  meta: number; // Q (semanal previsto) do grupo
+  restante: number; // Q − boas finais (lo) projetadas em aPartirDe
+  maximoPossivel: number; // final máximo (lo) com TODAS as máquinas disponíveis trabalhando em TODOS os períodos desde aPartirDe (pessoas não limitam; WIP/material limitam)
+  atingivel: boolean; // maximoPossivel ≥ meta
+  faltaInevitavel: number; // max(0, meta − maximoPossivel)
+  finalPrevisto: number; // final (lo) do plano avaliado
+  faltaEvitavel: number; // max(0, min(meta, maximoPossivel) − finalPrevisto): o que o plano deixa de entregar do que ainda era possível (informativo para inatingíveis)
+  status: "META_ATINGIDA_PELO_PLANO" | "META_NAO_ATINGIVEL" | "META_EM_CONFLITO"; // CONFLITO = atingível sozinha, mas o plano não a entrega (pessoas/máquinas disputadas)
+}
+
+export interface AtingibilidadePlano {
+  grupos: AtingibilidadeGrupo[];
+  /** nº de grupos de meta atingível que o plano NÃO entrega (tier 1a de J) */
+  atingiveisPerdidas: number;
+  /** Σ faltaEvitavel / meta dos grupos de meta ATINGÍVEL — tier 1b de J (inatingíveis ficam no tier 2, só diagnóstico) */
+  deficitRelativo: number;
+}
+
 export interface AvaliacaoPlano {
   versao: number;
+  /** Só com `preservarAtingibilidade`. */
+  atingibilidade?: AtingibilidadePlano;
   produtos: AvaliacaoProduto[];
   totais: TotaisAvaliacao;
   trajetoria: TrajetoriaWip[]; // vazio se incluirTrajetoria=false
@@ -475,8 +505,32 @@ export interface EstabilizacaoPessoas {
   motivoDescarte: string | null;
 }
 
+/** Postos mínimos de preservação da atingibilidade num período (tier 1), por nó (chave do pool representante). */
+export interface PostoMinimoSlot {
+  slot: number;
+  data: string;
+  periodoId: string;
+  grupo: string; // id do nó final
+  alvo: number; // final máximo alcançável (lo) com tudo no máximo desde este período
+  meta: number;
+  atingivel: boolean;
+  producaoObrigatoria: number; // peças finais que se perderiam sem nenhum posto aqui
+  minimos: Record<string, number>; // nó -> postos mínimos
+  noPlano: Record<string, number>; // nó -> postos que o plano escolhido tem
+  atendido: boolean;
+}
+
+export interface DiagnosticoAtingibilidade {
+  /** Atingibilidade do plano de REFERÊNCIA (vigente, ou base se não há vigente) e do plano escolhido, pelo mesmo simulador. */
+  antes: AtingibilidadePlano;
+  depois: AtingibilidadePlano;
+  postosMinimos: PostoMinimoSlot[];
+}
+
 export interface DiagnosticoFluxo {
   versao: number;
+  /** Só com `preservarAtingibilidade`. */
+  atingibilidade?: DiagnosticoAtingibilidade;
   planoEscolhido: PlanoEscolhido;
   /** Plano contra o qual `decisoes`, `antes` e `reconciliacao` são descritos. */
   referencia: "vigente" | "base";

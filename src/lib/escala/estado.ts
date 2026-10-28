@@ -119,6 +119,7 @@ export interface EstadoProducaoReal {
   paresLegado: ParLegado[]; // producao_real_pares_legado
   contagensFisicas?: ContagemFisicaPar[]; // producao_real_contagens_fisicas (itens bem formados; o núcleo revalida)
   contagensFisicasDescartadas?: DiagnosticoItem[]; // itens malformados dessa chave (ignorados, com diagnóstico)
+  atingibilidade?: boolean; // producao_real_atingibilidade = "ativo": preservarAtingibilidade no núcleo
   apontamentos: ApontamentoReal[]; // TODAS as linhas de apontamento da semana (produzindo e sem_producao, com motivo e carimbo)
 }
 

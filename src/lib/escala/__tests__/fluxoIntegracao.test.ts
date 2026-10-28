@@ -341,6 +341,15 @@ describe("parâmetros: leitura defensiva e gate de semana", () => {
     expect(lerConfigFluxo(linhas({ producao_real_limiar_estabilidade: 12 })).limiar).toBe(12);
     expect(lerConfigFluxo(linhas({ producao_real_limiar_estabilidade: -1 })).limiar).toBeNull();
   });
+  it("producao_real_atingibilidade: só \"ativo\" liga a preservação da atingibilidade; ausente/desconhecido/desligado = false (padrão) e vira opcoes.preservarAtingibilidade", () => {
+    expect(CONFIG_FLUXO_PADRAO.atingibilidade).toBe(false);
+    expect(lerConfigFluxo(linhas({ producao_real_atingibilidade: "ativo" })).atingibilidade).toBe(true);
+    ["desligado", "loucura", true, 1, null].forEach((v) => expect(lerConfigFluxo(linhas({ producao_real_atingibilidade: v })).atingibilidade).toBe(false));
+    const est = (extra: object) => ({ producaoReal: { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos: [], ...extra } }) as never;
+    const nominal = { pools: [], slots: [], funcionarios: [], aPartirDe: 0, ausencias: [], maquinasIndisponiveisPrevisao: [], indisponibilidades: [], congeladas: [] } as never;
+    expect(insumosFluxo(est({}), nominal, 0).opcoes.preservarAtingibilidade).toBeUndefined();
+    expect(insumosFluxo(est({ atingibilidade: true }), nominal, 0).opcoes.preservarAtingibilidade).toBe(true);
+  });
   it("semanas anteriores a 2026-10-26 e datas inválidas nunca valem (defesa em profundidade)", () => {
     const c = lerConfigFluxo(linhas({ producao_real_modo: "ativo", producao_real_semanas_ativas: ["2026-10-19", "2026-10-26", "lixo", 5, "2026-11-02", "2026-11-02"] }));
     expect(c.semanasAtivas).toEqual(["2026-10-26", "2026-11-02"]);

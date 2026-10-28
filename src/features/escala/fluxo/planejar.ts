@@ -12,12 +12,12 @@ import { sobrepoe } from "../tempo";
 import { hashAlocacoes } from "../horizonte";
 import { chavePool, type AlocacaoEscala, type EntradaEscala, type ResultadoEscala } from "../types";
 import { avaliarComCtx } from "./avaliar";
-import { contagensDoPlano, tabelaMarginal, varrerContagens } from "./otimizar";
+import { contagensDoPlano, tabelaMarginal, varrerContagens, varrerContagensPreservando, type Contagens } from "./otimizar";
 import { montarEstado, prepararFluxo, type CtxFluxo, type OpcoesInternas } from "./estado";
 import { explicarMudanca } from "./explicar";
 import { verificarRestricoesDuras } from "./restricoes";
 import {
-  VERSAO_FLUXO, type AntesFluxo, type AvaliacaoPlano, type ChurnFluxo, type DadosProducaoReal, type DecisaoFluxo, type DepoisFluxo, type ResumoDecisao, type DiagnosticoFluxo, type DiagnosticoItem,
+  VERSAO_FLUXO, type AntesFluxo, type DiagnosticoAtingibilidade, type PostoMinimoSlot, type AvaliacaoPlano, type ChurnFluxo, type DadosProducaoReal, type DecisaoFluxo, type DepoisFluxo, type ResumoDecisao, type DiagnosticoFluxo, type DiagnosticoItem,
   type EstabilizacaoPessoas, type IteracaoFluxo, type PlanoEscolhido, type PostoRef, type ReconciliacaoGanho, type ResultadoFluxo, type SituacaoVigente, type TuplaObjetivo, type ViolacaoDura,
 } from "./tipos";
 
@@ -69,13 +69,17 @@ export function calcularChurn(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], retida
 
 export function tuplaObjetivo(aval: AvaliacaoPlano, churn: ChurnFluxo, ponderar: boolean): TuplaObjetivo {
   const t = aval.totais;
-  return [ponderar ? t.faltaPonderada : t.faltaFinalLo, t.faltaFinalHi, -t.capacidadeGargalo, t.wipLegadoResidual, t.excessoWip, t.capacidadeDesperdicada, churn.linhasAlteradas];
+  const base = [ponderar ? t.faltaPonderada : t.faltaFinalLo, t.faltaFinalHi, -t.capacidadeGargalo, t.wipLegadoResidual, t.excessoWip, t.capacidadeDesperdicada, churn.linhasAlteradas];
+  // preservarAtingibilidade: tier 1 = [metas atingíveis que o plano NÃO entrega, déficit relativo ponderado] ANTES de peças finais (2), gargalo (3), WIP (4–5), estabilidade (6)
+  return aval.atingibilidade ? [aval.atingibilidade.atingiveisPerdidas, aval.atingibilidade.deficitRelativo, ...base] : base;
 }
 
 // lexicográfica; componentes 0–1 com tolerância mínima, os demais com tolerância de 1 peça (ruído numérico não decide)
 export function compararTuplas(a: TuplaObjetivo, b: TuplaObjetivo): number {
+  const pref = Math.max(0, a.length - 7); // 2 componentes de tier 1 quando preservarAtingibilidade
   for (let i = 0; i < a.length; i++) {
-    const tol = i <= 1 ? EPS_FALTA : i === a.length - 1 ? 0.5 : 1;
+    const j = i - pref;
+    const tol = j < 0 ? (i === 0 ? 0.5 : 1e-6) : j <= 1 ? EPS_FALTA : i === a.length - 1 ? 0.5 : 1;
     if (Math.abs(a[i] - b[i]) > tol) return a[i] < b[i] ? -1 : 1;
   }
   return 0;
@@ -206,11 +210,12 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
   const p0 = gerar(0, {});
   candidatos.push(p0);
   hashes.add(p0.hash);
+  const preservar = opcoes.preservarAtingibilidade === true;
   let contagens = contagensDoPlano(ctx, p0.resultado.alocacoes);
   for (let i = 1; i <= maxIt; i++) {
-    const varredura = varrerContagens(ctx, contagens, estado.remPorPool);
+    const varredura = preservar ? varrerContagensPreservando(ctx, contagens, estado.remPorPool) : { ...varrerContagens(ctx, contagens, estado.remPorPool), minimos: undefined as Contagens | undefined };
     contagens = varredura.contagens;
-    const tabela = tabelaMarginal(ctx, contagens, estado.remPorPool);
+    const tabela = tabelaMarginal(ctx, contagens, estado.remPorPool, varredura.minimos);
     const cand = gerar(i, { ordemPostos: { valorMarginal: tabela }, bonusContinuidade: bonusDoPlanoVigente(ctx, theta) });
     candidatos.push(cand);
     const repetido = hashes.has(cand.hash);
@@ -220,7 +225,17 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
 
   // ---- escolha: menor J entre os ELEGÍVEIS. Elegível = 0 violação dura E falta final nunca pior que a do plano base NEM a do plano vigente VÁLIDO (mesmo simulador) ----
   const faltaRef = Math.min(baseC.aval.totais.faltaFinalLo, vigC ? vigC.aval.totais.faltaFinalLo : Number.POSITIVE_INFINITY);
-  const elegivel = (c: Candidato) => c.violacoes.length === 0 && c.aval.totais.faltaFinalLo <= faltaRef + EPS_FALTA;
+  // preservarAtingibilidade: a falta TOTAL só pode piorar se o tier 1 (metas atingíveis mantidas) MELHORAR estritamente em relação a cada referência (base e vigente válido);
+  // o tier 1 nunca pode piorar em relação à melhor referência.
+  const t1 = (c: Candidato): [number, number] => (c.aval.atingibilidade ? [c.aval.atingibilidade.atingiveisPerdidas, c.aval.atingibilidade.deficitRelativo] : [0, 0]);
+  const t1Ref: [number, number] = [baseC, ...(vigC ? [vigC] : [])].map(t1).reduce((m, x) => (x[0] < m[0] - 0.5 || (Math.abs(x[0] - m[0]) <= 0.5 && x[1] < m[1] - 1e-6) ? x : m));
+  const t1Pior = (a: [number, number], b: [number, number]) => a[0] > b[0] + 0.5 || (Math.abs(a[0] - b[0]) <= 0.5 && a[1] > b[1] + 1e-6);
+  const elegivel = (c: Candidato) => {
+    if (c.violacoes.length > 0) return false;
+    if (!preservar) return c.aval.totais.faltaFinalLo <= faltaRef + EPS_FALTA;
+    if (t1Pior(t1(c), t1Ref)) return false;
+    return c.aval.totais.faltaFinalLo <= faltaRef + EPS_FALTA || t1Pior(t1Ref, t1(c));
+  };
   candidatos.forEach((c) => {
     if (c.violacoes.length > 0) {
       diag.push({ codigo: "VIOLACAO_RESTRICAO_DURA", severidade: "erro", mensagem: `Candidato ${c.indice} descartado: ${c.violacoes.length} violação(ões) de restrição dura (${c.violacoes[0].tipo})`, detalhes: { iteracao: c.indice, violacoes: c.violacoes.length } });
@@ -272,6 +287,34 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
         : { codigo: "PLANO_BASE_MANTIDO", severidade: "info", mensagem: "Nenhum plano de fluxo foi estritamente melhor que o plano base pelo simulador: plano base mantido", detalhes: { faltaBase: avBase.totais.faltaFinalLo } }
   );
 
+  // ---- atingibilidade (só com preservarAtingibilidade): metas atingíveis/inatingíveis do plano de referência e do escolhido + postos mínimos por período ----
+  let atingibilidade: DiagnosticoAtingibilidade | undefined;
+  if (preservar && avFluxo.atingibilidade) {
+    const ref = (avVig ?? avBase).atingibilidade ?? avFluxo.atingibilidade;
+    const cntPlano = contagensDoPlano(ctx, resultado.alocacoes);
+    const varMin = varrerContagensPreservando(ctx, cntPlano, limitesFinal ?? {}, true);
+    const postosMinimos: PostoMinimoSlot[] = varMin.preservacao.map((x) => ({
+      slot: x.slot, data: ctx.entrada.slots[x.slot].data, periodoId: ctx.entrada.slots[x.slot].periodoId, grupo: x.grupo, alvo: r3(x.alvo), meta: r3(x.meta), atingivel: x.atingivel,
+      producaoObrigatoria: r3(x.producaoObrigatoria), minimos: x.minimos, noPlano: Object.fromEntries(Object.keys(x.minimos).map((n) => [n, cntPlano[n]?.[x.slot] ?? 0])), atendido: x.atendido,
+    }));
+    atingibilidade = { antes: ref, depois: avFluxo.atingibilidade, postosMinimos };
+    avFluxo.atingibilidade.grupos.forEach((g) => {
+      if (g.status === "META_ATINGIDA_PELO_PLANO") return;
+      const nomes = g.produtos.map((p) => p.produtoId).join("+");
+      diag.push({
+        codigo: "META_NAO_ATINGIVEL", severidade: "aviso", produtoId: g.produtos[0]?.produtoId, etapaId: g.produtos[0]?.etapaFinalId,
+        mensagem: g.status === "META_NAO_ATINGIVEL"
+          ? `Meta semanal NÃO atingível (${nomes}): máximo possível ${Math.round(g.maximoPossivel)} de ${Math.round(g.meta)} (falta inevitável ${Math.round(g.faltaInevitavel)}); o plano prevê ${Math.round(g.finalPrevisto)}`
+          : `Meta semanal atingível (${nomes}) mas NÃO entregue pelo plano: prevê ${Math.round(g.finalPrevisto)} de ${Math.round(g.meta)} (máximo possível ${Math.round(g.maximoPossivel)}); pessoas/máquinas não cobrem todas as metas`,
+        detalhes: { status: g.status, meta: g.meta, maximoPossivel: g.maximoPossivel, faltaInevitavel: g.faltaInevitavel, finalPrevisto: g.finalPrevisto, faltaEvitavel: g.faltaEvitavel },
+      });
+    });
+    if (planoEscolhido === "fluxo") {
+      const n1 = postosMinimos.filter((x) => x.slot === ctx.aPartirDe).reduce((s, x) => s + Object.values(x.minimos).reduce((a, b) => a + b, 0), 0);
+      diag.push({ codigo: "POSTOS_MINIMOS_APLICADOS", severidade: "info", slot: ctx.aPartirDe, mensagem: `Preservação da atingibilidade: ${n1} posto(s) mínimo(s) no primeiro período mutável (tier 1, antes de maximizar peças finais)`, detalhes: { postosMinimosPrimeiroPeriodo: n1 } });
+    }
+  }
+
   const iteracoes: IteracaoFluxo[] = [
     ...(vigC ? [{ indice: -2, tupla: vigC.tupla.map(r3), faltaFinalLo: vigC.aval.totais.faltaFinalLo, violacoes: 0, escolhida: final.indice === -2, hashPlano: vigC.hash }] : []),
     { indice: -1, tupla: baseC.tupla.map(r3), faltaFinalLo: baseC.aval.totais.faltaFinalLo, violacoes: baseC.violacoes.length, escolhida: final.indice === -1, hashPlano: baseC.hash },
@@ -294,7 +337,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     excessoWip: a.totais.excessoWip,
   });
   const diagnostico: DiagnosticoFluxo = {
-    versao: VERSAO_FLUXO, planoEscolhido, referencia, vigente, estabilizacao: estab, reconciliacao: expl.reconciliacao, iteracaoEscolhida: usaFluxo ? final.indice : null, theta, antes,
+    versao: VERSAO_FLUXO, ...(atingibilidade ? { atingibilidade } : {}), planoEscolhido, referencia, vigente, estabilizacao: estab, reconciliacao: expl.reconciliacao, iteracaoEscolhida: usaFluxo ? final.indice : null, theta, antes,
     decisoes, decisoesTotal: todasDecisoes.length, resumoDecisoes: expl.resumo,
     depois: dep(avFluxo), depoisBase: dep(avBase), depoisVigente: avVig ? dep(avVig) : null, churn, iteracoes, violacoes, estado, avaliacaoBase: avBase, avaliacaoFluxo: avFluxo, diagnosticos: diag,
   };

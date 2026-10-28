@@ -4,6 +4,7 @@
 import { maquinaDisponivelNoSlot } from "../disponibilidade";
 import { chavePool, type AlocacaoEscala, type EntradaEscala, type PoolEscala } from "../types";
 import { calcularDemanda, capacidadeFuturaDoNo, prepararFluxo, type CtxFluxo, type OpcoesInternas } from "./estado";
+import { calcularAtingibilidade } from "./atingibilidade";
 import { copiarCaps, novaCap, simularGrupo, somarCapacidadeDeLinhas, type CapNo, type ResultadoSim } from "./simulador";
 import {
   VERSAO_FLUXO, type AvaliacaoPlano, type AvaliacaoProduto, type DadosProducaoReal, type GargaloFluxo, type Intervalo, type PostoContribuicao, type TotaisAvaliacao, type TrajetoriaWip,
@@ -79,9 +80,11 @@ export function avaliarComCtx(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], op: Op
   const postos: PostoContribuicao[] = [];
   const totais: TotaisAvaliacao = { faltaFinalLo: 0, faltaFinalHi: 0, finalEntregueLo: 0, finalEntregueHi: 0, faltaPonderada: 0, wipFinalLo: 0, wipFinalHi: 0, wipLegadoResidual: 0, excessoWip: 0, capacidadeGargalo: 0, capacidadeDesperdicada: 0, excessoFinal: 0 };
   const T = ctx.entrada.slots.length;
+  const finalPorGrupo: Record<string, number> = {};
 
   grafo.grupos.forEach((g, gi) => {
     const { lo, hi } = rodadas[gi];
+    finalPorGrupo[g.sink] = lo.B[g.sink];
     const sink = grafo.nos[g.sink];
     const Q = sink.quantidade;
     const entLo = Math.min(Q, lo.B[g.sink]);
@@ -174,7 +177,10 @@ export function avaliarComCtx(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], op: Op
   postos.sort((x, y) => x.slot - y.slot || (x.maquinaId < y.maquinaId ? -1 : x.maquinaId > y.maquinaId ? 1 : 0));
   const marginais = op.marginais ? calcularMarginais(ctx, alocacoes, op.limites) : {};
   (Object.keys(totais) as (keyof TotaisAvaliacao)[]).forEach((k) => (totais[k] = r3(totais[k])));
-  return { versao: VERSAO_FLUXO, produtos, totais, trajetoria, postos, marginais, diagnosticos: ctx.diagnosticos };
+  return {
+    versao: VERSAO_FLUXO, produtos, totais, trajetoria, postos, marginais, diagnosticos: ctx.diagnosticos,
+    ...(ctx.opcoes.preservarAtingibilidade ? { atingibilidade: calcularAtingibilidade(ctx, finalPorGrupo) } : {}),
+  };
 }
 
 /** Valor marginal (peças finais, cenário pessimista) do n-ésimo posto do nó em cada slot futuro, mantendo o resto do plano. */

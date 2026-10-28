@@ -9,6 +9,7 @@ export const CHAVE_PR_SEMANAS = "producao_real_semanas_ativas";
 export const CHAVE_PR_LIMIAR = "producao_real_limiar_estabilidade";
 export const CHAVE_PR_PARES = "producao_real_pares_legado";
 export const CHAVE_PR_CONTAGENS = "producao_real_contagens_fisicas";
+export const CHAVE_PR_ATINGIBILIDADE = "producao_real_atingibilidade"; // "desligado" (padrão) | "ativo": preserva a atingibilidade das metas semanais (tier 1)
 export const PRIMEIRA_SEMANA_FLUXO = "2026-10-26";
 
 export interface ConfigFluxo {
@@ -20,9 +21,11 @@ export interface ConfigFluxo {
   contagensFisicas: ContagemFisicaPar[];
   /** Itens malformados da chave: ignorados, com diagnóstico (nunca derrubam o recálculo). */
   contagensFisicasDescartadas: DiagnosticoItem[];
+  /** producao_real_atingibilidade = "ativo": o núcleo preserva a atingibilidade das metas semanais antes de maximizar peças (default false; chave ausente/desconhecida = false). */
+  atingibilidade: boolean;
 }
 
-export const CONFIG_FLUXO_PADRAO: ConfigFluxo = { modo: "desligado", semanasAtivas: [], limiar: null, paresLegado: [], contagensFisicas: [], contagensFisicasDescartadas: [] };
+export const CONFIG_FLUXO_PADRAO: ConfigFluxo = { modo: "desligado", semanasAtivas: [], limiar: null, paresLegado: [], contagensFisicas: [], contagensFisicasDescartadas: [], atingibilidade: false };
 
 const ehTexto = (v: unknown): v is string => typeof v === "string" && v.length > 0;
 
@@ -103,6 +106,7 @@ export function lerConfigFluxo(linhas: { chave: string; valor: unknown }[] | nul
     paresLegado: lerParesLegado(mapa.get(CHAVE_PR_PARES)),
     contagensFisicas: contagens.itens,
     contagensFisicasDescartadas: contagens.descartes,
+    atingibilidade: mapa.get(CHAVE_PR_ATINGIBILIDADE) === "ativo",
   };
 }
 
