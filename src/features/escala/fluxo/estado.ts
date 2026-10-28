@@ -287,7 +287,8 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
       });
     }
     // FAIL-SAFE: sem saldo confirmado (wip_controle ou contagem física), confiança baixa e saldo bruto negativo em algum cenário plausível (bruto.lo < 0) ⇒ ESTOQUE INICIAL DESCONHECIDO.
-    // O WIP 0 derivado não pode, sozinho, suprimir o consumo do elo downstream (ver simulador.ts); o upstream segue com o teto de utilidade conservador de sempre.
+    // O WIP 0 derivado não pode, sozinho, suprimir o posto do elo downstream: modo "piso" (default, ver planejar.ts) garante os postos que o plano BASE usa; modo "ilimitado" (ver simulador.ts) libera o consumo.
+    // O upstream segue com o teto de utilidade conservador de sempre.
     const desconhecido = failSafe && !cont && !conf && confianca === "baixa" && bruto.lo < -EPS;
     if (desconhecido) {
       desconhecidas.push(e.id); // marcado no grafo SÓ depois da projeção até aPartirDe (o estado/Allowed que o motor enxerga segue exatamente o de antes)
@@ -335,7 +336,7 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
   };
   // FAIL-SAFE: a partir de aPartirDe (região que o plano decide) o material das arestas de estoque desconhecido não limita o consumo do destino.
   // A projeção acima (períodos já fechados/congelados) e portanto a demanda/Allowed de TODOS os nós ficam exatamente como antes do fail-safe.
-  desconhecidas.forEach((id) => (grafo.arestas[id].estoqueDesconhecido = true));
+  if (opcoes.failSafeModo === "ilimitado") desconhecidas.forEach((id) => (grafo.arestas[id].estoqueDesconhecido = true));
 
   return {
     entrada, dados, opcoes, grafo, poolsPorChave, idxSlot, fator, fechamentoMinutos: fech, ultimoFechado, aPartirDe, celulas, etapas, pares,

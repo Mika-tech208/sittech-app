@@ -84,6 +84,9 @@ export interface OpcoesFluxo {
   /** FAIL-SAFE de estoque inicial desconhecido (default true). Par SEM saldo confirmado/contagem, confiança baixa e `bruto.lo < 0` ⇒ `desconhecido`: o WIP 0 derivado NÃO limita o
    *  consumo do elo downstream (disponibilidade ilimitada até a capacidade e a demanda final); o teto de utilidade do upstream segue conservador. `false` = comportamento anterior à v2.1. */
   failSafeWipDesconhecido?: boolean;
+  /** Como o fail-safe protege o downstream: "piso" (DEFAULT) = a física do simulador não muda; os postos do elo seguinte que o plano BASE usa ficam garantidos (piso de postos por par/período
+   *  na tabela de valor marginal); "ilimitado" = o material do par deixa de limitar o consumo downstream no simulador (alternativa avaliada: libera produção demais a montante). */
+  failSafeModo?: "piso" | "ilimitado";
   /** Máximo de iterações de valor marginal. Default 4. */
   maxIteracoes?: number;
   /** Fator de desempenho por pool a APLICAR sobre entrada.pools[].metas (ausente = metas já efetivas). Não combinar com fatoresEmbutidos. */

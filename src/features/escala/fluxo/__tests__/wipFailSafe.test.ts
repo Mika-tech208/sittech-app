@@ -48,7 +48,7 @@ describe("fail-safe: par sem saldo confirmado, confiança baixa e bruto.lo < 0",
     expect(par(e).desconhecido).toBeUndefined();
     expect(e.diagnosticos.some((x) => x.codigo === "WIP_INICIAL_DESCONHECIDO")).toBe(false);
   });
-  it("o consumo downstream NÃO fica limitado pelo WIP 0: com o upstream parado a produção final prevista só existe com o fail-safe, e o downstream do plano base é mantido", () => {
+  it('modo "ilimitado" (alternativa): o consumo downstream NÃO fica limitado pelo WIP 0: com o upstream parado a produção final prevista só existe com o fail-safe, e o downstream do plano base é mantido", () => {
     const pools = dois();
     const funcionarios = equipe(4);
     const m0 = montar({ pools, funcionarios, c: 1 });
@@ -58,10 +58,10 @@ describe("fail-safe: par sem saldo confirmado, confiança baixa e bruto.lo < 0",
     const m = montar({ pools, funcionarios, c: 1, apontamentos, extra });
     const base = gerarEscala(m.entrada).alocacoes;
     const antes = avaliarPlano(m.entrada, m.dados, [...m.entrada.congeladas, ...base], { failSafeWipDesconhecido: false });
-    const depois = avaliarPlano(m.entrada, m.dados, [...m.entrada.congeladas, ...base], {});
+    const depois = avaliarPlano(m.entrada, m.dados, [...m.entrada.congeladas, ...base], { failSafeModo: "ilimitado" });
     expect(antes.totais.finalEntregueLo).toBeLessThanOrEqual(1);
     expect(depois.totais.finalEntregueLo).toBeGreaterThan(1000);
-    const r = planejarComFluxo(m.entrada, m.dados, {});
+    const r = planejarComFluxo(m.entrada, m.dados, { failSafeModo: "ilimitado" });
     const p2 = (l: { etapaId: string | null; maquinaId: string | null }[]) => l.filter((a) => a.maquinaId && a.etapaId === "P2").length;
     const fut = (l: typeof base) => l.filter((a) => (m.entrada.slots.find((s) => s.data === a.data && s.periodoId === a.periodoId)?.indice ?? -1) >= m.entrada.aPartirDe);
     expect(p2(r.resultado.alocacoes)).toBeGreaterThanOrEqual(p2(fut(base))); // nenhum posto downstream do base é retirado por causa do WIP desconhecido
