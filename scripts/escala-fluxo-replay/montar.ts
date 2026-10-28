@@ -74,7 +74,11 @@ export function montarCenario(dec: DecisaoGravada, todos: ApontamentoReal[], oc:
   });
   const dados: DadosProducaoReal = { apontamentos: oc.apontamentos ?? todos, agoraMs: dec.corteMs, fechamentoMinutos: 10, wipConfirmado, planoVigente };
   // Configuração da INTEGRAÇÃO (src/lib/escala/fluxo/integracao.ts › insumosFluxo): paresLegado + fatoresEmbutidos (f nas metas); θ = 0 e estabilização são o padrão do núcleo.
-  const opcoes: OpcoesFluxo = { ...(oc.paresLegado ? { paresLegado: oc.paresLegado } : {}), ...(Object.keys(fator).length > 0 ? { fatoresEmbutidos: fator } : {}), ...(oc.extraOpcoes ?? {}) };
+  // FREPLAY_FAILSAFE=0 desliga o fail-safe de estoque desconhecido (= comportamento anterior à v2.1), para A/B contra o código de PROD.
+  const opcoes: OpcoesFluxo = {
+    ...(oc.paresLegado ? { paresLegado: oc.paresLegado } : {}), ...(Object.keys(fator).length > 0 ? { fatoresEmbutidos: fator } : {}),
+    ...(process.env.FREPLAY_FAILSAFE === "0" ? { failSafeWipDesconhecido: false } : {}), ...(oc.extraOpcoes ?? {}),
+  };
   return { dec, entrada, entradaNominal, fator, dados, opcoes, c, aPartirDe, planoVigente };
 }
 

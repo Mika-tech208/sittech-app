@@ -32,6 +32,9 @@ export interface ArestaFluxo {
   etapaOrigemId: string;
   etapaSeguinteId: string; // membro do destino correspondente ao ramo
   chavePar: string; // "produto|etapaOrigem" (chave do pool origem)
+  /** FAIL-SAFE: estoque inicial DESCONHECIDO (marcado por `prepararFluxo`). O simulador trata o material desta aresta como ilimitado para o CONSUMO do destino
+   *  (o W rastreado segue sendo só o conhecido: estoque 0 derivado + produção da origem − consumo). */
+  estoqueDesconhecido?: boolean;
 }
 
 export interface GrupoFluxo {

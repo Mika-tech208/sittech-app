@@ -79,7 +79,10 @@ export function simularGrupo(grafo: Grafo, g: GrupoFluxo, p: ParamsSim): Resulta
       const base = c?.base[t] ?? 0;
       const adic = c?.adic[t] ?? 0;
       const disp = (e: string) => (p.mesmoPeriodo ? W[e] : Wini[e]);
-      const avail = ins.length === 0 ? Number.POSITIVE_INFINITY : ins.reduce((s, e) => s + disp(e), 0);
+      // FAIL-SAFE (estoque inicial desconhecido): com uma aresta de entrada marcada, o material NÃO é limitado pelo W (o WIP 0 derivado não significa "sem material");
+      // o consumo continua saindo do W conhecido primeiro (abaixo) e o resto vem do estoque desconhecido. Limites de capacidade, restante previsto e meta final seguem valendo.
+      const ilimitado = ins.some((e) => grafo.arestas[e].estoqueDesconhecido === true);
+      const avail = ins.length === 0 || ilimitado ? Number.POSITIVE_INFINITY : ins.reduce((s, e) => s + disp(e), 0);
       const targetLeft = no.final || no.succ === null ? Math.max(0, (p.Q[n] ?? 0) - B[n]) : Number.POSITIVE_INFINITY;
 
       const produzir = (alvo: number, ignoraRestante = false) => {
