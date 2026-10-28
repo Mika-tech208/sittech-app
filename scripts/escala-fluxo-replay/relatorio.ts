@@ -13,7 +13,7 @@ import { mediana, percentil } from "./comum";
 import { CXE } from "./extras";
 
 type R = ResumoRodada & { extras: ExtrasRodada; obsoleta?: boolean; erro?: string };
-const OUT = path.join(DIR, process.env.FREPLAY_FATOR === "0" ? "out_semf" : "out");
+const OUT = path.join(DIR, process.env.FREPLAY_FATOR === "0" ? "out_semf" : process.env.FREPLAY_ESCOPO === "bloco" ? "out_bloco" : "out");
 const ler = <T>(f: string, dir = OUT): T | null => { try { return JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")) as T; } catch { return null; } };
 
 const n0 = (v: number | null | undefined) => (v === null || v === undefined ? "—" : Math.round(v).toLocaleString("pt-BR"));

@@ -108,7 +108,14 @@ export function verificarIndependente(entrada: EntradaEscala, futuras: AlocacaoE
       const a0 = porFuncSlot.get(`${i - 1}|${f}`), a1 = porFuncSlot.get(`${i}|${f}`);
       if (!a0 || !a1) continue;
       const o0 = operacaoDe(a0), o1 = operacaoDe(a1);
-      if (o0 && o1 && o0 === o1) push("D", "mesma_operacao_consecutiva", s, { funcionarioId: f, maquinaId: a1.maquinaId ?? undefined }, `operação ${o1} repetida do período anterior`);
+      if (process.env.FREPLAY_ESCOPO === "bloco") {
+        // escopo bloco (implementação própria, independente do módulo de produção): a mesma operação não pode aparecer antes, no mesmo bloco (manhã m*/tarde t*) e dia
+        const blocoDe = (ix: number) => `${slots[ix].data}|${slots[ix].periodoId.charAt(0)}`;
+        if (o1) for (let k = i - 1; k >= 0 && blocoDe(k) === blocoDe(i); k--) {
+          const ak = porFuncSlot.get(`${k}|${f}`);
+          if (ak && operacaoDe(ak) === o1) { push("D", "mesma_operacao_no_bloco", s, { funcionarioId: f, maquinaId: a1.maquinaId ?? undefined }, `operação ${o1} já executada no mesmo bloco (${slots[k].periodoId})`); break; }
+        }
+      } else if (o0 && o1 && o0 === o1) push("D", "mesma_operacao_consecutiva", s, { funcionarioId: f, maquinaId: a1.maquinaId ?? undefined }, `operação ${o1} repetida do período anterior`);
       if (a1.excecaoRevezamento) push("D", "excecao_revezamento_nova", s, { funcionarioId: f }, "linha marcada excecaoRevezamento (o motor com revezamentoDuro não admite exceção)", true);
     }
   }

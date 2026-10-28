@@ -137,7 +137,8 @@ export type CodigoDiagnosticoFluxo =
   | "PLANO_FLUXO_ESCOLHIDO"
   | "VIOLACAO_RESTRICAO_DURA" // o candidato violava hard constraint e foi descartado (nunca emitido para o plano escolhido)
   | "ESTABILIDADE_RETEVE_ALOCACAO" // ganho < θ: alocação do plano vigente mantida
-  | "PLANO_VIGENTE_MANTIDO" // o futuro do plano em vigor foi o candidato escolhido (nenhuma alternativa estritamente melhor): saída = linhas vigentes, sem churn
+  | "PLANO_VIGENTE_MANTIDO"
+  | "PLANO_VIGENTE_REATRIBUIDO_BLOCO" // o futuro do plano em vigor foi o candidato escolhido (nenhuma alternativa estritamente melhor): saída = linhas vigentes, sem churn
   | "PLANO_VIGENTE_DESCARTADO" // o futuro do plano em vigor NÃO é candidato válido (violaria restrição dura hoje ou está incompleto)
   | "ESTABILIZACAO_PESSOAS" // pessoas re-atribuídas para manter o posto do plano vigente
   | "ESTABILIZACAO_DESCARTADA" // a re-atribuição piorou a falta ou violou restrição dura: descartada
