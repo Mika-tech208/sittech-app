@@ -11,6 +11,8 @@
 export type ModoWip = "desligado" | "ativo";
 /** Revezamento: "duro" = a mesma pessoa nunca repete a mesma operação em períodos consecutivos (restrição do otimizador); "mole" = comportamento anterior (só rollback do motor). */
 export type ModoRevezamento = "mole" | "duro";
+/** Escopo do revezamento duro: "consecutivo" (padrão, regra anterior) ou "bloco" (a mesma operação no máximo 1 vez por manhã/tarde — hotfix 28/10; docs/escala-revezamento-bloco.md). */
+export type EscopoRevezamentoParametro = "consecutivo" | "bloco";
 
 /**
  * Replanejamento (Fase 4): "desligado" = nada acontece; "sombra" = calcula e GRAVA decisões em escala_sombra_decisoes, sem tocar a Escala oficial;
@@ -29,6 +31,10 @@ export interface ParametrosEscala {
   /** Margem de folga (fração) abaixo da qual um previsto que fecha passa a "Em risco" (atingibilidade). Só análise: não muda a escala. */
   atingibilidadeMargem: number;
   revezamentoModo: ModoRevezamento;
+  /** `revezamento_escopo`. Ausente/desconhecido = "consecutivo" (comportamento anterior). */
+  revezamentoEscopo?: EscopoRevezamentoParametro;
+  /** `revezamento_equivalencias`: mapa opcional (vazio por padrão) operacao_id -> operações que executá-la também expõe. */
+  revezamentoEquivalencias?: Record<string, string[]>;
   replanejamentoModo: ModoReplanejamento;
   /** Semanas (segunda-feira ISO) em que o modo `ativo_restrito` PODE escrever. Fora delas ele se comporta como sombra. */
   replanejamentoSemanasAtivas: string[];
@@ -42,6 +48,8 @@ export const CHAVE_WIP_DIAS_LIMITE = "wip_dias_limite";
 export const CHAVE_WIP_DIAS_LIMITE_SEMANAS = "wip_dias_limite_semanas";
 export const CHAVE_ATINGIBILIDADE_MARGEM = "atingibilidade_margem";
 export const CHAVE_REVEZAMENTO_MODO = "revezamento_modo";
+export const CHAVE_REVEZAMENTO_ESCOPO = "revezamento_escopo";
+export const CHAVE_REVEZAMENTO_EQUIVALENCIAS = "revezamento_equivalencias";
 export const CHAVE_REPLANEJAMENTO_MODO = "replanejamento_modo";
 export const CHAVE_REPLANEJAMENTO_SEMANAS = "replanejamento_semanas_ativas";
 
@@ -51,6 +59,20 @@ export const modoEfetivoReplanejamento = (m: ModoReplanejamento): "desligado" | 
 /** O modo restrito só ESCREVE em semana autorizada explicitamente; qualquer outra coisa é sombra. */
 export const replanejamentoPodeEscrever = (p: Pick<ParametrosEscala, "replanejamentoModo" | "replanejamentoSemanasAtivas">, semanaInicio: string): boolean =>
   p.replanejamentoModo === "ativo_restrito" && p.replanejamentoSemanasAtivas.includes(semanaInicio);
+
+/** Mapa de equivalência válido: { operacao_id: [operacao_id, ...] } (ids não vazios); qualquer outra coisa = vazio. */
+export function lerEquivalencias(v: unknown): Record<string, string[]> {
+  const r: Record<string, string[]> = {};
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    Object.entries(v as Record<string, unknown>).forEach(([op, lista]) => {
+      if (op && Array.isArray(lista)) {
+        const ids = [...new Set(lista.filter((x): x is string => typeof x === "string" && x.length > 0 && x !== op))].sort();
+        if (ids.length > 0) r[op] = ids;
+      }
+    });
+  }
+  return r;
+}
 
 function lerSemanas(v: unknown): string[] {
   return Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x)))].sort() : [];
@@ -79,6 +101,8 @@ export function lerParametros(linhas: { chave: string; valor: unknown }[] | null
   return {
     wipModo: modo === "ativo" ? "ativo" : "desligado", // qualquer outro valor = desligado (seguro)
     revezamentoModo: mapa.get(CHAVE_REVEZAMENTO_MODO) === "mole" ? "mole" : "duro", // ausente/desconhecido = duro (regra definitiva)
+    revezamentoEscopo: mapa.get(CHAVE_REVEZAMENTO_ESCOPO) === "bloco" ? "bloco" : "consecutivo", // ausente/desconhecido = consecutivo
+    revezamentoEquivalencias: lerEquivalencias(mapa.get(CHAVE_REVEZAMENTO_EQUIVALENCIAS)),
     replanejamentoModo: ((v) => (v === "sombra" || v === "ativo" || v === "ativo_restrito" ? v : "desligado"))(mapa.get(CHAVE_REPLANEJAMENTO_MODO)), // ausente/desconhecido = desligado
     replanejamentoSemanasAtivas: lerSemanas(mapa.get(CHAVE_REPLANEJAMENTO_SEMANAS)),
     wipDiasLimitePorSemana: lerLimitesPorSemana(mapa.get(CHAVE_WIP_DIAS_LIMITE_SEMANAS)),

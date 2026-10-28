@@ -13,6 +13,7 @@ import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { EPS } from "./folga";
 import { hashAlocacoes } from "./horizonte";
 import { visaoNoCorte, type DecisaoCorte, type ParametrosCorte } from "./sombraCorte";
+import { repeticoesPorBloco } from "./exposicaoBloco";
 import { chavePool, MOTIVO_DEMANDA_ESGOTADA, MOTIVO_JA_COBERTA, MOTIVO_POSTOS_OCUPADOS, MOTIVO_RECURSOS_INDISPONIVEIS, MOTIVO_REVEZAMENTO, type AlocacaoEscala, type EntradaEscala, type SlotEscala } from "./types";
 import { restanteAcabado } from "./execucao";
 import type { DinamicaCorte } from "./gargaloDinamico";
@@ -162,7 +163,7 @@ export function construirProposta(par: ParametrosCorte, dec: DecisaoCorte): Prop
   const ordenar = (rows: AlocacaoEscala[]) => rows.sort((a, b) => idx(a) - idx(b) || (a.funcionarioId < b.funcionarioId ? -1 : 1));
   const marcado = ordenar(bruto.map((a) => (manuais.has(chaveTroca(a)) ? { ...a, origem: "manual" as const } : a)));
   const antes = [...hz.congeladas, ...(reparou ? [] : hz.comprometidas)].filter((a) => idx(a) < aPartirSlot);
-  const est = estabilizarPessoas(marcado, oficialRegiao, antes, slots);
+  const est = estabilizarPessoas(marcado, oficialRegiao, antes, slots, { escopo: par.base.revezamentoEscopo, equivalencias: par.base.equivalenciaOperacoes, exposicaoExecutada: par.base.exposicaoExecutada });
   const montar = (linhas: AlocacaoEscala[]): PropostaRestrita => {
     const mudancas = diferencas(oficialRegiao, linhas);
     const cl = classificarMudancas(oficialRegiao, linhas, slots, mudancas.length);
@@ -260,7 +261,13 @@ export function validarProposta(par: ParametrosCorte, dec: DecisaoCorte, prop: P
   const efetivo = [...dec.horizonte.congeladas, ...dec.horizonte.comprometidas.filter((a) => idx(a) < (prop.aPartirSlot as number)), ...prop.linhas];
   const porPessoa = new Map<string, Map<number, AlocacaoEscala>>();
   efetivo.forEach((a) => { const i = idx(a); if (!Number.isFinite(i)) return; if (!porPessoa.has(a.funcionarioId)) porPessoa.set(a.funcionarioId, new Map()); porPessoa.get(a.funcionarioId)!.set(i, a); });
-  porPessoa.forEach((m, f) => m.forEach((a, i) => {
+  if (ent.revezamentoEscopo === "bloco") {
+    // ESCOPO BLOCO: mais de uma execução da mesma operação (ou equivalente) na mesma manhã/tarde, contando o executado + o efetivo; só acusa a repetição cuja 2ª+ execução a PROPOSTA cria
+    repeticoesPorBloco(efetivo, slots, ent.equivalenciaOperacoes).forEach((r) => {
+      const criadaPelaProposta = r.periodos.slice(1).some((pid) => idx({ data: r.data, periodoId: pid }) >= (prop.aPartirSlot as number));
+      if (criadaPelaProposta) v.push(`repetição de operação no bloco (${r.funcionarioId.slice(0, 6)} ${r.data} ${r.bloco} ${r.periodos.join("/")})`);
+    });
+  } else porPessoa.forEach((m, f) => m.forEach((a, i) => {
     if (i < (prop.aPartirSlot as number)) return; // só pares que a PROPOSTA cria (o histórico executado, mesmo com repetição antiga, não é culpa dela)
     const ant = m.get(i - 1);
     if (!ant || slots[i]?.primeiroDoDia || !a.maquinaId || !ant.maquinaId || !a.operacaoId) return;

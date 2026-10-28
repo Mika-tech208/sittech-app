@@ -24,6 +24,7 @@ import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { sobrepoe } from "./tempo";
 import { selecionarAdicionalWip } from "./adicionalWip";
 import { etapasPorProduto } from "./wip";
+import { chaveBloco, MemoriaBloco, registrarPassadoDoBloco } from "./exposicaoBloco";
 import {
   chavePool, MOTIVO_DEMANDA_ESGOTADA, MOTIVO_JA_COBERTA, MOTIVO_REVEZAMENTO, MOTIVO_POSTOS_OCUPADOS, MOTIVO_RECURSOS_INDISPONIVEIS,
   type AlertaEscala, type AlocacaoEscala, type EntradaEscala, type PoolEscala, type ResultadoEscala, type ResumoSlot, type SlotEscala,
@@ -93,6 +94,9 @@ function chaveSlot(s: { data: string; periodoId: string }): string {
 export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
   const { slots, aPartirDe } = entrada;
   const DURO = entrada.revezamentoDuro === true; // revezamento é RESTRIÇÃO do otimizador (Fase 4a)
+  // REVEZAMENTO POR BLOCO: com o escopo "bloco" a exposição é por (pessoa, operação) dentro da MANHÃ/TARDE; sem ele, `proibidoOp` é exatamente `histOp.get(fid) === op`.
+  const memBloco = DURO && entrada.revezamentoEscopo === "bloco" ? new MemoriaBloco(entrada.equivalenciaOperacoes) : null;
+  let blocoRastreado: string | null = null;
   const vazio: ResultadoEscala = { alocacoes: [], alertas: [], resumoSlots: [], primeiraGeracaoComSemanaEmAndamento: false, pecasRestantes: {}, adicionalProduzido: {} };
   if (slots.length === 0 || aPartirDe >= slots.length) return vazio;
 
@@ -179,6 +183,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
 
   // ---- estado de rotação/continuidade vindo do passado congelado ----
   const histOp = new Map<string, string | null>(); // funcionário -> operação do slot anterior (null = sem posto/ausente)
+  const proibidoOp = (fid: string, op: string): boolean => (memBloco ? memBloco.proibido(fid, op) : histOp.get(fid) === op);
   const opsHoje = new Map<string, Map<string, number>>(); // funcionário -> op -> vezes no dia
   const ociosidade = new Map<string, number>(); // funcionário -> slots sem posto na semana
   const ultimaMaquinaFunc = new Map<string, string | null>();
@@ -252,6 +257,15 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
       opsHoje.clear();
       ultimaMaquinaFunc.clear();
     }
+    if (memBloco) {
+      const cb = chaveBloco(slot);
+      if (cb !== blocoRastreado) {
+        memBloco.limpar();
+        blocoRastreado = cb;
+        // 1º slot mutável no MEIO do bloco: olha M1+M2 (T1+T2) inteiros — evidência real quando existe, senão a alocação congelada
+        if (t === aPartirDe) registrarPassadoDoBloco(memBloco, slots, t, congeladas, entrada.exposicaoExecutada);
+      }
+    }
 
     const disponiveis = funcionarios.filter((f) => !ausente(f.id, slot));
     // quem está ausente neste slot perde o histórico de rotação
@@ -289,7 +303,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
       const postoDaPessoa = new Map<string, number>(); // pessoa -> posto que ocupa
       const tenta = (pi: number, vistos: Set<string>): boolean => {
         for (const fid of pessoas) {
-          if (histOp.get(fid) === ops[pi] || vistos.has(fid)) continue;
+          if (proibidoOp(fid, ops[pi]) || vistos.has(fid)) continue;
           vistos.add(fid);
           const ocupado = postoDaPessoa.get(fid);
           if (ocupado === undefined || tenta(ocupado, vistos)) {
@@ -381,7 +395,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     const custoPosto = (fid: string, par: Par): number => {
       let c = 0;
       const op = par.pool.operacaoId;
-      if (histOp.get(fid) === op) c += DURO ? CUSTO_ROTACAO_PROIBIDO : CUSTO_ROTACAO;
+      if (proibidoOp(fid, op)) c += DURO ? CUSTO_ROTACAO_PROIBIDO : CUSTO_ROTACAO;
       c += CUSTO_EXPOSICAO * (opsHoje.get(fid)?.get(op) ?? 0);
       c += equidade.custo(fid, op, par.m);
       const atual = atuais.get(`${chaveSlot(slot)}|${fid}`);
@@ -535,7 +549,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
         data: slot.data,
         periodoId: slot.periodoId,
         quantidade: cortadosPorRotacao.size,
-        motivo: `Não existe escala válida para preencher todos os postos neste período sem repetir operação consecutiva (${cortadosPorRotacao.size} posto(s) sem operador; operação: ${[...operacoesCortadas].map(nomeOp).join(", ")})`,
+        motivo: `Não existe escala válida para preencher todos os postos neste período sem repetir ${memBloco ? "a operação no mesmo bloco (manhã/tarde)" : "operação consecutiva"} (${cortadosPorRotacao.size} posto(s) sem operador; operação: ${[...operacoesCortadas].map(nomeOp).join(", ")})`,
       });
     }
     // ---- exceções de rotação (Hall por operação) ----
@@ -553,7 +567,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
       if (j < K) {
         const { par, pecas } = aceitos[j];
         const op = par.pool.operacaoId;
-        const repetiu = histOp.get(f.id) === op;
+        const repetiu = proibidoOp(f.id, op);
         nova.push({
           data: slot.data,
           periodoId: slot.periodoId,
@@ -573,7 +587,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
       } else if (destinoAdicional.has(i)) {
         const { par, pecas } = aceitos2[destinoAdicional.get(i) as number];
         const op = par.pool.operacaoId;
-        const repetiu = histOp.get(f.id) === op;
+        const repetiu = proibidoOp(f.id, op);
         nova.push({
           data: slot.data,
           periodoId: slot.periodoId,
@@ -614,6 +628,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     funcionarios.forEach((f) => {
       if (ausente(f.id, slot)) ultimaMaquinaFunc.set(f.id, null);
     });
+    if (memBloco) nova.forEach((a) => a.maquinaId && memBloco.registrar(a.funcionarioId, a.operacaoId));
     nova.forEach((a) => {
       histOp.set(a.funcionarioId, a.maquinaId ? a.operacaoId : null);
       ultimaMaquinaFunc.set(a.funcionarioId, a.maquinaId);

@@ -50,6 +50,8 @@ export interface Nomes {
 }
 
 export interface EstadoEscalaTela {
+  /** Regras de revezamento vigentes (RPC escala_revezamento_regras); ausente = consecutivo. O servidor é quem decide: isto só antecipa o bloqueio na tela. */
+  regrasRevezamento?: { escopo: "consecutivo" | "bloco"; equivalencias: Record<string, string[]> };
   previsaoId: string | null;
   dias: DiaEscala[];
   alocacoes: AlocacaoLinha[];
@@ -106,6 +108,13 @@ export function useEscalaProducao(pronto: boolean, semanaInicio: string) {
     const esg = await supabase.from("escala_producao_eventos").select("id", { count: "exact", head: true }).eq("status", "erro").gte("tentativas", 3).neq("tipo", "apontamento_periodo");
     const eventosEsgotados = esg.error ? 0 : (esg.count ?? 0);
 
+    let regrasRevezamento: EstadoEscalaTela["regrasRevezamento"];
+    try {
+      const rr = await supabase.rpc("escala_revezamento_regras");
+      const v = rr.data as { escopo?: string; equivalencias?: Record<string, string[]> } | null;
+      if (!rr.error && v) regrasRevezamento = { escopo: v.escopo === "bloco" ? "bloco" : "consecutivo", equivalencias: v.equivalencias && typeof v.equivalencias === "object" ? v.equivalencias : {} };
+    } catch { /* sem a RPC (ainda não migrada): regra anterior */ }
+
     if (!prev) {
       if (montado.current) setEstado({ ...VAZIO, nomes, indisponibilidades, eventosEsgotados });
       setLoading(false);
@@ -151,7 +160,7 @@ export function useEscalaProducao(pronto: boolean, semanaInicio: string) {
       eventosComErro: eventos.filter((e) => e.status === "erro" && e.tentativas < 3).length,
       eventosEsgotados,
       postosDaPrevisao: [...postos],
-      indisponibilidades, nomes,
+      indisponibilidades, nomes, regrasRevezamento,
     });
     setLoading(false);
   }, [pronto, semanaInicio]);

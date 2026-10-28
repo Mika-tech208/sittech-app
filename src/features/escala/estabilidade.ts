@@ -7,6 +7,7 @@
 // O resultado produtivo (postos, máquinas, produtos, peças) NÃO muda — só quem ocupa. Sem solução em algum período => devolve a proposta original.
 
 import { atribuicaoMinima } from "./matching";
+import { MemoriaBloco, registrarPassadoDoBloco, type EquivalenciaOperacoes, type ExposicaoExecutada } from "./exposicaoBloco";
 import type { AlocacaoEscala, SlotEscala } from "./types";
 
 const PROIBIDO = 1_000_000;
@@ -16,7 +17,12 @@ const chavePosto = (a: AlocacaoEscala) => (a.maquinaId ? `${a.maquinaId}|${a.pro
 export interface ResultadoEstabilidade { linhas: AlocacaoEscala[]; estabilizou: boolean; periodosAjustados: number }
 
 // `proposta`: linhas da região (já com origem manual marcada). `oficial`: Escala vigente na região. `antes`: tudo que vem antes da região (executado + comprometido).
-export function estabilizarPessoas(proposta: AlocacaoEscala[], oficial: AlocacaoEscala[], antes: AlocacaoEscala[], slots: SlotEscala[]): ResultadoEstabilidade {
+/** Regras de revezamento da re-atribuição. Ausente/escopo consecutivo = a regra anterior (mesma operação do período imediatamente anterior). Escopo "bloco" = a pessoa
+ *  não repete a operação (nem equivalente) dentro da manhã/tarde: memória do bloco = `antes` + períodos já estabilizados + evidência real. */
+export interface RegrasRevezamento { escopo?: "consecutivo" | "bloco"; equivalencias?: EquivalenciaOperacoes; exposicaoExecutada?: ExposicaoExecutada[] }
+
+export function estabilizarPessoas(proposta: AlocacaoEscala[], oficial: AlocacaoEscala[], antes: AlocacaoEscala[], slots: SlotEscala[], regras: RegrasRevezamento = {}): ResultadoEstabilidade {
+  const porBloco = regras.escopo === "bloco";
   const idx = (a: { data: string; periodoId: string }) => slots.find((s) => s.data === a.data && s.periodoId === a.periodoId)?.indice ?? -1;
   const slotsRegiao = [...new Set(proposta.map(idx))].sort((x, y) => x - y);
   const opAnterior = new Map<string, string | null>(); // pessoa -> operação no período imediatamente anterior (mesmo dia)
@@ -29,12 +35,14 @@ export function estabilizarPessoas(proposta: AlocacaoEscala[], oficial: Alocacao
     // período anterior da pessoa: linhas finais do slot i-1 (da região, já estabilizadas, ou de `antes`)
     const daRegiao = saida.filter((a) => idx(a) === i - 1);
     registrar(i > 0 && !slot.primeiroDoDia ? (daRegiao.length > 0 ? daRegiao : antes.filter((a) => idx(a) === i - 1)) : []);
+    const memBloco = porBloco ? new MemoriaBloco(regras.equivalencias) : null;
+    if (memBloco) registrarPassadoDoBloco(memBloco, slots, i, [...antes, ...saida], regras.exposicaoExecutada);
     const pessoas = rows.map((r) => r.funcionarioId);
     const oficiais = new Map(oficial.filter((a) => idx(a) === i).map((a) => [a.funcionarioId, a]));
     const n = rows.length;
     const custo: number[][] = pessoas.map((p) => rows.map((tok) => {
       if (tok.origem === "manual") return tok.funcionarioId === p ? 0 : PROIBIDO; // decisão humana: não troca de pessoa
-      if (tok.maquinaId && tok.operacaoId && opAnterior.get(p) === tok.operacaoId) return PROIBIDO;
+      if (tok.maquinaId && tok.operacaoId && (memBloco ? memBloco.proibido(p, tok.operacaoId) : opAnterior.get(p) === tok.operacaoId)) return PROIBIDO;
       const of = oficiais.get(p);
       return of && chavePosto(of) === chavePosto(tok) ? 0 : CUSTO_TROCA;
     }));

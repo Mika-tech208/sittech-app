@@ -2,6 +2,7 @@
 // a cada período fechado, gera a produção real (plano × rendimento do cenário), executa o corte, constrói a proposta e — se ela for válida —
 // a APLICA ao plano (exatamente a região que a gravação oficial regravaria). Assim se enxerga como a Escala aprende e se corrige ao longo da semana.
 
+import { repeticoesPorBloco } from "./exposicaoBloco";
 import { gerarEscala } from "./gerarEscala";
 import type { DinamicaCorte, EvolucaoGargalo } from "./gargaloDinamico";
 import { evolucaoDoGargalo } from "./gargaloDinamico";
@@ -57,7 +58,8 @@ export interface ResultadoSimulacao { planoFinal: AlocacaoEscala[]; cortes: Cort
 
 const wipPecas = (rows: AlocacaoEscala[]) => Math.round(rows.reduce((s, a) => s + (a.maquinaId ? a.pecasAdicional ?? 0 : 0), 0));
 
-export function contarRepeticoes(plano: AlocacaoEscala[], slots: SlotEscala[]): number {
+export function contarRepeticoes(plano: AlocacaoEscala[], slots: SlotEscala[], escopo: "consecutivo" | "bloco" = "consecutivo", equivalencias?: Record<string, string[]>): number {
+  if (escopo === "bloco") return repeticoesPorBloco(plano, slots, equivalencias).reduce((s, r) => s + r.excesso, 0);
   const idx = (a: AlocacaoEscala) => slots.find((s) => s.data === a.data && s.periodoId === a.periodoId)?.indice ?? -1;
   const por = new Map<string, Map<number, AlocacaoEscala>>();
   plano.forEach((a) => { if (!por.has(a.funcionarioId)) por.set(a.funcionarioId, new Map()); por.get(a.funcionarioId)!.set(idx(a), a); });

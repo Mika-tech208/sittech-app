@@ -2,11 +2,12 @@
 // a partir dos dados brutos da entrada, para que um erro do motor (ou de um hook novo) não se esconda atrás de si mesmo.
 //
 // Regras: máquina inativa/indisponível (Previsão ou parada/bloqueio que intersecta o período); funcionário ausente ou fora da equipe;
-// revezamento (mesma operação em períodos consecutivos do mesmo dia); 1 pessoa por posto; 1 posto por pessoa por período; máquina dentro da
+// revezamento (mesma operação em períodos consecutivos do mesmo dia — ou, com `revezamentoEscopo = "bloco"`, mais de uma vez no mesmo bloco manhã/tarde); 1 pessoa por posto; 1 posto por pessoa por período; máquina dentro da
 // seleção da Previsão (e do roteiro, quando conhecido); passado (slots < aPartirDe) idêntico ao congelado.
 
 import type { AlocacaoEscala, EntradaEscala } from "../types";
 import type { ViolacaoDura } from "./tipos";
+import { chaveBloco, MemoriaBloco } from "../exposicaoBloco";
 
 const chaveSlot = (a: { data: string; periodoId: string }) => `${a.data}|${a.periodoId}`;
 
@@ -73,7 +74,47 @@ export function verificarRestricoesDuras(entrada: EntradaEscala, alocacoesTodas:
   const tudo = new Map<string, AlocacaoEscala>();
   entrada.congeladas.forEach((a) => tudo.set(`${chaveSlot(a)}|${a.funcionarioId}`, a));
   alocacoes.forEach((a) => tudo.set(`${chaveSlot(a)}|${a.funcionarioId}`, a));
-  alocacoes.forEach((a) => {
+  if (duro && entrada.revezamentoEscopo === "bloco") {
+    // ESCOPO BLOCO: a mesma operação (ou equivalente) no mesmo bloco (manhã/tarde) é violação. A memória do bloco vem de TUDO o que veio antes na ordem dos slots:
+    // congeladas e linhas do plano (a evidência real de execução substitui a congelada daquele (período, pessoa)). Cada linha NOVA conferida é acusada na 2ª execução em diante.
+    const eq = entrada.equivalenciaOperacoes;
+    const evi = new Map((entrada.exposicaoExecutada ?? []).map((e) => [`${chaveSlot(e)}|${e.funcionarioId}`, e]));
+    const porPessoaBloco = new Map<string, AlocacaoEscala[]>();
+    tudo.forEach((a) => {
+      const slot = slotPor.get(chaveSlot(a));
+      if (!slot || !a.maquinaId || !a.operacaoId) return;
+      const k = `${a.funcionarioId}|${chaveBloco(slot)}`;
+      porPessoaBloco.set(k, [...(porPessoaBloco.get(k) ?? []), a]);
+    });
+    // pessoas só com evidência (sem linha congelada) também carregam exposição
+    evi.forEach((e) => {
+      const slot = slotPor.get(chaveSlot(e));
+      if (!slot) return;
+      const k = `${e.funcionarioId}|${chaveBloco(slot)}`;
+      if (!porPessoaBloco.has(k)) porPessoaBloco.set(k, []);
+    });
+    const novas = new Set(alocacoes.map((a) => `${chaveSlot(a)}|${a.funcionarioId}`));
+    porPessoaBloco.forEach((linhas, k) => {
+      const mem = new MemoriaBloco(eq);
+      const fid = k.split("|")[0];
+      const itens: { slot: number; linha: AlocacaoEscala | null; ops: string[] }[] = linhas.map((a) => {
+        const e = evi.get(`${chaveSlot(a)}|${a.funcionarioId}`);
+        return { slot: (slotPor.get(chaveSlot(a)) as { indice: number }).indice, linha: a, ops: e ? e.operacoes : [a.operacaoId as string] };
+      });
+      evi.forEach((e) => {
+        const slot = slotPor.get(chaveSlot(e));
+        if (slot && e.funcionarioId === fid && `${fid}|${chaveBloco(slot)}` === k && !linhas.some((a) => chaveSlot(a) === chaveSlot(e))) itens.push({ slot: slot.indice, linha: null, ops: e.operacoes });
+      });
+      itens.sort((x, y) => x.slot - y.slot);
+      itens.forEach((it) => {
+        // uma linha NOVA é conferida pela operação que o PLANO lhe deu (não pela evidência, que só vale para slots < aPartirDe)
+        const opsConferir = it.linha && novas.has(`${chaveSlot(it.linha)}|${it.linha.funcionarioId}`) && it.slot >= ap ? [it.linha.operacaoId as string] : it.ops;
+        const viola = it.linha && novas.has(`${chaveSlot(it.linha)}|${it.linha.funcionarioId}`) && opsConferir.some((o) => mem.proibido(fid, o));
+        if (viola && it.linha) v.push({ tipo: "revezamento", ...base(it.linha), detalhe: `${fid} repete a operação ${it.linha.operacaoId} no mesmo bloco (${chaveBloco(slotPor.get(chaveSlot(it.linha)) as { data: string; periodoId: string })}) em ${it.linha.periodoId}` });
+        opsConferir.forEach((o) => mem.registrar(fid, o));
+      });
+    });
+  } else alocacoes.forEach((a) => {
     const slot = slotPor.get(chaveSlot(a));
     if (!slot || !a.maquinaId || !a.operacaoId || slot.primeiroDoDia || slot.indice === 0) return;
     const ant = entrada.slots[slot.indice - 1];

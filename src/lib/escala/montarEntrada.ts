@@ -182,6 +182,10 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
       historicoEquidade: estado.historicoEquidade,
       poolsSemMaquina: [...semMaquina.entries()].filter(([k]) => !pools.has(k)).map(([, p]) => p),
       ...(estado.parametros?.revezamentoModo === "duro" ? { revezamentoDuro: true } : {}),
+      // revezamento por bloco: só com o revezamento duro; equivalências só quando configuradas (vazio por padrão)
+      ...(estado.parametros?.revezamentoModo === "duro" && estado.parametros?.revezamentoEscopo === "bloco"
+        ? { revezamentoEscopo: "bloco" as const, ...(Object.keys(estado.parametros.revezamentoEquivalencias ?? {}).length > 0 ? { equivalenciaOperacoes: estado.parametros.revezamentoEquivalencias } : {}) }
+        : {}),
       ...(wipAtivo ? { wip: { limites: calcularLimitesWip([...pools.values()], slots, { wipDiasLimite: wipDiasLimiteDaSemana(estado.parametros, estado.semanaInicio) }, estado.proximaSemana ?? null), ...(Object.keys(saldo0).length > 0 ? { saldo0 } : {}), ...(Object.keys(estoqueConfirmado).length > 0 ? { estoqueConfirmado } : {}) } } : {}),
     },
     periodosPorDia,
