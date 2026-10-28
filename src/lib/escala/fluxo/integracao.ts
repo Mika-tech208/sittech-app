@@ -86,7 +86,12 @@ export function saldosWipConfirmados(estado: EstadoBruto, agoraMs: number): Sald
 
 export function dadosProducaoReal(estado: EstadoBruto, agoraMs: number): DadosProducaoReal {
   const wipConfirmado = saldosWipConfirmados(estado, agoraMs);
-  return { apontamentos: estado.producaoReal?.apontamentos ?? [], agoraMs, planoVigente: estado.alocacoes, ...(wipConfirmado.length > 0 ? { wipConfirmado } : {}) };
+  // Contagens físicas: caminho INDEPENDENTE do wip_controle (não abate pool.quantidade, não passa por saldosWipConfirmados) — entram só no estado inicial do par, dentro do núcleo.
+  const contagens = estado.producaoReal?.contagensFisicas ?? [];
+  return {
+    apontamentos: estado.producaoReal?.apontamentos ?? [], agoraMs, planoVigente: estado.alocacoes,
+    ...(wipConfirmado.length > 0 ? { wipConfirmado } : {}), ...(contagens.length > 0 ? { contagensFisicas: contagens } : {}),
+  };
 }
 
 /**
@@ -145,7 +150,8 @@ const resumoAvaliacao = (a: AvaliacaoPlano | null | undefined) => (a ? { versao:
 
 function hashDaEntrada(ctx: ContextoFluxo, dados: DadosProducaoReal, opcoes: OpcoesFluxo, ultimoFechado: number | null): string {
   return hashCanonico({
-    entrada: ctx.entrada, apontamentos: dados.apontamentos, wipConfirmado: dados.wipConfirmado ?? [], opcoes, ultimoFechado, planoVigente: hashAlocacoes(dados.planoVigente), versao: VERSAO_MOTOR_FLUXO,
+    entrada: ctx.entrada, apontamentos: dados.apontamentos, wipConfirmado: dados.wipConfirmado ?? [], ...(dados.contagensFisicas && dados.contagensFisicas.length > 0 ? { contagensFisicas: dados.contagensFisicas } : {}),
+    opcoes, ultimoFechado, planoVigente: hashAlocacoes(dados.planoVigente), versao: VERSAO_MOTOR_FLUXO,
   });
 }
 
@@ -160,7 +166,7 @@ function registroBase(ctx: ContextoFluxo, modo: "sombra" | "ativo", dados: Dados
 const mensagemErro = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** Preenche o registro com o diagnóstico do núcleo (demanda, WIP, gargalos, avaliação, diff, churn, ANTES/DECISÃO/MOTIVO/DEPOIS). */
-function preencher(reg: RegistroFluxo, d: DiagnosticoFluxo, avaliacaoOficial: AvaliacaoPlano | null, oficial: AlocacaoEscala[], fluxo: AlocacaoEscala[]): RegistroFluxo {
+function preencher(reg: RegistroFluxo, d: DiagnosticoFluxo, avaliacaoOficial: AvaliacaoPlano | null, oficial: AlocacaoEscala[], fluxo: AlocacaoEscala[], extras: unknown[] = []): RegistroFluxo {
   const est = d.estado;
   const porEstado = (e: string) => est.celulas.filter((c) => c.estado === e).length;
   return {
@@ -186,9 +192,12 @@ function preencher(reg: RegistroFluxo, d: DiagnosticoFluxo, avaliacaoOficial: Av
       referencia: d.referencia, antes: d.antes, decisoes: d.decisoes.slice(0, MAX_DECISOES), decisoesTotal: d.decisoesTotal, resumoDecisoes: d.resumoDecisoes, reconciliacao: d.reconciliacao,
       depois: d.depois, depoisBase: d.depoisBase, depoisVigente: d.depoisVigente, vigente: d.vigente, estabilizacao: d.estabilizacao, planoEscolhido: d.planoEscolhido,
     },
-    diagnosticos: d.diagnosticos,
+    diagnosticos: extras.length > 0 ? [...d.diagnosticos, ...extras] : d.diagnosticos,
   };
 }
+
+/** Itens de producao_real_contagens_fisicas malformados (descartados na leitura): entram no diagnóstico do registro. */
+const descartesContagem = (ctx: ContextoFluxo): unknown[] => ctx.estado.producaoReal?.contagensFisicasDescartadas ?? [];
 
 /** Resumo de erro: o fluxo não produziu diagnóstico (exceção). Fica registrado para auditoria. */
 function registroDeErro(reg: RegistroFluxo, erro: string, resultado: "erro" | "fallback", oficial: AlocacaoEscala[]): RegistroFluxo {
@@ -219,7 +228,7 @@ export function tentarPlanoFluxo(ctx: ContextoFluxo): TentativaFluxo {
   }
   let registro: RegistroFluxo;
   try {
-    registro = jsonPuro(preencher({ ...base, hashEntrada: hashDaEntrada(ctx, dados, opcoes, out.diagnostico.estado.ultimoFechado) }, out.diagnostico, null, oficial, out.resultado.alocacoes));
+    registro = jsonPuro(preencher({ ...base, hashEntrada: hashDaEntrada(ctx, dados, opcoes, out.diagnostico.estado.ultimoFechado) }, out.diagnostico, null, oficial, out.resultado.alocacoes, descartesContagem(ctx)));
   } catch (e) {
     const erro = `diagnóstico do fluxo inválido: ${mensagemErro(e)}`;
     return { ok: false, motivo: erro, registro: registroDeErro(base, erro, "fallback", oficial) };
@@ -266,7 +275,7 @@ export function avaliarFluxoSombra(ctx: ContextoFluxo, oficial: AlocacaoEscala[]
       extras.push({ codigo: "ERRO_VERIFICADOR", severidade: "erro", mensagem: mensagemErro(e) });
     }
     const passado = passadoAlterado(ctx.entrada, out.resultado.alocacoes).length;
-    const reg = preencher({ ...base, hashEntrada: hashDaEntrada(ctx, dados, opcoes, out.diagnostico.estado.ultimoFechado) }, out.diagnostico, avaliacaoOficial, oficial, out.resultado.alocacoes);
+    const reg = preencher({ ...base, hashEntrada: hashDaEntrada(ctx, dados, opcoes, out.diagnostico.estado.ultimoFechado) }, out.diagnostico, avaliacaoOficial, oficial, out.resultado.alocacoes, descartesContagem(ctx));
     const faltaOf = avaliacaoOficial?.totais.faltaFinalLo ?? null;
     const faltaFl = out.diagnostico.avaliacaoFluxo.totais.faltaFinalLo;
     return jsonPuro({

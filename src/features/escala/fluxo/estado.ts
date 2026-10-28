@@ -11,6 +11,7 @@ import { maquinaDisponivelNoSlot } from "../disponibilidade";
 import { chavePool, type AlocacaoEscala, type EntradaEscala, type PoolEscala } from "../types";
 import { EPS } from "../folga";
 import { construirGrafo, type Grafo } from "./grafo";
+import { acumuladoDesde, contagemIso, PERIODOS_CONFIANCA_ALTA, temNaoConfirmadoDesde, validarContagens, type RegistroFechado } from "./contagem";
 import { copiarCaps, indiceDeSlots, novaCap, simularGrupo, somarCapacidadeDeLinhas, type CapNo, type ResultadoSim } from "./simulador";
 import {
   VERSAO_FLUXO, type CelulaProducao, type DadosProducaoReal, type DemandaFluxoPool, type DiagnosticoItem, type EstadoCelula, type EstadoEtapa, type EstadoFluxo,
@@ -107,6 +108,7 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
   const zeroPorEtapa: Record<string, number> = {};
   const tardiosPorEtapa: Record<string, number> = {};
   const foraPlano: Record<string, number> = {};
+  const registrosFechados: RegistroFechado[] = []; // base das contagens físicas (produção por período fechado, com o carimbo dos lançamentos)
 
   const chavesSlotMaq = new Set<string>([...apt.keys(), ...plano.keys()]);
   const ordenadas = [...chavesSlotMaq].sort((a, b) => {
@@ -130,13 +132,14 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
     const produzindo = linhas.filter((l) => l.status === "produzindo");
     if (produzindo.length > 0) {
       ignorar.add(chave);
-      const porPool = new Map<string, { boas: number; refugo: number }>();
+      const porPool = new Map<string, { boas: number; refugo: number; linhas: { boas: number; lancadoEmMs: number }[] }>();
       produzindo.forEach((l) => {
         const k = l.produtoId && l.etapaId ? chavePool(l.produtoId, l.etapaId) : plan?.pool;
         if (!k) return;
-        const cur = porPool.get(k) ?? { boas: 0, refugo: 0 };
+        const cur = porPool.get(k) ?? { boas: 0, refugo: 0, linhas: [] };
         cur.boas += Math.max(0, l.boas);
         cur.refugo += Math.max(0, l.refugo);
+        cur.linhas.push({ boas: Math.max(0, l.boas), lancadoEmMs: l.lancadoEmMs });
         porPool.set(k, cur);
       });
       [...porPool.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).forEach(([k, v]) => {
@@ -147,6 +150,7 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
         if (fechado) {
           Bfech[no].lo += v.boas;
           Bfech[no].hi += v.boas;
+          registrosFechados.push({ t, no, estado: "confirmado", linhas: v.linhas, planejado: 0 });
         } else capsFixas[no].real[t] += v.boas;
         if (plan && plan.pool !== k) foraPlano[k] = (foraPlano[k] ?? 0) + 1;
         if (tardio) tardiosPorEtapa[k] = (tardiosPorEtapa[k] ?? 0) + 1;
@@ -175,6 +179,7 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
     celulas.push({ ...base, ...dividirChave(plan.pool), estado, boas: { lo: 0, hi: fechado ? plan.planejado : 0 }, refugo: 0, planejado: plan.planejado, motivo: null, tardio: false });
     if (fechado) {
       Bfech[grafo.noDoPool[plan.pool]].hi += plan.planejado;
+      registrosFechados.push({ t, no: grafo.noDoPool[plan.pool], estado: "nao_confirmado", linhas: [], planejado: plan.planejado });
       const cur = naoConf[plan.pool] ?? { n: 0, planejado: 0 };
       naoConf[plan.pool] = { n: cur.n + 1, planejado: cur.planejado + plan.planejado };
     }
@@ -217,6 +222,9 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
 
   // ---- WIP por aresta no corte ----
   const confirmados = dados.wipConfirmado ?? [];
+  const { validas: contagens, diagnosticos: diagContagens } = validarContagens(grafo, dados, entrada.slots);
+  diagnosticos.push(...diagContagens);
+  const periodosFechadosDesde = (T: number) => entrada.slots.filter((x) => x.indice <= ultimoFechado && x.inicioMs >= T).length;
   const pares: EstadoWipPar[] = [];
   const iniLo: IniScenario = { B0: {}, W0: {}, L0: {} };
   const iniHi: IniScenario = { B0: {}, W0: {}, L0: {} };
@@ -227,30 +235,59 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
   Object.values(grafo.arestas).sort((a, b) => (a.id < b.id ? -1 : 1)).forEach((e) => {
     const a = Bfech[e.origem];
     const d = Bfech[e.destino];
-    const bruto: Intervalo = { lo: a.lo - e.peso * d.hi, hi: a.hi - e.peso * d.lo };
-    let wip: Intervalo = { lo: Math.max(0, bruto.lo), hi: Math.max(0, bruto.hi) };
-    const conf = confirmados.find((c) => c.produtoId === e.produtoId && c.etapaOrigemId === e.etapaOrigemId && c.etapaSeguinteId === e.etapaSeguinteId);
+    let bruto: Intervalo = { lo: a.lo - e.peso * d.hi, hi: a.hi - e.peso * d.lo };
+    const cont = contagens.get(e.id);
+    const conf = cont ? undefined : confirmados.find((c) => c.produtoId === e.produtoId && c.etapaOrigemId === e.etapaOrigemId && c.etapaSeguinteId === e.etapaSeguinteId);
     let origem: EstadoWipPar["origem"] = "estimado";
     let confianca: EstadoWipPar["confianca"];
+    let fonte: EstadoWipPar["fonteConfirmacao"];
+    let contagemInfo: EstadoWipPar["contagem"];
     const incerto = (etapas.find((x) => chavePool(x.produtoId, x.etapaId) === e.chavePar)?.celulasNaoConfirmadas ?? 0) > 0 ||
       grafo.nos[e.destino].membros.some((m) => (etapas.find((x) => chavePool(x.produtoId, x.etapaId) === m)?.celulasNaoConfirmadas ?? 0) > 0);
-    const negativo = bruto.hi < -EPS;
-    if (conf) {
+    let wip: Intervalo;
+    if (cont) {
+      // CONTAGEM FÍSICA: substitui o estimado (e o wip_controle, se houver) do par. WIP(t > T) = saldo + Σ boas origem depois de T − Σ boas seguinte depois de T.
+      const saldo = Math.max(0, cont.item.saldo);
+      const up = acumuladoDesde(registrosFechados, entrada.slots, cont.instanteMs, e.origem);
+      const dn = acumuladoDesde(registrosFechados, entrada.slots, cont.instanteMs, e.destino);
+      bruto = { lo: saldo + up.lo - e.peso * dn.hi, hi: saldo + up.hi - e.peso * dn.lo };
+      wip = { lo: Math.max(0, bruto.lo), hi: Math.max(0, bruto.hi) };
       origem = "confirmado";
-      const saldo = Math.max(0, conf.saldo);
-      wip = { lo: saldo, hi: Math.max(saldo, wip.hi) };
-      confianca = "alta";
-      diagnosticos.push({ codigo: "WIP_CONFIRMADO_USADO", severidade: "info", produtoId: e.produtoId, etapaId: e.etapaOrigemId, mensagem: `Saldo de WIP confirmado (${Math.round(saldo)}) usado como piso do par`, detalhes: { saldo: r1(saldo) } });
+      fonte = "contagem_fisica";
+      const nF = periodosFechadosDesde(cont.instanteMs);
+      const naoConf = temNaoConfirmadoDesde(registrosFechados, entrada.slots, cont.instanteMs, [e.origem, e.destino]);
+      confianca = nF <= PERIODOS_CONFIANCA_ALTA && !naoConf ? "alta" : "media";
+      contagemInfo = { saldo: r1(saldo), contadoEm: contagemIso(cont.instanteMs), periodosFechadosDesde: nF };
+      diagnosticos.push({
+        codigo: "CONTAGEM_FISICA_USADA", severidade: "info", produtoId: e.produtoId, etapaId: e.etapaOrigemId,
+        mensagem: `Contagem física (${Math.round(saldo)} peça(s) em ${contagemIso(cont.instanteMs)}) usada como saldo inicial CONFIRMADO do par; WIP atual ${Math.round(wip.lo)}–${Math.round(wip.hi)} (${nF} período(s) fechado(s) desde a contagem, confiança ${confianca})`,
+        detalhes: { saldo: r1(saldo), contadoEm: contagemIso(cont.instanteMs), periodosFechadosDesde: nF, wipLo: r1(wip.lo), wipHi: r1(wip.hi), confianca, informadoPor: cont.item.informadoPor ?? null },
+      });
+      if (conf) diagnosticos.push({ codigo: "CONTAGEM_FISICA_USADA", severidade: "info", produtoId: e.produtoId, etapaId: e.etapaOrigemId, mensagem: "O par também tem saldo de wip_controle; a contagem física (independente e mais recente) prevalece", detalhes: { prevalece: "contagem_fisica" } });
     } else {
-      confianca = incerto || bruto.lo < -EPS ? "baixa" : "media";
+      wip = { lo: Math.max(0, bruto.lo), hi: Math.max(0, bruto.hi) };
+      if (conf) {
+        origem = "confirmado";
+        fonte = "wip_controle";
+        const saldo = Math.max(0, conf.saldo);
+        wip = { lo: saldo, hi: Math.max(saldo, wip.hi) };
+        confianca = "alta";
+        diagnosticos.push({ codigo: "WIP_CONFIRMADO_USADO", severidade: "info", produtoId: e.produtoId, etapaId: e.etapaOrigemId, mensagem: `Saldo de WIP confirmado (${Math.round(saldo)}) usado como piso do par`, detalhes: { saldo: r1(saldo) } });
+      } else {
+        confianca = incerto || bruto.lo < -EPS ? "baixa" : "media";
+      }
     }
+    const negativo = bruto.hi < -EPS;
     if (negativo && !conf) {
       diagnosticos.push({
         codigo: "WIP_NEGATIVO_ESTIMADO", severidade: "aviso", produtoId: e.produtoId, etapaId: e.etapaOrigemId,
-        mensagem: `WIP estimado negativo (${Math.round(bruto.hi)}) mesmo no melhor caso: piso 0. Causas possíveis: estoque inicial desconhecido, apontamento inconsistente ou lançamento atrasado`, detalhes: { brutoHi: r1(bruto.hi), brutoLo: r1(bruto.lo) },
+        mensagem: `WIP ${cont ? "pós-contagem" : "estimado"} negativo (${Math.round(bruto.hi)}) mesmo no melhor caso: piso 0. Causas possíveis: estoque inicial desconhecido, apontamento inconsistente ou lançamento atrasado`, detalhes: { brutoHi: r1(bruto.hi), brutoLo: r1(bruto.lo) },
       });
     }
-    pares.push({ produtoId: e.produtoId, etapaOrigemId: e.etapaOrigemId, etapaSeguinteId: e.etapaSeguinteId, origem, confianca, wip: { lo: r1(wip.lo), hi: r1(wip.hi) }, bruto: { lo: r1(bruto.lo), hi: r1(bruto.hi) }, negativo });
+    pares.push({
+      produtoId: e.produtoId, etapaOrigemId: e.etapaOrigemId, etapaSeguinteId: e.etapaSeguinteId, origem, confianca, wip: { lo: r1(wip.lo), hi: r1(wip.hi) }, bruto: { lo: r1(bruto.lo), hi: r1(bruto.hi) }, negativo,
+      ...(fonte ? { fonteConfirmacao: fonte } : {}), ...(contagemInfo ? { contagem: contagemInfo } : {}),
+    });
     iniLo.W0[e.id] = wip.lo;
     iniLo.L0[e.id] = wip.lo;
     iniHi.W0[e.id] = wip.hi;

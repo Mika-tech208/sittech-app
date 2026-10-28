@@ -2,12 +2,13 @@
 // O portão canônico é o do banco (constraints + escala_producao_real_modo_semana); aqui o código repete a regra (defesa em profundidade):
 // valor desconhecido/ausente = desligado; semana anterior a 2026-10-26 nunca vale.
 
-import type { ModoProducaoReal, ParEtapaComum, ParLegado } from "@/features/escala/fluxo/tipos";
+import type { ContagemFisicaPar, DiagnosticoItem, ModoProducaoReal, ParEtapaComum, ParLegado } from "@/features/escala/fluxo/tipos";
 
 export const CHAVE_PR_MODO = "producao_real_modo";
 export const CHAVE_PR_SEMANAS = "producao_real_semanas_ativas";
 export const CHAVE_PR_LIMIAR = "producao_real_limiar_estabilidade";
 export const CHAVE_PR_PARES = "producao_real_pares_legado";
+export const CHAVE_PR_CONTAGENS = "producao_real_contagens_fisicas";
 export const PRIMEIRA_SEMANA_FLUXO = "2026-10-26";
 
 export interface ConfigFluxo {
@@ -15,9 +16,13 @@ export interface ConfigFluxo {
   semanasAtivas: string[]; // segundas-feiras ISO em que sombra/ativo VALEM
   limiar: number | null; // θ (peças finais); null = derivado pelo núcleo
   paresLegado: ParLegado[];
+  /** producao_real_contagens_fisicas (jsonb array; chave ausente/[] = nenhuma). Só itens VÁLIDOS em forma; o núcleo revalida (par, futuro, duplicadas). */
+  contagensFisicas: ContagemFisicaPar[];
+  /** Itens malformados da chave: ignorados, com diagnóstico (nunca derrubam o recálculo). */
+  contagensFisicasDescartadas: DiagnosticoItem[];
 }
 
-export const CONFIG_FLUXO_PADRAO: ConfigFluxo = { modo: "desligado", semanasAtivas: [], limiar: null, paresLegado: [] };
+export const CONFIG_FLUXO_PADRAO: ConfigFluxo = { modo: "desligado", semanasAtivas: [], limiar: null, paresLegado: [], contagensFisicas: [], contagensFisicasDescartadas: [] };
 
 const ehTexto = (v: unknown): v is string => typeof v === "string" && v.length > 0;
 
@@ -51,15 +56,53 @@ export function lerParesLegado(v: unknown): ParLegado[] {
   return pares;
 }
 
+/**
+ * Lê `producao_real_contagens_fisicas`: [{ produtoId, etapaOrigemId, etapaSeguinteId, saldo (≥ 0), contadoEm (ISO COM fuso), informadoPor?, observacao? }].
+ * Ausente/null/[] = nenhuma. Item malformado é DESCARTADO com diagnóstico `CONTAGEM_FISICA_IGNORADA`; nunca lança.
+ */
+export function lerContagensFisicas(v: unknown): { itens: ContagemFisicaPar[]; descartes: DiagnosticoItem[] } {
+  const itens: ContagemFisicaPar[] = [];
+  const descartes: DiagnosticoItem[] = [];
+  if (v === undefined || v === null) return { itens, descartes };
+  const descarta = (i: number, motivo: string, o?: Record<string, unknown>) =>
+    descartes.push({
+      codigo: "CONTAGEM_FISICA_IGNORADA", severidade: "aviso", ...(o && ehTexto(o.produtoId) ? { produtoId: o.produtoId } : {}), ...(o && ehTexto(o.etapaOrigemId) ? { etapaId: o.etapaOrigemId } : {}),
+      mensagem: `Contagem física #${i + 1} ignorada: ${motivo}`, detalhes: { indice: i, motivo },
+    });
+  if (!Array.isArray(v)) {
+    descarta(0, "o valor de producao_real_contagens_fisicas deve ser um array JSON");
+    return { itens, descartes };
+  }
+  v.forEach((x, i) => {
+    if (!x || typeof x !== "object" || Array.isArray(x)) return descarta(i, "item não é um objeto");
+    const o = x as Record<string, unknown>;
+    if (!ehTexto(o.produtoId) || !ehTexto(o.etapaOrigemId) || !ehTexto(o.etapaSeguinteId)) return descarta(i, "produtoId/etapaOrigemId/etapaSeguinteId ausentes", o);
+    const saldo = typeof o.saldo === "number" ? o.saldo : typeof o.saldo === "string" && o.saldo.trim() !== "" ? Number(o.saldo) : Number.NaN;
+    if (!Number.isFinite(saldo) || saldo < 0) return descarta(i, "saldo deve ser um número ≥ 0", o);
+    if (typeof o.contadoEm !== "string" || !/(Z|[+-]\d{2}:?\d{2})$/i.test(o.contadoEm.trim())) return descarta(i, "contadoEm deve ser ISO COM fuso (ex.: 2026-10-28T06:30:00-03:00)", o);
+    const ms = Date.parse(o.contadoEm.trim());
+    if (!Number.isFinite(ms)) return descarta(i, "contadoEm não é uma data válida", o);
+    itens.push({
+      produtoId: o.produtoId, etapaOrigemId: o.etapaOrigemId, etapaSeguinteId: o.etapaSeguinteId, saldo, contadoEmMs: ms,
+      ...(typeof o.informadoPor === "string" && o.informadoPor ? { informadoPor: o.informadoPor.slice(0, 120) } : {}),
+      ...(typeof o.observacao === "string" && o.observacao ? { observacao: o.observacao.slice(0, 300) } : {}),
+    });
+  });
+  return { itens, descartes };
+}
+
 export function lerConfigFluxo(linhas: { chave: string; valor: unknown }[] | null | undefined): ConfigFluxo {
   const mapa = new Map((linhas ?? []).map((l) => [l.chave, l.valor]));
   const modo = mapa.get(CHAVE_PR_MODO);
   const limiar = mapa.get(CHAVE_PR_LIMIAR);
+  const contagens = lerContagensFisicas(mapa.get(CHAVE_PR_CONTAGENS));
   return {
     modo: modo === "sombra" || modo === "ativo" ? modo : "desligado", // ausente/desconhecido = desligado
     semanasAtivas: lerSemanas(mapa.get(CHAVE_PR_SEMANAS)),
     limiar: typeof limiar === "number" && Number.isFinite(limiar) && limiar >= 0 ? limiar : null, // JSON null = derivado (Number(null) seria 0: não usar)
     paresLegado: lerParesLegado(mapa.get(CHAVE_PR_PARES)),
+    contagensFisicas: contagens.itens,
+    contagensFisicasDescartadas: contagens.descartes,
   };
 }
 

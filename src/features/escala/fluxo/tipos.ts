@@ -26,6 +26,17 @@ export interface SaldoWipConfirmadoPar {
   saldo: number; // peças confirmadas ainda disponíveis (≥ 0)
 }
 
+/** Contagem FÍSICA aproximada do estoque entre duas etapas consecutivas: `saldo` peças existiam no instante `contadoEmMs` (epoch ms). */
+export interface ContagemFisicaPar {
+  produtoId: string;
+  etapaOrigemId: string;
+  etapaSeguinteId: string;
+  saldo: number; // ≥ 0
+  contadoEmMs: number;
+  informadoPor?: string;
+  observacao?: string;
+}
+
 export interface DadosProducaoReal {
   /** Tudo que existe lançado. O núcleo só enxerga lançamentos com lancadoEmMs ≤ agoraMs (nunca o futuro). */
   apontamentos: ApontamentoReal[];
@@ -35,6 +46,9 @@ export interface DadosProducaoReal {
   fechamentoMinutos?: number;
   /** Saldos de WIP confirmados por par. Ausente/sem o par ⇒ WIP ESTIMADO (lo/hi pelos apontamentos). */
   wipConfirmado?: SaldoWipConfirmadoPar[];
+  /** CONTAGENS FÍSICAS informadas (escala_parametros.producao_real_contagens_fisicas): saldo físico do par no instante `contadoEmMs`. Independente de `wipConfirmado`/wip_controle.
+   *  Ausente/vazio ⇒ nenhuma. Item inválido é IGNORADO com diagnóstico `CONTAGEM_FISICA_IGNORADA` (nunca derruba o cálculo). Ver docs/escala-fluxo-contagem-fisica.md. */
+  contagensFisicas?: ContagemFisicaPar[];
   /** Linhas gravadas da semana (planejado por máquina/pool nos períodos passados e futuros, base da estabilidade/churn). */
   planoVigente: AlocacaoEscala[];
 }
@@ -118,6 +132,8 @@ export type CodigoDiagnosticoFluxo =
   | "ESTABILIZACAO_PESSOAS" // pessoas re-atribuídas para manter o posto do plano vigente
   | "ESTABILIZACAO_DESCARTADA" // a re-atribuição piorou a falta ou violou restrição dura: descartada
   | "SEM_PRODUCAO_SEM_PROGRAMACAO" // sem_producao com motivo sem_programacao (fora da spec original): zero confirmado, sem inferir material
+  | "CONTAGEM_FISICA_USADA" // contagem física válida usada como saldo inicial CONFIRMADO do par
+  | "CONTAGEM_FISICA_IGNORADA" // item de contagem física inválido/substituído: ignorado (nunca derruba o recálculo)
   | "POOL_FUNDIDO"; // pools legados fundidos logicamente
 
 export interface DiagnosticoItem {
@@ -179,6 +195,10 @@ export interface EstadoWipPar {
   wip: Intervalo; // com piso 0
   bruto: Intervalo; // antes do piso (pode ser negativo)
   negativo: boolean; // bruto.hi < 0 (negativo mesmo no melhor caso)
+  /** ADITIVO: de onde vem o saldo confirmado. Ausente quando estimado. */
+  fonteConfirmacao?: "wip_controle" | "contagem_fisica";
+  /** ADITIVO (contagem física): saldo informado, instante da contagem (ISO UTC) e nº de períodos fechados desde então. */
+  contagem?: { saldo: number; contadoEm: string; periodosFechadosDesde: number };
 }
 
 export interface EstadoProduto {

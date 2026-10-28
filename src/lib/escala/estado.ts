@@ -5,7 +5,7 @@ import type { ParametrosEscala } from "@/features/escala/parametros";
 import type { AlertaEscala, AlocacaoEscala, HistoricoEquidadeFuncionario, PeriodoEscala } from "@/features/escala/types";
 import type { ProximaSemana } from "@/features/escala/wip";
 import type { EntradaWip } from "@/features/escala/wipSaldo";
-import type { ParLegado } from "@/features/escala/fluxo/tipos";
+import type { ContagemFisicaPar, DiagnosticoItem, ParLegado } from "@/features/escala/fluxo/tipos";
 import type { ApontamentoReal } from "@/features/escala/producaoReal";
 
 export interface AvisoMontagem {
@@ -117,6 +117,8 @@ export interface EstadoProducaoReal {
   modoEfetivo: "sombra" | "ativo";
   limiar: number | null; // producao_real_limiar_estabilidade (θ em peças finais); null = derivado pelo núcleo
   paresLegado: ParLegado[]; // producao_real_pares_legado
+  contagensFisicas?: ContagemFisicaPar[]; // producao_real_contagens_fisicas (itens bem formados; o núcleo revalida)
+  contagensFisicasDescartadas?: DiagnosticoItem[]; // itens malformados dessa chave (ignorados, com diagnóstico)
   apontamentos: ApontamentoReal[]; // TODAS as linhas de apontamento da semana (produzindo e sem_producao, com motivo e carimbo)
 }
 
