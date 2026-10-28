@@ -119,7 +119,10 @@ export interface EstadoProducaoReal {
   paresLegado: ParLegado[]; // producao_real_pares_legado
   contagensFisicas?: ContagemFisicaPar[]; // producao_real_contagens_fisicas (itens bem formados; o núcleo revalida)
   contagensFisicasDescartadas?: DiagnosticoItem[]; // itens malformados dessa chave (ignorados, com diagnóstico)
-  atingibilidade?: boolean; // producao_real_atingibilidade = "ativo": preservarAtingibilidade no núcleo
+  atingibilidadeModo?: "off" | "sombra" | "ativo"; // producao_real_atingibilidade_modo (ou a chave legada)
+  objetivo?: "pecas" | "financeiro"; // producao_real_objetivo_escala
+  pesosComerciais?: Record<string, number>; // producao_real_pesos_comerciais
+  atingibilidade?: boolean; // legado: producao_real_atingibilidade = "ativo": preservarAtingibilidade no núcleo
   apontamentos: ApontamentoReal[]; // TODAS as linhas de apontamento da semana (produzindo e sem_producao, com motivo e carimbo)
 }
 

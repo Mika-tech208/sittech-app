@@ -105,6 +105,12 @@ export interface OpcoesFluxo {
    *  conservam alcançável a meta de cada produto (metas atingíveis primeiro); sem meta atingível ⇒ diagnóstico META_NAO_ATINGIVEL. Default false (byte-idêntico ao anterior).
    *  Lida de escala_parametros `producao_real_atingibilidade` ∈ {desligado, ativo} pela integração. docs/escala-fluxo-atingibilidade.md */
   preservarAtingibilidade?: boolean;
+  /** off (padrão) | sombra (só mede e reporta a atingibilidade/R$, não altera o plano) | ativo (= preservarAtingibilidade). Tem precedência sobre `preservarAtingibilidade`. */
+  atingibilidadeModo?: "off" | "sombra" | "ativo";
+  /** Objetivo da Escala: "pecas" (padrão, comportamento anterior) | "financeiro" (R$ de produto final pelo preço CONGELADO da Previsão; implica `ponderarPorValor`). docs/escala-fluxo-atingibilidade.md */
+  objetivo?: "pecas" | "financeiro";
+  /** Peso comercial MANUAL por produto (default 1; só entra na decisão do objetivo financeiro; as métricas em R$ usam o preço puro). */
+  pesoComercial?: Record<string, number>;
 }
 
 export interface LigacaoProdutos {
@@ -140,7 +146,8 @@ export type CodigoDiagnosticoFluxo =
   | "CONTAGEM_FISICA_IGNORADA" // item de contagem física inválido/substituído: ignorado (nunca derruba o recálculo)
   | "POOL_FUNDIDO" // pools legados fundidos logicamente
   | "META_NAO_ATINGIVEL" // preservarAtingibilidade: nem com todas as máquinas em todos os períodos restantes (físico) ou não cabe junto das outras metas (conflito de recursos)
-  | "POSTOS_MINIMOS_APLICADOS"; // preservarAtingibilidade: postos mínimos (tier 1) mantidos no plano
+  | "POSTOS_MINIMOS_APLICADOS"
+  | "PRODUTO_SACRIFICADO"; // objetivo financeiro / conflito: produto com menos peças que na referência (nada silencioso): peças e R$ // preservarAtingibilidade: postos mínimos (tier 1) mantidos no plano
 
 export interface DiagnosticoItem {
   codigo: CodigoDiagnosticoFluxo;
@@ -319,6 +326,8 @@ export interface TotaisAvaliacao {
   wipFinalHi: number;
   wipLegadoResidual: number;
   excessoWip: number; // Σ max(0, WIP previsto (hi) − teto derivado do par)
+  /** Camada 3 (objetivo financeiro): Σ max(0, WIP final (hi) − max(WIP atual, 2 períodos de capacidade da origem)). Só PENALIDADE SECUNDÁRIA (nunca hard limit). */
+  excessoWip2p?: number;
   capacidadeGargalo: number;
   capacidadeDesperdicada: number; // capacidade de postos do previsto que não vira peça (sem material, sem demanda ou meta atendida) — desempate
   excessoFinal: number; // peças do produto final que o plano produziria ALÉM da meta (capacidade desperdiçada, cenário pessimista)
@@ -351,8 +360,48 @@ export interface AtingibilidadePlano {
   deficitRelativo: number;
 }
 
+/** Métricas em R$ de UM produto (preço CONGELADO da Previsão; R$ só da etapa final). */
+export interface FinanceiroProduto {
+  produtoId: string;
+  etapaFinalId: string;
+  precoCongelado: number;
+  pesoComercial: number;
+  meta: number;
+  realizadoFinal: number; // boas finais já produzidas (confirmadas + período congelado projetado) em aPartirDe
+  restante: number;
+  maximoProduzivel: number;
+  metaAtingivel: boolean;
+  faltaInevitavel: number; // peças
+  finalProjetado: number; // do plano avaliado
+  faltaProjetada: number;
+  rsMeta: number;
+  rsRealizado: number;
+  rsFaltante: number;
+  rsMaximoAtingivel: number;
+  rsProjetadoFechamento: number;
+  rsFaltaInevitavel: number;
+  rsFaltaProjetada: number;
+}
+
+export interface FinanceiroTotal {
+  rsMeta: number;
+  rsRealizado: number;
+  rsFaltante: number;
+  rsMaximoAtingivel: number;
+  rsProjetadoFechamento: number;
+  rsFaltaInevitavel: number;
+  rsFaltaProjetada: number;
+}
+
+export interface FinanceiroPlano {
+  produtos: FinanceiroProduto[];
+  total: FinanceiroTotal;
+}
+
 export interface AvaliacaoPlano {
   versao: number;
+  /** Só com objetivo financeiro ou atingibilidade sombra/ativo. */
+  financeiro?: FinanceiroPlano;
   /** Só com `preservarAtingibilidade`. */
   atingibilidade?: AtingibilidadePlano;
   produtos: AvaliacaoProduto[];
@@ -527,8 +576,24 @@ export interface DiagnosticoAtingibilidade {
   postosMinimos: PostoMinimoSlot[];
 }
 
+/** Variação em R$ e peças de um produto entre a referência e o plano escolhido (nada silencioso: sacrifícios aparecem aqui e em `PRODUTO_SACRIFICADO`). */
+export interface VariacaoProduto {
+  produtoId: string;
+  pecas: number; // escolhido − referência (final projetado)
+  rs: number;
+}
+
+export interface DiagnosticoFinanceiro {
+  antes: FinanceiroPlano; // plano de referência (vigente, ou base)
+  depois: FinanceiroPlano;
+  variacao: VariacaoProduto[];
+  deltaRsProjetado: number;
+}
+
 export interface DiagnosticoFluxo {
   versao: number;
+  /** Só com objetivo financeiro ou atingibilidade sombra/ativo. */
+  financeiro?: DiagnosticoFinanceiro;
   /** Só com `preservarAtingibilidade`. */
   atingibilidade?: DiagnosticoAtingibilidade;
   planoEscolhido: PlanoEscolhido;

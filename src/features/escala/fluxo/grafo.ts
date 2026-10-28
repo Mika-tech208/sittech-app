@@ -160,7 +160,7 @@ export function construirGrafo(pools: PoolEscala[], opcoes: { paresLegado?: ParL
     nos[id] = {
       id, membros, produtoId: rep.produtoId, etapaId: rep.etapaId, ordem: rep.ordemEtapa,
       quantidade: membros.reduce((s, m) => s + Math.max(0, poolPorChave.get(m)?.quantidade ?? 0), 0),
-      valorUnitario: rep.valorUnitario, grupo: "", final: false, succ: null,
+      valorUnitario: membros.length > 1 && membros.reduce((q, m) => q + (poolPorChave.get(m)?.quantidade ?? 0), 0) > 0 ? membros.reduce((v, m) => v + (poolPorChave.get(m)?.quantidade ?? 0) * (poolPorChave.get(m)?.valorUnitario ?? 0), 0) / membros.reduce((q, m) => q + (poolPorChave.get(m)?.quantidade ?? 0), 0) : rep.valorUnitario, grupo: "", final: false, succ: null,
     };
   });
 

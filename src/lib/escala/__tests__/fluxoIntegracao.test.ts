@@ -350,6 +350,24 @@ describe("parâmetros: leitura defensiva e gate de semana", () => {
     expect(insumosFluxo(est({}), nominal, 0).opcoes.preservarAtingibilidade).toBeUndefined();
     expect(insumosFluxo(est({ atingibilidade: true }), nominal, 0).opcoes.preservarAtingibilidade).toBe(true);
   });
+  it("producao_real_atingibilidade_modo (off|sombra|ativo) tem precedência sobre a chave legada; objetivo e pesos comerciais são lidos de forma defensiva e viram opções do núcleo", () => {
+    expect(lerConfigFluxo(linhas({ producao_real_atingibilidade_modo: "sombra" })).atingibilidadeModo).toBe("sombra");
+    expect(lerConfigFluxo(linhas({ producao_real_atingibilidade_modo: "sombra" })).atingibilidade).toBe(false);
+    expect(lerConfigFluxo(linhas({ producao_real_atingibilidade_modo: "ativo" })).atingibilidade).toBe(true);
+    expect(lerConfigFluxo(linhas({ producao_real_atingibilidade_modo: "off", producao_real_atingibilidade: "ativo" })).atingibilidadeModo).toBe("off");
+    expect(lerConfigFluxo(linhas({ producao_real_atingibilidade: "ativo" })).atingibilidadeModo).toBe("ativo"); // compat
+    expect(lerConfigFluxo(linhas({ producao_real_atingibilidade_modo: "lixo" })).atingibilidadeModo).toBe("off");
+    expect(lerConfigFluxo([]).objetivo).toBe("pecas");
+    expect(lerConfigFluxo(linhas({ producao_real_objetivo_escala: "financeiro" })).objetivo).toBe("financeiro");
+    expect(lerConfigFluxo(linhas({ producao_real_objetivo_escala: "dinheiro" })).objetivo).toBe("pecas");
+    expect(lerConfigFluxo(linhas({ producao_real_pesos_comerciais: { a: 2, b: 0, c: -1, d: "x", e: 1.5 } })).pesosComerciais).toEqual({ a: 2, e: 1.5 });
+    expect(lerConfigFluxo(linhas({ producao_real_pesos_comerciais: [1, 2] })).pesosComerciais).toEqual({});
+    const est = (extra: object) => ({ producaoReal: { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos: [], ...extra } }) as never;
+    const nominal = { pools: [], slots: [], funcionarios: [], aPartirDe: 0, ausencias: [], maquinasIndisponiveisPrevisao: [], indisponibilidades: [], congeladas: [] } as never;
+    const o = insumosFluxo(est({ atingibilidadeModo: "sombra", objetivo: "financeiro", pesosComerciais: { p: 2 } }), nominal, 0).opcoes;
+    expect(o).toMatchObject({ atingibilidadeModo: "sombra", objetivo: "financeiro", pesoComercial: { p: 2 } });
+    expect(insumosFluxo(est({}), nominal, 0).opcoes.objetivo).toBeUndefined();
+  });
   it("semanas anteriores a 2026-10-26 e datas inválidas nunca valem (defesa em profundidade)", () => {
     const c = lerConfigFluxo(linhas({ producao_real_modo: "ativo", producao_real_semanas_ativas: ["2026-10-19", "2026-10-26", "lixo", 5, "2026-11-02", "2026-11-02"] }));
     expect(c.semanasAtivas).toEqual(["2026-10-26", "2026-11-02"]);

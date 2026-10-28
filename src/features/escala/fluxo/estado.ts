@@ -58,7 +58,15 @@ export function poolsDeEntrada(entrada: EntradaEscala): Map<string, PoolEscala> 
 
 interface AptChave { linhas: DadosProducaoReal["apontamentos"] }
 
-export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, opcoes: OpcoesInternas = {}): CtxFluxo {
+/** Normaliza as opções de atingibilidade/objetivo: `atingibilidadeModo` tem precedência sobre `preservarAtingibilidade`; objetivo financeiro implica ponderar por valor. */
+export function normalizarOpcoes(o: OpcoesInternas): OpcoesInternas {
+  const modo = o.atingibilidadeModo ?? (o.preservarAtingibilidade ? "ativo" : "off");
+  if (modo === "off" && o.objetivo !== "financeiro" && o.atingibilidadeModo === undefined) return o; // caminho legado: objeto intacto
+  return { ...o, atingibilidadeModo: modo, preservarAtingibilidade: modo === "ativo", ...(o.objetivo === "financeiro" ? { ponderarPorValor: true } : {}) };
+}
+
+export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, opcoesBrutas: OpcoesInternas = {}): CtxFluxo {
+  const opcoes = normalizarOpcoes(opcoesBrutas);
   const diagnosticos: DiagnosticoItem[] = [];
   const grafo = construirGrafo(entrada.pools, { paresLegado: opcoes.paresLegado, ligacoes: opcoes.ligacoes, fatoresEmbutidos: opcoes.fatoresEmbutidos });
   diagnosticos.push(...grafo.diagnosticos);

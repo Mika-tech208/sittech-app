@@ -106,7 +106,9 @@ export function insumosFluxo(estado: EstadoBruto, entrada: EntradaEscala, agoraM
   const opcoes: OpcoesFluxo = {
     ...(pr && pr.paresLegado.length > 0 ? { paresLegado: pr.paresLegado } : {}),
     ...(pr && pr.limiar !== null ? { limiarEstabilidadePecas: pr.limiar } : {}),
-    ...(pr?.atingibilidade ? { preservarAtingibilidade: true } : {}),
+    ...(pr?.atingibilidadeModo ? { atingibilidadeModo: pr.atingibilidadeModo } : pr?.atingibilidade ? { preservarAtingibilidade: true } : {}),
+    ...(pr?.objetivo === "financeiro" ? { objetivo: "financeiro" as const } : {}),
+    ...(pr?.pesosComerciais && Object.keys(pr.pesosComerciais).length > 0 ? { pesoComercial: pr.pesosComerciais } : {}),
     ...(Object.keys(fator).length > 0 ? { fatoresEmbutidos: fator } : {}),
   };
   return { entrada: comF, opcoes };

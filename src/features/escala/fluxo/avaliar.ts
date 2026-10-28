@@ -4,7 +4,8 @@
 import { maquinaDisponivelNoSlot } from "../disponibilidade";
 import { chavePool, type AlocacaoEscala, type EntradaEscala, type PoolEscala } from "../types";
 import { calcularDemanda, capacidadeFuturaDoNo, prepararFluxo, type CtxFluxo, type OpcoesInternas } from "./estado";
-import { calcularAtingibilidade } from "./atingibilidade";
+import { calcularAtingibilidade, maximosPossiveis } from "./atingibilidade";
+import { calcularFinanceiro, objetivoFinanceiro, precoDoGrupo } from "./financeiro";
 import { copiarCaps, novaCap, simularGrupo, somarCapacidadeDeLinhas, type CapNo, type ResultadoSim } from "./simulador";
 import {
   VERSAO_FLUXO, type AvaliacaoPlano, type AvaliacaoProduto, type DadosProducaoReal, type GargaloFluxo, type Intervalo, type PostoContribuicao, type TotaisAvaliacao, type TrajetoriaWip,
@@ -44,8 +45,8 @@ export function rodar(ctx: CtxFluxo, gi: number, caps: Record<string, CapNo>, ce
 
 export function pesoDoGrupo(ctx: CtxFluxo, gi: number): number {
   if (!ctx.opcoes.ponderarPorValor) return 1;
-  const sink = ctx.grafo.nos[ctx.grafo.grupos[gi].sink];
-  return sink.valorUnitario > 0 ? sink.valorUnitario : 1;
+  const p = precoDoGrupo(ctx, gi, true); // preço CONGELADO da Previsão × peso comercial manual (default 1)
+  return p > 0 ? p : 1;
 }
 
 /** Capacidade (peças) que UMA linha de alocação soma ao nó/slot — a mesma regra de `somarCapacidadeDeLinhas`, para aplicar/retirar linhas uma a uma. */
@@ -81,6 +82,7 @@ export function avaliarComCtx(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], op: Op
   const totais: TotaisAvaliacao = { faltaFinalLo: 0, faltaFinalHi: 0, finalEntregueLo: 0, finalEntregueHi: 0, faltaPonderada: 0, wipFinalLo: 0, wipFinalHi: 0, wipLegadoResidual: 0, excessoWip: 0, capacidadeGargalo: 0, capacidadeDesperdicada: 0, excessoFinal: 0 };
   const T = ctx.entrada.slots.length;
   const finalPorGrupo: Record<string, number> = {};
+  const medirAtingibilidade = (ctx.opcoes.atingibilidadeModo ?? "off") !== "off";
 
   grafo.grupos.forEach((g, gi) => {
     const { lo, hi } = rodadas[gi];
@@ -111,6 +113,7 @@ export function avaliarComCtx(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], op: Op
       const w0hi = ctx.iniAPartirDe.hi.W0[e] ?? 0;
       const teto = Math.max(w0hi, capacidadeFuturaDoNo(ctx, ar.origem).tetoPeriodo);
       totais.excessoWip += Math.max(0, hi.W[e] - teto);
+      if (objetivoFinanceiro(ctx.opcoes)) totais.excessoWip2p = (totais.excessoWip2p ?? 0) + Math.max(0, hi.W[e] - Math.max(w0hi, 2 * capacidadeFuturaDoNo(ctx, ar.origem).tetoPeriodo));
       if (traj) {
         trajetoria.push({
           chave: ar.chavePar,
@@ -176,10 +179,11 @@ export function avaliarComCtx(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], op: Op
 
   postos.sort((x, y) => x.slot - y.slot || (x.maquinaId < y.maquinaId ? -1 : x.maquinaId > y.maquinaId ? 1 : 0));
   const marginais = op.marginais ? calcularMarginais(ctx, alocacoes, op.limites) : {};
-  (Object.keys(totais) as (keyof TotaisAvaliacao)[]).forEach((k) => (totais[k] = r3(totais[k])));
+  (Object.keys(totais) as (keyof TotaisAvaliacao)[]).forEach((k) => (totais[k] = r3(totais[k] as number)));
   return {
     versao: VERSAO_FLUXO, produtos, totais, trajetoria, postos, marginais, diagnosticos: ctx.diagnosticos,
-    ...(ctx.opcoes.preservarAtingibilidade ? { atingibilidade: calcularAtingibilidade(ctx, finalPorGrupo) } : {}),
+    ...(medirAtingibilidade ? { atingibilidade: calcularAtingibilidade(ctx, finalPorGrupo) } : {}),
+    ...(medirAtingibilidade || objetivoFinanceiro(ctx.opcoes) ? { financeiro: calcularFinanceiro(ctx, finalPorGrupo, maximosPossiveis(ctx)) } : {}),
   };
 }
 

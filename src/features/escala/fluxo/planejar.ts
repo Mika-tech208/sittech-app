@@ -17,7 +17,7 @@ import { montarEstado, prepararFluxo, type CtxFluxo, type OpcoesInternas } from 
 import { explicarMudanca } from "./explicar";
 import { verificarRestricoesDuras } from "./restricoes";
 import {
-  VERSAO_FLUXO, type AntesFluxo, type DiagnosticoAtingibilidade, type PostoMinimoSlot, type AvaliacaoPlano, type ChurnFluxo, type DadosProducaoReal, type DecisaoFluxo, type DepoisFluxo, type ResumoDecisao, type DiagnosticoFluxo, type DiagnosticoItem,
+  VERSAO_FLUXO, type AntesFluxo, type DiagnosticoAtingibilidade, type DiagnosticoFinanceiro, type PostoMinimoSlot, type VariacaoProduto, type AvaliacaoPlano, type ChurnFluxo, type DadosProducaoReal, type DecisaoFluxo, type DepoisFluxo, type ResumoDecisao, type DiagnosticoFluxo, type DiagnosticoItem,
   type EstabilizacaoPessoas, type IteracaoFluxo, type PlanoEscolhido, type PostoRef, type ReconciliacaoGanho, type ResultadoFluxo, type SituacaoVigente, type TuplaObjetivo, type ViolacaoDura,
 } from "./tipos";
 
@@ -67,11 +67,11 @@ export function calcularChurn(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], retida
   return { linhasAlteradas: linhas, trocasDePosto: trocas, postosAlterados: postosAlt, alteradasNoPrimeiroPeriodo: primeiro, retidasPorEstabilidade: retidas };
 }
 
-export function tuplaObjetivo(aval: AvaliacaoPlano, churn: ChurnFluxo, ponderar: boolean): TuplaObjetivo {
+export function tuplaObjetivo(aval: AvaliacaoPlano, churn: ChurnFluxo, ponderar: boolean, t1: boolean = aval.atingibilidade !== undefined): TuplaObjetivo {
   const t = aval.totais;
-  const base = [ponderar ? t.faltaPonderada : t.faltaFinalLo, t.faltaFinalHi, -t.capacidadeGargalo, t.wipLegadoResidual, t.excessoWip, t.capacidadeDesperdicada, churn.linhasAlteradas];
+  const base = [ponderar ? t.faltaPonderada : t.faltaFinalLo, t.faltaFinalHi, -t.capacidadeGargalo, t.wipLegadoResidual, ponderar ? t.excessoWip2p ?? t.excessoWip : t.excessoWip, t.capacidadeDesperdicada, churn.linhasAlteradas];
   // preservarAtingibilidade: tier 1 = [metas atingíveis que o plano NÃO entrega, déficit relativo ponderado] ANTES de peças finais (2), gargalo (3), WIP (4–5), estabilidade (6)
-  return aval.atingibilidade ? [aval.atingibilidade.atingiveisPerdidas, aval.atingibilidade.deficitRelativo, ...base] : base;
+  return t1 && aval.atingibilidade ? [aval.atingibilidade.atingiveisPerdidas, aval.atingibilidade.deficitRelativo, ...base] : base;
 }
 
 // lexicográfica; componentes 0–1 com tolerância mínima, os demais com tolerância de 1 peça (ruído numérico não decide)
@@ -133,7 +133,8 @@ function vigenteCompleto(ctx: CtxFluxo, vig: AlocacaoEscala[]): string | null {
 export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, opcoes: OpcoesInternas = {}): ResultadoFluxo {
   const ctx = prepararFluxo(entrada, dados, opcoes);
   const estado = montarEstado(ctx);
-  const ponderar = opcoes.ponderarPorValor === true;
+  const ponderar = ctx.opcoes.ponderarPorValor === true; // objetivo financeiro ⇒ falta em R$ (preço congelado), não em peças
+  const preservar = ctx.opcoes.preservarAtingibilidade === true;
   const maxIt = Math.max(0, opcoes.maxIteracoes ?? 4);
   const diag: DiagnosticoItem[] = [...estado.diagnosticos];
   const theta = thetaPadrao(ctx);
@@ -176,7 +177,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     }
     estabInfo.set(indice, info);
     const churn = calcularChurn(ctx, linhas);
-    return { indice, entrada: ent, resultado: { ...res, alocacoes: linhas }, aval, violacoes, churn, tupla: tuplaObjetivo(aval, churn, ponderar), hash: hashAlocacoes(linhas) };
+    return { indice, entrada: ent, resultado: { ...res, alocacoes: linhas }, aval, violacoes, churn, tupla: tuplaObjetivo(aval, churn, ponderar, preservar), hash: hashAlocacoes(linhas) };
   };
 
   const baseC = construir(-1, entrada, base);
@@ -201,7 +202,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     else {
       vigente.valido = true;
       const churn0 = calcularChurn(ctx, vigFut);
-      vigC = { indice: -2, entrada, resultado: { ...base, alocacoes: vigFut }, aval: avVigLeve, violacoes: [], churn: churn0, tupla: tuplaObjetivo(avVigLeve, churn0, ponderar), hash: hashAlocacoes(vigFut) };
+      vigC = { indice: -2, entrada, resultado: { ...base, alocacoes: vigFut }, aval: avVigLeve, violacoes: [], churn: churn0, tupla: tuplaObjetivo(avVigLeve, churn0, ponderar, preservar), hash: hashAlocacoes(vigFut) };
     }
     if (!vigente.valido) diag.push({ codigo: "PLANO_VIGENTE_DESCARTADO", severidade: "aviso", mensagem: `Plano vigente não é candidato: ${vigente.motivo}`, detalhes: { violacoes: violVig.length } });
   }
@@ -210,7 +211,6 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
   const p0 = gerar(0, {});
   candidatos.push(p0);
   hashes.add(p0.hash);
-  const preservar = opcoes.preservarAtingibilidade === true;
   let contagens = contagensDoPlano(ctx, p0.resultado.alocacoes);
   for (let i = 1; i <= maxIt; i++) {
     const varredura = preservar ? varrerContagensPreservando(ctx, contagens, estado.remPorPool) : { ...varrerContagens(ctx, contagens, estado.remPorPool), minimos: undefined as Contagens | undefined };
@@ -222,19 +222,35 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     hashes.add(cand.hash);
     if (repetido || varredura.slotsAlterados === 0) break;
   }
+  // Objetivo financeiro: a heurística de PEÇAS (sweeps sem peso de R$) entra como mais um CANDIDATO; o julgamento segue em R$ (J). Assim o financeiro nunca fica abaixo do que a
+  // heurística de peças já alcança (o guloso ponderado não é ótimo).
+  if (ponderar) {
+    const ctxP: CtxFluxo = { ...ctx, opcoes: { ...ctx.opcoes, ponderarPorValor: false, objetivo: "pecas" } };
+    let contP = contagensDoPlano(ctx, p0.resultado.alocacoes);
+    for (let i = 1; i <= maxIt; i++) {
+      const varredura = preservar ? varrerContagensPreservando(ctxP, contP, estado.remPorPool) : { ...varrerContagens(ctxP, contP, estado.remPorPool), minimos: undefined as Contagens | undefined };
+      contP = varredura.contagens;
+      const cand = gerar(10 + i, { ordemPostos: { valorMarginal: tabelaMarginal(ctxP, contP, estado.remPorPool, varredura.minimos) }, bonusContinuidade: bonusDoPlanoVigente(ctx, theta) });
+      const repetido = hashes.has(cand.hash);
+      hashes.add(cand.hash);
+      if (!repetido) candidatos.push(cand);
+      if (repetido || varredura.slotsAlterados === 0) break;
+    }
+  }
 
   // ---- escolha: menor J entre os ELEGÍVEIS. Elegível = 0 violação dura E falta final nunca pior que a do plano base NEM a do plano vigente VÁLIDO (mesmo simulador) ----
-  const faltaRef = Math.min(baseC.aval.totais.faltaFinalLo, vigC ? vigC.aval.totais.faltaFinalLo : Number.POSITIVE_INFINITY);
+  const faltaDe = (c: Candidato) => (ponderar ? c.aval.totais.faltaPonderada : c.aval.totais.faltaFinalLo); // R$ no objetivo financeiro
+  const faltaRef = Math.min(faltaDe(baseC), vigC ? faltaDe(vigC) : Number.POSITIVE_INFINITY);
   // preservarAtingibilidade: a falta TOTAL só pode piorar se o tier 1 (metas atingíveis mantidas) MELHORAR estritamente em relação a cada referência (base e vigente válido);
   // o tier 1 nunca pode piorar em relação à melhor referência.
-  const t1 = (c: Candidato): [number, number] => (c.aval.atingibilidade ? [c.aval.atingibilidade.atingiveisPerdidas, c.aval.atingibilidade.deficitRelativo] : [0, 0]);
+  const t1 = (c: Candidato): [number, number] => (preservar && c.aval.atingibilidade ? [c.aval.atingibilidade.atingiveisPerdidas, c.aval.atingibilidade.deficitRelativo] : [0, 0]);
   const t1Ref: [number, number] = [baseC, ...(vigC ? [vigC] : [])].map(t1).reduce((m, x) => (x[0] < m[0] - 0.5 || (Math.abs(x[0] - m[0]) <= 0.5 && x[1] < m[1] - 1e-6) ? x : m));
   const t1Pior = (a: [number, number], b: [number, number]) => a[0] > b[0] + 0.5 || (Math.abs(a[0] - b[0]) <= 0.5 && a[1] > b[1] + 1e-6);
   const elegivel = (c: Candidato) => {
     if (c.violacoes.length > 0) return false;
-    if (!preservar) return c.aval.totais.faltaFinalLo <= faltaRef + EPS_FALTA;
+    if (!preservar) return faltaDe(c) <= faltaRef + EPS_FALTA;
     if (t1Pior(t1(c), t1Ref)) return false;
-    return c.aval.totais.faltaFinalLo <= faltaRef + EPS_FALTA || t1Pior(t1Ref, t1(c));
+    return faltaDe(c) <= faltaRef + EPS_FALTA || t1Pior(t1Ref, t1(c));
   };
   candidatos.forEach((c) => {
     if (c.violacoes.length > 0) {
@@ -289,7 +305,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
 
   // ---- atingibilidade (só com preservarAtingibilidade): metas atingíveis/inatingíveis do plano de referência e do escolhido + postos mínimos por período ----
   let atingibilidade: DiagnosticoAtingibilidade | undefined;
-  if (preservar && avFluxo.atingibilidade) {
+  if (avFluxo.atingibilidade) {
     const ref = (avVig ?? avBase).atingibilidade ?? avFluxo.atingibilidade;
     const cntPlano = contagensDoPlano(ctx, resultado.alocacoes);
     const varMin = varrerContagensPreservando(ctx, cntPlano, limitesFinal ?? {}, true);
@@ -309,10 +325,24 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
         detalhes: { status: g.status, meta: g.meta, maximoPossivel: g.maximoPossivel, faltaInevitavel: g.faltaInevitavel, finalPrevisto: g.finalPrevisto, faltaEvitavel: g.faltaEvitavel },
       });
     });
-    if (planoEscolhido === "fluxo") {
+    if (planoEscolhido === "fluxo" && preservar) {
       const n1 = postosMinimos.filter((x) => x.slot === ctx.aPartirDe).reduce((s, x) => s + Object.values(x.minimos).reduce((a, b) => a + b, 0), 0);
       diag.push({ codigo: "POSTOS_MINIMOS_APLICADOS", severidade: "info", slot: ctx.aPartirDe, mensagem: `Preservação da atingibilidade: ${n1} posto(s) mínimo(s) no primeiro período mutável (tier 1, antes de maximizar peças finais)`, detalhes: { postosMinimosPrimeiroPeriodo: n1 } });
     }
+  }
+
+  // ---- financeiro (R$ pelo preço CONGELADO): referência × escolhido, produto a produto; sacrifícios nunca silenciosos ----
+  let financeiro: DiagnosticoFinanceiro | undefined;
+  if (avFluxo.financeiro) {
+    const refF = (avVig ?? avBase).financeiro ?? avFluxo.financeiro;
+    const variacao: VariacaoProduto[] = avFluxo.financeiro.produtos.map((p) => {
+      const q = refF.produtos.find((x) => x.produtoId === p.produtoId && x.etapaFinalId === p.etapaFinalId);
+      return { produtoId: p.produtoId, pecas: r3(p.finalProjetado - (q?.finalProjetado ?? 0)), rs: Math.round((p.rsProjetadoFechamento - (q?.rsProjetadoFechamento ?? 0)) * 100) / 100 };
+    });
+    financeiro = { antes: refF, depois: avFluxo.financeiro, variacao, deltaRsProjetado: Math.round((avFluxo.financeiro.total.rsProjetadoFechamento - refF.total.rsProjetadoFechamento) * 100) / 100 };
+    variacao.filter((v) => v.pecas < -0.5).forEach((v) => {
+      diag.push({ codigo: "PRODUTO_SACRIFICADO", severidade: "aviso", produtoId: v.produtoId, mensagem: `Produto com ${Math.round(-v.pecas)} peça(s) a menos que na referência (R$ ${v.rs.toFixed(2)}); variação total do plano: R$ ${financeiro!.deltaRsProjetado.toFixed(2)}`, detalhes: { pecas: v.pecas, rs: v.rs, deltaRsTotal: financeiro!.deltaRsProjetado } });
+    });
   }
 
   const iteracoes: IteracaoFluxo[] = [
@@ -337,7 +367,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     excessoWip: a.totais.excessoWip,
   });
   const diagnostico: DiagnosticoFluxo = {
-    versao: VERSAO_FLUXO, ...(atingibilidade ? { atingibilidade } : {}), planoEscolhido, referencia, vigente, estabilizacao: estab, reconciliacao: expl.reconciliacao, iteracaoEscolhida: usaFluxo ? final.indice : null, theta, antes,
+    versao: VERSAO_FLUXO, ...(atingibilidade ? { atingibilidade } : {}), ...(financeiro ? { financeiro } : {}), planoEscolhido, referencia, vigente, estabilizacao: estab, reconciliacao: expl.reconciliacao, iteracaoEscolhida: usaFluxo ? final.indice : null, theta, antes,
     decisoes, decisoesTotal: todasDecisoes.length, resumoDecisoes: expl.resumo,
     depois: dep(avFluxo), depoisBase: dep(avBase), depoisVigente: avVig ? dep(avVig) : null, churn, iteracoes, violacoes, estado, avaliacaoBase: avBase, avaliacaoFluxo: avFluxo, diagnosticos: diag,
   };

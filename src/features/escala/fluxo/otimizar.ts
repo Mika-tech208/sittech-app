@@ -11,6 +11,7 @@ import { maquinaDisponivelNoSlot } from "../disponibilidade";
 import { sobrepoe } from "../tempo";
 import { chavePool, type AlocacaoEscala, type PoolEscala } from "../types";
 import { selecionarFuturas } from "./avaliar";
+import { precoDoGrupo } from "./financeiro";
 import type { CtxFluxo } from "./estado";
 import { novaCap, simularGrupo, type CapNo } from "./simulador";
 
@@ -87,7 +88,7 @@ export class Avaliador {
   }
   private pesoGrupo(gi: number): number {
     if (!this.ctx.opcoes.ponderarPorValor) return 1;
-    const v = this.ctx.grafo.nos[this.ctx.grafo.grupos[gi].sink].valorUnitario;
+    const v = precoDoGrupo(this.ctx, gi, true); // preço congelado × peso comercial
     return v > 0 ? v : 1;
   }
   private rodar(gi: number, de: number, ate: number, st: EstadoSim) {
@@ -96,10 +97,10 @@ export class Avaliador {
     });
   }
   /** valor do grupo a partir do cursor (cenário pessimista): peças finais entregues até o fim da semana */
-  valor(gi: number): number {
+  valor(gi: number, pesar = true): number {
     const sink = this.ctx.grafo.grupos[gi].sink;
     const r = this.rodar(gi, this.cursor, this.ctx.entrada.slots.length, this.snap[gi]);
-    return this.pesoGrupo(gi) * Math.min(this.Q[sink], r.B[sink]);
+    return (pesar ? this.pesoGrupo(gi) : 1) * Math.min(this.Q[sink], r.B[sink]);
   }
   /** Alcance do grupo (cenário pessimista) a partir do cursor com o slot do cursor COMO ESTÁ e TODOS os slots posteriores no MÁXIMO possível
    *  (todas as máquinas disponíveis × meta; pessoas não limitam — cota superior). Base da regra de preservação da atingibilidade. */
@@ -110,7 +111,7 @@ export class Avaliador {
     g.nos.forEach((n) => {
       for (let s = this.cursor + 1; s < T; s++) this.caps[n].base[s] = this.m.maquinas[n][s].length * this.m.mu[n][s];
     });
-    const v = this.valor(gi);
+    const v = this.valor(gi, false); // PEÇAS (a atingibilidade é em peças; o peso R$ só entra no tier 2)
     g.nos.forEach((n, i) => {
       for (let s = this.cursor + 1; s < T; s++) this.caps[n].base[s] = salvo[i][s - this.cursor - 1];
     });
@@ -277,8 +278,10 @@ export function varrerContagensPreservando(ctx: CtxFluxo, inicial: Contagens, li
       const ordem = grupos.filter((gi) => atingivel(gi) || (informativo && fixo)).sort((a, b) => {
         const ra = av.metaEEntregue(a);
         const rb = av.metaEEntregue(b);
-        const fa = ra.Q > 0 ? (ra.Q - ra.B) / ra.Q : 0;
-        const fb = rb.Q > 0 ? (rb.Q - rb.B) / rb.Q : 0;
+        // pecas: maior falta relativa primeiro; financeiro: maior R$ ainda por produzir (desempate de conflito por R$, nunca por peças absolutas)
+        const fin = ctx.opcoes.objetivo === "financeiro";
+        const fa = fin ? (ra.Q - ra.B) * precoDoGrupo(ctx, a, true) : ra.Q > 0 ? (ra.Q - ra.B) / ra.Q : 0;
+        const fb = fin ? (rb.Q - rb.B) * precoDoGrupo(ctx, b, true) : rb.Q > 0 ? (rb.Q - rb.B) / rb.Q : 0;
         return fb - fa || a - b;
       });
 
@@ -424,11 +427,15 @@ export function tabelaMarginal(ctx: CtxFluxo, contagens: Contagens, limites: Rec
       let v = 0;
       if (n > 0) {
         av.set(no.id, t, n - 1);
-        v = Math.max(VALOR_MINIMO_SELECIONADO, base - av.valor(gi));
+        v = Math.max(ctx.opcoes.objetivo === "financeiro" ? 1e-6 : VALOR_MINIMO_SELECIONADO, base - av.valor(gi));
         av.set(no.id, t, cnt[no.id][t]);
       }
-      const obrig = Math.min(n, minimos?.[no.id]?.[t] ?? 0); // postos mínimos de preservação da atingibilidade: tier 1 (offset acima de qualquer ganho de peças)
-      const lista = new Array(nmax).fill(0).map((_, k) => (k < n ? Math.round(v * 1000) / 1000 + (k < obrig ? OFFSET_TIER1 : 0) : 0));
+      const obrig = Math.min(n, minimos?.[no.id]?.[t] ?? 0); // postos mínimos de preservação da atingibilidade: tier 1 (offset acima de qualquer ganho de peças/R$)
+      const fin = ctx.opcoes.objetivo === "financeiro";
+      const esc = fin ? 1e6 : 1e3; // em R$ os ganhos por posto são frações de real
+      // Camada 3 (fluxo): quem sobra (fora das contagens) vai primeiro a postos que NÃO criam WIP (etapa final); postos de etapas intermediárias sem valor ficam por último.
+      const fora = fin && !no.final ? -1e-6 : 0;
+      const lista = new Array(nmax).fill(0).map((_, k) => (k < n ? Math.round(v * esc) / esc + (k < obrig ? OFFSET_TIER1 : 0) : fora));
       (out[String(t)] ??= {})[no.id] = lista;
     }
   });

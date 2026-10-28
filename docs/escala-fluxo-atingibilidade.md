@@ -44,3 +44,36 @@ Com a flag: `AvaliacaoPlano.atingibilidade` (por grupo: `meta, restante, maximoP
 ## 6. Ferramentas
 
 `scripts/escala-fluxo-atingibilidade/`: `buscar.ts` (SELECT em PROD → cache), `replay.ts` (estado real × vigente × flag off × on), `prova.ts` (prova matemática da Caixa), `criterios.ts` (replay das decisões gravadas, flag off × on). Testes: `src/features/escala/fluxo/__tests__/atingibilidade.test.ts` (cenários A–F com dois conjuntos de ids), `src/lib/escala/__tests__/fluxoIntegracao.test.ts` (flag).
+
+
+## 7. Objetivo FINANCEIRO (Camada 2) e Camada 3 — direção do usuário: o objetivo é R$, não peças
+
+Hierarquia: **0 HARD** (disponibilidade, revezamento por bloco, roteiro, máquinas da Previsão, WIP/material, 1 pessoa/posto, 1 máquina/período, passado e período atual congelados) → **1 ATINGIBILIDADE** (§1–2; não obriga pessoas sem necessidade) → **2 FINANCEIRO** → **3 FLUXO** → 4 estabilidade/churn → 5 equidade/custo.
+
+* **Valor** = PREÇO CONGELADO do item da Previsão (`previsao_itens.valor_unitario` → `PoolEscala.valorUnitario`; conferido por SELECT em PROD na semana 26/10: congelado = cadastro). R$ só da ETAPA FINAL (`financeiro.ts`); intermediárias geram WIP, não R$ (sem dupla contagem). No Conector fundido o preço do nó final é a média ponderada pela quantidade dos membros.
+* `objetivo = "financeiro"` implica `ponderarPorValor`: o valor marginal de um posto = R$ adicionais de produto final até o fim da semana (re-simulação exata); a falta do J e a elegibilidade são em R$; conflitos entre metas atingíveis são priorizados pelo R$ ainda por produzir. A heurística de PEÇAS entra como mais um candidato (o financeiro nunca fica abaixo do R$ que ela alcança).
+* **Peso comercial manual** por produto (`pesoComercial`, default 1, nunca inventado): só desloca a DECISÃO; as métricas em R$ usam o preço puro.
+* **Camada 3**: no objetivo financeiro o componente de excesso de WIP do J passa a ser `excessoWip2p` (WIP final acima de 2 períodos de capacidade da origem) — só PENALIDADE SECUNDÁRIA, nunca limite duro; postos sem valor de etapas intermediárias ficam por último na ocupação de quem sobra.
+* **Métricas** (`AvaliacaoPlano.financeiro`, `DiagnosticoFluxo.financeiro`): por produto META, REALIZADO FINAL, RESTANTE, MÁXIMO PRODUZÍVEL, META ATINGÍVEL, FALTA INEVITÁVEL (peças e R$), final/falta projetados, R$ meta/realizado/faltante/máximo atingível/projetado de fechamento/falta inevitável; total. `variacao[]` e `PRODUTO_SACRIFICADO` mostram, produto a produto, peças e R$ perdidos contra a referência (nada silencioso).
+
+### Flags (`escala_parametros`, sem migration; todas casam `producao_real_%` ⇒ o gatilho existente pede recálculo)
+
+| chave | valores | padrão |
+|---|---|---|
+| `producao_real_atingibilidade_modo` | `"off"` \| `"sombra"` (mede e reporta, não altera o plano) \| `"ativo"`; substitui `producao_real_atingibilidade` (legada, `"ativo"` ainda vale se a nova não existir) | off |
+| `producao_real_objetivo_escala` | `"pecas"` \| `"financeiro"` | pecas |
+| `producao_real_pesos_comerciais` | `{ "<produto_id>": peso > 0 }` | `{}` |
+| `revezamento_escopo` | consecutivo \| bloco (agente feat/escala-rev-bloco) | consecutivo |
+
+```sql
+-- sombra de atingibilidade + R$ (nada muda na Escala)
+insert into public.escala_parametros (chave, valor, grupo, descricao) values
+ ('producao_real_atingibilidade_modo', '"sombra"', 'operacional', 'Atingibilidade da meta semanal: off | sombra | ativo'),
+ ('producao_real_objetivo_escala', '"pecas"', 'operacional', 'Objetivo da Escala: pecas | financeiro (R$ pelo preço congelado da Previsão)')
+on conflict (chave) do update set valor = excluded.valor, atualizado_em = now();
+-- ligar:   update ... set valor = '"ativo"' where chave = 'producao_real_atingibilidade_modo';  update ... set valor = '"financeiro"' where chave = 'producao_real_objetivo_escala';
+-- reverter: valores '"off"' / '"pecas"' (o futuro volta ao motor anterior no próximo recálculo; passado intacto)
+```
+
+### Ordem de deploy
+1) migration do revezamento por bloco (feat/escala-rev-bloco, 20261105200000) em DEV → 2) código (esta branch já contém o merge) com TODAS as flags desligadas → 3) `revezamento_escopo = bloco` → 4) `atingibilidade_modo = sombra` + `objetivo = pecas` (comparar `diagnostico.financeiro`) → 5) `ativo`/`financeiro` só após critérios de PROD. Rollback: voltar cada flag ao padrão (sem migration, sem deploy).

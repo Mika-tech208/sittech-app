@@ -265,7 +265,7 @@ describe("reavaliação por evento", () => {
 
 // ESCALA INTELIGENTE (fluxo) — INTERLOCK: nas semanas em que o fluxo é ATIVO o replanejamento restrito NÃO aplica (em sombra do fluxo, segue como está)
 describe("interlock com o fluxo (producao_real_modo)", () => {
-  const cfg = (modo: ConfigFluxo["modo"], semanas: string[]): ConfigFluxo => ({ modo, semanasAtivas: semanas, limiar: null, paresLegado: [], contagensFisicas: [], contagensFisicasDescartadas: [], atingibilidade: false });
+  const cfg = (modo: ConfigFluxo["modo"], semanas: string[]): ConfigFluxo => ({ modo, semanasAtivas: semanas, limiar: null, paresLegado: [], contagensFisicas: [], contagensFisicasDescartadas: [], atingibilidade: false, atingibilidadeModo: "off", objetivo: "pecas", pesosComerciais: {} });
   it("fluxo ATIVO na semana: o restrito NÃO aplica (decisão sombra gravada, Escala intacta, parâmetro do restrito intocado)", async () => {
     const { m, b } = await cenario(0.5);
     b.agoraMs = agoraDe("m1");

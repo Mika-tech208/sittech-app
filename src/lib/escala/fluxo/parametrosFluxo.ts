@@ -10,6 +10,9 @@ export const CHAVE_PR_LIMIAR = "producao_real_limiar_estabilidade";
 export const CHAVE_PR_PARES = "producao_real_pares_legado";
 export const CHAVE_PR_CONTAGENS = "producao_real_contagens_fisicas";
 export const CHAVE_PR_ATINGIBILIDADE = "producao_real_atingibilidade"; // "desligado" (padrão) | "ativo": preserva a atingibilidade das metas semanais (tier 1)
+export const CHAVE_PR_ATINGIBILIDADE_MODO = "producao_real_atingibilidade_modo"; // "off" (padrão) | "sombra" | "ativo"; tem precedência sobre a chave legada acima
+export const CHAVE_PR_OBJETIVO = "producao_real_objetivo_escala"; // "pecas" (padrão) | "financeiro"
+export const CHAVE_PR_PESOS = "producao_real_pesos_comerciais"; // jsonb {produtoId: peso>0}; vazio por padrão (peso comercial manual)
 export const PRIMEIRA_SEMANA_FLUXO = "2026-10-26";
 
 export interface ConfigFluxo {
@@ -23,9 +26,13 @@ export interface ConfigFluxo {
   contagensFisicasDescartadas: DiagnosticoItem[];
   /** producao_real_atingibilidade = "ativo": o núcleo preserva a atingibilidade das metas semanais antes de maximizar peças (default false; chave ausente/desconhecida = false). */
   atingibilidade: boolean;
+  /** off | sombra (mede e reporta, não altera o plano) | ativo. Derivado de producao_real_atingibilidade_modo; se ausente, da chave legada ("ativo" ⇒ ativo). `atingibilidade` = (modo === ativo). */
+  atingibilidadeModo: "off" | "sombra" | "ativo";
+  objetivo: "pecas" | "financeiro";
+  pesosComerciais: Record<string, number>;
 }
 
-export const CONFIG_FLUXO_PADRAO: ConfigFluxo = { modo: "desligado", semanasAtivas: [], limiar: null, paresLegado: [], contagensFisicas: [], contagensFisicasDescartadas: [], atingibilidade: false };
+export const CONFIG_FLUXO_PADRAO: ConfigFluxo = { modo: "desligado", semanasAtivas: [], limiar: null, paresLegado: [], contagensFisicas: [], contagensFisicasDescartadas: [], atingibilidade: false, atingibilidadeModo: "off", objetivo: "pecas", pesosComerciais: {} };
 
 const ehTexto = (v: unknown): v is string => typeof v === "string" && v.length > 0;
 
@@ -94,11 +101,21 @@ export function lerContagensFisicas(v: unknown): { itens: ContagemFisicaPar[]; d
   return { itens, descartes };
 }
 
+/** Pesos comerciais manuais por produto: só números finitos > 0; qualquer outra coisa é descartada (nunca inventa valores). */
+export function lerPesos(v: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!v || typeof v !== "object" || Array.isArray(v)) return out;
+  Object.entries(v as Record<string, unknown>).forEach(([k, x]) => { if (typeof x === "number" && Number.isFinite(x) && x > 0) out[k] = x; });
+  return out;
+}
+
 export function lerConfigFluxo(linhas: { chave: string; valor: unknown }[] | null | undefined): ConfigFluxo {
   const mapa = new Map((linhas ?? []).map((l) => [l.chave, l.valor]));
   const modo = mapa.get(CHAVE_PR_MODO);
   const limiar = mapa.get(CHAVE_PR_LIMIAR);
   const contagens = lerContagensFisicas(mapa.get(CHAVE_PR_CONTAGENS));
+  const m = mapa.get(CHAVE_PR_ATINGIBILIDADE_MODO);
+  const atingModo: "off" | "sombra" | "ativo" = m === "ativo" || m === "sombra" ? m : m === "off" ? "off" : mapa.get(CHAVE_PR_ATINGIBILIDADE) === "ativo" ? "ativo" : "off";
   return {
     modo: modo === "sombra" || modo === "ativo" ? modo : "desligado", // ausente/desconhecido = desligado
     semanasAtivas: lerSemanas(mapa.get(CHAVE_PR_SEMANAS)),
@@ -106,7 +123,10 @@ export function lerConfigFluxo(linhas: { chave: string; valor: unknown }[] | nul
     paresLegado: lerParesLegado(mapa.get(CHAVE_PR_PARES)),
     contagensFisicas: contagens.itens,
     contagensFisicasDescartadas: contagens.descartes,
-    atingibilidade: mapa.get(CHAVE_PR_ATINGIBILIDADE) === "ativo",
+    atingibilidade: atingModo === "ativo",
+    atingibilidadeModo: atingModo,
+    objetivo: mapa.get(CHAVE_PR_OBJETIVO) === "financeiro" ? "financeiro" : "pecas",
+    pesosComerciais: lerPesos(mapa.get(CHAVE_PR_PESOS)),
   };
 }
 
