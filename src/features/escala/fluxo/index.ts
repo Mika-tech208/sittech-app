@@ -7,3 +7,4 @@ export { verificarRestricoesDuras } from "./restricoes";
 export { construirGrafo } from "./grafo";
 export { fatoresDeDesempenho, embutirFatores, ultimoSlotFechado } from "./fatores";
 export { explicarMudanca } from "./explicar";
+export { aderenciaPorPeriodo } from "./aderencia";
