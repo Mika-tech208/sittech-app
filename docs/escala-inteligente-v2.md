@@ -1,7 +1,20 @@
-# Escala Inteligente v2 — semana atual + antecipação útil (PROPOSTA OFFLINE/SOMBRA)
+# Escala Inteligente v2 — semana atual + antecipação útil (PROPOSTA OFFLINE/SOMBRA) — versão 2 (decisões aprovadas 29/10 ~14:50)
 
 > Status: **proposta e protótipo offline**. Nada foi gravado em PROD (só SELECT), nenhuma flag/migration/deploy, rotas não publicadas, equivalências de operação desligadas, estimador de produtividade só como *gerador* de candidato. Produtividade só por **posto** (produto × operação × máquina); a pessoa é escolhida depois. Revezamento por bloco continua HARD. Código novo: `src/features/escala/fluxo/{demandaFutura,proximaSemana,pessoaParada}.ts` (puros, testados em `__tests__/antecipacao.test.ts`, incluídos no contrato "sem funcionarioId" de `contratoSemProdutividadeIndividual.test.ts`). Análise reproduzível: `scripts/escala-fluxo-atingibilidade/rodar-30-10.sh` (foto projetada) e `rodar-30-10.sh --agora 14:35|17:15` (foto real). Números: relatórios em `scratchpad/ating30/analise-30-10-*.md|json` (a PARTE II do relatório é a medida; este documento é a arquitetura).
 > ⚠ = baixa confiança.
+
+## 0. Decisões aprovadas (29/10) incorporadas nesta versão
+1. **Abertura da próxima semana** = 1º período produtivo ATIVO após o encerramento da semana atual, derivado dos dias ativos da Previsão seguinte (`aberturaProximaSemana`; 02/11 inativo ⇒ 03/11 M1; 02/11 ativo ⇒ 02/11 M1; testado).
+2. **Demanda futura**, hierarquia: (1) Previsão da próxima semana COM itens; (2) pedido/demanda futura conhecida; (3) histórico das últimas 6 semanas (fallback aprovado; casca sem itens NÃO substitui; nunca excede a maior quantidade já prevista — não é demanda infinita); (4) configuração de recorrência.
+3. **Módulo `tetoAntecipacao`**: min(demanda, capacidade do downstream, gargalo da próxima semana) − WIP disponível − já antecipado, limitado por nº de períodos antecipados (padrão 6). Sem estoque infinito.
+4. **Módulo `pessoaParada`**: qualquer trabalho elegível com valor atual positivo OU valor futuro positivo (ou alívio de capacidade dentro do teto) dá posto; sem posto só com exceção auditável (máquina, material, demanda, elegibilidade, hard constraint).
+5. **VALOR_ATUAL e VALOR_FUTURO SEPARADOS** (nunca somados): a semana atual manda; o trade-off é mostrado por opção (ex.: Parafusadeira 9 T2: atual +R$ 207,60 / futuro −R$ 125,75 permanece escolhida).
+6. **Função objetivo lexicográfica** (`valorFuturo.melhorPlano`): 1º atual; 2º, entre planos com atual indistinguível (limiar de materialidade do melhor), futuro; depois menor WIP inútil, churn, estabilidade, equilíbrio. A comparação NÃO é uma soma ponderada (testado: futuro enorme não compra perda atual acima do limiar).
+7. **Máquina 8** não é excluída da busca. Decisões que dependem dela = `BAIXA_CONFIANCA_PRODUTIVIDADE` até haver amostra suficiente (n ≥ 20 e largura do IC95%/mediana ≤ 15%) de produto×operação×Máquina 8; estatística do POSTO (n, mediana, média aparada 10%, MAD, IC95% bootstrap percentil com semente fixa, por período e vs substituta do motor) em `valorFuturo.estatisticaPosto` e na seção v2.3 do relatório.
+8. **Dois resultados**: A) completo; B) robusto (M8 com o limite inferior do IC, demanda de baixa confiança = 0, WIP não confirmado = 0); C) sem M8. A pergunta "quanto do ganho permanece no robusto?" e a regra "se só passa o limiar por causa da M8 ⇒ não ativar automaticamente" estão na seção v2.2.
+9. **WIP entre semanas**: não zera; carrega produto, rota, etapa, quantidade, confiança, origem e TIMESTAMP DA ÚLTIMA CONFIRMAÇÃO; envelhece (feriado/fim de semana) indicando idade e confiança; `CONTAGEM_RECOMENDADA` (WIP crítico, confiança baixa/média ou idade > 48 h; sexta T3 ou 1ª hora do próximo dia produtivo); NUNCA bloqueia a produção (`carregarWipAbertura`).
+10. **Rollout em SOMBRA (preparado, não ligado)**: ver seção 21.
+
 
 ## 1. Função objetivo revisada
 Lexicográfica, nesta ordem (cada nível só decide entre planos empatados — dentro da materialidade — no nível anterior):
@@ -53,3 +66,11 @@ Rollback: `UPDATE escala_parametros SET valor = '"off"' WHERE chave = '<flag>'`.
 
 ## 20. Critérios de ativação ("PROVAR A LÓGICA. Depois ATIVAR")
 Não ativar sem: (a) replay com 0 violações duras e valor atual **nunca** menor que o do plano sem a camada; (b) teste de transição aprovado com **contagem física** na virada; (c) erro de demanda futura (histórico × Previsão real) ≤ o ruído do modelo por 2 semanas consecutivas; (d) valor futuro medido em sombra > 0 e acima da materialidade em ≥ 2 semanas; (e) churn mediano ≤ o do motor; (f) Previsão da próxima semana com itens e máquinas (ou configuração explícita de produtos recorrentes). Enquanto isso, a camada fica em sombra.
+
+## 21. Preparação do rollout em sombra (NADA aplicado)
+- **Módulos**: `demandaFutura`, `proximaSemana`, `pessoaParada`, `valorFuturo`, `tetoAntecipacao` (puros, `src/features/escala/fluxo/`, testes em `__tests__/antecipacao*.test.ts`, contrato "sem funcionarioId" estendido a todos).
+- **Flags propostas** (estado inicial `off`; NÃO ligar): `producao_real_antecipacao_modo` (`off|sombra`) e `producao_real_antecipacao_teto` (`{janelaSemanas, maxPeriodosAntecipados, fatorDemanda, produtosRecorrentes, idadeMaxHorasWip}`). Seed em `docs/escala-inteligente-v2/NAO-APLICADO-seed-flags.sql`. Rollback por UPDATE para `"off"`.
+- **Modo sombra**: o motor ativo continua decidindo e gravando a Escala; em paralelo, a nova lógica calcula plano alternativo, resultado atual, resultado futuro (separados), WIP final e de abertura, churn, pessoas sem posto e diferenças — SEM tocar em `escala_producao_alocacoes`.
+- **Persistência (desenho)**: registro append-only novo `escala_antecipacao_sombra` (mesmo padrão e trigger de imutabilidade de `escala_fluxo_diagnosticos`), em `docs/escala-inteligente-v2/NAO-APLICADO-migration-antecipacao-sombra.sql` (fora de `supabase/migrations` de propósito). Alternativa: reaproveitar a coluna `replanejamento`/`diagnosticos` de `escala_fluxo_diagnosticos` (menos migração, menos consultável).
+- **Testes de rollout (a escrever com a migration)**: UPDATE/DELETE bloqueados; idempotência por hash; modo `off` não escreve; sombra não altera a Escala (hash do plano antes = depois); falha da camada nunca derruba o motor ativo (fail-safe).
+- **Critérios de ativação**: inalterados (item 20) + ganho robusto (cenário B) acima do limiar com margem sem M8 ≥ 25% por ≥ 2 semanas e Máquina 8 fora de BAIXA_CONFIANCA_PRODUTIVIDADE.

@@ -6,6 +6,7 @@ import { planejarComFluxo } from "./planejar";
 import type { CtxFluxo } from "./estado";
 import type { ContagemFisicaPar, DadosProducaoReal, OpcoesFluxo } from "./tipos";
 import type { AlocacaoEscala, EntradaEscala, SlotEscala } from "../types";
+import { tetoAntecipacao, type EntradaTeto } from "./tetoAntecipacao";
 
 /** Slots da próxima semana a partir dos `diasAtivos` (YYYY-MM-DD) usando os períodos de um dia-modelo (mesmos horários). Dia inativo (feriado) não gera slot. */
 export function slotsProximaSemana(diaModelo: SlotEscala[], diasAtivos: string[]): SlotEscala[] {
@@ -71,6 +72,37 @@ export function avaliarSemanaSeguinte(
 
 /** TETO DE ANTECIPAÇÃO por aresta: quantidade que a próxima semana consegue consumir naquele par (demanda do produto convertida ao par, limitada pela capacidade do destino),
  *  menos o que já existe de WIP no par. Nunca negativo. `capacidadeDestino` e `demandaNoPar` são em peças da semana seguinte. */
-export function tetoDeAntecipacao(demandaNoPar: number, capacidadeDestino: number, wipBase: number): number {
-  return Math.max(0, Math.min(demandaNoPar, capacidadeDestino) - Math.max(0, wipBase));
+export function tetoDeAntecipacao(demandaNoPar: number, capacidadeDestino: number, wipBase: number, extra: Partial<EntradaTeto> = {}): number {
+  return tetoAntecipacao({ demandaFuturaNoPar: demandaNoPar, capacidadeDownstreamProx: capacidadeDestino, wipDisponivel: wipBase, ...extra }).teto;
+}
+
+/** ABERTURA da próxima semana: PRIMEIRO período produtivo ATIVO após o encerramento da semana atual (se o 1º dia está inativo/feriado, avança ao próximo dia ativo). Derivado dos dias ativos; sem data fixa. */
+export function aberturaProximaSemana(diasAtivosProximaSemana: string[], ultimoDiaSemanaAtual: string): { dia: string; primeiroPeriodo: boolean } | null {
+  const cand = [...diasAtivosProximaSemana].sort().filter((d) => d > ultimoDiaSemanaAtual);
+  return cand.length ? { dia: cand[0], primeiroPeriodo: true } : null;
+}
+
+export type SinalContagem = "CONTAGEM_RECOMENDADA" | null;
+export interface WipAbertura {
+  chavePar: string; produtoId: string; etapaOrigemId: string; etapaSeguinteId: string; saldo: number;
+  origem: "contagem_fisica" | "simulacao" | "estimado"; confianca: "alta" | "media" | "baixa";
+  /** instante da ÚLTIMA confirmação física (null = nunca confirmado) */
+  ultimaConfirmacaoMs: number | null; idadeHoras: number | null; sinal: SinalContagem; motivoSinal: string[];
+}
+/** WIP que atravessa a virada: NÃO zera; carrega origem, última confirmação, idade e sinaliza CONTAGEM_RECOMENDADA (nunca bloqueia produção). Crítico = cobre ≥ 50% de um período de consumo do destino ou ≥ 20% da demanda no par. */
+export function carregarWipAbertura(
+  itens: { chavePar: string; produtoId: string; etapaOrigemId: string; etapaSeguinteId: string; saldo: number; confirmadoFisico: boolean; ultimaConfirmacaoMs: number | null; confiancaBase: "alta" | "media" | "baixa"; consumoPeriodoDestino: number; demandaNoPar: number }[],
+  aberturaMs: number, idadeMaxHoras = 48
+): WipAbertura[] {
+  return itens.map((i): WipAbertura => {
+    const idade = i.ultimaConfirmacaoMs === null ? null : Math.max(0, (aberturaMs - i.ultimaConfirmacaoMs) / 3600_000);
+    const critico = i.saldo > 0 && (i.saldo >= 0.5 * i.consumoPeriodoDestino || i.saldo >= 0.2 * i.demandaNoPar);
+    const motivos: string[] = [];
+    const confianca: WipAbertura["confianca"] = i.confirmadoFisico && idade !== null && idade <= idadeMaxHoras ? i.confiancaBase : i.confiancaBase === "baixa" ? "baixa" : "media";
+    if (critico && confianca !== "alta") motivos.push("WIP crítico sem contagem física recente");
+    if (confianca === "baixa") motivos.push("confiança baixa");
+    if (idade !== null && idade > idadeMaxHoras && i.saldo > 0) motivos.push(`idade ${idade.toFixed(0)} h > ${idadeMaxHoras} h`);
+    if (i.ultimaConfirmacaoMs === null && i.saldo > 0) motivos.push("nunca confirmado fisicamente");
+    return { chavePar: i.chavePar, produtoId: i.produtoId, etapaOrigemId: i.etapaOrigemId, etapaSeguinteId: i.etapaSeguinteId, saldo: i.saldo, origem: i.confirmadoFisico ? "contagem_fisica" : "simulacao", confianca, ultimaConfirmacaoMs: i.ultimaConfirmacaoMs, idadeHoras: idade, sinal: motivos.length ? "CONTAGEM_RECOMENDADA" : null, motivoSinal: motivos };
+  });
 }
