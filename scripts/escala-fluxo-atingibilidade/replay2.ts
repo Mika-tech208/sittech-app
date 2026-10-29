@@ -9,6 +9,7 @@ import { calcularChurn } from "@/features/escala/fluxo/planejar";
 import { contagensDoPlano, varrerContagensPreservando } from "@/features/escala/fluxo/otimizar";
 import { analisarCapacidade } from "@/features/escala/fluxo/capacidade";
 import type { AlocacaoEscala } from "@/features/escala/types";
+import { fatoresParaMotor } from "@/features/escala/produtividade"; // estimador (feat/escala-produtividade, 82c1ec2) — usado só neste replay, via ProdutividadeProvider
 
 const arg = (k: string) => { const i = process.argv.indexOf("--" + k); return i >= 0 ? process.argv[i + 1] : undefined; };
 const agoraMs = Date.parse(arg("agora") ?? "2026-10-28T09:45:00-03:00");
@@ -32,7 +33,20 @@ const margemFicticia = (produtoId: string) => { const preco = d.decisao.entrada.
 const KS = (arg("ks") ?? "1,2,3,5,7,10,100").split(",").map(Number);
 const MODOS = (process.env.MODOS ?? "4").length > 0;
 void MODOS;
+// Variante E: produtividade esperada = estimador estável (porPoolPeriodo, inclui t3) sobre a meta NOMINAL; injetado pelo ProdutividadeProvider (núcleo intacto).
+const estimador = (() => {
+  const e0 = montarEstadoAting(d, agoraMs, d.planoAtual, desloc, {}, bloco);
+  const periodos = [...new Set(e0.entrada.slots.map((x) => x.periodoId))];
+  const fm = fatoresParaMotor(d.apontamentos.filter((a) => a.lancadoEmMs <= agoraMs) as never, e0.entrada.pools.map((p) => ({ produtoId: p.produtoId, etapaId: p.etapaId, operacaoId: p.operacaoId, maquinasIds: p.maquinasIds })), periodos, agoraMs);
+  const fAtual = e0.opcoes.fatoresEmbutidos ?? {};
+  return (a: { produtoId: string; etapaId: string; periodoId: string; metaNominal: number }) => {
+    const k = `${a.produtoId}|${a.etapaId}`;
+    const nominal = a.metaNominal / (fAtual[k] ?? 1); // a entrada do replay já traz o f atual embutido
+    return { pecasPorPeriodo: nominal, fator: fm.porPoolPeriodo[k]?.[a.periodoId] ?? 1, fonte: "estimador (porPoolPeriodo)", amostra: 0 };
+  };
+})();
 const configs: Record<string, Partial<OpcoesFluxo>> = {
+  E_lucroHora_estimador: { objetivo: "lucro_hora", produtividade: estimador, atingibilidadeModo: "ativo", atingibilidadeK: 2 },
   A_pecas: {},
   B_receita: { objetivo: "financeiro", atingibilidadeModo: "ativo", atingibilidadeK: 2 },
   C_lucroHora_nominal: { objetivo: "lucro_hora", produtividadeBase: "nominal", atingibilidadeModo: "ativo", atingibilidadeK: 2 },
