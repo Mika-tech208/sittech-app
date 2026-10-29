@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Estado de produção "agora" para o replay da regra de atingibilidade. Igual a escala-fluxo-wip-custo/estado.ts, mas com `deslocamento` do primeiro período mutável:
 // 1 = primeiro período NÃO FECHADO (como o fechamento de período); 2 = primeiro período NÃO INICIADO (o período em andamento fica congelado).
 import { prepararFluxo } from "@/features/escala/fluxo/estado";

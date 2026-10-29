@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Replay das decisões gravadas (critérios A–J do fluxo) com a regra de atingibilidade LIGADA × DESLIGADA, no mesmo estado. Somente leitura.
 // Uso: FREPLAY_DIR=<dir com q_dec/q_apont/...> ts.sh scripts/escala-fluxo-atingibilidade/criterios.ts [--offset=2] [--out arq.json]
 import * as fs from "node:fs";

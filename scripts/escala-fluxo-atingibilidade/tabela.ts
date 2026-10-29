@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Tabela por produto (meta, preço, produzido, capacidade física, postos, produtividade nominal/real, receita/h, gargalo, R$ capturável) + log de decisão econômica.
 // Uso: ts.sh tabela.ts [--agora ISO] [--desloc N] [--bloco] [--out arq.md]
 import * as fs from "node:fs";

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // REPLAY financeiro: plano vigente (PROD) × objetivo peças/off × peças/atingibilidade × financeiro/atingibilidade (alvo), mesmo estado real. Somente leitura.
 // Uso: ts.sh replay2.ts [--agora ISO] [--desloc N (1|2; >=100: slot absoluto)] [--sem-vigente-futuro] [--out arq.json]
 import * as fs from "node:fs";

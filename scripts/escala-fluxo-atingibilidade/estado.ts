@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Reconstrução do ESTADO de produção "agora" (ou de um instante simulado) a partir dos dados de PROD, pelo MESMO caminho da integração
 // (src/lib/escala/fluxo/integracao.ts › insumosFluxo/dadosProducaoReal): f de desempenho embutido nas metas, pares legados, contagens físicas, sem wip_controle.
 import { prepararFluxo, type CtxFluxo } from "@/features/escala/fluxo/estado";

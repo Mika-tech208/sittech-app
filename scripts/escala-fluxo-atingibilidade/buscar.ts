@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Busca (somente SELECT em PROD) e cacheia os dados da semana. Uso: tsx buscar.ts [--semana 2026-10-26] [--antes-ate ISO]
 import { buscar } from "./carga";
 const arg = (k: string) => { const i = process.argv.indexOf("--" + k); return i >= 0 ? process.argv[i + 1] : undefined; };

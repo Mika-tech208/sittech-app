@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // PROVA matemática da Caixa (3 × 4 pessoas na Montagem) com os dados reais: capacidade por posto/período, oferta de material, máximo possível e folga.
 import { buscar, carregar } from "./carga";
 import { montarEstadoAting } from "./estadoAting";

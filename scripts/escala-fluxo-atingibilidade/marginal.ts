@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Valor marginal em R$ (preço CONGELADO) de UMA pessoa em M2 de 28/10: plano vigente de PROD × mover essa pessoa para outro posto, com a Previsão/estado reais.
 // Uso: ts.sh marginal.ts [--agora ISO] [--desloc 1]
 import { buscar, carregar } from "./carga";

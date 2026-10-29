@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // REPLAY da regra de preservação da atingibilidade com dados REAIS de PROD (somente leitura; usa o cache de buscar.ts).
 // Uso: ts.sh scripts/escala-fluxo-atingibilidade/replay.ts [--agora ISO] [--desloc 1|2] [--out arq.json] [--maxit N]
 import * as fs from "node:fs";

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Carga dos dados de PROD (SOMENTE SELECT) para a ferramenta de custo de WIP. Os .sql de ./sql são modelos (__SEMANA__, __SEMANA_FIM__, __ANTES_ISO__);
 // a busca copia cada um para o diretório de cache, chama o executor de SELECT e lê o JSON {rows:[...]} do .out. Sem rede: --cache reaproveita os .out.
 import * as fs from "node:fs";
