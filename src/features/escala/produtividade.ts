@@ -1,0 +1,259 @@
+// PRODUTIVIDADE ESPERADA por PRODUTO × ETAPA × MÁQUINA/POSTO — núcleo PURO (sem IO, sem relógio: `agora` vem por parâmetro).
+// NÃO está ligado ao motor. Documento: docs/escala-produtividade-esperada.md (metodologia, backtest e limites).
+//
+// Entrada: apontamentos (a mesma forma de `ApontamentoReal`, mais `fimPeriodoMs` opcional). A unidade é o POSTO (máquina): o apontamento
+// NÃO prova autoria individual, então nada aqui estima desempenho de pessoa.
+//
+// Metodologia (cada passo calibrado por backtest — ver docs):
+//  1. visão no corte: só linhas lançadas até `agora` (nada do futuro);
+//  2. só linhas `produzindo` com meta > 0 do próprio posto contam; `sem_producao` (falta_operador / falta_material / outro) NÃO é produtividade baixa
+//     — vira contagem separada no diagnóstico;
+//  3. linha lançada ANTES do fim do período (parcial) é só um limite inferior da produção do período: por padrão é excluída do nível;
+//  4. peso exponencial pela posição (0 = lançamento mais recente), meia-vida em OBSERVAÇÕES do posto (não em dias: robusto a feriados/paradas);
+//     observações mais velhas que `idadeMaximaDias` saem (posto parado volta ao nominal);
+//  5. proteção contra outlier: cada razão real/meta é winsorizada em mediana ± c·(1,4826·MAD) ponderadas (piso de escala `escalaMinima`);
+//  6. nível = média ponderada das razões winsorizadas; encolhimento ao prior (nominal = 1 ou o nível do POOL produto×etapa):
+//     fator = (neff·nível + k·prior) / (neff + k), neff = tamanho efetivo de amostra (Kish);
+//  7. limitado a [PERF_MINIMA; PERF_MAXIMA] = [0,30; 1,30] (mesmo teto/piso do `f` atual de desempenho.ts).
+
+import { PERF_MAXIMA, PERF_MINIMA } from "./desempenho";
+import type { ApontamentoReal } from "./producaoReal";
+
+export type ObsProdutividade = ApontamentoReal & { fimPeriodoMs?: number | null; inicioPeriodoMs?: number | null };
+export type ModoParcial = "excluir" | "incluir" | "projetar";
+export type PriorProdutividade = "nominal" | "pool";
+export type FonteProdutividade = "observada" | "parcial" | "nominal";
+
+export interface OpcoesProdutividade {
+  /** Meia-vida em observações do posto (Infinity = média simples). */
+  meiaVida: number;
+  /** Força do prior (pseudo-observações). 0 = sem encolhimento. */
+  k: number;
+  /** c da winsorização (mediana ± c·escala robusta). Infinity = sem winsorização. */
+  c: number;
+  /** Piso da escala robusta (evita winsorizar tudo quando o posto é "perfeito"). */
+  escalaMinima: number;
+  /** Mínimo de observações efetivas para sair do nominal. */
+  amostraMinima: number;
+  /** Observações (n) a partir das quais a fonte é "observada" (abaixo disso, "parcial"). */
+  amostraCheia: number;
+  /** Linhas lançadas antes do fim do período (mais que `toleranciaParcialMin` antes). */
+  parcial: ModoParcial;
+  toleranciaParcialMin: number;
+  /** Observações mais antigas que isto (dias, contados de `agora`) saem. null = sem limite. */
+  idadeMaximaDias: number | null;
+  /** Prior do encolhimento. "pool" usa o nível robusto do produto×etapa (todas as máquinas) quando houver amostra, senão nominal. */
+  prior: PriorProdutividade;
+  /** Meta nominal em peças por período (número) ou por periodoId, para `pecasPorPeriodo`. Ausente: usa a meta mais recente do histórico. */
+  metaNominal?: number | Record<string, number>;
+  /** Período para o qual se quer `pecasPorPeriodo` (com `metaNominal` por periodoId). */
+  periodoId?: string;
+  /** Z do intervalo (1,2816 ≈ 80% bilateral). */
+  z: number;
+}
+
+/** Defaults — VALORES CALIBRADOS no backtest (ver docs/escala-produtividade-esperada.md §4). */
+export const PRODUTIVIDADE_PADRAO: OpcoesProdutividade = {
+  meiaVida: 12,
+  k: 6,
+  c: 2.5,
+  escalaMinima: 0.05,
+  amostraMinima: 3,
+  amostraCheia: 12,
+  parcial: "excluir",
+  toleranciaParcialMin: 3,
+  idadeMaximaDias: 45,
+  prior: "pool",
+  z: 1.2816,
+};
+
+export interface DiagnosticoProdutividade {
+  codigos: string[];
+  observacoesUsadas: number;
+  parciaisIgnoradas: number;
+  parciaisProjetadas: number;
+  outliersWinsorizados: number;
+  tamanhoEfetivo: number;
+  nivelBruto: number | null; // média ponderada ANTES do encolhimento e do cap
+  prior: number;
+  priorOrigem: "nominal" | "pool";
+  ultimaObservacaoMs: number | null;
+  /** sem_producao da MÁQUINA na janela das observações usadas — NÃO entra no fator (disponibilidade, não velocidade). */
+  semProducao: { falta_operador: number; falta_material: number; outro: number };
+  /** média simples das 5 últimas razões completas (só leitura; não entra no fator). */
+  ultimas5: number | null;
+  capado: boolean;
+}
+
+export interface ProdutividadeEsperada {
+  pecasPorPeriodo: number | null; // fator × meta nominal; null se não há meta conhecida
+  fator: number; // real/nominal esperado
+  fonte: FonteProdutividade;
+  amostra: number; // n de observações usadas
+  intervalo: { lo: number; hi: number }; // faixa do FATOR (≈80%)
+  diagnostico: DiagnosticoProdutividade;
+}
+
+const MIN_MS = 60_000;
+const DIA_MS = 86_400_000;
+
+interface Razao { r: number; w: number; ordem: number; parcial: boolean; meta: number; ts: number }
+
+function mediana(v: number[], w?: number[]): number {
+  if (v.length === 0) return NaN;
+  const idx = v.map((_, i) => i).sort((a, b) => v[a] - v[b] || a - b);
+  const pesos = w ?? v.map(() => 1);
+  const total = idx.reduce((s, i) => s + pesos[i], 0);
+  let acum = 0;
+  for (const i of idx) { acum += pesos[i]; if (acum >= total / 2 - 1e-12) return v[i]; }
+  return v[idx[idx.length - 1]];
+}
+
+const ts = (a: ObsProdutividade): number => a.fimPeriodoMs ?? a.lancadoEmMs;
+const ehParcial = (a: ObsProdutividade, tolMin: number): boolean => a.fimPeriodoMs != null && a.fimPeriodoMs - a.lancadoEmMs > tolMin * MIN_MS;
+
+/** Razões real/meta do posto (já visíveis em `agora`), da mais NOVA (ordem 0) para a mais velha. */
+function razoesDoPosto(hist: ObsProdutividade[], agora: number, filtro: (a: ObsProdutividade) => boolean, o: OpcoesProdutividade): { razoes: Razao[]; parciaisIgnoradas: number; parciaisProjetadas: number } {
+  const linhas = hist
+    .filter((a) => a.status === "produzindo" && a.meta > 0 && a.lancadoEmMs <= agora && filtro(a))
+    .filter((a) => o.idadeMaximaDias === null || agora - ts(a) <= o.idadeMaximaDias * DIA_MS)
+    .sort((x, y) => ts(y) - ts(x) || y.lancadoEmMs - x.lancadoEmMs);
+  const razoes: Razao[] = [];
+  let ign = 0, proj = 0;
+  linhas.forEach((a) => {
+    const parcial = ehParcial(a, o.toleranciaParcialMin);
+    let r = Math.max(0, a.boas) / a.meta;
+    if (parcial) {
+      if (o.parcial === "excluir") { ign++; return; }
+      if (o.parcial === "projetar" && a.fimPeriodoMs != null) {
+        // fração decorrida do período no lançamento; só projeta se o início é conhecido e a fração é plausível (> 50%)
+        if (a.inicioPeriodoMs != null) { const fr = (a.lancadoEmMs - a.inicioPeriodoMs) / (a.fimPeriodoMs - a.inicioPeriodoMs); if (fr > 0.5 && fr < 1) { r = r / fr; proj++; } }
+      }
+    }
+    razoes.push({ r: Math.min(r, 2), w: 1, ordem: razoes.length, parcial, meta: a.meta, ts: ts(a) });
+  });
+  return { razoes, parciaisIgnoradas: ign, parciaisProjetadas: proj };
+}
+
+interface Nivel { nivel: number | null; neff: number; outliers: number; escala: number }
+
+/** Nível robusto: pesos exponenciais por posição, winsorização por mediana ± c·MAD, média ponderada. */
+function nivelRobusto(razoes: Razao[], o: OpcoesProdutividade): Nivel {
+  if (razoes.length === 0) return { nivel: null, neff: 0, outliers: 0, escala: 0 };
+  const lambda = Number.isFinite(o.meiaVida) ? Math.pow(0.5, 1 / o.meiaVida) : 1;
+  const w = razoes.map((x) => Math.pow(lambda, x.ordem));
+  const v = razoes.map((x) => x.r);
+  let lo = -Infinity, hi = Infinity, escala = 0;
+  if (Number.isFinite(o.c)) {
+    const m = mediana(v, w);
+    const mad = mediana(v.map((x) => Math.abs(x - m)), w);
+    escala = Math.max(o.escalaMinima, 1.4826 * mad);
+    lo = m - o.c * escala; hi = m + o.c * escala;
+  }
+  let outliers = 0;
+  const vw = v.map((x) => { const y = Math.min(hi, Math.max(lo, x)); if (y !== x) outliers++; return y; });
+  const sw = w.reduce((s, x) => s + x, 0);
+  const nivel = vw.reduce((s, x, i) => s + x * w[i], 0) / sw;
+  const neff = (sw * sw) / w.reduce((s, x) => s + x * x, 0);
+  return { nivel, neff, outliers, escala };
+}
+
+const limitar = (x: number) => Math.min(PERF_MAXIMA, Math.max(PERF_MINIMA, x));
+
+export function produtividadeEsperada(
+  historico: ObsProdutividade[],
+  produtoId: string,
+  etapaId: string,
+  maquinaId: string,
+  agora: number,
+  opcoes: Partial<OpcoesProdutividade> = {},
+): ProdutividadeEsperada {
+  const o: OpcoesProdutividade = { ...PRODUTIVIDADE_PADRAO, ...opcoes };
+  const doPosto = (a: ObsProdutividade) => a.produtoId === produtoId && a.etapaId === etapaId && a.maquinaId === maquinaId;
+  const { razoes, parciaisIgnoradas, parciaisProjetadas } = razoesDoPosto(historico, agora, doPosto, o);
+  const nv = nivelRobusto(razoes, o);
+  const codigos: string[] = [];
+
+  // prior
+  let prior = 1, priorOrigem: "nominal" | "pool" = "nominal";
+  if (o.prior === "pool") {
+    const pool = razoesDoPosto(historico, agora, (a) => a.produtoId === produtoId && a.etapaId === etapaId, o);
+    const np = nivelRobusto(pool.razoes, o);
+    if (np.nivel !== null && pool.razoes.length >= o.amostraMinima && pool.razoes.length > razoes.length) {
+      // o pool também é encolhido ao nominal (mesma regra), para não importar ruído de um pool pequeno
+      prior = limitar((np.neff * np.nivel + o.k * 1) / (np.neff + o.k));
+      priorOrigem = "pool";
+    }
+  }
+
+  // sem_producao da máquina na janela das observações usadas (separado: não é velocidade)
+  const desde = razoes.length > 0 ? razoes[razoes.length - 1].ts : agora - 30 * DIA_MS;
+  const semProducao = { falta_operador: 0, falta_material: 0, outro: 0 };
+  historico.forEach((a) => {
+    if (a.status !== "sem_producao" || a.maquinaId !== maquinaId || a.lancadoEmMs > agora || a.lancadoEmMs < desde) return;
+    if (a.motivo === "falta_operador") semProducao.falta_operador++;
+    else if (a.motivo === "falta_material") semProducao.falta_material++;
+    else semProducao.outro++;
+  });
+
+  const n = razoes.length;
+  const ultimas5 = n === 0 ? null : razoes.slice(0, 5).reduce((s, x) => s + x.r, 0) / Math.min(5, n);
+  let fator = 1, fonte: FonteProdutividade = "nominal", lo = 1, hi = 1, capado = false;
+  if (parciaisIgnoradas > 0) codigos.push("PARCIAIS_IGNORADAS");
+  if (semProducao.falta_material > 0) codigos.push("FALTA_MATERIAL_NA_JANELA");
+  if (nv.nivel === null || n < o.amostraMinima) {
+    codigos.push(n === 0 ? "SEM_HISTORICO_NOMINAL" : "AMOSTRA_INSUFICIENTE_NOMINAL");
+    if (priorOrigem === "pool") { fator = prior; fonte = "parcial"; lo = limitar(prior - 0.15); hi = limitar(prior + 0.15); codigos.push("PRIOR_DO_POOL"); }
+  } else {
+    const bruto = (nv.neff * nv.nivel + o.k * prior) / (nv.neff + o.k);
+    fator = limitar(bruto);
+    capado = fator !== bruto;
+    fonte = n >= o.amostraCheia ? "observada" : "parcial";
+    // erro-padrão do nível (escala robusta/√neff) reduzido pelo encolhimento; piso de 0,02
+    const se = Math.max(0.02, (Math.max(nv.escala, o.escalaMinima) / Math.sqrt(Math.max(1, nv.neff))) * (nv.neff / (nv.neff + o.k)));
+    lo = limitar(fator - o.z * se); hi = limitar(fator + o.z * se);
+    if (nv.outliers > 0) codigos.push("OUTLIERS_WINSORIZADOS");
+    if (capado) codigos.push("FATOR_LIMITADO");
+    if (priorOrigem === "pool") codigos.push("PRIOR_DO_POOL");
+  }
+
+  let meta: number | null = null;
+  if (typeof o.metaNominal === "number") meta = o.metaNominal;
+  else if (o.metaNominal && o.periodoId && o.metaNominal[o.periodoId] !== undefined) meta = o.metaNominal[o.periodoId];
+  else if (razoes.length > 0) meta = razoes[0].meta;
+
+  return {
+    pecasPorPeriodo: meta !== null && meta > 0 ? fator * meta : null,
+    fator, fonte, amostra: n, intervalo: { lo, hi },
+    diagnostico: {
+      codigos, observacoesUsadas: n, parciaisIgnoradas, parciaisProjetadas, outliersWinsorizados: nv.outliers, tamanhoEfetivo: nv.neff,
+      nivelBruto: nv.nivel, prior, priorOrigem, ultimaObservacaoMs: n > 0 ? razoes[0].ts : null, semProducao, ultimas5, capado,
+    },
+  };
+}
+
+export interface PostoProdutividade { produtoId: string; etapaId: string; maquinaId: string }
+export const chavePosto = (p: PostoProdutividade): string => `${p.produtoId}|${p.etapaId}|${p.maquinaId}`;
+
+/** Lote: um resultado por posto (chave `produto|etapa|maquina`). Postos sem histórico saem nominais. */
+export function produtividadePorPosto(historico: ObsProdutividade[], postos: PostoProdutividade[], agora: number, opcoes: Partial<OpcoesProdutividade> = {}): Record<string, ProdutividadeEsperada> {
+  const r: Record<string, ProdutividadeEsperada> = {};
+  postos.forEach((p) => { r[chavePosto(p)] = produtividadeEsperada(historico, p.produtoId, p.etapaId, p.maquinaId, agora, opcoes); });
+  return r;
+}
+
+/** Fator por POOL (`produto|etapa`) derivado dos postos — agregação para consumidores que só entendem pool: média dos fatores dos postos,
+ *  ponderada pelo n de cada posto (e só pelos postos informados, i.e. os candidatos do período). Sem posto observado ⇒ 1. */
+export function fatorPorPoolDosPostos(porPosto: Record<string, ProdutividadeEsperada>): Record<string, number> {
+  const acum: Record<string, { s: number; w: number }> = {};
+  Object.entries(porPosto).forEach(([k, v]) => {
+    const [p, e] = k.split("|");
+    const kk = `${p}|${e}`;
+    const w = Math.max(1, v.amostra);
+    const a = (acum[kk] ??= { s: 0, w: 0 });
+    a.s += v.fator * w; a.w += w;
+  });
+  const out: Record<string, number> = {};
+  Object.entries(acum).forEach(([k, a]) => { out[k] = a.w > 0 ? a.s / a.w : 1; });
+  return out;
+}
