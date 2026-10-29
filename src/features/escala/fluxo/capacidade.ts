@@ -42,7 +42,7 @@ export function analisarCapacidade(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], m
       if (pmax === 0) return;
       const mu = m.mu[n][t];
       const pools = no.membros.map((k) => ctx.poolsPorChave.get(k) as PoolEscala);
-      const nominal = Math.max(...pools.map((p) => nominais?.[chavePool(p.produtoId, p.etapaId)]?.[slot.periodoId] ?? p.metas[slot.periodoId] ?? 0), 0);
+      const nominal = Math.max(...pools.map((p) => nominais?.[chavePool(p.produtoId, p.etapaId)]?.[slot.periodoId] ?? (p.metas[slot.periodoId] ?? 0) / Math.max(1e-9, ctx.opcoes.fatoresEmbutidos?.[chavePool(p.produtoId, p.etapaId)] ?? 1)), 0);
       const V = marg[String(t)]?.[n] ?? [];
       const k = ocup[n][t];
       const vAdd = k < pmax ? (V[k] ?? 0) : 0;
