@@ -4,7 +4,18 @@
 import type { CtxFluxo } from "./estado";
 import type { FinanceiroPlano, FinanceiroProduto, OpcoesFluxo } from "./tipos";
 
-export const objetivoFinanceiro = (o: OpcoesFluxo) => o.objetivo === "financeiro";
+/** Objetivo econômico (R$): "financeiro" (≡ "receita") ou "margem". "pecas"/ausente = comportamento anterior. */
+export const objetivoFinanceiro = (o: OpcoesFluxo) => o.objetivo === "financeiro" || o.objetivo === "receita" || o.objetivo === "margem";
+
+/** Valor econômico unitário de um produto: margem de contribuição (se o objetivo é margem E o provedor devolve valor confiável) ou RECEITA (preço congelado). */
+export function valorEconomicoUnitario(o: OpcoesFluxo, produtoId: string, precoCongelado: number): { valor: number; nivel: "receita" | "margem"; fonte: string } {
+  if (o.objetivo === "margem" && o.margem) {
+    const m = o.margem(produtoId, o.semanaInicio ?? "");
+    if (m && m.confiavel && m.valor !== null && Number.isFinite(m.valor)) return { valor: Math.max(0, m.valor), nivel: "margem", fonte: m.fonte };
+    return { valor: Math.max(0, precoCongelado), nivel: "receita", fonte: `receita marginal (margem indisponível: ${m?.fonte ?? "sem provedor"})` };
+  }
+  return { valor: Math.max(0, precoCongelado), nivel: "receita", fonte: "preço congelado da Previsão (receita marginal)" };
+}
 
 /** Preço médio do grupo (membros do nó final ponderados pela quantidade); `comPeso` multiplica pelo peso comercial manual do produto. */
 export function precoDoGrupo(ctx: CtxFluxo, gi: number, comPeso: boolean): number {
@@ -15,7 +26,7 @@ export function precoDoGrupo(ctx: CtxFluxo, gi: number, comPeso: boolean): numbe
     if (!p) return;
     const w = comPeso ? Math.max(0, ctx.opcoes.pesoComercial?.[p.produtoId] ?? 1) : 1;
     q += p.quantidade;
-    v += p.quantidade * Math.max(0, p.valorUnitario) * w;
+    v += p.quantidade * valorEconomicoUnitario(ctx.opcoes, p.produtoId, p.valorUnitario).valor * w;
   });
   return q > 0 ? v / q : 0;
 }
@@ -36,13 +47,14 @@ export function calcularFinanceiro(ctx: CtxFluxo, finalPorGrupo: Record<string, 
       const p = ctx.poolsPorChave.get(k)!;
       const frac = Q > 0 ? p.quantidade / Q : 1 / sink.membros.length;
       const preco = Math.max(0, p.valorUnitario);
+      const ve = valorEconomicoUnitario(ctx.opcoes, p.produtoId, p.valorUnitario);
       const meta = p.quantidade;
       const prod: FinanceiroProduto = {
-        produtoId: p.produtoId, etapaFinalId: p.etapaId, precoCongelado: preco, pesoComercial: ctx.opcoes.pesoComercial?.[p.produtoId] ?? 1,
+        produtoId: p.produtoId, etapaFinalId: p.etapaId, precoCongelado: preco, valorEconomicoUnitario: ve.valor, nivelValor: ve.nivel, fonteValor: ve.fonte, pesoComercial: ctx.opcoes.pesoComercial?.[p.produtoId] ?? 1,
         meta: r3(meta), realizadoFinal: r3(B0 * frac), restante: r3(meta - B0 * frac), maximoProduzivel: r3(M * frac), metaAtingivel: M >= Q - 0.5,
         faltaInevitavel: r3(Math.max(0, meta - M * frac)), finalProjetado: r3(F * frac), faltaProjetada: r3(Math.max(0, meta - F * frac)),
-        rsMeta: r2(meta * preco), rsRealizado: r2(B0 * frac * preco), rsFaltante: r2((meta - B0 * frac) * preco), rsMaximoAtingivel: r2(M * frac * preco),
-        rsProjetadoFechamento: r2(F * frac * preco), rsFaltaInevitavel: r2(Math.max(0, meta - M * frac) * preco), rsFaltaProjetada: r2(Math.max(0, meta - F * frac) * preco),
+        rsMeta: r2(meta * ve.valor), rsRealizado: r2(B0 * frac * ve.valor), rsFaltante: r2((meta - B0 * frac) * ve.valor), rsMaximoAtingivel: r2(M * frac * ve.valor),
+        rsProjetadoFechamento: r2(F * frac * ve.valor), rsFaltaInevitavel: r2(Math.max(0, meta - M * frac) * ve.valor), rsFaltaProjetada: r2(Math.max(0, meta - F * frac) * ve.valor),
       };
       produtos.push(prod);
     });

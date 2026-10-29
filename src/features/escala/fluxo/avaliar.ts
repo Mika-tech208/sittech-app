@@ -4,6 +4,7 @@
 import { maquinaDisponivelNoSlot } from "../disponibilidade";
 import { chavePool, type AlocacaoEscala, type EntradaEscala, type PoolEscala } from "../types";
 import { calcularDemanda, capacidadeFuturaDoNo, prepararFluxo, type CtxFluxo, type OpcoesInternas } from "./estado";
+import { aplicarProdutividade } from "./produtividade";
 import { calcularAtingibilidade, maximosPossiveis } from "./atingibilidade";
 import { calcularFinanceiro, objetivoFinanceiro, precoDoGrupo } from "./financeiro";
 import { copiarCaps, novaCap, simularGrupo, somarCapacidadeDeLinhas, type CapNo, type ResultadoSim } from "./simulador";
@@ -224,7 +225,8 @@ export function calcularMarginais(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], li
   return out;
 }
 
-export function avaliarPlano(entrada: EntradaEscala, dados: DadosProducaoReal, alocacoes: AlocacaoEscala[], opcoes: OpcoesInternas = {}): AvaliacaoPlano {
+export function avaliarPlano(entradaOriginal: EntradaEscala, dados: DadosProducaoReal, alocacoes: AlocacaoEscala[], opcoes: OpcoesInternas = {}): AvaliacaoPlano {
+  const entrada = aplicarProdutividade(entradaOriginal, opcoes, dados.agoraMs).entrada;
   const ctx = prepararFluxo(entrada, dados, opcoes);
   return avaliarComCtx(ctx, alocacoes, {
     contribuicoes: true, marginais: opcoes.incluirMarginais === true, trajetoria: opcoes.incluirTrajetoria !== false, limites: opcoes.limitesRemPorPool,

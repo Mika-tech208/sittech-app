@@ -12,6 +12,7 @@ import { sobrepoe } from "../tempo";
 import { hashAlocacoes } from "../horizonte";
 import { chavePool, type AlocacaoEscala, type EntradaEscala, type ResultadoEscala } from "../types";
 import { avaliarComCtx } from "./avaliar";
+import { aplicarProdutividade } from "./produtividade";
 import { contagensDoPlano, tabelaMarginal, varrerContagens, varrerContagensPreservando, type Contagens } from "./otimizar";
 import { montarEstado, prepararFluxo, type CtxFluxo, type OpcoesInternas } from "./estado";
 import { explicarMudanca } from "./explicar";
@@ -130,7 +131,8 @@ function vigenteCompleto(ctx: CtxFluxo, vig: AlocacaoEscala[]): string | null {
   return null;
 }
 
-export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, opcoes: OpcoesInternas = {}): ResultadoFluxo {
+export function planejarComFluxo(entradaOriginal: EntradaEscala, dados: DadosProducaoReal, opcoes: OpcoesInternas = {}): ResultadoFluxo {
+  const entrada = aplicarProdutividade(entradaOriginal, opcoes, dados.agoraMs).entrada; // provedor de produtividade esperada (default: sem alteração)
   const ctx = prepararFluxo(entrada, dados, opcoes);
   const estado = montarEstado(ctx);
   const ponderar = ctx.opcoes.ponderarPorValor === true; // objetivo financeiro ⇒ falta em R$ (preço congelado), não em peças
@@ -241,7 +243,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
   // Objetivo financeiro: a heurística de PEÇAS (sweeps sem peso de R$) entra como mais um CANDIDATO; o julgamento segue em R$ (J). Assim o financeiro nunca fica abaixo do que a
   // heurística de peças já alcança (o guloso ponderado não é ótimo).
   if (ponderar) {
-    const ctxP: CtxFluxo = { ...ctx, opcoes: { ...ctx.opcoes, ponderarPorValor: false, objetivo: "pecas" } };
+    const ctxP: CtxFluxo = { ...ctx, opcoes: { ...ctx.opcoes, ponderarPorValor: false, objetivo: "pecas" as const } };
     let contP = contagensDoPlano(ctx, p0.resultado.alocacoes);
     for (let i = 1; i <= maxIt; i++) {
       const varredura = preservar ? varrerContagensPreservando(ctxP, contP, estado.remPorPool) : { ...varrerContagens(ctxP, contP, estado.remPorPool), minimos: undefined as Contagens | undefined };

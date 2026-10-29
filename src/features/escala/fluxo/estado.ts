@@ -10,6 +10,7 @@
 import { maquinaDisponivelNoSlot } from "../disponibilidade";
 import { chavePool, type AlocacaoEscala, type EntradaEscala, type PoolEscala } from "../types";
 import { EPS } from "../folga";
+import { objetivoFinanceiro } from "./financeiro";
 import { construirGrafo, type Grafo } from "./grafo";
 import { acumuladoDesde, contagemIso, PERIODOS_CONFIANCA_ALTA, temNaoConfirmadoDesde, validarContagens, type RegistroFechado } from "./contagem";
 import { copiarCaps, indiceDeSlots, novaCap, simularGrupo, somarCapacidadeDeLinhas, type CapNo, type ResultadoSim } from "./simulador";
@@ -61,8 +62,8 @@ interface AptChave { linhas: DadosProducaoReal["apontamentos"] }
 /** Normaliza as opções de atingibilidade/objetivo: `atingibilidadeModo` tem precedência sobre `preservarAtingibilidade`; objetivo financeiro implica ponderar por valor. */
 export function normalizarOpcoes(o: OpcoesInternas): OpcoesInternas {
   const modo = o.atingibilidadeModo ?? (o.preservarAtingibilidade ? "ativo" : "off");
-  if (modo === "off" && o.objetivo !== "financeiro" && o.atingibilidadeModo === undefined) return o; // caminho legado: objeto intacto
-  return { ...o, atingibilidadeModo: modo, preservarAtingibilidade: modo === "ativo", ...(o.objetivo === "financeiro" ? { ponderarPorValor: true } : {}) };
+  if (modo === "off" && !objetivoFinanceiro(o) && o.atingibilidadeModo === undefined) return o; // caminho legado: objeto intacto
+  return { ...o, atingibilidadeModo: modo, preservarAtingibilidade: modo === "ativo", ...(objetivoFinanceiro(o) ? { ponderarPorValor: true } : {}) };
 }
 
 export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, opcoesBrutas: OpcoesInternas = {}): CtxFluxo {

@@ -108,10 +108,24 @@ export interface OpcoesFluxo {
   /** off (padrão) | sombra (só mede e reporta a atingibilidade/R$, não altera o plano) | ativo (= preservarAtingibilidade). Tem precedência sobre `preservarAtingibilidade`. */
   atingibilidadeModo?: "off" | "sombra" | "ativo";
   /** Objetivo da Escala: "pecas" (padrão, comportamento anterior) | "financeiro" (R$ de produto final pelo preço CONGELADO da Previsão; implica `ponderarPorValor`). docs/escala-fluxo-atingibilidade.md */
-  objetivo?: "pecas" | "financeiro";
+  objetivo?: "pecas" | "financeiro" | "receita" | "margem";
+  /** Provedor de PRODUTIVIDADE esperada por produto×etapa×máquina×período (default: meta nominal × f do pool, como hoje). Substitui as metas do pool (média das máquinas selecionadas); não combinar com `fatoresEmbutidos`. */
+  produtividade?: ProdutividadeProvider;
+  /** Provedor de MARGEM de contribuição unitária (objetivo "margem"). Indisponível/não confiável ⇒ cai para RECEITA ("receita marginal", nunca "lucro"). Custo fixo nunca é rateado. */
+  margem?: MargemProvider;
+  /** Semana (segunda ISO) para o MargemProvider. */
+  semanaInicio?: string;
+  /** k do limite econômico da atingibilidade: preservar uma meta atingível só se custo de oportunidade (R$ da semana) ≤ k × valor recuperado (R$). Default 2. */
+  atingibilidadeK?: number;
   /** Peso comercial MANUAL por produto (default 1; só entra na decisão do objetivo financeiro; as métricas em R$ usam o preço puro). */
   pesoComercial?: Record<string, number>;
 }
+
+export interface ProdutividadeEsperada { pecasPorPeriodo: number; fator: number; fonte: string; amostra: number }
+/** (produto, etapa, máquina, agora[, período]) → produtividade esperada REAL (pecasPorPeriodo × fator = peças esperadas no período). null ⇒ usa a meta nominal do pool. */
+export type ProdutividadeProvider = (a: { produtoId: string; etapaId: string; maquinaId: string; periodoId: string; agoraMs: number; metaNominal: number }) => ProdutividadeEsperada | null;
+export interface MargemUnitaria { valor: number | null; fonte: string; confiavel: boolean }
+export type MargemProvider = (produtoId: string, semanaInicio: string) => MargemUnitaria;
 
 export interface LigacaoProdutos {
   produtoOrigemId: string;
@@ -148,7 +162,13 @@ export type CodigoDiagnosticoFluxo =
   | "POOL_FUNDIDO" // pools legados fundidos logicamente
   | "META_NAO_ATINGIVEL" // preservarAtingibilidade: nem com todas as máquinas em todos os períodos restantes (físico) ou não cabe junto das outras metas (conflito de recursos)
   | "POSTOS_MINIMOS_APLICADOS"
-  | "PRODUTO_SACRIFICADO"; // objetivo financeiro / conflito: produto com menos peças que na referência (nada silencioso): peças e R$ // preservarAtingibilidade: postos mínimos (tier 1) mantidos no plano
+  | "PRODUTO_SACRIFICADO"
+  | "MARGEM_INDISPONIVEL" // objetivo margem sem margem confiável: usa RECEITA marginal
+  | "ATINGIBILIDADE_NAO_PRESERVADA_CUSTO" // meta atingível NÃO preservada: custo de oportunidade > k × valor recuperado
+  | "SATURADO_POR_POSTO" // todos os postos da etapa ocupados: outra pessoa ali vale 0
+  | "GARGALO_PESSOA" // há posto livre com valor, mas não há pessoa elegível
+  | "GARGALO_WIP_MATERIAL" // posto livre mas sem material/WIP para produzir
+  | "GARGALO_DOWNSTREAM"; // posto livre mas o resto da cadeia/demanda não absorve // objetivo financeiro / conflito: produto com menos peças que na referência (nada silencioso): peças e R$ // preservarAtingibilidade: postos mínimos (tier 1) mantidos no plano
 
 export interface DiagnosticoItem {
   codigo: CodigoDiagnosticoFluxo;
@@ -366,6 +386,10 @@ export interface FinanceiroProduto {
   produtoId: string;
   etapaFinalId: string;
   precoCongelado: number;
+  /** Valor econômico unitário usado na decisão: receita (= preço congelado) ou margem confiável. */
+  valorEconomicoUnitario?: number;
+  nivelValor?: "receita" | "margem";
+  fonteValor?: string;
   pesoComercial: number;
   meta: number;
   realizadoFinal: number; // boas finais já produzidas (confirmadas + período congelado projetado) em aPartirDe

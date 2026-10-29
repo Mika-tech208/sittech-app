@@ -11,7 +11,7 @@ import { maquinaDisponivelNoSlot } from "../disponibilidade";
 import { sobrepoe } from "../tempo";
 import { chavePool, type AlocacaoEscala, type PoolEscala } from "../types";
 import { selecionarFuturas } from "./avaliar";
-import { precoDoGrupo } from "./financeiro";
+import { objetivoFinanceiro, precoDoGrupo } from "./financeiro";
 import type { CtxFluxo } from "./estado";
 import { novaCap, simularGrupo, type CapNo } from "./simulador";
 
@@ -279,7 +279,7 @@ export function varrerContagensPreservando(ctx: CtxFluxo, inicial: Contagens, li
         const ra = av.metaEEntregue(a);
         const rb = av.metaEEntregue(b);
         // pecas: maior falta relativa primeiro; financeiro: maior R$ ainda por produzir (desempate de conflito por R$, nunca por peças absolutas)
-        const fin = ctx.opcoes.objetivo === "financeiro";
+        const fin = objetivoFinanceiro(ctx.opcoes);
         const fa = fin ? (ra.Q - ra.B) * precoDoGrupo(ctx, a, true) : ra.Q > 0 ? (ra.Q - ra.B) / ra.Q : 0;
         const fb = fin ? (rb.Q - rb.B) * precoDoGrupo(ctx, b, true) : rb.Q > 0 ? (rb.Q - rb.B) / rb.Q : 0;
         return fb - fa || a - b;
@@ -427,11 +427,11 @@ export function tabelaMarginal(ctx: CtxFluxo, contagens: Contagens, limites: Rec
       let v = 0;
       if (n > 0) {
         av.set(no.id, t, n - 1);
-        v = Math.max(ctx.opcoes.objetivo === "financeiro" ? 1e-6 : VALOR_MINIMO_SELECIONADO, base - av.valor(gi));
+        v = Math.max(objetivoFinanceiro(ctx.opcoes) ? 1e-6 : VALOR_MINIMO_SELECIONADO, base - av.valor(gi));
         av.set(no.id, t, cnt[no.id][t]);
       }
       const obrig = Math.min(n, minimos?.[no.id]?.[t] ?? 0); // postos mínimos de preservação da atingibilidade: tier 1 (offset acima de qualquer ganho de peças/R$)
-      const fin = ctx.opcoes.objetivo === "financeiro";
+      const fin = objetivoFinanceiro(ctx.opcoes);
       const esc = fin ? 1e6 : 1e3; // em R$ os ganhos por posto são frações de real
       // Camada 3 (fluxo): quem sobra (fora das contagens) vai primeiro a postos que NÃO criam WIP (etapa final); postos de etapas intermediárias sem valor ficam por último.
       const fora = fin && !no.final ? -1e-6 : 0;
