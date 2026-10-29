@@ -16,7 +16,7 @@ export const CACHE = process.env.ATING_CACHE ?? path.join(SCRATCH, "ating", "cac
 /** Executor de SELECT em PROD: `bash <exec> <arquivo.sql>` grava <arquivo.sql>.out com o JSON. Configurável por ATING_RODAPROD. */
 export const RODAPROD = process.env.ATING_RODAPROD ?? path.join(SCRATCH, "rodaprod.sh");
 
-export interface ParamsBusca { semana: string; antesIso: string; depoisIso: string; usarCache: boolean }
+export interface ParamsBusca { semana: string; antesIso: string; depoisIso: string; usarCache: boolean; /** só estas consultas (nomes sem .sql); as demais voltam como [] */ somente?: string[] }
 
 const somaDias = (iso: string, n: number) => new Date(Date.parse(iso + "T12:00:00Z") + n * 86400000).toISOString().slice(0, 10);
 
@@ -33,6 +33,7 @@ export function buscar(p: ParamsBusca): Record<string, any[]> {
   const out: Record<string, any[]> = {};
   const nomes = fs.readdirSync(path.join(AQUI, "sql")).filter((f) => f.endsWith(".sql")).map((f) => f.replace(/\.sql$/, ""));
   for (const nome of nomes) {
+    if (p.somente && !p.somente.includes(nome)) { out[nome] = []; continue; }
     const arq = path.join(CACHE, nome + ".sql");
     let rows: any[] | null = null;
     if (p.usarCache) rows = lerOut(arq + ".out");
