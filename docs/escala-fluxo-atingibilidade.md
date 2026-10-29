@@ -109,3 +109,13 @@ Preservar uma meta atingível só se `custo de oportunidade (R$ da semana) ≤ k
 ### Pendências conhecidas
 * Os provedores reais de produtividade (feat/escala-produtividade) e de margem (feat/escala-economia-dados) não foram publicados; usam-se os padrões.
 * Revezamento por bloco é hard e vem do merge de main; as equivalências ficam desligadas.
+
+
+## 9. Fonte econômica = tela PRODUTOS (decisão do usuário, 29/10)
+
+A tela Produtos é a REFERÊNCIA: o motor não tem margem própria. `economiaProduto.ts › lucroHoraDaTela(entrada)` chama a MESMA `calcularMargemProduto` (src/features/custo-hora/calculations.ts, fonte única de Produtos/Previsão/Capacidade): `margem = valor − Σ_etapas(tempo/peça × custo/hora)`, `lucro/h = margem ÷ Σ tempo/peça`, tempo/peça = Σ horas ÷ Σ metas dos períodos. Verificado contra a tela com as metas nominais de PROD e custo/hora R$ 31,92: Automática 0,182/0,0631/65%/60,17; Pino 0,070/0,0258/63%/54,81; Caixa 0,217/0,0911/58%/44,13; Plug 0,099/0,0422/57%/43,04; Conector conv. 0,1825/0,0841/54%/37,31; 1.1/4" 0,365/0,2765/24%/10,22.
+
+* **Metas**: o Escala lê `roteiro_etapas.meta_m1..meta_t3` (supabaseIO `META_COLS`) — a mesma coluna do cadastro da tela; não há tabela paralela. A produtividade esperada = meta nominal ajustada pelo desempenho real (f atual embutido ou o estimador do agente de produtividade via `ProdutividadeProvider`).
+* **Convenção, não custo variável**: o "custo/peça" da tela é folha + rateio de fixos (todos os postos pagam R$ 31,92/h; docs/escala-economia-dados.md). Por isso lucro/h = receita/h − k (k constante) e **não altera a ordem entre postos**; o que muda é o peso por peça final (margem = valor − k·Σtempo/peça), que favorece cadeias rápidas. Rótulo: "lucro (tela Produtos)"; troca pelo módulo canônico quando publicado.
+* **Modos de valor** (`objetivo`): A `pecas`; B `financeiro|receita` (preço congelado); C `lucro_hora` + `produtividadeBase:"nominal"` (como a tela, capacidade nominal); D `lucro_hora` (margem da tela com a produtividade REAL = valor econômico marginal final). `margem` + `MargemProvider` continua para margem de contribuição verdadeira (indisponível).
+* **Valor marginal final**: margem por peça final × peças que CHEGAM ao produto final (re-simulação da cadeia), limitado por demanda restante, máquinas SELECIONADAS e disponíveis, pessoas, WIP/material, downstream e períodos restantes; posto saturado = 0.
