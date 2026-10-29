@@ -623,12 +623,11 @@ export interface CapacidadeEtapaSlot {
   diagnostico: DiagnosticoCapacidade;
 }
 
-/** "Pessoa X → posto Y porque: há posto, há material, downstream absorve, produtividade esperada N, receita marginal R$ A, alternativa seguinte R$ B, ganho líquido R$ C". */
+/** DECISÃO DO POSTO (nunca da pessoa): "Posto Y é ocupado porque: há posto, há material, downstream absorve, produtividade esperada N (do posto), receita marginal R$ A, alternativa seguinte R$ B, ganho líquido R$ C". A pessoa é escolhida à parte (desempate.ts). */
 export interface DecisaoEconomica {
   slot: number;
   data: string;
   periodoId: string;
-  funcionarioId: string;
   maquinaId: string;
   no: string;
   produtoId: string;

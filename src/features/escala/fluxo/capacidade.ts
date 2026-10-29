@@ -98,10 +98,10 @@ export function analisarCapacidade(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], m
       rows.filter((r) => r.slot === t && r.no !== n && r.postosDisponiveis > 0).forEach((r) => { if (r.valorMarginalAdicionar > alt.valor) alt = { no: r.no, valor: r.valorMarginalAdicionar }; });
       const ha = valor > EPS || row.diagnostico === "OK" || row.diagnostico === "SATURADO_POR_POSTO";
       decisoes.push({
-        slot: t, data: a.data, periodoId: a.periodoId, funcionarioId: a.funcionarioId, maquinaId: a.maquinaId as string, no: n, produtoId: a.produtoId as string, etapaId: a.etapaId as string, ordemPosto: kk,
+        slot: t, data: a.data, periodoId: a.periodoId, maquinaId: a.maquinaId as string, no: n, produtoId: a.produtoId as string, etapaId: a.etapaId as string, ordemPosto: kk,
         postosMaximos: row.postosMaximos, produtividadeEsperada: row.produtividadeEsperada, receitaMarginal: r2(valor), alternativa: { no: alt.no, valor: r2(alt.valor) }, ganhoLiquido: r2(valor - alt.valor),
         haMaterial: valor > EPS || row.diagnostico !== "GARGALO_WIP_MATERIAL", downstreamAbsorve: valor > EPS || row.diagnostico !== "GARGALO_DOWNSTREAM",
-        texto: `${a.funcionarioId} → ${a.maquinaId} (${n}) em ${a.data} ${a.periodoId} porque: posto ${kk} de ${row.postosMaximos}${ha ? "" : " (sem valor)"}, ${row.diagnostico === "GARGALO_WIP_MATERIAL" ? "SEM material/WIP" : "há material"}, ${row.diagnostico === "GARGALO_DOWNSTREAM" ? "downstream NÃO absorve" : "downstream absorve"}, produtividade esperada ${Math.round(row.produtividadeEsperada)} pç/período, receita marginal R$ ${r2(valor)}, alternativa seguinte R$ ${r2(alt.valor)}${alt.no ? ` (${alt.no})` : ""}, ganho líquido R$ ${r2(valor - alt.valor)}`,
+        texto: `Posto ${a.maquinaId} (${n}) em ${a.data} ${a.periodoId} é ocupado porque: posto ${kk} de ${row.postosMaximos}${ha ? "" : " (sem valor)"}, ${row.diagnostico === "GARGALO_WIP_MATERIAL" ? "SEM material/WIP" : "há material"}, ${row.diagnostico === "GARGALO_DOWNSTREAM" ? "downstream NÃO absorve" : "downstream absorve"}, produtividade esperada ${Math.round(row.produtividadeEsperada)} pç/período, receita marginal R$ ${r2(valor)}, alternativa seguinte R$ ${r2(alt.valor)}${alt.no ? ` (${alt.no})` : ""}, ganho líquido R$ ${r2(valor - alt.valor)}`,
       });
     });
   return { capacidade: rows, decisoes };

@@ -2,6 +2,13 @@
 
 **Nada é gravado em PROD.** O pipeline só faz `SELECT` (via `rodaprod.sh`, com retry) e calcula offline. As contagens físicas entram só como argumentos.
 
+## REGRAS (aprovadas 29/10) — v2: `rodar-proposta-v2.sh` (mesmos argumentos)
+1. **Produtividade individual NÃO existe no motor.** Produtividade esperada, receita/h, lucro/h, valor marginal e custo de oportunidade só em produto × operação × máquina/posto. Teste de contrato: `fluxo/__tests__/contratoSemProdutividadeIndividual.test.ts` (estrutural + permutação de pessoas).
+2. **Duas etapas:** (1) decidir QUAIS POSTOS ocupar (meta, Produção Real, WIP, gargalo, capacidade, receita/h, valor marginal final, custo de oportunidade); (2) escolher QUAL PESSOA ocupa cada posto só por disponibilidade, elegibilidade, revezamento por bloco, hard constraints, churn/estabilidade, equilíbrio de exposição e evitar repetição.
+3. **Texto:** A) DECISÃO DO POSTO ("o posto é prioritário porque há WIP/material; downstream/final absorve; valor marginal = R$ X; custo de oportunidade = R$ Y; ganho líquido = R$ Z") e B) ESCOLHA DA PESSOA (válida: disponível, elegível, sem violar o bloco, exposição, churn). Nunca "a pessoa gera R$".
+4. **Desempate do ajuste fino** (`fluxo/desempate.ts`, puro, testado): ganho (± R$ 0,01) → folga de revezamento no bloco → desvio de exposição na operação de destino (`ContadoresEquidade.desvioOperacao`, menor = preferido) → churn → continuidade de máquina → id (último). A ordem do array não decide.
+5. **Exposição = Escala registrada** (alocação congelada/troca manual). O v2 não define `FREPLAY_ESCOPO` antes de montar o estado (isso faria o `montar.ts` derivar `exposicaoExecutada` do `funcionario_id` do apontamento). Para o bloco da TARDE de hoje não há período passado: resultado numérico idêntico ao v1. O bloco "⚠ CONFIANÇA / BUG CONHECIDO" inclui `exposicao_audit.md` (env `EXPOSICAO_AUDIT`).
+
 ## Rodar (12:05–12:10, depois do fechamento de M3 e do recálculo do motor ativo às 12:06)
 
 ```bash
