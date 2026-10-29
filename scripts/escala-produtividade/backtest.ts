@@ -106,7 +106,8 @@ function estab(todas: ObsProdutividade[], opcoes: Partial<OpcoesProdutividade>[]
   const calc = (rot: string, est: (hist: ObsProdutividade[], a: Alvo) => number) => {
     const d1: number[] = [], d3: number[] = [];
     amostra.forEach((a) => {
-      const e0 = est(todas, a), e1 = est([...todas, ruim(a, 0.5, 1)], { ...a, agora: a.agora + 10 }), e3 = est([...todas, ruim(a, 0.7, 1), ruim(a, 0.7, 2), ruim(a, 0.7, 3)], { ...a, agora: a.agora + 10 });
+      const sem = todas.filter((x) => x !== a.obs); // o próprio alvo não entra (evita empate de instante)
+      const e0 = est(sem, a), e1 = est([...sem, ruim(a, 0.5, 1)], { ...a, agora: a.agora + 10 }), e3 = est([...sem, ruim(a, 0.7, 1), ruim(a, 0.7, 2), ruim(a, 0.7, 3)], { ...a, agora: a.agora + 10 });
       d1.push(e0 - e1); d3.push(e0 - e3);
     });
     console.log(`${rot.padEnd(40)} queda média após 1 período a 0,50: ${f3(media(d1))} (máx ${f3(Math.max(...d1))})   após 3 períodos a 0,70: ${f3(media(d3))}`);
