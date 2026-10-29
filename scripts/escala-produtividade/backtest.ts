@@ -5,7 +5,7 @@
 // Protocolo: para cada observação de cada posto (produto×etapa×máquina), prediz a razão real/meta usando SÓ o que foi lançado antes dela.
 // Treino = alvos até 2026-10-07; teste = alvos a partir de 2026-10-08 (a escolha de parâmetros usa só o treino).
 import { readFileSync } from "node:fs";
-import { PRODUTIVIDADE_PADRAO, produtividadeEsperada, type ObsProdutividade, type OpcoesProdutividade } from "../../src/features/escala/produtividade";
+import { PRODUTIVIDADE_PADRAO, indicePorPeriodoDoDia, produtividadeEsperada, type ObsProdutividade, type OpcoesProdutividade } from "../../src/features/escala/produtividade";
 import { fatorDesempenho } from "../../src/features/escala/desempenho";
 
 type Linha = Record<string, string | null>;
@@ -25,8 +25,8 @@ const media = (v: number[]) => (v.length ? v.reduce((s, x) => s + x, 0) / v.leng
 const mediana = (v: number[]) => { const s = [...v].sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : NaN; };
 const f3 = (x: number) => x.toFixed(3);
 
-interface Alvo { postoKey: string; poolKey: string; i: number; obs: ObsProdutividade; real: number; parcial: boolean; hist: ObsProdutividade[]; agora: number; proximos: number[] }
-function alvos(todas: ObsProdutividade[], horizonte = 6): Alvo[] {
+interface Alvo { postoKey: string; poolKey: string; i: number; obs: ObsProdutividade; real: number; parcial: boolean; hist: ObsProdutividade[]; agora: number; proximos: number[]; proxPer: string[] }
+function alvos(todas: ObsProdutividade[], horizonte = 30): Alvo[] {
   const prod = todas.filter((a) => a.status === "produzindo" && a.meta > 0).sort((x, y) => (x.fimPeriodoMs as number) - (y.fimPeriodoMs as number) || x.lancadoEmMs - y.lancadoEmMs);
   const porPosto = new Map<string, ObsProdutividade[]>();
   prod.forEach((a) => { const k = `${a.produtoId}|${a.etapaId}|${a.maquinaId}`; porPosto.set(k, [...(porPosto.get(k) ?? []), a]); });
@@ -37,7 +37,7 @@ function alvos(todas: ObsProdutividade[], horizonte = 6): Alvo[] {
   porPosto.forEach((lst, k) => lst.forEach((a, i) => {
     if (i < 1) return;
     out.push({ postoKey: k, poolKey: `${a.produtoId}|${a.etapaId}`, i, obs: a, real: a.boas / a.meta, parcial: (a.fimPeriodoMs as number) - a.lancadoEmMs > 3 * 60000,
-      hist: [...(poolIdx.get(`${a.produtoId}|${a.etapaId}`) ?? []), ...(semIdx.get(a.maquinaId as string) ?? [])], agora: a.lancadoEmMs - 1, proximos: lst.slice(i, i + horizonte).map((x) => x.boas / x.meta) });
+      hist: [...(poolIdx.get(`${a.produtoId}|${a.etapaId}`) ?? []), ...(semIdx.get(a.maquinaId as string) ?? [])], agora: a.lancadoEmMs - 1, proximos: lst.slice(i, i + horizonte).map((x) => x.boas / x.meta), proxPer: lst.slice(i, i + horizonte).map((x) => x.periodoId) });
   }));
   return out;
 }
@@ -48,21 +48,24 @@ function fAtual(todas: ObsProdutividade[], a: Alvo): number {
   return fatorDesempenho(v.length, v.reduce((s, x) => s + x.boas, 0), v.reduce((s, x) => s + x.meta, 0));
 }
 
-interface Met { n: number; mae: number; maeRel: number; vies: number; mae6: number; maeCompleto: number }
-function avaliar(al: Alvo[], pred: (a: Alvo) => number): Met {
-  const e = al.map((a) => ({ a, p: pred(a) }));
+interface Met { n: number; mae: number; maeRel: number; vies: number; mae30: number; maeCompleto: number; viesSemana: number }
+type Pred = (a: Alvo) => number | [number, number];
+// pred devolve p1 (próximo período) ou [p1, pH] (pH = previsão da MÉDIA dos próximos 30 períodos do posto ≈ uma semana)
+function avaliar(al: Alvo[], pred: Pred): Met {
+  const e = al.map((a) => { const r = pred(a); const [p1, pH] = Array.isArray(r) ? r : [r, r]; return { a, p: p1, pH }; });
   const comp = e.filter((x) => !x.a.parcial);
-  const h = e.filter((x) => x.a.proximos.length >= 3);
+  const h = e.filter((x) => x.a.proximos.length >= 20);
   return {
     n: e.length,
     mae: media(e.map((x) => Math.abs(x.p - x.a.real))),
     maeRel: media(e.map((x) => Math.abs(x.p - x.a.real) / Math.max(0.2, x.a.real))),
     vies: media(e.map((x) => x.p - x.a.real)),
-    mae6: media(h.map((x) => Math.abs(x.p - media(x.a.proximos)))),
+    mae30: media(h.map((x) => Math.abs(x.pH - media(x.a.proximos)))),
+    viesSemana: media(h.map((x) => x.pH - media(x.a.proximos))),
     maeCompleto: media(comp.map((x) => Math.abs(x.p - x.a.real))),
   };
 }
-const lin = (nome: string, m: Met) => `${nome.padEnd(46)} n=${String(m.n).padStart(4)} MAE=${f3(m.mae)} MAEcompl=${f3(m.maeCompleto)} MAErel=${f3(m.maeRel)} MAEdia(6)=${f3(m.mae6)} vies=${m.vies >= 0 ? "+" : ""}${f3(m.vies)}`;
+const lin = (nome: string, m: Met) => `${nome.padEnd(46)} n=${String(m.n).padStart(4)} MAE=${f3(m.mae)} MAEcompl=${f3(m.maeCompleto)} MAErel=${f3(m.maeRel)} MAEsem(30)=${f3(m.mae30)} viesSem=${m.viesSemana >= 0 ? "+" : ""}${f3(m.viesSemana)} vies=${m.vies >= 0 ? "+" : ""}${f3(m.vies)}`;
 
 function grade(todas: ObsProdutividade[]) {
   const al = alvos(todas);
@@ -76,26 +79,39 @@ function grade(todas: ObsProdutividade[]) {
   const passo = (o: Partial<OpcoesProdutividade>) => (a: Alvo) => produtividadeEsperada(a.hist, a.obs.produtoId as string, a.obs.etapaId as string, a.obs.maquinaId as string, a.agora, o).fator;
   base("(c) estimador PADRÃO", passo({}));
 
-  // varredura de um parâmetro por vez em torno do padrão + grade completa ordenada pelo TREINO
+  // índice por período do dia calculado só com o passado (até 00:00 do dia do alvo), em cache por data
+  const cacheIdx = new Map<string, Record<string, number>>();
+  const idxDe = (a: Alvo) => { const d = a.obs.data; if (!cacheIdx.has(d)) cacheIdx.set(d, indicePorPeriodoDoDia(todas, Date.parse(`${d}T00:00:00-03:00`))); return cacheIdx.get(d) as Record<string, number>; };
+  const passoAj = (o: Partial<OpcoesProdutividade>): Pred => (a) => {
+    const ix = o.ajustePeriodo ? idxDe(a) : null;
+    const p1 = produtividadeEsperada(a.hist, a.obs.produtoId as string, a.obs.etapaId as string, a.obs.maquinaId as string, a.agora, { ...o, periodoId: a.obs.periodoId, ...(ix ? { indicePeriodo: ix } : {}) }).fator;
+    if (!ix) return [p1, p1];
+    const idxT = ix[a.obs.periodoId] ?? 1;
+    return [p1, (p1 / idxT) * media(a.proxPer.map((per) => ix[per] ?? 1))];
+  };
   const linhas: { nome: string; o: Partial<OpcoesProdutividade>; tr: Met; te: Met }[] = [];
-  const mh = [6, 12, 20, 40, Infinity], ks = [0, 3, 6, 10, 15], cs = [Infinity, 3, 2.5, 2], parc = ["excluir", "incluir", "projetar"] as const, pri = ["nominal", "pool"] as const, ida = [null, 45];
-  for (const meiaVida of mh) for (const k of ks) for (const c of cs) for (const parcial of parc) for (const prior of pri) for (const idadeMaximaDias of ida) {
-    const o = { meiaVida, k, c, parcial, prior, idadeMaximaDias };
-    const f = passo(o);
-    linhas.push({ nome: `mv=${meiaVida} k=${k} c=${c} parcial=${parcial} prior=${prior} idade=${idadeMaximaDias}`, o, tr: avaliar(treino, f), te: avaliar(teste, f) });
+  const add = (o: Partial<OpcoesProdutividade>) => { const f = passoAj(o); linhas.push({ nome: JSON.stringify(o, (_k, v) => (v === Infinity ? "inf" : v)), o, tr: avaliar(treino, f), te: avaliar(teste, f) }); };
+  const mh = [6, 12, 20, 40, Infinity], ks = [0, 3, 6, 10, 15], cs = [Infinity, 3, 2.5, 2];
+  // (1) varredura de um parâmetro por vez em torno do padrão (com e sem ajuste de período)
+  for (const ajustePeriodo of [false, true]) {
+    add({ ajustePeriodo });
+    mh.forEach((meiaVida) => add({ ajustePeriodo, meiaVida }));
+    ks.forEach((k) => add({ ajustePeriodo, k }));
+    cs.forEach((c) => add({ ajustePeriodo, c }));
+    (["excluir", "incluir", "projetar"] as const).forEach((parcial) => add({ ajustePeriodo, parcial }));
+    (["nominal", "pool"] as const).forEach((prior) => add({ ajustePeriodo, prior }));
+    [null, 21, 45, 90].forEach((idadeMaximaDias) => add({ ajustePeriodo, idadeMaximaDias }));
+    // (2) grade meia-vida × k nos dois priors e com parcial incluído (t3 é 88% parcial)
+    for (const prior of ["nominal", "pool"] as const) for (const parcial of ["excluir", "incluir"] as const) for (const meiaVida of mh) for (const k of ks) add({ ajustePeriodo, prior, parcial, meiaVida, k });
   }
   const por = (f: (l: (typeof linhas)[number]) => number) => [...linhas].sort((x, y) => f(x) - f(y));
-  console.log("\n== TOP 12 por MAE(completo) no TREINO (alvo = período completo; é o que o motor quer prever) ==");
-  por((l) => l.tr.maeCompleto).slice(0, 12).forEach((l) => console.log(`${l.nome.padEnd(70)} treino=${f3(l.tr.maeCompleto)} teste=${f3(l.te.maeCompleto)} dia6(teste)=${f3(l.te.mae6)} vies(teste)=${f3(l.te.vies)}`));
-  console.log("\n== TOP 12 por MAE do DIA (6 períodos) no TREINO ==");
-  por((l) => l.tr.mae6).slice(0, 12).forEach((l) => console.log(`${l.nome.padEnd(70)} treino=${f3(l.tr.mae6)} teste=${f3(l.te.mae6)} MAEcompl(teste)=${f3(l.te.maeCompleto)}`));
-  // efeito marginal de cada parâmetro (média do MAE completo de treino sobre as demais dimensões)
-  const marg = (nome: string, chave: (l: (typeof linhas)[number]) => string) => {
-    const g = new Map<string, number[]>(); linhas.forEach((l) => g.set(chave(l), [...(g.get(chave(l)) ?? []), l.tr.maeCompleto]));
-    console.log(`marginal ${nome}: ` + [...g.entries()].map(([k, v]) => `${k}=${f3(media(v))}`).join("  "));
-  };
-  console.log("\n== efeito marginal (MAE completo, treino) ==");
-  marg("meiaVida", (l) => String(l.o.meiaVida)); marg("k", (l) => String(l.o.k)); marg("c", (l) => String(l.o.c)); marg("parcial", (l) => String(l.o.parcial)); marg("prior", (l) => String(l.o.prior)); marg("idade", (l) => String(l.o.idadeMaximaDias));
+  console.log(`\n${linhas.length} configurações`);
+  console.log("\n== TOP 15 por MAE(período completo) no TREINO ==");
+  por((l) => l.tr.maeCompleto).slice(0, 15).forEach((l) => console.log(`${l.nome.padEnd(110)} treino=${f3(l.tr.maeCompleto)} teste=${f3(l.te.maeCompleto)} dia6(treino/teste)=${f3(l.tr.mae30)}/${f3(l.te.mae30)} vies(teste)=${f3(l.te.vies)}`));
+  console.log("\n== TOP 15 por MAE do DIA (média de 6 períodos seguintes) no TREINO ==");
+  por((l) => l.tr.mae30).slice(0, 15).forEach((l) => console.log(`${l.nome.padEnd(110)} treino=${f3(l.tr.mae30)} teste=${f3(l.te.mae30)} MAEcompl(teste)=${f3(l.te.maeCompleto)}`));
+  console.log("\n== varreduras de 1 parâmetro (MAE todos / completo / dia6 : treino | teste) ==");
+  linhas.slice(0, 1).concat(linhas.filter((l) => Object.keys(l.o).length <= 2)).forEach((l) => console.log(`${l.nome.padEnd(60)} ${f3(l.tr.mae)} ${f3(l.tr.maeCompleto)} ${f3(l.tr.mae30)} | ${f3(l.te.mae)} ${f3(l.te.maeCompleto)} ${f3(l.te.mae30)}  vies ${f3(l.te.vies)}`));
 }
 
 // ESTABILIDADE: após UM período ruim (razão 0,5, completo) quanto a estimativa mexe? Mede em todos os postos/instantes com ≥10 obs.

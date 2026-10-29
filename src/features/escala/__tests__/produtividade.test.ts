@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fatorPorPoolDosPostos, produtividadeEsperada, produtividadePorPosto, type ObsProdutividade } from "../produtividade";
+import { fatorPorPoolDosPostos, indicePorPeriodoDoDia, produtividadeEsperada, produtividadePorPosto, type ObsProdutividade } from "../produtividade";
 
 const T0 = Date.parse("2026-10-05T07:12:00-03:00");
 const PER = 90 * 60_000;
@@ -73,18 +73,18 @@ describe("produtividadeEsperada", () => {
     expect(r.diagnostico.codigos).toContain("FALTA_MATERIAL_NA_JANELA");
   });
 
-  it("linha lançada ANTES do fim do período (parcial) é ignorada por padrão e não puxa o fator", () => {
-    const parc = obs(12, 0.5, { lancadoEmMs: T0 + 12 * PER + PER - 10 * 60_000 });
-    const r = est([...serie(12, 1), parc], 13);
+  it("linha lançada ANTES do fim do período (parcial): modo 'excluir' ignora; padrão inclui e sinaliza", () => {
+    const parc = obs(12, 0.5, { lancadoEmMs: T0 + 12 * PER + PER - 20 * 60_000 });
+    const r = est([...serie(12, 1), parc], 13, { parcial: "excluir" });
     expect(r.fator).toBeCloseTo(1, 6); expect(r.diagnostico.parciaisIgnoradas).toBe(1); expect(r.amostra).toBe(12);
-    const inc = est([...serie(12, 1), parc], 13, { parcial: "incluir" });
-    expect(inc.amostra).toBe(13);
+    const inc = est([...serie(12, 1), parc], 13);
+    expect(inc.amostra).toBe(13); expect(inc.diagnostico.parciaisIncluidas).toBe(1);
   });
 
   it("modo 'projetar' extrapola pela fração decorrida do período", () => {
     const parc = obs(12, 0.8, { lancadoEmMs: T0 + 12 * PER + PER - 9 * 60_000 }); // 90% do período decorrido
-    const r = est([...serie(12, 1), parc], 13, { parcial: "projetar", c: Infinity, prior: "nominal", k: 0, meiaVida: Infinity });
-    expect(r.diagnostico.parciaisProjetadas).toBe(1); expect(r.diagnostico.nivelBruto).toBeGreaterThan(est([...serie(12, 1), parc], 13, { parcial: "incluir", c: Infinity, prior: "nominal", k: 0, meiaVida: Infinity }).diagnostico.nivelBruto as number);
+    const r = est([...serie(12, 1), parc], 13, { parcial: "projetar", toleranciaParcialMin: 3, c: Infinity, prior: "nominal", k: 0, meiaVida: Infinity });
+    expect(r.diagnostico.parciaisProjetadas).toBe(1); expect(r.diagnostico.nivelBruto).toBeGreaterThan(est([...serie(12, 1), parc], 13, { parcial: "incluir", toleranciaParcialMin: 3, c: Infinity, prior: "nominal", k: 0, meiaVida: Infinity }).diagnostico.nivelBruto as number);
   });
 
   it("nada do futuro: linhas lançadas depois de `agora` são ignoradas", () => {
@@ -143,5 +143,23 @@ describe("produtividadePorPosto / fatorPorPoolDosPostos", () => {
     expect(r["P|E|M9"].fonte).toBe("nominal");
     const pool = fatorPorPoolDosPostos(r);
     expect(pool["P|E"]).toBeLessThan(1); expect(pool["P|E"]).toBeGreaterThan(r["P|E|M2"].fator);
+  });
+});
+
+describe("ajuste por período do dia", () => {
+  // 8 dias; o período "t3" rende 0,85 e os demais 1,0 em TODOS os postos
+  const dia = (d: number) => ["m1", "m2", "m3", "t1", "t2", "t3"].map((per, j) => obs(d * 6 + j, per === "t3" ? 0.85 : 1, { periodoId: per }));
+  const h = Array.from({ length: 8 }, (_, d) => dia(d)).flat();
+  const agora = agoraApos(47);
+  it("índice: t3 < 1 < demais; encolhido ao 1", () => {
+    const ix = indicePorPeriodoDoDia(h, agora);
+    expect(ix.t3).toBeLessThan(1); expect(ix.t3).toBeGreaterThan(0.85 / 0.975 - 0.02); expect(ix.m1).toBeGreaterThan(1);
+  });
+  it("fator do t3 < fator do m1 para o mesmo posto; sem periodoId não há ajuste", () => {
+    const f = (periodoId?: string) => produtividadeEsperada(h, "P", "E", "M1", agora, { periodoId, prior: "nominal" });
+    expect(f("t3").fator).toBeLessThan(f("m1").fator);
+    expect(f("t3").diagnostico.indicePeriodoAplicado).toBeLessThan(1);
+    expect(f(undefined).diagnostico.indicePeriodoAplicado).toBe(1);
+    expect(produtividadeEsperada(h, "P", "E", "M1", agora, { periodoId: "t3", ajustePeriodo: false, prior: "nominal" }).diagnostico.indicePeriodoAplicado).toBe(1);
   });
 });
