@@ -770,7 +770,7 @@ for (const rot of ["proposto", "vigente"] as const) {
 P();
 P(`**+1 pessoa sem outra máquina = R$ 0 (SATURADO_POR_MAQUINA) — valor do posto ocupado ≠ valor marginal de +1 recurso.** Postos com +1 pessoa > 0 no plano proposto: ${cap0.capacidade.filter((c) => c.valorMarginalAdicionar > 0.005).map((c) => `${slotRot(c.slot)} ${nomeNo(c.no)} R$ ${brl(c.valorMarginalAdicionar)} (${c.postosDisponiveis} máq. livre; ${c.pessoasLivres} pessoas livres)`).join("; ") || "nenhum"}.`);
 if (maisMaquina.length) {
-  P(); P(`+1 MÁQUINA (INFORMATIVO — a seleção da Previsão é absoluta; nenhuma máquina é adicionada): Δ receita final do dia com uma máquina extra na etapa durante todo ${alvo}, plano replanejado: ${maisMaquina.sort((a, b) => b.dReceita - a.dReceita).map((m) => `${m.rot}: ${m.dReceita > 0.5 ? sg(m.dReceita) : "≈ R$ 0 (a heurística não encontrou uso; medida bruta " + sg(m.dReceita) + ")"} (lucro ${sg(m.dLucro)}, WIP ${sn0(m.dWip)})`).join("; ")}. Medida heurística (motor replanejado com máquina fantasma); valores ≤ 0 devem ser lidos como 0.`);
+  P(); P(`+1 MÁQUINA (INFORMATIVO — a seleção da Previsão é absoluta; nenhuma máquina é adicionada): Δ receita final do dia com uma máquina extra na etapa durante todo ${alvo}, plano replanejado: ${maisMaquina.sort((a, b) => b.dReceita - a.dReceita).map((m) => `${m.rot}: ${m.dReceita > 0.5 ? sg(m.dReceita) : "≈ R$ 0 ⚠ (medida frágil: o motor com máquina fantasma replaneja diferente do base; bruta " + sg(m.dReceita) + ")"} (lucro ${sg(m.dLucro)}, WIP ${sn0(m.dWip)})`).join("; ")}. Medida heurística (motor replanejado com máquina fantasma); valores ≤ 0 devem ser lidos como 0.`);
 }
 P();
 
@@ -818,8 +818,8 @@ if (ANT) {
   P(`|---|---|---|---|---|---|`);
   arestas.forEach((ar) => P(`| ${nomeNo(ar.chavePar)} → ${nome(EA.estM.ctx.poolsPorChave.get(EA.estM.ctx.grafo.nos[ar.destino].membros[0])?.operacaoId)} | ${n0(demMap[ar.produtoId] ?? 0)} | ${n0(capProxDestino(ar.destino))} | ${n0(wipP2[ar.chavePar] ?? 0)} | ${n0(r.teto[ar.chavePar] ?? 0)} | ${n0(wipF[ar.chavePar] ?? 0)} |`));
   P();
-  P(`## 7+9) Pessoa-períodos livres (6 do plano do motor) — trabalho útil para CADA um (posto, nunca por produtividade individual)`);
-  P(`Origem: postos upstream do motor sem valor atual (${ANT.livres.length} pessoa-períodos). Para cada um: todas as opções de posto livre (máquina da Previsão, disponível, hard constraints OK), Δ receita ATUAL, VALOR FUTURO (próxima semana simulada), WIP gerado e decisão (regra: atual primeiro; senão antecipação dentro do teto; senão exceção auditável).`);
+  P(`## 7+9) Pessoa-períodos livres (postos do motor sem valor atual + sem posto do motor) — trabalho útil para CADA um (posto, nunca por produtividade individual)`);
+  P(`Origem: ${ANT.livres.length} pessoa-períodos = postos upstream do motor sem valor atual (variante enxuta) + pessoa(s) que o próprio motor deixou sem posto. Para cada um: todas as opções de posto livre (máquina da Previsão, disponível, hard constraints OK), Δ receita ATUAL, VALOR FUTURO (próxima semana simulada), WIP gerado e decisão (regra: atual primeiro; senão antecipação dentro do teto; senão exceção auditável).`);
   P(`| Período | Escolha (posto) | Decisão | Δ receita atual (R$) | Valor futuro (R$) | Δ WIP final da semana (pç) | Motivo / regra | Melhores alternativas (Δ atual / valor futuro) |`);
   P(`|---|---|---|---|---|---|---|---|`);
   r.atribs.forEach((a) => {
