@@ -36,7 +36,6 @@ const agoraMs = Date.parse(arg("agora") ?? new Date().toISOString());
 const spData = (ms: number) => new Date(ms - 3 * 3600_000).toISOString().slice(0, 10);
 const hoje = arg("data") ?? spData(agoraMs);
 const periodoIni = arg("periodo-inicial") ?? "t1";
-const tolPct = Number(arg("tolerancia-pct") ?? 0.1);
 const semEstimador = argv.includes("--sem-estimador");
 const segunda = (iso: string) => { const dt = new Date(iso + "T12:00:00Z"); const dow = (dt.getUTCDay() + 6) % 7; return new Date(dt.getTime() - dow * 86400000).toISOString().slice(0, 10); };
 const semana = arg("semana") ?? segunda(hoje);
@@ -190,18 +189,6 @@ const pol = polir(propBase);
 const propOficial = pol.plano;
 marca(`ajuste fino: ${pol.movs.length} movimento(s), ${pol.rejeitadas} rejeitado(s) por restrição dura`);
 const avProp = avaliar(propOficial);
-const tol = (tolPct / 100) * Math.max(1, avAtual.lucro);
-const violAtual = verificarRestricoesDuras(estM.entrada, atualFut).length;
-const ganhoLucro = avProp.lucro - avAtual.lucro;
-const manter = ganhoLucro < tol && violAtual === 0; // estabilidade: planos economicamente muito próximos ⇒ o atual (mais estável)
-const escolhida = manter ? atualFut : propOficial;
-const avEsc = manter ? avAtual : avProp;
-const rotuloEsc = manter ? "MANTER O PLANO ATUAL (a proposta recalculada difere em menos de " + tolPct + "% do lucro projetado: o mais estável e simples)" : "PROPOSTA RECALCULADA";
-const marc = capDe;
-const capEsc = marc(escolhida);
-const capAtual = marc(atualFut);
-const estado = montarEstado(estM.ctx);
-
 // validação independente
 const selecionadas = (futuras: AlocacaoEscala[]) => futuras.filter((a) => a.maquinaId && !(estM.entrada.pools.find((p) => p.produtoId === a.produtoId && p.etapaId === a.etapaId)?.maquinasIds ?? []).includes(a.maquinaId as string));
 const validar = (futuras: AlocacaoEscala[]) => {
@@ -210,6 +197,51 @@ const validar = (futuras: AlocacaoEscala[]) => {
   const porBloco = indep.filter((v) => v.tipo === "mesma_operacao_no_bloco").length;
   return { nucleo: nucleo.length, nucleoTipos: [...new Set(nucleo.map((v) => v.tipo))], indep: indep.length, indepTipos: [...new Set(indep.map((v) => v.tipo))], bloco: porBloco, foraDaPrevisao: selecionadas(futuras).length };
 };
+const violAtual = verificarRestricoesDuras(estM.entrada, atualFut).length;
+const ganhoLucro = avProp.lucro - avAtual.lucro;
+// ---- LIMIAR OBJETIVO DE MATERIALIDADE (não trocar pessoas por centavos) ----
+// Ruído do modelo = dispersão ROBUSTA (1,4826·MAD) da razão "boas ÷ meta" por período fechado desde o início da semana (agregado das máquinas que produziram).
+// Em M1 de 28/10 a produção ficou ~16% abaixo do plano: o modelo erra por esse tamanho. Um ganho só é distinguível do ruído se superar 1 erro-padrão do R$ que os np períodos propostos
+// produzem: limiar = (σ ÷ √np) × R$ de T1–T3 (≈ R$ restante × np ÷ períodos restantes). Abaixo disso a diferença é indistinguível de erro de estimativa ⇒ vale o plano mais estável.
+const fechadosAnt = slots.filter((x) => x.indice < idxT1 && x.fimMs + 10 * 60_000 <= agoraMs);
+const razoes = fechadosAnt.flatMap((x) => {
+  const as = d.apontamentos.filter((a) => a.data === x.data && a.periodoId === x.periodoId && a.status === "produzindo" && a.meta > 0 && a.lancadoEmMs <= agoraMs);
+  return as.length >= 3 ? [as.reduce((t, a) => t + a.boas, 0) / as.reduce((t, a) => t + a.meta, 0)] : [];
+});
+const mediana = (v: number[]) => { const o = [...v].sort((p, q) => p - q); const n = o.length; return n === 0 ? NaN : n % 2 ? o[(n - 1) / 2] : (o[n / 2 - 1] + o[n / 2]) / 2; };
+const medR = mediana(razoes);
+const sigma = razoes.length >= 5 ? 1.4826 * mediana(razoes.map((r) => Math.abs(r - medR))) : 0.16;
+const restanteR = Math.max(0, avAtual.lucro - avAtual.L.financeiro!.total.rsRealizado);
+const np = periodosProposta.length;
+const lucroT1T3 = restanteR * (np / Math.max(1, slots.length - idxT1));
+const limiar = (sigma / Math.sqrt(np)) * lucroT1T3;
+const ganhoPct = restanteR > 0 ? (100 * ganhoLucro) / restanteR : 0;
+const pessoasAlt = new Set(propOficial.filter((a) => slotDe(a) <= ultimoSlotProposta).filter((a) => posto(atualPorChavePre(a)) !== posto(a)).map((a) => a.funcionarioId)).size;
+function atualPorChavePre(a: AlocacaoEscala) { return atualFut.find((x) => slotDe(x) === slotDe(a) && x.funcionarioId === a.funcionarioId); }
+function posto(a?: AlocacaoEscala) { return a ? `${a.maquinaId ?? ""}|${a.produtoId ?? ""}|${a.etapaId ?? ""}` : ""; }
+const celulas = (l: AlocacaoEscala[]) => new Set(l.filter((a) => a.maquinaId && slotDe(a) <= ultimoSlotProposta).map((a) => `${slotDe(a)}|${a.maquinaId}`));
+const cA = celulas(atualFut), cP = celulas(propOficial);
+const postosAlt = [...cA].filter((k) => !cP.has(k)).length + [...cP].filter((k) => !cA.has(k)).length;
+const linhasAltN = propOficial.filter((a) => slotDe(a) <= ultimoSlotProposta).filter((a) => posto(atualPorChavePre(a)) !== posto(a)).length;
+const vPropPre = verificarRestricoesDuras(estM.entrada, propOficial).length + selecionadas(propOficial).length;
+const criterios = [
+  { ok: ganhoLucro >= limiar, txt: `ganho de lucro (R$ ${brl(ganhoLucro)}) ≥ limiar de materialidade (R$ ${brl(limiar)} = 1 erro-padrão: σ=${(sigma * 100).toFixed(1)}%, ${razoes.length} períodos, razão mediana boas÷meta ${Number.isFinite(medR) ? (medR * 100).toFixed(0) + "%" : "n/d"})` },
+  { ok: avProp.L.atingibilidade!.atingiveisPerdidas <= avAtual.L.atingibilidade!.atingiveisPerdidas, txt: `atingibilidade não piora (metas atingíveis não entregues: ${avAtual.L.atingibilidade!.atingiveisPerdidas} → ${avProp.L.atingibilidade!.atingiveisPerdidas})` },
+  { ok: avProp.L.totais.excessoWip <= avAtual.L.totais.excessoWip + 1, txt: `WIP excessivo não piora (${n0(avAtual.L.totais.excessoWip)} → ${n0(avProp.L.totais.excessoWip)} pç)` },
+  { ok: avProp.R.financeiro!.total.rsProjetadoFechamento >= avAtual.R.financeiro!.total.rsProjetadoFechamento - 1e-6 || ganhoLucro >= 2 * limiar, txt: `receita projetada não cai (R$ ${brl(avAtual.receita)} → R$ ${brl(avProp.receita)}) salvo ganho de lucro ≥ 2× o limiar` },
+  { ok: vPropPre === 0, txt: `0 violações duras/independentes e só máquinas da Previsão no plano proposto` },
+];
+const atualInvalido = violAtual > 0;
+const aplicar = atualInvalido ? vPropPre === 0 : criterios.every((c) => c.ok);
+const manter = !aplicar;
+const escolhida = propOficial; // sempre apresentado: o PLANO ECONÔMICO OFFLINE completo
+const avEsc = avProp;
+const rotuloEsc = aplicar ? "APLICAR PLANO ECONÔMICO" : "MANTER PLANO ATUAL";
+const marc = capDe;
+const capEsc = marc(propOficial);
+const capAtual = marc(atualFut);
+const estado = montarEstado(estM.ctx);
+
 const vEsc = validar(escolhida);
 const vAtual = validar(atualFut);
 marca("avaliação concluída; escrevendo relatório");
@@ -222,7 +254,30 @@ const slotRot = (t: number) => `${slots[t].data.slice(5)} ${slots[t].periodoId.t
 P(`# Proposta de T1–T3 — ${hoje} (gerada ${new Date(agoraMs - 3 * 3600_000).toISOString().slice(0, 16).replace("T", " ")} SP)`);
 P(`**Para APROVAÇÃO. Nada foi gravado em PROD.** Revezamento por bloco: HARD. Equivalências de operação: desligadas. Só máquinas selecionadas na Previsão. Períodos anteriores a T1 congelados. Objetivo: lucro/hora da tela Produtos limitado pelo valor marginal final (valor = margem da tela por peça final × peças que chegam ao final); atingibilidade com limite econômico k=2; WIP/downstream = penalidade secundária; diversificação de candidatos ligada. Tempo de cálculo: ${((Date.now() - T0) / 1000).toFixed(0)} s.`);
 P();
-P(`**Decisão do pipeline:** ${rotuloEsc}. Lucro projetado (tela) atual R$ ${brl(avAtual.lucro)} → proposto R$ ${brl(avProp.lucro)} (Δ R$ ${brl(ganhoLucro)}); receita R$ ${brl(avAtual.receita)} → R$ ${brl(avProp.receita)}.`);
+P(`# >>> RECOMENDAÇÃO FINAL: **${rotuloEsc}** <<<`);
+P(`Critério objetivo (todos precisam ser verdadeiros para recomendar a troca${atualInvalido ? "; o plano atual TEM violação dura ⇒ a troca é necessária desde que o proposto seja válido" : ""}):`);
+criterios.forEach((c) => P(`- ${c.ok ? "✔" : "✘"} ${c.txt}`));
+P();
+P(`| Ganho R$ absoluto (lucro tela) | Ganho % sobre o restante da semana (R$ ${brl(restanteR)}) | Pessoas alteradas | Postos alterados (período×máquina) | Linhas pessoa/posto alteradas |`);
+P(`|---|---|---|---|---|`);
+P(`| R$ ${brl(ganhoLucro)} | ${ganhoPct.toFixed(2)}% | ${pessoasAlt} | ${postosAlt} | ${linhasAltN} |`);
+P();
+P(`**Por que este limiar:** o próprio modelo erra por esse tamanho (a produção real fica abaixo/acima do plano com σ = ${(sigma * 100).toFixed(1)}% por período; razão mediana ${Number.isFinite(medR) ? (medR * 100).toFixed(0) + "%" : "n/d"}). Um ganho menor que 1 erro-padrão do R$ de ${np} período(s) não se distingue de erro de estimativa; trocar pessoas por isso gera instabilidade sem benefício mensurável. Não há dado de custo de troca de posto; se existir, soma-se ao limiar.`);
+P();
+P(`## Os TRÊS estados`);
+const tot = (x: ReturnType<typeof avaliar>) => x.L.financeiro!.total;
+P(`| | (1) ESTADO REAL após M3 | (2) PLANO ATIVO (gravado pelo motor) | (3) PLANO ECONÔMICO OFFLINE (com as contagens novas) |`);
+P(`|---|---|---|---|`);
+P(`| Lucro tela já produzido (R$) | ${brl(tot(avAtual).rsRealizado)} | = | = |`);
+P(`| Lucro projetado de fechamento (R$) | — | ${brl(avAtual.lucro)} | ${brl(avProp.lucro)} (Δ ${brl(ganhoLucro)}) |`);
+P(`| Lucro ainda capturável (máximo, R$) | ${brl(tot(avAtual).rsMaximoAtingivel - tot(avAtual).rsRealizado)} | ${brl(tot(avAtual).rsMaximoAtingivel - tot(avAtual).rsRealizado)} | ${brl(tot(avProp).rsMaximoAtingivel - tot(avProp).rsRealizado)} |`);
+P(`| Lucro faltante projetado (R$ vs. meta) | ${brl(tot(avAtual).rsFaltante)} | ${brl(tot(avAtual).rsFaltaProjetada)} | ${brl(tot(avProp).rsFaltaProjetada)} |`);
+P(`| Receita projetada (R$) | — | ${brl(avAtual.receita)} | ${brl(avProp.receita)} |`);
+P(`| Metas atingíveis NÃO entregues | — | ${avAtual.L.atingibilidade!.atingiveisPerdidas} | ${avProp.L.atingibilidade!.atingiveisPerdidas} |`);
+P(`| WIP final da semana (pç) / excesso | — | ${n0(avAtual.L.totais.wipFinalLo)} / ${n0(avAtual.L.totais.excessoWip)} | ${n0(avProp.L.totais.wipFinalLo)} / ${n0(avProp.L.totais.excessoWip)} |`);
+P(`| Hard constraints | — | núcleo ${vAtual.nucleo}, independente ${vAtual.indep} | núcleo ${validar(propOficial).nucleo}, independente ${validar(propOficial).indep} |`);
+P();
+P(`**Auditoria do PLANO ATIVO** (o fato de o motor ter gravado não prova que está certo): violações duras = ${vAtual.nucleo} (${vAtual.nucleoTipos.join(", ") || "—"}); verificador independente = ${vAtual.indep} (${vAtual.indepTipos.join(", ") || "—"}); linhas fora das máquinas da Previsão = ${vAtual.foraDaPrevisao}; pessoas SEM posto em T1–T3 = ${atualFut.filter((a) => slotDe(a) <= ultimoSlotProposta && !a.maquinaId).length}; postos livres com valor marginal > 0 (oportunidade não aproveitada) = ${capAtual.capacidade.filter((c) => c.slot <= ultimoSlotProposta && c.postosDisponiveis > 0 && c.valorMarginalAdicionar > 0.5).map((c) => `${slotRot(c.slot)} ${nomeNoPre(c.no)} (+R$ ${brl(c.valorMarginalAdicionar)})`).join("; ") || "nenhum"}.`);
 P();
 
 // A
@@ -306,7 +361,7 @@ P();
 const func = [...new Set(escolhida.map((a) => a.funcionarioId))].sort((a, b) => nome(a).localeCompare(nome(b)));
 const celula = (f: string, t: number) => { const a = escolhida.find((x) => x.funcionarioId === f && slotDe(x) === t); if (!a) return "—"; if (!a.maquinaId) return `sem posto (${a.motivoSemPosto ?? "?"})`; return `${nome(a.operacaoId)} · ${nome(a.maquinaId)} · ${nome(a.produtoId)}`; };
 const ausH = (f: string, t: number) => ausencias.some((a: any) => a.funcionarioId === f && a.data === slots[t].data && (a.inicioMin === null || a.fimMin === null || (a.inicioMin < slots[t].fimMin && a.fimMin > slots[t].inicioMin)));
-P(`## G) PROPOSTA COMPLETA de T1, T2 e T3 por funcionário (${manter ? "= plano atual" : "recalculada"})`);
+P(`## G) PROPOSTA COMPLETA de T1, T2 e T3 por funcionário — PLANO ECONÔMICO OFFLINE (recomendação: ${rotuloEsc})`);
 P(`| Funcionário | ${periodosProposta.map((s) => s.periodoId.toUpperCase() + " " + `${String(Math.floor(s.inicioMin / 60)).padStart(2, "0")}:${String(s.inicioMin % 60).padStart(2, "0")}`).join(" | ")} |`);
 P(`|---|${periodosProposta.map(() => "---").join("|")}|`);
 func.forEach((f) => P(`| ${nome(f)} | ${periodosProposta.map((s) => (ausH(f, s.indice) ? "AUSENTE" : celula(f, s.indice))).join(" | ")} |`));
@@ -315,7 +370,6 @@ P(`## H) Operação, máquina e produto de cada linha`);
 P(`| Período | Funcionário | Operação | Máquina | Produto | Etapa | Peças (capacidade) | Origem | Mudou vs. plano atual |`);
 P(`|---|---|---|---|---|---|---|---|---|`);
 const atualPorChave = new Map(atualFut.map((a) => [`${slotDe(a)}|${a.funcionarioId}`, a]));
-const posto = (a?: AlocacaoEscala) => (a ? `${a.maquinaId ?? ""}|${a.produtoId ?? ""}|${a.etapaId ?? ""}` : "");
 escolhida.filter((a) => slotDe(a) <= ultimoSlotProposta).sort((a, b) => slotDe(a) - slotDe(b) || nome(a.funcionarioId).localeCompare(nome(b.funcionarioId))).forEach((a) => {
   const antes = atualPorChave.get(`${slotDe(a)}|${a.funcionarioId}`);
   P(`| ${slotRot(slotDe(a))} | ${nome(a.funcionarioId)} | ${nome(a.operacaoId)} | ${nome(a.maquinaId)} | ${nome(a.produtoId)} | ${a.etapaId ? nomeNo(`${a.produtoId}|${a.etapaId}`).split(" · ")[1] ?? "" : ""} | ${n0(a.pecas ?? 0)} | ${a.origem ?? "auto"} | ${posto(antes) === posto(a) ? "não" : "sim (antes: " + (antes?.maquinaId ? `${nome(antes.operacaoId)} · ${nome(antes.maquinaId)}` : "sem posto") + ")"} |`);
@@ -323,36 +377,59 @@ escolhida.filter((a) => slotDe(a) <= ultimoSlotProposta).sort((a, b) => slotDe(a
 P();
 
 // I
-P(`## I) Justificativa das principais realocações`);
-const changes = escolhida.filter((a) => slotDe(a) <= ultimoSlotProposta).flatMap((a) => { const antes = atualPorChave.get(`${slotDe(a)}|${a.funcionarioId}`); return posto(antes) === posto(a) ? [] : [{ a, antes }]; });
-const vUlt = (cap: typeof capEsc, t: number, produtoId: string | null, etapaId: string | null) => { const r = cap.capacidade.find((c) => c.slot === t && c.produtoId === produtoId && c.etapaId === etapaId); return r ? r.valorMarginalUltimo : 0; };
-const vAdd = (cap: typeof capEsc, t: number, produtoId: string | null, etapaId: string | null) => { const r = cap.capacidade.find((c) => c.slot === t && c.produtoId === produtoId && c.etapaId === etapaId); return r ? r.valorMarginalAdicionar : 0; };
-P(`- Motor (candidatos): plano escolhido pelo núcleo = **${rA.diagnostico.planoEscolhido}** (${rA.diagnostico.planoEscolhido === "vigente" ? "nenhum candidato foi estritamente melhor que o plano atual no modelo" : "candidato de fluxo"}); ajuste fino pessoa a pessoa: **${pol.movs.length} movimento(s)** aceito(s), ${pol.rejeitadas} tentativa(s) rejeitada(s) por restrição dura.`);
-pol.movs.forEach((m) => P(`  - ${slotRot(m.slot)}: ${nome(m.funcionarioId)}: ${m.de} → ${m.para} (+R$ ${brl(m.ganho)} de lucro projetado)`));
-if (manter) P(`Plano atual mantido (ganho total < ${tolPct}% = R$ ${brl(tol)}): nenhuma realocação proposta.`);
-const jus = (manter ? fut(rA.resultado.alocacoes).flatMap((a) => { const antes = atualPorChave.get(`${slotDe(a)}|${a.funcionarioId}`); return slotDe(a) <= ultimoSlotProposta && posto(antes) !== posto(a) ? [{ a, antes }] : []; }) : changes)
-  .map(({ a, antes }) => {
-    const t = slotDe(a);
-    const ganhoB = a.maquinaId ? vUlt(manter ? capEsc : capEsc, t, a.produtoId, a.etapaId) : 0;
-    const perdaA = antes?.maquinaId ? vUlt(capAtual, t, antes.produtoId, antes.etapaId) : 0;
-    return { t, f: a.funcionarioId, de: antes?.maquinaId ? nomeNo(`${antes.produtoId}|${antes.etapaId}`) : "sem posto", para: a.maquinaId ? nomeNo(`${a.produtoId}|${a.etapaId}`) : "sem posto", ganhoB, perdaA, liquido: ganhoB - perdaA, alt: a.maquinaId ? vAdd(capAtual, t, a.produtoId, a.etapaId) : 0 };
-  });
-const agrup = new Map<string, { n: number; t: Set<number>; ganhoB: number; perdaA: number; liquido: number }>();
-jus.forEach((j) => { const k = `${j.de} → ${j.para}`; const g = agrup.get(k) ?? { n: 0, t: new Set<number>(), ganhoB: 0, perdaA: 0, liquido: 0 }; g.n++; g.t.add(j.t); g.ganhoB += j.ganhoB; g.perdaA += j.perdaA; g.liquido += j.liquido; agrup.set(k, g); });
-P(`Valores = lucro da tela (R$) que o último posto gera até sexta no plano em que ele existe: ganho em B (destino, plano proposto) − resultado perdido em A (origem, plano atual) = ganho líquido; o plano inteiro é re-simulado (D da lista ⇒ J/N trazem o efeito total).`);
-P(`| Realocação (pessoas × períodos) | Períodos | Ganho em B (R$) | Perda em A (R$) | Ganho líquido (R$) |`);
-P(`|---|---|---|---|---|`);
-[...agrup.entries()].sort((x, y) => Math.abs(y[1].liquido) - Math.abs(x[1].liquido)).slice(0, 12).forEach(([k, g]) => P(`| ${k} (${g.n}) | ${[...g.t].sort().map(slotRot).join(", ")} | ${brl(g.ganhoB)} | ${brl(g.perdaA)} | ${brl(g.liquido)} |`));
+P(`## I) Trocas relevantes: plano atual → plano econômico`);
+const mudadas = propOficial.filter((a) => slotDe(a) <= ultimoSlotProposta).flatMap((a) => { const antes = atualPorChave.get(`${slotDe(a)}|${a.funcionarioId}`); return posto(antes) === posto(a) ? [] : [{ a, antes }]; });
+P(`- Candidatos do motor: plano escolhido pelo núcleo = **${rA.diagnostico.planoEscolhido}**; ajuste fino pessoa a pessoa: **${pol.movs.length}** movimento(s) aceito(s), ${pol.rejeitadas} tentativa(s) rejeitada(s) por restrição dura. Linhas alteradas: ${mudadas.length}.`);
+const vU = (cap: typeof capEsc, t: number, produtoId: string | null | undefined, etapaId: string | null | undefined) => cap.capacidade.find((c) => c.slot === t && c.produtoId === produtoId && c.etapaId === etapaId)?.valorMarginalUltimo ?? 0;
+// confiança baixa (marcação explícita; não entra na decisão)
+const naoConfPorProduto = (pid: string) => naoConf.filter((c) => (estM.entrada.pools.find((q) => q.produtoId === pid)?.maquinasIds ?? []).includes(c.maquinaId)).length;
+const confianca = (produtoId: string | null | undefined, etapaId: string | null | undefined): string[] => {
+  if (!produtoId) return [];
+  const r: string[] = [];
+  const baixa = estado.pares.filter((q: any) => q.produtoId === produtoId && q.confianca === "baixa");
+  if (baixa.length) r.push(`WIP estimado sem contagem (${baixa.length} par(es))`);
+  const op = estM.entrada.pools.find((q) => q.produtoId === produtoId && q.etapaId === etapaId)?.operacaoId;
+  const n = d.apontamentos.filter((a) => a.produtoId === produtoId && a.operacaoId === op && a.status === "produzindo").length;
+  if (n < 20) r.push(`produtividade com amostra pequena (n=${n} apontamentos na semana)`);
+  if (/autom/i.test(nome(produtoId))) r.push("Automática com produtividade substituta do convencional");
+  if (/1\.1\/4/.test(nome(produtoId))) r.push("1.1/4\" com apenas 1 semana de dados");
+  const nc = naoConfPorProduto(produtoId);
+  if (nc) r.push(`${nc} período(s)/máquina(s) fechados sem apontamento (produção em [0, planejado])`);
+  return r;
+};
+const marcaConf = (...ids: [string | null | undefined, string | null | undefined][]) => { const rs = [...new Set(ids.flatMap(([a, b]) => confianca(a, b)))]; return rs.length ? `⚠ CONFIANÇA BAIXA: ${rs.join("; ")}` : "confiança ok"; };
+const mudadasOrd = mudadas.sort((x, y) => slotDe(x.a) - slotDe(y.a));
+if (mudadasOrd.length === 0) P(`Nenhuma troca: o plano econômico coincide com o plano atual.`);
+mudadasOrd.slice(0, 15).forEach(({ a, antes }, i) => {
+  const t = slotDe(a);
+  const revertido = propOficial.map((x) => (x === a ? (antes ?? { ...a, maquinaId: null, produtoId: null, etapaId: null, operacaoId: null, pecas: 0 }) : x));
+  const avRev = avaliar(revertido);
+  const contrib = avProp.lucro - avRev.lucro;
+  const dPecas = (pid: string | null | undefined) => { if (!pid) return 0; const x = avProp.L.financeiro!.produtos.find((p) => p.produtoId === pid), y = avRev.L.financeiro!.produtos.find((p) => p.produtoId === pid); return (x?.finalProjetado ?? 0) - (y?.finalProjetado ?? 0); };
+  const statusMeta = (pid: string | null | undefined) => { const g = avProp.L.atingibilidade!.grupos.find((q) => q.produtos.some((x) => x.produtoId === pid)); return g ? g.status : "—"; };
+  const dWip = avProp.L.totais.wipFinalLo - avRev.L.totais.wipFinalLo;
+  const gB = a.maquinaId ? vU(capEsc, t, a.produtoId, a.etapaId) : 0;
+  const pA = antes?.maquinaId ? vU(capAtual, t, antes.produtoId, antes.etapaId) : 0;
+  const de = antes?.maquinaId ? `${nome(antes.operacaoId)} · ${nome(antes.maquinaId)} · ${nome(antes.produtoId)}` : "sem posto";
+  const para = a.maquinaId ? `${nome(a.operacaoId)} · ${nome(a.maquinaId)} · ${nome(a.produtoId)}` : "sem posto";
+  P(`${i + 1}. **${nome(a.funcionarioId)}** (${slotRot(t)}): plano atual → ${de}; plano proposto → ${para}.`);
+  P(`   - Motivo: ganho em B R$ ${brl(gB)} (valor marginal do último posto de B até sexta) − perda em A R$ ${brl(pA)} = **ganho líquido marginal R$ ${brl(gB - pA)}**; contribuição total re-simulada desta troca (com as demais mantidas) = **R$ ${brl(contrib)}**.`);
+  P(`   - Efeito na meta: ${a.produtoId ? `${nome(a.produtoId)} ${dPecas(a.produtoId) >= 0 ? "+" : ""}${n0(dPecas(a.produtoId))} pç (${statusMeta(a.produtoId)})` : "—"}${antes?.produtoId && antes.produtoId !== a.produtoId ? `; ${nome(antes.produtoId)} ${dPecas(antes.produtoId) >= 0 ? "+" : ""}${n0(dPecas(antes.produtoId))} pç` : ""}. Efeito no WIP final da semana: ${dWip >= 0 ? "+" : ""}${n0(dWip)} pç.`);
+  P(`   - ${marcaConf([a.produtoId, a.etapaId], [antes?.produtoId, antes?.etapaId])}`);
+});
+if (mudadasOrd.length > 15) P(`(+ ${mudadasOrd.length - 15} troca(s) menores — ver H.)`);
 const lim = rA.diagnostico.economia?.limiteEconomico;
 P();
 P(`- **Atingibilidade × custo (k=2):** ${lim && lim.candidatos.length ? lim.candidatos.map((c) => `candidato ${c.indice}: custo R$ ${brl(c.custoRs)} × valor recuperado R$ ${brl(c.valorRecuperadoRs)} (razão ${c.razao === null ? "∞" : c.razao.toFixed(1)}) ⇒ ${c.justificado ? "PRESERVADA" : "não preservada"}`).join("; ") : "nenhum conflito entre preservar uma meta atingível e o resultado econômico"}.`);
-P(`- **Estabilidade:** churn do plano escolhido vs. atual = ${calcularChurn(estM.ctx, escolhida).linhasAlteradas} linha(s); regra: se o ganho de lucro < ${tolPct}% (R$ ${brl(tol)}), mantém-se o plano atual.`);
+P(`- **Estabilidade/churn:** ${linhasAltN} linha(s) pessoa/posto e ${pessoasAlt} pessoa(s) alterada(s); ${postosAlt} célula(s) período×máquina diferentes.`);
 rA.diagnostico.diagnosticos.filter((x) => ["PRODUTO_SACRIFICADO", "MARGEM_INDISPONIVEL"].includes(x.codigo)).forEach((x) => P(`- ${x.codigo}: ${x.mensagem}`));
+const confGeral = [...new Set(avProp.L.financeiro!.produtos.flatMap((p) => confianca(p.produtoId, p.etapaFinalId).map((r) => `${nome(p.produtoId)}: ${r}`)))];
+if (confGeral.length) { P(); P(`**⚠ Dados de confiança baixa que afetam o cálculo (vale para toda a proposta):**`); confGeral.forEach((x) => P(`- ⚠ ${x}`)); }
 P();
 
 // J K L
 P(`## J) R$ final projetado da semana`);
-P(`| | Plano atual | ${manter ? "Escolhido (= atual)" : "Proposta"} | Δ |`);
+P(`| | Plano atual | Plano econômico | Δ |`);
 P(`|---|---|---|---|`);
 P(`| Lucro projetado (tela) R$ | ${brl(avAtual.lucro)} | ${brl(avEsc.lucro)} | ${brl(avEsc.lucro - avAtual.lucro)} |`);
 P(`| Receita projetada R$ | ${brl(avAtual.receita)} | ${brl(avEsc.receita)} | ${brl(avEsc.receita - avAtual.receita)} |`);
@@ -379,9 +456,9 @@ P();
 
 // N
 P(`## N) Comparação com o PLANO ATUAL`);
-const linhasAlt = changes.length;
+const linhasAlt = linhasAltN;
 const trocas = escolhida.filter((a) => slotDe(a) <= ultimoSlotProposta).filter((a) => { const antes = atualPorChave.get(`${slotDe(a)}|${a.funcionarioId}`); return antes?.maquinaId && a.maquinaId && posto(antes) !== posto(a); }).length;
-P(`| | Plano atual | Escolhido |`);
+P(`| | Plano atual | Plano econômico |`);
 P(`|---|---|---|`);
 P(`| Linhas pessoa/posto alteradas (T1–T3) | — | ${linhasAlt} (${trocas} trocas de posto) |`);
 P(`| Lucro projetado (tela) R$ | ${brl(avAtual.lucro)} | ${brl(avEsc.lucro)} |`);
@@ -394,7 +471,7 @@ P(`| Repetições de operação por bloco | ${vAtual.bloco} | ${vEsc.bloco} |`);
 P(`| Linhas fora das máquinas selecionadas na Previsão | ${vAtual.foraDaPrevisao} | ${vEsc.foraDaPrevisao} |`);
 P(`| Churn (linhas alteradas vs. plano atual) | — | ${calcularChurn(estM.ctx, escolhida).linhasAlteradas} |`);
 P();
-P(`**Validação independente do plano ${manter ? "escolhido (= atual)" : "proposto"}: ${vEsc.nucleo + vEsc.indep + vEsc.foraDaPrevisao === 0 ? "0 violações (núcleo, verificador independente, bloco e máquinas selecionadas)" : "ATENÇÃO — há violações: NÃO aprovar sem revisão"}.**`);
+P(`**Validação independente do plano econômico: ${vEsc.nucleo + vEsc.indep + vEsc.foraDaPrevisao === 0 ? "0 violações (núcleo, verificador independente, bloco e máquinas selecionadas)" : "ATENÇÃO — há violações: NÃO aprovar sem revisão"}.**`);
 P();
 
 // Estimador
@@ -422,7 +499,7 @@ fs.writeFileSync(saida, txt);
 const hojeProposta = (l: AlocacaoEscala[]) => l.filter((a) => a.data === hoje && slotDe(a) >= idxT1 && slotDe(a) <= ultimoSlotProposta);
 const jsonSaida = saida.replace(/\.md$/, "") + ".json";
 fs.writeFileSync(jsonSaida, JSON.stringify({
-  geradoEmMs: agoraMs, semana, data: hoje, previsaoId: (d0.decisao as any).previsaoId ?? (bruto.q_dec[0] as any).previsao_id, periodoInicial: periodoIni, decisao: rotuloEsc, manterPlanoAtual: manter,
+  geradoEmMs: agoraMs, semana, data: hoje, previsaoId: (d0.decisao as any).previsaoId ?? (bruto.q_dec[0] as any).previsao_id, periodoInicial: periodoIni, decisao: rotuloEsc, recomendacao: rotuloEsc, manterPlanoAtual: manter, ganhoLucro, limiarMaterialidade: limiar,
   hashPlanoAtualT1T3: hashLinhas(hojeProposta(atualFut)),
   linhas: hojeProposta(escolhida).map((a) => ({ ...a, mudou: posto(atualPorChave.get(`${slotDe(a)}|${a.funcionarioId}`)) !== posto(a) })),
   linhasAtuais: hojeProposta(atualFut),
