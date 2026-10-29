@@ -7,6 +7,11 @@ export interface ProdutividadePool { chave: string; nominal: Record<string, numb
 
 export function aplicarProdutividade(entrada: EntradaEscala, opcoes: OpcoesFluxo, agoraMs: number): { entrada: EntradaEscala; pools: ProdutividadePool[] } {
   const prov = opcoes.produtividade;
+  if (!prov && opcoes.produtividadeBase === "nominal" && opcoes.fatoresEmbutidos) {
+    // base NOMINAL: remove o f embutido nas metas (a decisão usa a produtividade nominal)
+    const f = opcoes.fatoresEmbutidos;
+    return { entrada: { ...entrada, pools: entrada.pools.map((p) => { const k = chavePool(p.produtoId, p.etapaId); const fk = f[k] ?? 1; return fk > 0 && fk !== 1 ? { ...p, metas: Object.fromEntries(Object.entries(p.metas).map(([per, v]) => [per, v / fk])) } : p; }) }, pools: [] };
+  }
   if (!prov) return { entrada, pools: [] };
   const info: ProdutividadePool[] = [];
   const pools = entrada.pools.map((p) => {
@@ -16,7 +21,7 @@ export function aplicarProdutividade(entrada: EntradaEscala, opcoes: OpcoesFluxo
     Object.keys(p.metas).forEach((per) => {
       const rs: ProdutividadeEsperada[] = [];
       p.maquinasIds.forEach((m) => {
-        const r = prov({ produtoId: p.produtoId, etapaId: p.etapaId, maquinaId: m, periodoId: per, agoraMs, metaNominal: p.metas[per] });
+        const r = prov!({ produtoId: p.produtoId, etapaId: p.etapaId, maquinaId: m, periodoId: per, agoraMs, metaNominal: p.metas[per] });
         if (r && Number.isFinite(r.pecasPorPeriodo) && Number.isFinite(r.fator) && r.pecasPorPeriodo >= 0 && r.fator >= 0) { rs.push(r); fontes.add(r.fonte); amostra = Math.min(amostra, r.amostra); }
       });
       metas[per] = rs.length === p.maquinasIds.length && rs.length > 0 ? rs.reduce((s, r) => s + r.pecasPorPeriodo * r.fator, 0) / rs.length : p.metas[per];

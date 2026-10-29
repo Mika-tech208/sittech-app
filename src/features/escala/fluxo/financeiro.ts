@@ -11,7 +11,7 @@ export const objetivoFinanceiro = (o: OpcoesFluxo) => o.objetivo === "financeiro
 export function valorEconomicoUnitario(o: OpcoesFluxo, produtoId: string, precoCongelado: number): { valor: number; nivel: "receita" | "margem"; fonte: string } {
   if (o.objetivo === "margem" && o.margem) {
     const m = o.margem(produtoId, o.semanaInicio ?? "");
-    if (m && m.confiavel && m.valor !== null && Number.isFinite(m.valor)) return { valor: Math.max(0, m.valor), nivel: "margem", fonte: m.fonte };
+    if (m && m.confiavel && m.valor !== null && Number.isFinite(m.valor)) return { valor: Math.max(0, m.valor), nivel: m.natureza === "receita" ? "receita" : "margem", fonte: m.fonte };
     return { valor: Math.max(0, precoCongelado), nivel: "receita", fonte: `receita marginal (margem indisponível: ${m?.fonte ?? "sem provedor"})` };
   }
   return { valor: Math.max(0, precoCongelado), nivel: "receita", fonte: "preço congelado da Previsão (receita marginal)" };

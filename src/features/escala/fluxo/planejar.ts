@@ -13,12 +13,14 @@ import { hashAlocacoes } from "../horizonte";
 import { chavePool, type AlocacaoEscala, type EntradaEscala, type ResultadoEscala } from "../types";
 import { avaliarComCtx } from "./avaliar";
 import { aplicarProdutividade } from "./produtividade";
+import { precoDoGrupo, objetivoFinanceiro } from "./financeiro";
+import { analisarCapacidade } from "./capacidade";
 import { contagensDoPlano, tabelaMarginal, varrerContagens, varrerContagensPreservando, type Contagens } from "./otimizar";
 import { montarEstado, prepararFluxo, type CtxFluxo, type OpcoesInternas } from "./estado";
 import { explicarMudanca } from "./explicar";
 import { verificarRestricoesDuras } from "./restricoes";
 import {
-  VERSAO_FLUXO, type AntesFluxo, type DiagnosticoAtingibilidade, type DiagnosticoFinanceiro, type PostoMinimoSlot, type VariacaoProduto, type AvaliacaoPlano, type ChurnFluxo, type DadosProducaoReal, type DecisaoFluxo, type DepoisFluxo, type ResumoDecisao, type DiagnosticoFluxo, type DiagnosticoItem,
+  VERSAO_FLUXO, type AntesFluxo, type DiagnosticoAtingibilidade, type DiagnosticoFinanceiro, type DiagnosticoEconomia, type PostoMinimoSlot, type VariacaoProduto, type AvaliacaoPlano, type ChurnFluxo, type DadosProducaoReal, type DecisaoFluxo, type DepoisFluxo, type ResumoDecisao, type DiagnosticoFluxo, type DiagnosticoItem,
   type EstabilizacaoPessoas, type IteracaoFluxo, type PlanoEscolhido, type PostoRef, type ReconciliacaoGanho, type ResultadoFluxo, type SituacaoVigente, type TuplaObjetivo, type ViolacaoDura,
 } from "./tipos";
 
@@ -256,6 +258,22 @@ export function planejarComFluxo(entradaOriginal: EntradaEscala, dados: DadosPro
     }
   }
 
+  // Atingibilidade COM limite econômico: o melhor plano PURAMENTE econômico (sem reservar postos) também é candidato; os planos que preservam a atingibilidade só vencem se o custo
+  // de oportunidade em R$ não superar k × o valor recuperado (ver `limiteEconomico`).
+  const economico = preservar && ponderar;
+  if (economico) {
+    let contE = contagensDoPlano(ctx, p0.resultado.alocacoes);
+    for (let i = 1; i <= maxIt; i++) {
+      const varredura = varrerContagens(ctx, contE, estado.remPorPool);
+      contE = varredura.contagens;
+      const cand = gerar(20 + i, { ordemPostos: { valorMarginal: tabelaMarginal(ctx, contE, estado.remPorPool) }, bonusContinuidade: bonusDoPlanoVigente(ctx, theta) });
+      const repetido = hashes.has(cand.hash);
+      hashes.add(cand.hash);
+      if (!repetido) candidatos.push(cand);
+      if (repetido || varredura.slotsAlterados === 0) break;
+    }
+  }
+
   // ---- escolha: menor J entre os ELEGÍVEIS. Elegível = 0 violação dura E falta final nunca pior que a do plano base NEM a do plano vigente VÁLIDO (mesmo simulador) ----
   const faltaDe = (c: Candidato) => (ponderar ? c.aval.totais.faltaPonderada : c.aval.totais.faltaFinalLo); // R$ no objetivo financeiro
   const faltaRef = Math.min(faltaDe(baseC), vigC ? faltaDe(vigC) : Number.POSITIVE_INFINITY, vigReC ? faltaDe(vigReC) : Number.POSITIVE_INFINITY);
@@ -264,8 +282,34 @@ export function planejarComFluxo(entradaOriginal: EntradaEscala, dados: DadosPro
   const t1 = (c: Candidato): [number, number] => (preservar && c.aval.atingibilidade ? [c.aval.atingibilidade.atingiveisPerdidas, c.aval.atingibilidade.deficitRelativo] : [0, 0]);
   const t1Ref: [number, number] = [baseC, ...(vigC ? [vigC] : []), ...(vigReC ? [vigReC] : [])].map(t1).reduce((m, x) => (x[0] < m[0] - 0.5 || (Math.abs(x[0] - m[0]) <= 0.5 && x[1] < m[1] - 1e-6) ? x : m));
   const t1Pior = (a: [number, number], b: [number, number]) => a[0] > b[0] + 0.5 || (Math.abs(a[0] - b[0]) <= 0.5 && a[1] > b[1] + 1e-6);
+  // ---- LIMITE ECONÔMICO da atingibilidade (objetivo econômico + atingibilidade ativa) ----
+  // A = melhor plano puramente econômico (menor falta em R$). Um plano c que preserva MAIS metas atingíveis que A só é candidato se
+  //   custo(c) = falta_R$(c) − falta_R$(A)  ≤  k × valorRecuperado(c) = k × Σ_g (falta evitável_A,g − falta evitável_c,g) × valor_g   (metas atingíveis).
+  const kEco = ctx.opcoes.atingibilidadeK ?? 2;
+  const todos: Candidato[] = [...(vigC ? [vigC] : []), ...(vigReC ? [vigReC] : []), baseC, ...candidatos];
+  let melhorEco: Candidato | null = null;
+  if (economico) {
+    todos.filter((c) => c.violacoes.length === 0).forEach((c) => {
+      if (melhorEco === null) melhorEco = c;
+      else {
+        const d = faltaDe(c) - faltaDe(melhorEco);
+        if (d < -EPS_FALTA || (Math.abs(d) <= EPS_FALTA && compararTuplas(c.tupla, (melhorEco as Candidato).tupla) < 0)) melhorEco = c;
+      }
+    });
+  }
+  const precoG = ctx.grafo.grupos.map((_, i) => precoDoGrupo(ctx, i, true));
+  const limiteDe = (c: Candidato) => {
+    const A = melhorEco as Candidato;
+    const custo = Math.max(0, faltaDe(c) - faltaDe(A));
+    const gA = A.aval.atingibilidade?.grupos ?? [];
+    const gC = c.aval.atingibilidade?.grupos ?? [];
+    const valorRec = gA.reduce((sum, g, i) => sum + (g.atingivel ? Math.max(0, g.faltaEvitavel - (gC[i]?.faltaEvitavel ?? g.faltaEvitavel)) * precoG[i] : 0), 0);
+    const melhorT1 = t1Pior(t1(A), t1(c));
+    return { custo, valorRec, razao: valorRec > 1e-9 ? custo / valorRec : null, justificado: melhorT1 && custo <= kEco * valorRec + 1e-9 };
+  };
   const elegivel = (c: Candidato) => {
     if (c.violacoes.length > 0) return false;
+    if (economico && melhorEco !== null) return c === melhorEco || limiteDe(c).justificado;
     if (!preservar) return faltaDe(c) <= faltaRef + EPS_FALTA;
     if (t1Pior(t1(c), t1Ref)) return false;
     return faltaDe(c) <= faltaRef + EPS_FALTA || t1Pior(t1Ref, t1(c));
@@ -276,7 +320,7 @@ export function planejarComFluxo(entradaOriginal: EntradaEscala, dados: DadosPro
     }
   });
   // ordem de desempate (primeiro vence): vigente (zero churn) > base > fluxo — só se troca por candidato ESTRITAMENTE melhor pela tupla
-  const ordem: Candidato[] = [...(vigC ? [vigC] : []), ...(vigReC ? [vigReC] : []), baseC, ...candidatos];
+  const ordem: Candidato[] = todos;
   let escolhido: Candidato | null = null;
   ordem.filter(elegivel).forEach((c) => {
     if (escolhido === null || compararTuplas(c.tupla, (escolhido as Candidato).tupla) < 0) escolhido = c;
@@ -325,10 +369,12 @@ export function planejarComFluxo(entradaOriginal: EntradaEscala, dados: DadosPro
 
   // ---- atingibilidade (só com preservarAtingibilidade): metas atingíveis/inatingíveis do plano de referência e do escolhido + postos mínimos por período ----
   let atingibilidade: DiagnosticoAtingibilidade | undefined;
+  let minimosPorNo: Record<string, number[]> | undefined;
   if (avFluxo.atingibilidade) {
     const ref = (avVig ?? avBase).atingibilidade ?? avFluxo.atingibilidade;
     const cntPlano = contagensDoPlano(ctx, resultado.alocacoes);
     const varMin = varrerContagensPreservando(ctx, cntPlano, limitesFinal ?? {}, true);
+    minimosPorNo = varMin.minimos;
     const postosMinimos: PostoMinimoSlot[] = varMin.preservacao.map((x) => ({
       slot: x.slot, data: ctx.entrada.slots[x.slot].data, periodoId: ctx.entrada.slots[x.slot].periodoId, grupo: x.grupo, alvo: r3(x.alvo), meta: r3(x.meta), atingivel: x.atingivel,
       producaoObrigatoria: r3(x.producaoObrigatoria), minimos: x.minimos, noPlano: Object.fromEntries(Object.keys(x.minimos).map((n) => [n, cntPlano[n]?.[x.slot] ?? 0])), atendido: x.atendido,
@@ -365,6 +411,33 @@ export function planejarComFluxo(entradaOriginal: EntradaEscala, dados: DadosPro
     });
   }
 
+  // ---- economia: capacidade física/saturação por etapa, valor marginal, custo de oportunidade por decisão e limite econômico da atingibilidade ----
+  let economia: DiagnosticoEconomia | undefined;
+  if (objetivoFinanceiro(ctx.opcoes) || avFluxo.atingibilidade) {
+    const an = analisarCapacidade(ctx, resultado.alocacoes, minimosPorNo, limitesFinal);
+    const ate = ctx.aPartirDe + Math.max(1, ctx.opcoes.economiaSlots ?? 6);
+    const nivel = avFluxo.financeiro?.produtos.some((p) => p.nivelValor === "margem") ? "margem" : "receita";
+    const limiteEconomico = economico && melhorEco !== null
+      ? {
+          k: kEco, referencia: (melhorEco as Candidato).indice,
+          candidatos: todos.filter((c) => c.violacoes.length === 0 && c !== melhorEco && t1Pior(t1(melhorEco as Candidato), t1(c))).map((c) => {
+            const l = limiteDe(c);
+            return { indice: c.indice, atingiveisPerdidas: c.aval.atingibilidade?.atingiveisPerdidas ?? 0, custoRs: r3(l.custo), valorRecuperadoRs: r3(l.valorRec), razao: l.razao === null ? null : r3(l.razao), justificado: l.justificado };
+          }),
+        }
+      : undefined;
+    economia = { nivel, capacidade: an.capacidade.filter((x) => x.slot < ate), decisoes: an.decisoes.filter((x) => x.slot < ate), ...(limiteEconomico ? { limiteEconomico } : {}) };
+    an.capacidade.filter((x) => x.slot === ctx.aPartirDe && x.diagnostico !== "OK").forEach((x) => {
+      if (x.diagnostico === "OK") return;
+      diag.push({ codigo: x.diagnostico, severidade: "info", produtoId: x.produtoId, etapaId: x.etapaId, slot: x.slot, mensagem: `${x.diagnostico}: ${x.postosOcupados}/${x.postosMaximos} posto(s), valor marginal de mais uma pessoa R$ ${x.valorMarginalAdicionar}`, detalhes: { postosOcupados: x.postosOcupados, postosMaximos: x.postosMaximos, valorMarginalAdicionar: x.valorMarginalAdicionar } });
+    });
+    if (limiteEconomico && !limiteEconomico.candidatos.some((c) => c.justificado && c.indice === final.indice)) {
+      const rec = limiteEconomico.candidatos.filter((c) => !c.justificado).sort((a, b) => a.atingiveisPerdidas - b.atingiveisPerdidas || (a.razao ?? 0) - (b.razao ?? 0))[0];
+      if (rec) diag.push({ codigo: "ATINGIBILIDADE_NAO_PRESERVADA_CUSTO", severidade: "aviso", mensagem: `Meta atingível NÃO preservada: custo de oportunidade R$ ${rec.custoRs} > ${kEco} × valor recuperado R$ ${rec.valorRecuperadoRs} (razão ${rec.razao ?? "∞"})`, detalhes: { k: kEco, custoRs: rec.custoRs, valorRecuperadoRs: rec.valorRecuperadoRs, razao: rec.razao } });
+    }
+    if (ctx.opcoes.objetivo === "margem" && nivel === "receita") diag.push({ codigo: "MARGEM_INDISPONIVEL", severidade: "aviso", mensagem: "Objetivo margem sem margem confiável: decidindo por RECEITA marginal (não é lucro)", detalhes: {} });
+  }
+
   const iteracoes: IteracaoFluxo[] = [
     ...(vigC ? [{ indice: -2, tupla: vigC.tupla.map(r3), faltaFinalLo: vigC.aval.totais.faltaFinalLo, violacoes: 0, escolhida: final.indice === -2, hashPlano: vigC.hash }] : []),
     ...(vigReC ? [{ indice: -3, tupla: vigReC.tupla.map(r3), faltaFinalLo: vigReC.aval.totais.faltaFinalLo, violacoes: 0, escolhida: final.indice === -3, hashPlano: vigReC.hash }] : []),
@@ -388,7 +461,7 @@ export function planejarComFluxo(entradaOriginal: EntradaEscala, dados: DadosPro
     excessoWip: a.totais.excessoWip,
   });
   const diagnostico: DiagnosticoFluxo = {
-    versao: VERSAO_FLUXO, ...(atingibilidade ? { atingibilidade } : {}), ...(financeiro ? { financeiro } : {}), planoEscolhido, referencia, vigente, estabilizacao: estab, reconciliacao: expl.reconciliacao, iteracaoEscolhida: usaFluxo ? final.indice : null, theta, antes,
+    versao: VERSAO_FLUXO, ...(economia ? { economia } : {}), ...(atingibilidade ? { atingibilidade } : {}), ...(financeiro ? { financeiro } : {}), planoEscolhido, referencia, vigente, estabilizacao: estab, reconciliacao: expl.reconciliacao, iteracaoEscolhida: usaFluxo ? final.indice : null, theta, antes,
     decisoes, decisoesTotal: todasDecisoes.length, resumoDecisoes: expl.resumo,
     depois: dep(avFluxo), depoisBase: dep(avBase), depoisVigente: avVig ? dep(avVig) : null, churn, iteracoes, violacoes, estado, avaliacaoBase: avBase, avaliacaoFluxo: avFluxo, diagnosticos: diag,
   };

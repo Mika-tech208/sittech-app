@@ -111,8 +111,12 @@ export interface OpcoesFluxo {
   objetivo?: "pecas" | "financeiro" | "receita" | "margem";
   /** Provedor de PRODUTIVIDADE esperada por produto×etapa×máquina×período (default: meta nominal × f do pool, como hoje). Substitui as metas do pool (média das máquinas selecionadas); não combinar com `fatoresEmbutidos`. */
   produtividade?: ProdutividadeProvider;
+  /** Base da produtividade usada na decisão: "real" (padrão; metas × f, como hoje) ou "nominal" (metas sem f). A ordem de receita/h entre produtos muda com a base. */
+  produtividadeBase?: "nominal" | "real";
   /** Provedor de MARGEM de contribuição unitária (objetivo "margem"). Indisponível/não confiável ⇒ cai para RECEITA ("receita marginal", nunca "lucro"). Custo fixo nunca é rateado. */
   margem?: MargemProvider;
+  /** Quantos períodos (a partir do primeiro mutável) o diagnóstico `economia` detalha (capacidade por etapa e decisões). Default 6. */
+  economiaSlots?: number;
   /** Semana (segunda ISO) para o MargemProvider. */
   semanaInicio?: string;
   /** k do limite econômico da atingibilidade: preservar uma meta atingível só se custo de oportunidade (R$ da semana) ≤ k × valor recuperado (R$). Default 2. */
@@ -124,7 +128,8 @@ export interface OpcoesFluxo {
 export interface ProdutividadeEsperada { pecasPorPeriodo: number; fator: number; fonte: string; amostra: number }
 /** (produto, etapa, máquina, agora[, período]) → produtividade esperada REAL (pecasPorPeriodo × fator = peças esperadas no período). null ⇒ usa a meta nominal do pool. */
 export type ProdutividadeProvider = (a: { produtoId: string; etapaId: string; maquinaId: string; periodoId: string; agoraMs: number; metaNominal: number }) => ProdutividadeEsperada | null;
-export interface MargemUnitaria { valor: number | null; fonte: string; confiavel: boolean }
+/** valor = preço − (custo variável ?? 0). Sem custo variável confiável a natureza é "receita" (rótulos "receita marginal", nunca "lucro"/"margem"). */
+export interface MargemUnitaria { valor: number | null; natureza?: "receita" | "contribuicao"; fonte: string; confiavel: boolean; versao?: string }
 export type MargemProvider = (produtoId: string, semanaInicio: string) => MargemUnitaria;
 
 export interface LigacaoProdutos {
@@ -579,6 +584,63 @@ export interface EstabilizacaoPessoas {
   motivoDescarte: string | null;
 }
 
+export type DiagnosticoCapacidade = "OK" | "SATURADO_POR_POSTO" | "GARGALO_PESSOA" | "GARGALO_WIP_MATERIAL" | "GARGALO_DOWNSTREAM";
+
+/** Capacidade física de UMA etapa (nó) num período. CAP_ETAPA = min(capacidade de máquinas, capacidade humana elegível, material/WIP, capacidade útil p/ downstream). */
+export interface CapacidadeEtapaSlot {
+  slot: number;
+  data: string;
+  periodoId: string;
+  no: string; // chave do pool representante
+  produtoId: string;
+  etapaId: string;
+  postosMaximos: number; // máquinas SELECIONADAS na Previsão, disponíveis (Paradas/bloqueios descontados)
+  postosOcupados: number; // no plano avaliado
+  postosDisponiveis: number;
+  postosMinimos: number; // para preservar a atingibilidade (0 se a meta é inatingível: não reserva postos)
+  pessoasElegiveis: number; // pessoas presentes no período (ausências descontadas; o revezamento por bloco é hard no motor)
+  pessoasLivres: number; // pessoas presentes − postos ocupados no período (todas as etapas)
+  produtividadeNominal: number; // peças/período por posto (meta nominal do pool)
+  produtividadeEsperada: number; // peças/período por posto usadas pelo núcleo (meta × f ou provedor)
+  receitaPorHoraPosto: number; // R$/h por posto = valor econômico unitário × produtividade esperada ÷ horas do período
+  capMaquinas: number; // postosMaximos × produtividade
+  capHumana: number; // min(postosMaximos, pessoasElegiveis) × produtividade
+  capEtapa: number; // min(capHumana, o que a etapa realmente produz com todos os postos: material/WIP e downstream)
+  producaoPlano: number; // produção da etapa no plano (cenário pessimista)
+  valorMarginalAdicionar: number; // R$ finais adicionais até o fim da semana por MAIS uma pessoa aqui (0 se saturado)
+  valorMarginalUltimo: number; // R$ finais que o último posto ocupado gera
+  diagnostico: DiagnosticoCapacidade;
+}
+
+/** "Pessoa X → posto Y porque: há posto, há material, downstream absorve, produtividade esperada N, receita marginal R$ A, alternativa seguinte R$ B, ganho líquido R$ C". */
+export interface DecisaoEconomica {
+  slot: number;
+  data: string;
+  periodoId: string;
+  funcionarioId: string;
+  maquinaId: string;
+  no: string;
+  produtoId: string;
+  etapaId: string;
+  ordemPosto: number; // k-ésimo posto da etapa no período
+  postosMaximos: number;
+  produtividadeEsperada: number;
+  receitaMarginal: number; // R$ (valor econômico) do k-ésimo posto até o fim da semana
+  alternativa: { no: string | null; valor: number }; // melhor posto livre alternativo no período
+  ganhoLiquido: number; // receitaMarginal − alternativa (custo de oportunidade)
+  haMaterial: boolean;
+  downstreamAbsorve: boolean;
+  texto: string;
+}
+
+export interface DiagnosticoEconomia {
+  nivel: "receita" | "margem";
+  capacidade: CapacidadeEtapaSlot[];
+  decisoes: DecisaoEconomica[];
+  /** Avaliação do limite econômico da atingibilidade (objetivo financeiro + atingibilidade ativa): por candidato, custo × valor recuperado. */
+  limiteEconomico?: { k: number; referencia: number; candidatos: { indice: number; atingiveisPerdidas: number; custoRs: number; valorRecuperadoRs: number; razao: number | null; justificado: boolean }[] };
+}
+
 /** Postos mínimos de preservação da atingibilidade num período (tier 1), por nó (chave do pool representante). */
 export interface PostoMinimoSlot {
   slot: number;
@@ -617,6 +679,8 @@ export interface DiagnosticoFinanceiro {
 
 export interface DiagnosticoFluxo {
   versao: number;
+  /** Só com objetivo econômico ou atingibilidade sombra/ativo. */
+  economia?: DiagnosticoEconomia;
   /** Só com objetivo financeiro ou atingibilidade sombra/ativo. */
   financeiro?: DiagnosticoFinanceiro;
   /** Só com `preservarAtingibilidade`. */
