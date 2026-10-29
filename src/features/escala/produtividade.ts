@@ -118,7 +118,7 @@ export interface ProdutividadeEsperada {
 const MIN_MS = 60_000;
 const DIA_MS = 86_400_000;
 
-interface Razao { r: number; w: number; ordem: number; parcial: boolean; meta: number; ts: number }
+interface Razao { r: number; w: number; ordem: number; parcial: boolean; meta: number; ts: number; per: string }
 
 function mediana(v: number[], w?: number[]): number {
   if (v.length === 0) return NaN;
@@ -300,4 +300,53 @@ export function fatorPorPoolDosPostos(porPosto: Record<string, ProdutividadeEspe
   const out: Record<string, number> = {};
   Object.entries(acum).forEach(([k, a]) => { out[k] = a.w > 0 ? a.s / a.w : 1; });
   return out;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// INTERFACE PARA O MOTOR (proposta; nada daqui é chamado pelo motor ainda) — docs/escala-produtividade-esperada.md §6
+// ---------------------------------------------------------------------------------------------------------------------------------
+export interface PoolParaProdutividade { produtoId: string; etapaId: string; operacaoId?: string | null; maquinasIds: string[] }
+export interface FatoresMotor {
+  /** pool "produto|etapa" → fator médio (neutro ao período). DROP-IN no lugar de `fatoresDeDesempenho` (mesma forma: só pools com fator ≠ 1). */
+  porPool: Record<string, number>;
+  /** pool → periodoId → fator do pool NAQUELE período do dia (inclui o índice do período). Embutível em `pool.metas[periodoId]` sem mexer no núcleo. */
+  porPoolPeriodo: Record<string, Record<string, number>>;
+  /** "produto|etapa|maquina" → fator do posto ÷ fator do pool (≈ 1). Aplicado por linha (fase 2); postos sem histórico = 1. */
+  residualPosto: Record<string, number>;
+  /** estimativa completa por posto (diagnóstico/explicação). */
+  postos: Record<string, ProdutividadeEsperada>;
+}
+
+/** Agrega o fator por posto em pool/período/resíduo para o motor. Pool = média dos postos OBSERVADOS (amostra ≥ mínimo) ponderada por n; sem posto observado ⇒ 1. */
+export function fatoresParaMotor(historico: ObsProdutividade[], pools: PoolParaProdutividade[], periodos: string[], agora: number, opcoes: Partial<OpcoesProdutividade> = {}): FatoresMotor {
+  const o: OpcoesProdutividade = { ...PRODUTIVIDADE_PADRAO, ...opcoes };
+  const indice = o.ajustePeriodo ? o.indicePeriodo ?? indicePorPeriodoDoDia(historico, agora, o) : undefined;
+  const out: FatoresMotor = { porPool: {}, porPoolPeriodo: {}, residualPosto: {}, postos: {} };
+  const media = (xs: { f: number; w: number }[]) => (xs.length > 0 ? xs.reduce((s, x) => s + x.f * x.w, 0) / xs.reduce((s, x) => s + x.w, 0) : 1);
+  pools.forEach((p) => {
+    const kp = `${p.produtoId}|${p.etapaId}`;
+    const base: Partial<OpcoesProdutividade> = { ...opcoes, operacaoId: p.operacaoId ?? opcoes.operacaoId, ...(indice ? { indicePeriodo: indice } : {}) };
+    // neutro ao período (periodoId ausente ⇒ índice 1)
+    const neutros = p.maquinasIds.map((m) => ({ m, e: produtividadeEsperada(historico, p.produtoId, p.etapaId, m, agora, { ...base, periodoId: undefined }) }));
+    neutros.forEach(({ m, e }) => { out.postos[`${kp}|${m}`] = e; });
+    const obs = neutros.filter(({ e }) => e.fonte !== "nominal").map(({ e }) => ({ f: e.fator, w: e.amostra }));
+    const fPool = media(obs);
+    if (Math.abs(fPool - 1) > 1e-9) out.porPool[kp] = fPool;
+    neutros.forEach(({ m, e }) => { out.residualPosto[`${kp}|${m}`] = e.fonte === "nominal" || fPool <= 0 ? 1 : e.fator / fPool; });
+    out.porPoolPeriodo[kp] = {};
+    periodos.forEach((per) => {
+      const xs = p.maquinasIds.map((m) => produtividadeEsperada(historico, p.produtoId, p.etapaId, m, agora, { ...base, periodoId: per })).filter((e) => e.fonte !== "nominal").map((e) => ({ f: e.fator, w: e.amostra }));
+      out.porPoolPeriodo[kp][per] = media(xs);
+    });
+  });
+  return out;
+}
+
+/** Aplica `porPoolPeriodo` às metas dos pools (nova cópia; mesmo efeito de `embutirFatores`, mas por período do dia). Pools sem fator ficam intactos. */
+export function embutirFatoresPorPeriodo<T extends { produtoId: string; etapaId: string; metas: Record<string, number> }>(pools: T[], porPoolPeriodo: FatoresMotor["porPoolPeriodo"]): T[] {
+  return pools.map((p) => {
+    const f = porPoolPeriodo[`${p.produtoId}|${p.etapaId}`];
+    if (!f) return p;
+    return { ...p, metas: Object.fromEntries(Object.entries(p.metas).map(([per, m]) => [per, m * (f[per] ?? 1)])) };
+  });
 }

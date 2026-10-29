@@ -5,7 +5,7 @@
 // Protocolo: para cada observação de cada posto (produto×etapa×máquina), prediz a razão real/meta usando SÓ o que foi lançado antes dela.
 // Treino = alvos até 2026-10-07; teste = alvos a partir de 2026-10-08 (a escolha de parâmetros usa só o treino).
 import { readFileSync } from "node:fs";
-import { PRODUTIVIDADE_PADRAO, indicePorPeriodoDoDia, produtividadeEsperada, type ObsProdutividade, type OpcoesProdutividade } from "../../src/features/escala/produtividade";
+import { indicePorPeriodoDoDia, produtividadeEsperada, type ObsProdutividade, type OpcoesProdutividade } from "../../src/features/escala/produtividade";
 import { fatorDesempenho } from "../../src/features/escala/desempenho";
 
 type Linha = Record<string, string | null>;
@@ -22,7 +22,6 @@ export function carregar(path: string): ObsProdutividade[] {
 
 const DIV = "2026-10-08";
 const media = (v: number[]) => (v.length ? v.reduce((s, x) => s + x, 0) / v.length : NaN);
-const mediana = (v: number[]) => { const s = [...v].sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : NaN; };
 const f3 = (x: number) => x.toFixed(3);
 
 interface Alvo { postoKey: string; poolKey: string; i: number; obs: ObsProdutividade; real: number; parcial: boolean; hist: ObsProdutividade[]; agora: number; proximos: number[]; proxPer: string[] }
@@ -79,7 +78,7 @@ function grade(todas: ObsProdutividade[]) {
   base("(b) f atual de PROD (pool, semana corrente)", (a) => fAtual(todas, a));
   base("(b2) f acumulado (pool, todo o histórico)", (a) => fAtual(todas, a, true));
   base("(d) média móvel simples posto (sem shrink)", (a) => { const r = produtividadeEsperada(a.hist, a.obs.produtoId as string, a.obs.etapaId as string, a.obs.maquinaId as string, a.agora, { operacaoId: a.obs.operacaoId, meiaVida: Infinity, k: 0, c: Infinity, parcial: "incluir", prior: "nominal", idadeMaximaDias: null, amostraMinima: 1 }); return r.diagnostico.nivelBruto ?? 1; });
-  base("(e) última observação do posto", (a) => { const h = todas.filter((x) => x.status === "produzindo" && x.meta > 0 && x.postoKey === undefined && x.produtoId === a.obs.produtoId && x.operacaoId === a.obs.operacaoId && x.maquinaId === a.obs.maquinaId && x.lancadoEmMs <= a.agora).sort((x, y) => y.lancadoEmMs - x.lancadoEmMs)[0]; return h ? h.boas / h.meta : 1; });
+  base("(e) última observação do posto", (a) => { const h = todas.filter((x) => x.status === "produzindo" && x.meta > 0 && x.produtoId === a.obs.produtoId && x.operacaoId === a.obs.operacaoId && x.maquinaId === a.obs.maquinaId && x.lancadoEmMs <= a.agora).sort((x, y) => y.lancadoEmMs - x.lancadoEmMs)[0]; return h ? h.boas / h.meta : 1; });
   const passo = (o: Partial<OpcoesProdutividade>) => (a: Alvo) => produtividadeEsperada(a.hist, a.obs.produtoId as string, a.obs.etapaId as string, a.obs.maquinaId as string, a.agora, { operacaoId: a.obs.operacaoId, ...o }).fator;
   base("(c) estimador PADRÃO", passo({}));
 

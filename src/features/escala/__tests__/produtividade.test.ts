@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fatorPorPoolDosPostos, indicePorPeriodoDoDia, produtividadeEsperada, produtividadePorPosto, type ObsProdutividade } from "../produtividade";
+import { embutirFatoresPorPeriodo, fatorPorPoolDosPostos, fatoresParaMotor, indicePorPeriodoDoDia, produtividadeEsperada, produtividadePorPosto, type ObsProdutividade } from "../produtividade";
 
 const T0 = Date.parse("2026-10-05T07:12:00-03:00");
 const PER = 90 * 60_000;
@@ -161,5 +161,33 @@ describe("ajuste por período do dia", () => {
     expect(f("t3").diagnostico.indicePeriodoAplicado).toBeLessThan(1);
     expect(f(undefined).diagnostico.indicePeriodoAplicado).toBe(1);
     expect(produtividadeEsperada(h, "P", "E", "M1", agora, { periodoId: "t3", ajustePeriodo: false, prior: "nominal" }).diagnostico.indicePeriodoAplicado).toBe(1);
+  });
+});
+
+describe("interface para o motor", () => {
+  const h = [
+    ...serie(30, 1).map((o) => ({ ...o, periodoId: "m1" })),
+    ...serie(30, 0.8).map((o) => ({ ...o, maquinaId: "M2", periodoId: "m1" })),
+  ];
+  const pools = [{ produtoId: "P", etapaId: "E", maquinasIds: ["M1", "M2", "M3"] }];
+  const agora = agoraApos(29);
+  it("pool = média dos postos observados; resíduo = posto ÷ pool; posto sem histórico = 1", () => {
+    const f = fatoresParaMotor(h, pools, ["m1", "t3"], agora, { prior: "nominal", ajustePeriodo: false });
+    expect(f.porPool["P|E"]).toBeGreaterThan(0.8); expect(f.porPool["P|E"]).toBeLessThan(1);
+    expect(f.residualPosto["P|E|M3"]).toBe(1);
+    expect(f.residualPosto["P|E|M1"]).toBeGreaterThan(1); expect(f.residualPosto["P|E|M2"]).toBeLessThan(1);
+    expect(f.residualPosto["P|E|M1"] * f.porPool["P|E"]).toBeCloseTo(f.postos["P|E|M1"].fator, 9);
+    expect(Object.keys(f.postos).sort()).toEqual(["P|E|M1", "P|E|M2", "P|E|M3"]);
+  });
+  it("sem histórico algum: porPool vazio (forma idêntica a fatoresDeDesempenho) e metas intactas", () => {
+    const f = fatoresParaMotor([], pools, ["m1"], agora);
+    expect(f.porPool).toEqual({});
+    const metas = [{ produtoId: "P", etapaId: "E", metas: { m1: 1000 } }];
+    expect(embutirFatoresPorPeriodo(metas, { "P|E": { m1: 1 } })[0].metas.m1).toBe(1000);
+  });
+  it("embutirFatoresPorPeriodo multiplica meta de cada período e não muta a entrada", () => {
+    const metas = [{ produtoId: "P", etapaId: "E", metas: { m1: 1000, t3: 1000 } }];
+    const r = embutirFatoresPorPeriodo(metas, { "P|E": { m1: 1.02, t3: 0.9 } });
+    expect(r[0].metas).toEqual({ m1: 1020, t3: 900 }); expect(metas[0].metas.t3).toBe(1000);
   });
 });
