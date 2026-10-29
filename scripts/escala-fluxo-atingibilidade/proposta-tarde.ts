@@ -5,6 +5,7 @@
 // Uso (veja o README):  ts.sh scripts/escala-fluxo-atingibilidade/proposta-tarde.ts [--agora ISO] [--data 2026-10-29] [--periodo-inicial t1]
 //        [--contagem "Caixa:Etiquetar>Montar=2500@10:24"]... [--contagens-json arq.json] [--saida arq.md] [--cache] [--tolerancia-pct 0.1] [--sem-estimador]
 import * as fs from "node:fs";
+import { hashLinhas } from "./hashProposta";
 import * as path from "node:path";
 import { buscar, carregar, CACHE, SCRATCH, type DadosCarregados } from "./carga";
 import { montarEstadoAting } from "./estadoAting";
@@ -67,6 +68,12 @@ const maquinasIndispPrev = bruto.q_live_maquinas.filter((m: any) => m.tipo === "
 // contagens físicas: as de escala_parametros + as novas (a mais recente por par vale)
 const slots = slotsDa(d0);
 const poolsSnap = snap.pools as any[];
+if (argv.includes("--listar-pares")) {
+  const prods = [...new Set(poolsSnap.map((p) => p.produtoId as string))];
+  console.log("Pares de estoque intermediário (use em --contagem \"<Produto>:<OpOrigem>><OpSeguinte>=<saldo>@HH:MM\"):");
+  prods.forEach((pid) => { const e = poolsSnap.filter((p) => p.produtoId === pid).sort((a, b) => a.ordemEtapa - b.ordemEtapa); for (let i = 0; i + 1 < e.length; i++) console.log(`  ${nome(pid)}:${nome(e[i].operacaoId)}>${nome(e[i + 1].operacaoId)}`); });
+  process.exit(0);
+}
 function resolver(spec: string): ContagemFisicaPar {
   const m = /^([^:]+):([^>]+)>([^=]+)=([\d.,]+)(?:@(?:(\d{1,2})\/(\d{1,2}) )?(\d{1,2}):(\d{2}))?$/.exec(spec.trim());
   if (!m) throw new Error(`--contagem inválida: "${spec}" (use "Produto:OpOrigem>OpSeguinte=saldo[@[dd/mm ]HH:MM]")`);
@@ -411,7 +418,16 @@ const txt = L.join("\n");
 const saida = arg("saida") ?? path.join(SCRATCH, "ating", `proposta-${hoje}-${hhmm(agoraMs).replace(":", "")}.md`);
 fs.mkdirSync(path.dirname(saida), { recursive: true });
 fs.writeFileSync(saida, txt);
-console.log(`\nARQUIVO: ${saida}\n(cache de dados: ${CACHE})\n`);
+// JSON da proposta (entrada do aplicar-proposta.ts): T1–T3 de hoje, todas as pessoas; `mudou` = difere do plano atual. Hash do plano atual (T1–T3) para a trava de desatualização.
+const hojeProposta = (l: AlocacaoEscala[]) => l.filter((a) => a.data === hoje && slotDe(a) >= idxT1 && slotDe(a) <= ultimoSlotProposta);
+const jsonSaida = saida.replace(/\.md$/, "") + ".json";
+fs.writeFileSync(jsonSaida, JSON.stringify({
+  geradoEmMs: agoraMs, semana, data: hoje, previsaoId: (d0.decisao as any).previsaoId ?? (bruto.q_dec[0] as any).previsao_id, periodoInicial: periodoIni, decisao: rotuloEsc, manterPlanoAtual: manter,
+  hashPlanoAtualT1T3: hashLinhas(hojeProposta(atualFut)),
+  linhas: hojeProposta(escolhida).map((a) => ({ ...a, mudou: posto(atualPorChave.get(`${slotDe(a)}|${a.funcionarioId}`)) !== posto(a) })),
+  linhasAtuais: hojeProposta(atualFut),
+}, null, 1));
+console.log(`\nARQUIVO: ${saida}\nJSON (para aplicar-proposta.ts): ${jsonSaida}\n(cache de dados: ${CACHE})\n`);
 console.log(`RESUMO — ${rotuloEsc}`);
 console.log(`Lucro projetado (tela): R$ ${brl(avAtual.lucro)} → R$ ${brl(avEsc.lucro)} | Receita: R$ ${brl(avAtual.receita)} → R$ ${brl(avEsc.receita)} | linhas alteradas T1–T3: ${linhasAlt}`);
 console.log(`Validação: núcleo ${vEsc.nucleo}, independente ${vEsc.indep}, bloco ${vEsc.bloco}, fora da Previsão ${vEsc.foraDaPrevisao}  |  M3 ${m3Fechado ? "fechado" : "NÃO fechado (ensaio)"}  |  tempo ${((Date.now() - T0) / 1000).toFixed(0)} s`);
