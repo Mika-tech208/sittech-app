@@ -599,7 +599,7 @@ const usadasU = new Set(unidades.flatMap((u) => u.linhas));
 const resto = dif.filter((a) => !usadasU.has(a));
 if (resto.length) unidades.push({ rot: `trocas de ocupante em postos já ocupados (${resto.length} linha(s))`, linhas: resto });
 const aplicarU = (idxs: number[]) => {
-  let plano = atualFut.map((a) => ({ ...a }));
+  const plano = atualFut.map((a) => ({ ...a }));
   const mudar = idxs.flatMap((i) => unidades[i].linhas);
   mudar.forEach((v) => { const k = plano.findIndex((x) => slotDe(x) === slotDe(v) && x.funcionarioId === v.funcionarioId); if (k >= 0) plano[k] = v; });
   return plano;
