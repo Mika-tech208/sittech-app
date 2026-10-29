@@ -48,18 +48,44 @@ describe("financeiro — R$ pelo preço congelado, não peças absolutas", () =>
     expect(pa.rsProjetadoFechamento).toBeCloseTo(pa.finalProjetado * 0.1, 1);
   });
 
-  it("mesma atingibilidade: com a meta de A atingível, o financeiro NÃO a sacrifica para B (Camada 1 antes da 2)", () => {
+  it("LIMITE ECONÔMICO da atingibilidade: meta barata cujo custo de oportunidade supera k × valor recuperado NÃO é preservada (diagnóstico explícito); com k alto é preservada", () => {
     const pools = [
-      pool({ produto: "A", etapa: "A1", op: "opA", ordem: 1, q: 4 * 1000 * 9, maquinas: ["a1", "a2", "a3", "a4"], mu: 1000, valor: 0.01 }), // barato, mas a meta cabe
-      pool({ produto: "B", etapa: "B1", op: "opB", ordem: 1, q: 900000, maquinas: ["b1", "b2", "b3", "b4"], mu: 600, valor: 0.5 }), // caro
+      pool({ produto: "A", etapa: "A1", op: "opA", ordem: 1, q: 4 * 1000 * 9, maquinas: ["a1", "a2", "a3", "a4"], mu: 1000, valor: 0.01 }), // meta atingível, mas vale só R$ 360
+      pool({ produto: "B", etapa: "B1", op: "opB", ordem: 1, q: 900000, maquinas: ["b1", "b2", "b3", "b4"], mu: 600, valor: 0.5 }), // R$ 300/posto
     ];
-    const sem = rodarObj(pools, 4, { objetivo: "financeiro" });
-    const com = rodarObj(pools, 4, { objetivo: "financeiro", atingibilidadeModo: "ativo" });
-    const gA = com.av.atingibilidade!.grupos.find((g) => g.produtos[0].produtoId === "A")!;
+    const barata = rodarObj(pools, 4, { objetivo: "financeiro", atingibilidadeModo: "ativo" }); // k = 2 (padrão)
+    const gA = barata.av.atingibilidade!.grupos.find((g) => g.produtos[0].produtoId === "A")!;
     expect(gA.atingivel).toBe(true);
-    expect(gA.status).toBe("META_ATINGIDA_PELO_PLANO");
-    expect(com.postos("A")).toBe(36);
-    expect(sem.postos("A")).toBeLessThan(36); // sem a Camada 1 o R$ sacrifica A
+    expect(gA.status).toBe("META_EM_CONFLITO"); // não preservada: custo ≈ R$ 10.800 ≫ 2 × R$ 360
+    expect(barata.r.diagnostico.diagnosticos.some((d) => d.codigo === "ATINGIBILIDADE_NAO_PRESERVADA_CUSTO")).toBe(true);
+    const lim = barata.r.diagnostico.economia!.limiteEconomico!;
+    expect(lim.k).toBe(2);
+    expect(lim.candidatos.every((c) => !c.justificado)).toBe(true);
+    expect(barata.postos("A")).toBeLessThan(36);
+    const alto = rodarObj(pools, 4, { objetivo: "financeiro", atingibilidadeModo: "ativo", atingibilidadeK: 1e6 });
+    expect(alto.av.atingibilidade!.grupos.find((g) => g.produtos[0].produtoId === "A")!.status).toBe("META_ATINGIDA_PELO_PLANO");
+    expect(alto.postos("A")).toBe(36);
+  });
+
+  it("LIMITE ECONÔMICO: meta atingível cujo valor recuperado é GRANDE perante o custo é preservada (mesma regra, outro preço)", () => {
+    const pools = [
+      pool({ produto: "A", etapa: "A1", op: "opA", ordem: 1, q: 4 * 1000 * 9, maquinas: ["a1", "a2", "a3", "a4"], mu: 1000, valor: 0.3 }), // meta vale R$ 10.800
+      pool({ produto: "B", etapa: "B1", op: "opB", ordem: 1, q: 900000, maquinas: ["b1", "b2", "b3", "b4"], mu: 1000, valor: 0.35 }), // ≈ mesmo R$ por posto
+    ];
+    const r = rodarObj(pools, 4, { objetivo: "financeiro", atingibilidadeModo: "ativo" });
+    expect(r.av.atingibilidade!.grupos.find((g) => g.produtos[0].produtoId === "A")!.status).toBe("META_ATINGIDA_PELO_PLANO");
+  });
+
+  it("A (R$ 1,00 × 100/h) < B (R$ 0,30 × 1.000/h): receita por hora decide, não preço unitário nem peças", () => {
+    const pools = [
+      pool({ produto: "A", etapa: "A1", op: "opA", ordem: 1, q: 900000, maquinas: ["a1", "a2", "a3", "a4"], mu: 100, valor: 1.0 }), // R$ 100 por posto
+      pool({ produto: "B", etapa: "B1", op: "opB", ordem: 1, q: 900000, maquinas: ["b1", "b2", "b3", "b4"], mu: 1000, valor: 0.3 }), // R$ 300 por posto
+    ];
+    const fin = rodarObj(pools, 3, { objetivo: "financeiro" });
+    expect(fin.postos("B")).toBeGreaterThan(fin.postos("A"));
+    const cap = fin.r.diagnostico.economia!.capacidade.find((c) => c.etapaId === "B1")!;
+    const capA = fin.r.diagnostico.economia!.capacidade.find((c) => c.etapaId === "A1")!;
+    expect(cap.receitaPorHoraPosto).toBeGreaterThan(capA.receitaPorHoraPosto);
   });
 
   it("produto de alto R$ SEM WIP: não gasta pessoa na etapa final sem material (nada de capacidade inventada)", () => {

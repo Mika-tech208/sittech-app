@@ -11,7 +11,7 @@ import type { CapacidadeEtapaSlot, DecisaoEconomica, DiagnosticoCapacidade } fro
 const EPS = 1e-6;
 const r2 = (x: number) => Math.round(x * 100) / 100;
 
-export function analisarCapacidade(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], minimosPorNo?: Record<string, number[]>, limites?: Record<string, number>): { capacidade: CapacidadeEtapaSlot[]; decisoes: DecisaoEconomica[] } {
+export function analisarCapacidade(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], minimosPorNo?: Record<string, number[]>, limites?: Record<string, number>, nominais?: Record<string, Record<string, number>>): { capacidade: CapacidadeEtapaSlot[]; decisoes: DecisaoEconomica[] } {
   const T = ctx.entrada.slots.length;
   const m = modelo(ctx);
   const futuras = selecionarFuturas(ctx, alocacoes);
@@ -42,7 +42,7 @@ export function analisarCapacidade(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], m
       if (pmax === 0) return;
       const mu = m.mu[n][t];
       const pools = no.membros.map((k) => ctx.poolsPorChave.get(k) as PoolEscala);
-      const nominal = Math.max(...pools.map((p) => p.metas[slot.periodoId] ?? 0), 0);
+      const nominal = Math.max(...pools.map((p) => nominais?.[chavePool(p.produtoId, p.etapaId)]?.[slot.periodoId] ?? p.metas[slot.periodoId] ?? 0), 0);
       const V = marg[String(t)]?.[n] ?? [];
       const k = ocup[n][t];
       const vAdd = k < pmax ? (V[k] ?? 0) : 0;

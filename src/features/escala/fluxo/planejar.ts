@@ -135,6 +135,8 @@ function vigenteCompleto(ctx: CtxFluxo, vig: AlocacaoEscala[]): string | null {
 
 export function planejarComFluxo(entradaOriginal: EntradaEscala, dados: DadosProducaoReal, opcoes: OpcoesInternas = {}): ResultadoFluxo {
   const entrada = aplicarProdutividade(entradaOriginal, opcoes, dados.agoraMs).entrada; // provedor de produtividade esperada (default: sem alteração)
+  // produtividade NOMINAL (meta sem f) de cada pool, para o diagnóstico de capacidade (nominal × esperada)
+  const nominais: Record<string, Record<string, number>> = Object.fromEntries(entradaOriginal.pools.map((p) => { const k = chavePool(p.produtoId, p.etapaId); const f = opcoes.fatoresEmbutidos?.[k] ?? 1; return [k, Object.fromEntries(Object.entries(p.metas).map(([per, v]) => [per, f > 0 ? v / f : v]))]; }));
   const ctx = prepararFluxo(entrada, dados, opcoes);
   const estado = montarEstado(ctx);
   const ponderar = ctx.opcoes.ponderarPorValor === true; // objetivo financeiro ⇒ falta em R$ (preço congelado), não em peças
@@ -414,7 +416,7 @@ export function planejarComFluxo(entradaOriginal: EntradaEscala, dados: DadosPro
   // ---- economia: capacidade física/saturação por etapa, valor marginal, custo de oportunidade por decisão e limite econômico da atingibilidade ----
   let economia: DiagnosticoEconomia | undefined;
   if (objetivoFinanceiro(ctx.opcoes) || avFluxo.atingibilidade) {
-    const an = analisarCapacidade(ctx, resultado.alocacoes, minimosPorNo, limitesFinal);
+    const an = analisarCapacidade(ctx, resultado.alocacoes, minimosPorNo, limitesFinal, nominais);
     const ate = ctx.aPartirDe + Math.max(1, ctx.opcoes.economiaSlots ?? 6);
     const nivel = avFluxo.financeiro?.produtos.some((p) => p.nivelValor === "margem") ? "margem" : "receita";
     const limiteEconomico = economico && melhorEco !== null
