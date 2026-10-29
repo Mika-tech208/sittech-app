@@ -284,6 +284,13 @@ export function planejarComFluxo(entradaOriginal: EntradaEscala, dados: DadosPro
   const t1 = (c: Candidato): [number, number] => (preservar && c.aval.atingibilidade ? [c.aval.atingibilidade.atingiveisPerdidas, c.aval.atingibilidade.deficitRelativo] : [0, 0]);
   const t1Ref: [number, number] = [baseC, ...(vigC ? [vigC] : []), ...(vigReC ? [vigReC] : [])].map(t1).reduce((m, x) => (x[0] < m[0] - 0.5 || (Math.abs(x[0] - m[0]) <= 0.5 && x[1] < m[1] - 1e-6) ? x : m));
   const t1Pior = (a: [number, number], b: [number, number]) => a[0] > b[0] + 0.5 || (Math.abs(a[0] - b[0]) <= 0.5 && a[1] > b[1] + 1e-6);
+  // Comparação econômica UNIFORME: todos os candidatos gerados são reavaliados SEM o `rem` explícito (como o vigente/base), para o custo em R$ não ser inflado pelo limite de geração.
+  if (economico) {
+    candidatos.forEach((c) => {
+      c.aval = avaliarComCtx(ctx, c.resultado.alocacoes, { contribuicoes: false, trajetoria: false });
+      c.tupla = tuplaObjetivo(c.aval, c.churn, ponderar, preservar);
+    });
+  }
   // ---- LIMITE ECONÔMICO da atingibilidade (objetivo econômico + atingibilidade ativa) ----
   // A = melhor plano puramente econômico (menor falta em R$). Um plano c que preserva MAIS metas atingíveis que A só é candidato se
   //   custo(c) = falta_R$(c) − falta_R$(A)  ≤  k × valorRecuperado(c) = k × Σ_g (falta evitável_A,g − falta evitável_c,g) × valor_g   (metas atingíveis).
@@ -351,7 +358,7 @@ export function planejarComFluxo(entradaOriginal: EntradaEscala, dados: DadosPro
 
   const entradaFluxo = final.entrada;
   const resultado: ResultadoEscala = final.indice === -2 && gemeo ? { ...gemeo.resultado, alocacoes: vigFut } : final.resultado;
-  const limitesFinal = usaFluxo ? estado.remPorPool : undefined;
+  const limitesFinal = usaFluxo && !economico ? estado.remPorPool : undefined;
   const avFluxo = avaliarComCtx(ctx, resultado.alocacoes, { contribuicoes: true, trajetoria: opcoes.incluirTrajetoria !== false, limites: limitesFinal });
   const avBase = avaliarComCtx(ctx, base.alocacoes, { contribuicoes: true, trajetoria: opcoes.incluirTrajetoria !== false });
   const avVig = temVigente ? avaliarComCtx(ctx, vigFut, { contribuicoes: false, trajetoria: false }) : null;

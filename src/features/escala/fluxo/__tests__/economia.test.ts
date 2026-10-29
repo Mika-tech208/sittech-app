@@ -61,7 +61,7 @@ describe("capacidade física e saturação", () => {
     const { cap, r } = rodar(pools, 2, {});
     const a1 = cap("A1");
     expect(a1.valorMarginalAdicionar).toBe(0);
-    expect(["GARGALO_DOWNSTREAM", "SATURADO_POR_POSTO"]).toContain(a1.diagnostico);
+    expect(["GARGALO_DOWNSTREAM", "SATURADO_POR_POSTO", "FOLGA_FUTURA"]).toContain(a1.diagnostico); // nunca "OK" com valor 0
     const fin = r.diagnostico.avaliacaoFluxo.financeiro!.produtos[0];
     expect(fin.finalProjetado).toBeLessThanOrEqual(1000 * 10 + 1); // o final é limitado pela etapa 2 em todos os períodos
   });

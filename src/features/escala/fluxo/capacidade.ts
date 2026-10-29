@@ -67,7 +67,7 @@ export function analisarCapacidade(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], m
       else if (vAdd > EPS) diag = livres <= 0 ? "GARGALO_PESSOA" : "OK";
       else {
         const um = simCom(k + 1);
-        diag = um.x < (k + 1) * mu - EPS && um.avail <= um.x + EPS ? "GARGALO_WIP_MATERIAL" : "GARGALO_DOWNSTREAM";
+        diag = um.x >= (k + 1) * mu - EPS ? "FOLGA_FUTURA" : um.avail <= um.x + EPS ? "GARGALO_WIP_MATERIAL" : "GARGALO_DOWNSTREAM";
       }
       const row: CapacidadeEtapaSlot = {
         slot: t, data: slot.data, periodoId: slot.periodoId, no: n, produtoId: no.produtoId, etapaId: no.etapaId, postosMaximos: pmax, postosOcupados: k, postosDisponiveis: pmax - k,

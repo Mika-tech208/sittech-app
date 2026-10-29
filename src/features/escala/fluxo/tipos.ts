@@ -173,7 +173,8 @@ export type CodigoDiagnosticoFluxo =
   | "SATURADO_POR_POSTO" // todos os postos da etapa ocupados: outra pessoa ali vale 0
   | "GARGALO_PESSOA" // há posto livre com valor, mas não há pessoa elegível
   | "GARGALO_WIP_MATERIAL" // posto livre mas sem material/WIP para produzir
-  | "GARGALO_DOWNSTREAM"; // posto livre mas o resto da cadeia/demanda não absorve // objetivo financeiro / conflito: produto com menos peças que na referência (nada silencioso): peças e R$ // preservarAtingibilidade: postos mínimos (tier 1) mantidos no plano
+  | "GARGALO_DOWNSTREAM" // posto livre mas o resto da cadeia/demanda não absorve
+  | "FOLGA_FUTURA"; // o posto produz agora, mas a capacidade dos períodos seguintes já cobre todo o material/demanda da semana: mais uma pessoa só antecipa (valor 0) // objetivo financeiro / conflito: produto com menos peças que na referência (nada silencioso): peças e R$ // preservarAtingibilidade: postos mínimos (tier 1) mantidos no plano
 
 export interface DiagnosticoItem {
   codigo: CodigoDiagnosticoFluxo;
@@ -584,7 +585,7 @@ export interface EstabilizacaoPessoas {
   motivoDescarte: string | null;
 }
 
-export type DiagnosticoCapacidade = "OK" | "SATURADO_POR_POSTO" | "GARGALO_PESSOA" | "GARGALO_WIP_MATERIAL" | "GARGALO_DOWNSTREAM";
+export type DiagnosticoCapacidade = "OK" | "SATURADO_POR_POSTO" | "GARGALO_PESSOA" | "GARGALO_WIP_MATERIAL" | "GARGALO_DOWNSTREAM" | "FOLGA_FUTURA";
 
 /** Capacidade física de UMA etapa (nó) num período. CAP_ETAPA = min(capacidade de máquinas, capacidade humana elegível, material/WIP, capacidade útil p/ downstream). */
 export interface CapacidadeEtapaSlot {
