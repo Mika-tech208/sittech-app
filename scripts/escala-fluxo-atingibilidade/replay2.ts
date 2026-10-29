@@ -50,6 +50,8 @@ const configs: Record<string, Partial<OpcoesFluxo>> = {
   A_pecas: {},
   B_receita: { objetivo: "financeiro", atingibilidadeModo: "ativo", atingibilidadeK: 2 },
   C_lucroHora_nominal: { objetivo: "lucro_hora", produtividadeBase: "nominal", atingibilidadeModo: "ativo", atingibilidadeK: 2 },
+  B_receita_div: { objetivo: "financeiro", atingibilidadeModo: "ativo", atingibilidadeK: 2, diversificarCandidatos: true },
+  D_lucroHora_real_div: { objetivo: "lucro_hora", atingibilidadeModo: "ativo", atingibilidadeK: 2, diversificarCandidatos: true },
   D_lucroHora_real: { objetivo: "lucro_hora", atingibilidadeModo: "ativo", atingibilidadeK: 2 },
   D_lucroHora_real_k1: { objetivo: "lucro_hora", atingibilidadeModo: "ativo", atingibilidadeK: 1 },
   D_lucroHora_real_k5: { objetivo: "lucro_hora", atingibilidadeModo: "ativo", atingibilidadeK: 5 },

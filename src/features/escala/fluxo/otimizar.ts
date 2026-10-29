@@ -199,6 +199,47 @@ export function varrerContagens(ctx: CtxFluxo, inicial: Contagens, limites: Reco
   return { contagens: cnt, slotsAlterados: alterados };
 }
 
+/** BUSCA LOCAL por TROCAS de posto (escapa do ótimo local do guloso): em cada período, em ordem cronológica, move UMA pessoa do nó a para o nó b (mesmo nº de pessoas, máquina livre em b)
+ *  quando o valor final dos grupos afetados melhora (re-simulação exata, mesmo peso do tier 2); repete até não haver ganho. Puro e determinístico. */
+export function melhorarPorTrocas(ctx: CtxFluxo, inicial: Contagens, limites: Record<string, number>, maxRodadasPorSlot = 4): { contagens: Contagens; trocas: number } {
+  const T = ctx.entrada.slots.length;
+  const m = modelo(ctx);
+  const cnt: Contagens = Object.fromEntries(Object.entries(inicial).map(([k, v]) => [k, [...v]]));
+  const av = new Avaliador(ctx, m, cnt, limites);
+  const nos = Object.values(ctx.grafo.nos).map((n) => n.id).sort();
+  const grupoIdx: Record<string, number> = {};
+  ctx.grafo.grupos.forEach((g, gi) => g.nos.forEach((n) => (grupoIdx[n] = gi)));
+  let trocas = 0;
+  for (let t = ctx.aPartirDe; t < T; t++) {
+    for (let r = 0; r < maxRodadasPorSlot; r++) {
+      const valores: Record<number, number> = {};
+      const val = (gi: number) => (valores[gi] ??= av.valor(gi));
+      let melhor: { a: string; b: string; ganho: number } | null = null;
+      for (const a of nos) {
+        if (cnt[a][t] <= 0) continue;
+        for (const b of nos) {
+          if (a === b || m.maquinas[b][t].length <= cnt[b][t]) continue;
+          const ga = grupoIdx[a], gb = grupoIdx[b];
+          const antes = val(ga) + (gb !== ga ? val(gb) : 0);
+          av.set(a, t, cnt[a][t] - 1);
+          av.set(b, t, cnt[b][t] + 1);
+          const depois = av.valor(ga) + (gb !== ga ? av.valor(gb) : 0);
+          av.set(a, t, cnt[a][t] + 1);
+          av.set(b, t, cnt[b][t] - 1);
+          const ganho = depois - antes;
+          if (ganho > 1e-6 && (melhor === null || ganho > melhor.ganho + 1e-9)) melhor = { a, b, ganho };
+        }
+      }
+      if (melhor === null) break;
+      av.set(melhor.a, t, cnt[melhor.a][t] - 1);
+      av.set(melhor.b, t, cnt[melhor.b][t] + 1);
+      trocas++;
+    }
+    av.avancar();
+  }
+  return { contagens: cnt, trocas };
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------------
 // PRESERVAÇÃO DA ATINGIBILIDADE DA META SEMANAL (tier 1 da função objetivo) — regra geral, sem `if produto`.
 //

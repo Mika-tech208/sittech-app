@@ -109,6 +109,8 @@ export interface OpcoesFluxo {
   atingibilidadeModo?: "off" | "sombra" | "ativo";
   /** Objetivo da Escala: "pecas" (padrão, comportamento anterior) | "financeiro" (R$ de produto final pelo preço CONGELADO da Previsão; implica `ponderarPorValor`). docs/escala-fluxo-atingibilidade.md */
   objetivo?: "pecas" | "financeiro" | "receita" | "margem" | "lucro_hora";
+  /** Diversifica os candidatos do otimizador: replaneja sobre variantes DETERMINÍSTICAS da produtividade (último período do dia −9%; etapas intermediárias −10%; etapas finais −10%) e avalia os planos no modelo REAL. Evita ótimo local do guloso. Default false. */
+  diversificarCandidatos?: boolean;
   /** Provedor de PRODUTIVIDADE esperada por produto×etapa×máquina×período (default: meta nominal × f do pool, como hoje). Substitui as metas do pool (média das máquinas selecionadas); não combinar com `fatoresEmbutidos`. */
   produtividade?: ProdutividadeProvider;
   /** Base da produtividade usada na decisão: "real" (padrão; metas × f, como hoje) ou "nominal" (metas sem f). A ordem de receita/h entre produtos muda com a base. */

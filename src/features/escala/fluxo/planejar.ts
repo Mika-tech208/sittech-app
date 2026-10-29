@@ -15,7 +15,7 @@ import { avaliarComCtx } from "./avaliar";
 import { aplicarProdutividade } from "./produtividade";
 import { precoDoGrupo, objetivoFinanceiro } from "./financeiro";
 import { analisarCapacidade } from "./capacidade";
-import { contagensDoPlano, tabelaMarginal, varrerContagens, varrerContagensPreservando, type Contagens } from "./otimizar";
+import { contagensDoPlano, melhorarPorTrocas, tabelaMarginal, varrerContagens, varrerContagensPreservando, type Contagens } from "./otimizar";
 import { montarEstado, prepararFluxo, type CtxFluxo, type OpcoesInternas } from "./estado";
 import { explicarMudanca } from "./explicar";
 import { verificarRestricoesDuras } from "./restricoes";
@@ -257,6 +257,42 @@ export function planejarComFluxo(entradaOriginal: EntradaEscala, dados: DadosPro
       hashes.add(cand.hash);
       if (!repetido) candidatos.push(cand);
       if (repetido || varredura.slotsAlterados === 0) break;
+    }
+  }
+
+  // Diversificação: sweeps sobre variantes determinísticas da produtividade (robustez a erro de estimativa); os planos são julgados no modelo REAL (ctx).
+  if (ctx.opcoes.diversificarCandidatos) {
+    const ultimoDoDia = (per: string) => per === entrada.slots[entrada.slots.length - 1].periodoId;
+    const nosFinais = new Set(entrada.pools.filter((p) => !entrada.pools.some((q) => q.produtoId === p.produtoId && q.ordemEtapa > p.ordemEtapa)).map((p) => chavePool(p.produtoId, p.etapaId)));
+    const variantes: ((p: EntradaEscala["pools"][number], per: string) => number)[] = [
+      (_p, per) => (ultimoDoDia(per) ? 0.91 : 1),
+      (p) => (nosFinais.has(chavePool(p.produtoId, p.etapaId)) ? 1 : 0.9),
+      (p) => (nosFinais.has(chavePool(p.produtoId, p.etapaId)) ? 0.9 : 1),
+    ];
+    variantes.forEach((fator, v) => {
+      const entPert: EntradaEscala = { ...entrada, pools: entrada.pools.map((p) => ({ ...p, metas: Object.fromEntries(Object.entries(p.metas).map(([per, x]) => [per, x * fator(p, per)])) })) };
+      const ctxV = prepararFluxo(entPert, dados, opcoes);
+      let contV = contagensDoPlano(ctx, p0.resultado.alocacoes);
+      for (let i = 1; i <= Math.min(maxIt, 2); i++) {
+        const varredura = preservar ? varrerContagensPreservando(ctxV, contV, estado.remPorPool) : { ...varrerContagens(ctxV, contV, estado.remPorPool), minimos: undefined as Contagens | undefined };
+        contV = varredura.contagens;
+        const cand = gerar(40 + 10 * v + i, { ordemPostos: { valorMarginal: tabelaMarginal(ctxV, contV, estado.remPorPool, varredura.minimos) }, bonusContinuidade: bonusDoPlanoVigente(ctx, theta) });
+        const repetido = hashes.has(cand.hash);
+        hashes.add(cand.hash);
+        if (!repetido) candidatos.push(cand);
+        if (repetido || varredura.slotsAlterados === 0) break;
+      }
+    });
+  }
+
+  // Busca local por TROCAS (dois nós por período) a partir do melhor conjunto de contagens do guloso: complementaridades que o guloso e a remoção unitária não enxergam (ex.: ligar a Máquina 8 em
+  // todos os períodos e tirar uma pessoa do posto comum). Julgada no modelo real, como qualquer candidato.
+  if (ctx.opcoes.diversificarCandidatos) {
+    const base0 = contagensDoPlano(ctx, (candidatos.find((c) => c.indice > 0 && c.indice < 10) ?? p0).resultado.alocacoes);
+    const bt = melhorarPorTrocas(ctx, base0, estado.remPorPool);
+    if (bt.trocas > 0) {
+      const cand = gerar(70, { ordemPostos: { valorMarginal: tabelaMarginal(ctx, bt.contagens, estado.remPorPool) }, bonusContinuidade: bonusDoPlanoVigente(ctx, theta) });
+      if (!hashes.has(cand.hash)) { hashes.add(cand.hash); candidatos.push(cand); }
     }
   }
 

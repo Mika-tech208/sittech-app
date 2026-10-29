@@ -178,3 +178,20 @@ describe("lucro/hora = tela Produtos (calcularMargemProduto reaproveitado)", () 
     expect(lucroHoraDaTela(lento)("A", "")!.lucroHora).toBeLessThan(lucroHoraDaTela(m.entrada)("A", "")!.lucroHora);
   });
 });
+
+describe("diversificação de candidatos (busca local por trocas + variantes de produtividade)", () => {
+  const pools = [
+    pool({ produto: "A", etapa: "A1", op: "opA1", ordem: 1, q: 900000, maquinas: ["a1"], mu: 1200, valor: 0.2 }),
+    pool({ produto: "A", etapa: "A2", op: "opA2", ordem: 2, q: 900000, maquinas: ["a2", "a3"], mu: 800, valor: 0.2 }),
+    pool({ produto: "B", etapa: "B1", op: "opB", ordem: 1, q: 900000, maquinas: ["b1", "b2", "b3"], mu: 700, valor: 0.18 }),
+  ];
+  it("nunca pior que sem diversificar (mesmo modelo, mesma J), determinística e sem violação dura", () => {
+    const base = rodar(pools, 4, { atingibilidadeModo: "ativo" });
+    const div = rodar(pools, 4, { atingibilidadeModo: "ativo", diversificarCandidatos: true });
+    const div2 = rodar(pools, 4, { atingibilidadeModo: "ativo", diversificarCandidatos: true });
+    const rs = (x: ReturnType<typeof rodar>) => x.r.diagnostico.economia && x.r.diagnostico.financeiro ? x.r.diagnostico.financeiro.depois.total.rsProjetadoFechamento : 0;
+    expect(rs(div)).toBeGreaterThanOrEqual(rs(base) - 1e-6);
+    expect(JSON.stringify(div.r.resultado.alocacoes)).toBe(JSON.stringify(div2.r.resultado.alocacoes));
+    expect(verificarRestricoesDuras(div.r.entradaFluxo, div.r.resultado.alocacoes)).toEqual([]);
+  });
+});
