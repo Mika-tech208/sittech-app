@@ -444,7 +444,7 @@ export function planejarComFluxo(entradaOriginal: EntradaEscala, dados: DadosPro
       const rec = limiteEconomico.candidatos.filter((c) => !c.justificado).sort((a, b) => a.atingiveisPerdidas - b.atingiveisPerdidas || (a.razao ?? 0) - (b.razao ?? 0))[0];
       if (rec) diag.push({ codigo: "ATINGIBILIDADE_NAO_PRESERVADA_CUSTO", severidade: "aviso", mensagem: `Meta atingível NÃO preservada: custo de oportunidade R$ ${rec.custoRs} > ${kEco} × valor recuperado R$ ${rec.valorRecuperadoRs} (razão ${rec.razao ?? "∞"})`, detalhes: { k: kEco, custoRs: rec.custoRs, valorRecuperadoRs: rec.valorRecuperadoRs, razao: rec.razao } });
     }
-    if (ctx.opcoes.objetivo === "margem" && nivel === "receita") diag.push({ codigo: "MARGEM_INDISPONIVEL", severidade: "aviso", mensagem: "Objetivo margem sem margem confiável: decidindo por RECEITA marginal (não é lucro)", detalhes: {} });
+    if ((ctx.opcoes.objetivo === "margem" || ctx.opcoes.objetivo === "lucro_hora") && nivel === "receita") diag.push({ codigo: "MARGEM_INDISPONIVEL", severidade: "aviso", mensagem: "Objetivo margem sem margem confiável: decidindo por RECEITA marginal (não é lucro)", detalhes: {} });
   }
 
   const iteracoes: IteracaoFluxo[] = [

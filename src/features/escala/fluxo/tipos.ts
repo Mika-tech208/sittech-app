@@ -108,11 +108,15 @@ export interface OpcoesFluxo {
   /** off (padrão) | sombra (só mede e reporta a atingibilidade/R$, não altera o plano) | ativo (= preservarAtingibilidade). Tem precedência sobre `preservarAtingibilidade`. */
   atingibilidadeModo?: "off" | "sombra" | "ativo";
   /** Objetivo da Escala: "pecas" (padrão, comportamento anterior) | "financeiro" (R$ de produto final pelo preço CONGELADO da Previsão; implica `ponderarPorValor`). docs/escala-fluxo-atingibilidade.md */
-  objetivo?: "pecas" | "financeiro" | "receita" | "margem";
+  objetivo?: "pecas" | "financeiro" | "receita" | "margem" | "lucro_hora";
   /** Provedor de PRODUTIVIDADE esperada por produto×etapa×máquina×período (default: meta nominal × f do pool, como hoje). Substitui as metas do pool (média das máquinas selecionadas); não combinar com `fatoresEmbutidos`. */
   produtividade?: ProdutividadeProvider;
   /** Base da produtividade usada na decisão: "real" (padrão; metas × f, como hoje) ou "nominal" (metas sem f). A ordem de receita/h entre produtos muda com a base. */
   produtividadeBase?: "nominal" | "real";
+  /** Provedor de LUCRO/HORA (tela Produtos). Com `objetivo = "lucro_hora"` e sem provedor, o núcleo usa `lucroHoraDaTela(entrada)`. */
+  lucroHora?: LucroHoraProvider;
+  /** Custo/hora da empresa para o lucro/h da tela (default 31,92). */
+  custoHoraEmpresa?: number;
   /** Provedor de MARGEM de contribuição unitária (objetivo "margem"). Indisponível/não confiável ⇒ cai para RECEITA ("receita marginal", nunca "lucro"). Custo fixo nunca é rateado. */
   margem?: MargemProvider;
   /** Quantos períodos (a partir do primeiro mutável) o diagnóstico `economia` detalha (capacidade por etapa e decisões). Default 6. */
@@ -125,6 +129,10 @@ export interface OpcoesFluxo {
   pesoComercial?: Record<string, number>;
 }
 
+/** Lucro/hora de um produto como a tela PRODUTOS (valor, custo/peça, margem, lucro/h). `margemUnitaria` é o valor econômico por PEÇA FINAL (= lucroHora × tempoTotalHoras). */
+export interface LucroHoraProduto { produtoId: string; preco: number; custoUnitario: number; margemUnitaria: number; margemPct: number; tempoTotalHoras: number; lucroHora: number; receitaHora: number; fonte: string; confiavel: boolean }
+export type LucroHoraProvider = (produtoId: string, semanaInicio: string) => LucroHoraProduto | null;
+/** Custo/hora da empresa usado pela tela (provisório): R$ 31,92. */
 export interface ProdutividadeEsperada { pecasPorPeriodo: number; fator: number; fonte: string; amostra: number }
 /** (produto, etapa, máquina, agora[, período]) → produtividade esperada REAL (pecasPorPeriodo × fator = peças esperadas no período). null ⇒ usa a meta nominal do pool. */
 export type ProdutividadeProvider = (a: { produtoId: string; etapaId: string; maquinaId: string; periodoId: string; agoraMs: number; metaNominal: number }) => ProdutividadeEsperada | null;

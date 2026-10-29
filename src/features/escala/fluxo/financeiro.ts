@@ -5,10 +5,15 @@ import type { CtxFluxo } from "./estado";
 import type { FinanceiroPlano, FinanceiroProduto, OpcoesFluxo } from "./tipos";
 
 /** Objetivo econômico (R$): "financeiro" (≡ "receita") ou "margem". "pecas"/ausente = comportamento anterior. */
-export const objetivoFinanceiro = (o: OpcoesFluxo) => o.objetivo === "financeiro" || o.objetivo === "receita" || o.objetivo === "margem";
+export const objetivoFinanceiro = (o: OpcoesFluxo) => o.objetivo === "financeiro" || o.objetivo === "receita" || o.objetivo === "margem" || o.objetivo === "lucro_hora";
 
 /** Valor econômico unitário de um produto: margem de contribuição (se o objetivo é margem E o provedor devolve valor confiável) ou RECEITA (preço congelado). */
 export function valorEconomicoUnitario(o: OpcoesFluxo, produtoId: string, precoCongelado: number): { valor: number; nivel: "receita" | "margem"; fonte: string } {
+  if (o.objetivo === "lucro_hora") {
+    const l = o.lucroHora?.(produtoId, o.semanaInicio ?? "");
+    if (l && l.confiavel && Number.isFinite(l.margemUnitaria)) return { valor: Math.max(0, l.margemUnitaria), nivel: "margem", fonte: l.fonte };
+    return { valor: Math.max(0, precoCongelado), nivel: "receita", fonte: "receita marginal (lucro/hora indisponível)" };
+  }
   if (o.objetivo === "margem" && o.margem) {
     const m = o.margem(produtoId, o.semanaInicio ?? "");
     if (m && m.confiavel && m.valor !== null && Number.isFinite(m.valor)) return { valor: Math.max(0, m.valor), nivel: m.natureza === "receita" ? "receita" : "margem", fonte: m.fonte };
