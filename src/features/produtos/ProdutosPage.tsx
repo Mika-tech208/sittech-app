@@ -25,9 +25,10 @@ import { toISODate, mondayOf } from "@/lib/date";
 import { calcularPeriodosComDuracao, filtrarPeriodosValidos, calcularHorasPorDia } from "@/lib/calculations/periodos";
 import {
   calcularTotalFixoAtivo, calcularTotalCustoFuncionariosAtivos, calcularCustoHoraEOperacoes,
-  calcularMargemProduto, calcularMetaFaturamento,
+  calcularMetaFaturamento,
 } from "@/features/custo-hora/calculations";
 import { selecionarSemana, calcularResumoSemana } from "@/features/capacidade/selectors";
+import { margemDoProduto } from "@/features/economia/economiaProduto";
 import {
   roteiroParaFormulario, roteiroParaPersistencia, adicionarEtapa, removerEtapa,
   trocarOperacaoEtapa, definirOperacaoEtapa, atualizarMetaEtapa, alternarMaquinaNaEtapa,
@@ -87,7 +88,8 @@ export default function ProdutosPage() {
   // margem/lucro-hora de um produto vêm sempre daqui — nunca duplicar a
   // fórmula dentro do domínio de Produtos.
   function calcularMargem(produto: Produto) {
-    return calcularMargemProduto(produto, custoHoraPorOperacao, custoHoraEmpresa, periodosComDuracao);
+    // fonte única da economia do produto (delegação pura a calcularMargemProduto: saídas idênticas)
+    return margemDoProduto(produto, { custoHoraPorOperacao, custoHoraEmpresa, periodosComDuracao });
   }
 
   // ---- card "Meta semanal" da sidebar — mesma fórmula usada nas outras rotas ----

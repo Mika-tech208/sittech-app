@@ -1,0 +1,707 @@
+{
+ "diasUteis": 22,
+ "extraidoEm": "2026-10-29T10:48:00.609451+00:00",
+ "fixedCosts": [
+  {
+   "descricao": "Total dos custos fixos ativos (agregado)",
+   "categoria": "Agregado",
+   "valor": 29755,
+   "ativo": true
+  }
+ ],
+ "funcionarios": [
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  },
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  },
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  },
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  },
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  },
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  },
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  },
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  },
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  },
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  },
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  },
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  },
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  },
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  },
+  {
+   "operacao": "Produção",
+   "ativo": true,
+   "salarioBase": 4137.916666666667,
+   "custos": []
+  }
+ ],
+ "periodos": [
+  {
+   "fim": "08:48",
+   "id": "m1",
+   "inicio": "07:12",
+   "nome": "M1"
+  },
+  {
+   "fim": "10:24",
+   "id": "m2",
+   "inicio": "08:48",
+   "nome": "M2"
+  },
+  {
+   "fim": "11:55",
+   "id": "m3",
+   "inicio": "10:24",
+   "nome": "M3"
+  },
+  {
+   "fim": "14:20",
+   "id": "t1",
+   "inicio": "13:00",
+   "nome": "T1"
+  },
+  {
+   "fim": "15:40",
+   "id": "t2",
+   "inicio": "14:20",
+   "nome": "T2"
+  },
+  {
+   "fim": "17:00",
+   "id": "t3",
+   "inicio": "15:40",
+   "nome": "T3"
+  }
+ ],
+ "produtos": [
+  {
+   "ativo": true,
+   "id": "238ca607-2111-4aff-9a19-a9ae6f20da7e",
+   "nome": "Caixa Amarela 4x2",
+   "roteiro": [
+    {
+     "maquinas": [
+      "Etiquetadora 16"
+     ],
+     "metas": {
+      "m1": 2500,
+      "m2": 2500,
+      "m3": 2500,
+      "t1": 2200,
+      "t2": 2200,
+      "t3": 2200
+     },
+     "operacao": "Etiquetar",
+     "ordem": 0
+    },
+    {
+     "maquinas": [
+      "Montagem 18",
+      "Montagem 18B",
+      "Montagem 19",
+      "Montagem 19B"
+     ],
+     "metas": {
+      "m1": 700,
+      "m2": 700,
+      "m3": 700,
+      "t1": 600,
+      "t2": 600,
+      "t3": 600
+     },
+     "operacao": "Montar Presilha",
+     "ordem": 1
+    }
+   ],
+   "valorUnitario": 0.217
+  },
+  {
+   "ativo": true,
+   "id": "fbbcfe63-ad4d-4e3d-9376-892f6902a5cc",
+   "nome": "Conector 1.1/4\"",
+   "roteiro": [
+    {
+     "maquinas": [
+      "Rosqueadeira 7"
+     ],
+     "metas": {
+      "m1": 530,
+      "m2": 530,
+      "m3": 530,
+      "t1": 450,
+      "t2": 450,
+      "t3": 450
+     },
+     "operacao": "Rosquear",
+     "ordem": 0
+    },
+    {
+     "maquinas": [
+      "Embalagem 17B"
+     ],
+     "metas": {
+      "m1": 280,
+      "m2": 280,
+      "m3": 280,
+      "t1": 230,
+      "t2": 230,
+      "t3": 230
+     },
+     "operacao": "Embalar",
+     "ordem": 1
+    }
+   ],
+   "valorUnitario": 0.365
+  },
+  {
+   "ativo": true,
+   "id": "745757ec-0106-4105-94d1-3e5af0fcab6a",
+   "nome": "Conector 2\"",
+   "roteiro": [
+    {
+     "maquinas": [
+      "Rosqueadeira 7"
+     ],
+     "metas": {
+      "m1": 420,
+      "m2": 420,
+      "m3": 420,
+      "t1": 280,
+      "t2": 280,
+      "t3": 280
+     },
+     "operacao": "Rosquear",
+     "ordem": 0
+    },
+    {
+     "maquinas": [
+      "Parafusadeira 10",
+      "Parafusadeira 11",
+      "Parafusadeira 12",
+      "Parafusadeira 9"
+     ],
+     "metas": {
+      "m1": 560,
+      "m2": 560,
+      "m3": 560,
+      "t1": 420,
+      "t2": 420,
+      "t3": 420
+     },
+     "operacao": "Parafusar",
+     "ordem": 1
+    },
+    {
+     "maquinas": [
+      "Etiquetadora 15"
+     ],
+     "metas": {
+      "m1": 3500,
+      "m2": 3500,
+      "m3": 3500,
+      "t1": 3000,
+      "t2": 3000,
+      "t3": 3000
+     },
+     "operacao": "Etiquetar",
+     "ordem": 2
+    },
+    {
+     "maquinas": [
+      "Embalagem 17"
+     ],
+     "metas": {
+      "m1": 2000,
+      "m2": 2000,
+      "m3": 2000,
+      "t1": 2000,
+      "t2": 2000,
+      "t3": 2000
+     },
+     "operacao": "Embalar",
+     "ordem": 3
+    }
+   ],
+   "valorUnitario": 0.4
+  },
+  {
+   "ativo": true,
+   "id": "27c229d7-f192-41eb-aad1-0c69ece53eba",
+   "nome": "Conector 3/4\"",
+   "roteiro": [
+    {
+     "maquinas": [
+      "Rosqueadeira 3",
+      "Rosqueadeira 5",
+      "Rosqueadeira 6"
+     ],
+     "metas": {
+      "m1": 2000,
+      "m2": 2000,
+      "m3": 2000,
+      "t1": 1600,
+      "t2": 1600,
+      "t3": 1600
+     },
+     "operacao": "Rosquear",
+     "ordem": 0
+    },
+    {
+     "maquinas": [
+      "Parafusadeira 10",
+      "Parafusadeira 11",
+      "Parafusadeira 12",
+      "Parafusadeira 9"
+     ],
+     "metas": {
+      "m1": 1500,
+      "m2": 1500,
+      "m3": 1500,
+      "t1": 1200,
+      "t2": 1200,
+      "t3": 1200
+     },
+     "operacao": "Parafusar",
+     "ordem": 1
+    },
+    {
+     "maquinas": [
+      "Etiquetadora 15",
+      "Etiquetadora 16"
+     ],
+     "metas": {
+      "m1": 3500,
+      "m2": 3500,
+      "m3": 3500,
+      "t1": 3000,
+      "t2": 3000,
+      "t3": 3000
+     },
+     "operacao": "Etiquetar",
+     "ordem": 2
+    },
+    {
+     "maquinas": [
+      "Embalagem 17"
+     ],
+     "metas": {
+      "m1": 5000,
+      "m2": 5000,
+      "m3": 5000,
+      "t1": 4500,
+      "t2": 4500,
+      "t3": 4500
+     },
+     "operacao": "Embalar",
+     "ordem": 3
+    }
+   ],
+   "valorUnitario": 0.1825
+  },
+  {
+   "ativo": true,
+   "id": "a027ac97-ffd1-4834-8ed0-d3a94aac4aee",
+   "nome": "Conector 3/4\" - Maquina Automatica ",
+   "roteiro": [
+    {
+     "maquinas": [
+      "Maquina Automatica 8 "
+     ],
+     "metas": {
+      "m1": 1275,
+      "m2": 1275,
+      "m3": 1275,
+      "t1": 1100,
+      "t2": 1100,
+      "t3": 1100
+     },
+     "operacao": "Rosquear + Parafusar",
+     "ordem": 0
+    },
+    {
+     "maquinas": [
+      "Etiquetadora 15",
+      "Etiquetadora 16"
+     ],
+     "metas": {
+      "m1": 3500,
+      "m2": 3500,
+      "m3": 3500,
+      "t1": 3000,
+      "t2": 3000,
+      "t3": 3000
+     },
+     "operacao": "Etiquetar",
+     "ordem": 1
+    },
+    {
+     "maquinas": [
+      "Embalagem 17"
+     ],
+     "metas": {
+      "m1": 5000,
+      "m2": 5000,
+      "m3": 5000,
+      "t1": 4500,
+      "t2": 4500,
+      "t3": 4500
+     },
+     "operacao": "Embalar",
+     "ordem": 2
+    }
+   ],
+   "valorUnitario": 0.182
+  },
+  {
+   "ativo": true,
+   "id": "28d77d08-bc56-4e61-9b3e-6f69056d495a",
+   "nome": "Embalar Macho ",
+   "roteiro": [
+    {
+     "maquinas": [],
+     "metas": {
+      "m1": 2000,
+      "m2": 2000,
+      "m3": 2000,
+      "t1": 1700,
+      "t2": 1700,
+      "t3": 1700
+     },
+     "operacao": "Etiquetar",
+     "ordem": 0
+    },
+    {
+     "maquinas": [],
+     "metas": {
+      "m1": 1200,
+      "m2": 1200,
+      "m3": 1200,
+      "t1": 1000,
+      "t2": 1000,
+      "t3": 1000
+     },
+     "operacao": "Embalar",
+     "ordem": 1
+    }
+   ],
+   "valorUnitario": 0.15
+  },
+  {
+   "ativo": true,
+   "id": "9a2533b3-625e-4868-9e54-6fa4d2d7ab54",
+   "nome": "Luva 1.1/4\"",
+   "roteiro": [
+    {
+     "maquinas": [
+      "Rosqueadeira 4"
+     ],
+     "metas": {
+      "m1": 400,
+      "m2": 400,
+      "m3": 400,
+      "t1": 350,
+      "t2": 350,
+      "t3": 350
+     },
+     "operacao": "Rosquear",
+     "ordem": 0
+    },
+    {
+     "maquinas": [
+      "Parafusadeira 10",
+      "Parafusadeira 11",
+      "Parafusadeira 12",
+      "Parafusadeira 9"
+     ],
+     "metas": {
+      "m1": 375,
+      "m2": 375,
+      "m3": 375,
+      "t1": 350,
+      "t2": 350,
+      "t3": 350
+     },
+     "operacao": "Parafusar",
+     "ordem": 1
+    },
+    {
+     "maquinas": [
+      "Etiquetadora 15"
+     ],
+     "metas": {
+      "m1": 2500,
+      "m2": 2500,
+      "m3": 2500,
+      "t1": 2200,
+      "t2": 2200,
+      "t3": 2200
+     },
+     "operacao": "Etiquetar",
+     "ordem": 2
+    },
+    {
+     "maquinas": [
+      "Embalagem 17"
+     ],
+     "metas": {
+      "m1": 1900,
+      "m2": 1900,
+      "m3": 1900,
+      "t1": 1600,
+      "t2": 1600,
+      "t3": 1600
+     },
+     "operacao": "Embalar",
+     "ordem": 3
+    }
+   ],
+   "valorUnitario": 0.4159
+  },
+  {
+   "ativo": true,
+   "id": "2555f807-e805-4490-8dc0-f8a6db941d1d",
+   "nome": "Luva 3\"",
+   "roteiro": [
+    {
+     "maquinas": [
+      "Rosqueadeira 4"
+     ],
+     "metas": {
+      "m1": 300,
+      "m2": 300,
+      "m3": 300,
+      "t1": 250,
+      "t2": 250,
+      "t3": 250
+     },
+     "operacao": "Rosquear",
+     "ordem": 0
+    },
+    {
+     "maquinas": [
+      "Parafusadeira 10",
+      "Parafusadeira 11",
+      "Parafusadeira 12",
+      "Parafusadeira 9"
+     ],
+     "metas": {
+      "m1": 250,
+      "m2": 250,
+      "m3": 250,
+      "t1": 200,
+      "t2": 200,
+      "t3": 200
+     },
+     "operacao": "Parafusar",
+     "ordem": 1
+    },
+    {
+     "maquinas": [
+      "Embalagem 17"
+     ],
+     "metas": {
+      "m1": 400,
+      "m2": 400,
+      "m3": 400,
+      "t1": 350,
+      "t2": 350,
+      "t3": 350
+     },
+     "operacao": "Embalar",
+     "ordem": 2
+    }
+   ],
+   "valorUnitario": 1.16
+  },
+  {
+   "ativo": true,
+   "id": "e105abc3-ef60-460b-9996-2bf72edfdd6b",
+   "nome": "Luva 3/4\"",
+   "roteiro": [
+    {
+     "maquinas": [
+      "Rosqueadeira 3",
+      "Rosqueadeira 4",
+      "Rosqueadeira 5"
+     ],
+     "metas": {
+      "m1": 1600,
+      "m2": 1600,
+      "m3": 1600,
+      "t1": 1300,
+      "t2": 1300,
+      "t3": 1300
+     },
+     "operacao": "Rosquear",
+     "ordem": 0
+    },
+    {
+     "maquinas": [
+      "Parafusadeira 10",
+      "Parafusadeira 11",
+      "Parafusadeira 12",
+      "Parafusadeira 9",
+      "Parafusadeira Dupla "
+     ],
+     "metas": {
+      "m1": 900,
+      "m2": 900,
+      "m3": 900,
+      "t1": 800,
+      "t2": 800,
+      "t3": 800
+     },
+     "operacao": "Parafusar",
+     "ordem": 1
+    },
+    {
+     "maquinas": [
+      "Etiquetadora 15",
+      "Etiquetadora 16"
+     ],
+     "metas": {
+      "m1": 3500,
+      "m2": 3500,
+      "m3": 3500,
+      "t1": 3000,
+      "t2": 3000,
+      "t3": 3000
+     },
+     "operacao": "Etiquetar",
+     "ordem": 2
+    },
+    {
+     "maquinas": [
+      "Embalagem 17"
+     ],
+     "metas": {
+      "m1": 5000,
+      "m2": 5000,
+      "m3": 5000,
+      "t1": 4500,
+      "t2": 4500,
+      "t3": 4500
+     },
+     "operacao": "Embalar",
+     "ordem": 3
+    }
+   ],
+   "valorUnitario": 0.2318
+  },
+  {
+   "ativo": true,
+   "id": "cace499f-2c0d-4cc5-b8e0-53f692ddbe92",
+   "nome": "Pino",
+   "roteiro": [
+    {
+     "maquinas": [
+      "Montagem 20",
+      "Parafusadeira Pino 2"
+     ],
+     "metas": {
+      "m1": 2000,
+      "m2": 2000,
+      "m3": 2000,
+      "t1": 1600,
+      "t2": 1600,
+      "t3": 1600
+     },
+     "operacao": "Parafusar (Pino)",
+     "ordem": 0
+    }
+   ],
+   "valorUnitario": 0.07
+  },
+  {
+   "ativo": true,
+   "id": "fa08e7c6-1a44-4625-a9e4-9b9cebf1031e",
+   "nome": "Plug Macho ",
+   "roteiro": [
+    {
+     "maquinas": [
+      "Montagem 14 (Plug)",
+      "Parafusadeira Pino 2"
+     ],
+     "metas": {
+      "m1": 1200,
+      "m2": 1200,
+      "m3": 1200,
+      "t1": 1000,
+      "t2": 1000,
+      "t3": 1000
+     },
+     "operacao": "Parafusar",
+     "ordem": 0
+    }
+   ],
+   "valorUnitario": 0.099
+  }
+ ],
+ "_nota": "Extração SOMENTE LEITURA de PROD (SELECT) em 2026-10-29T10:48:00.609451+00:00. Valores AGREGADOS de propósito: n ativos e folha total (média por cabeça) e total de custos fixos ativos; sem salários individuais nem linhas de custo. A fórmula só usa somas e contagem (mesmo resultado exato)."
+}
