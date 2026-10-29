@@ -9,7 +9,6 @@
 import { gerarEscala } from "@/features/escala/gerarEscala";
 import { AVISO_PRIMEIRA_GERACAO, type AlertaEscala, type EntradaEscala, type PeriodoEscala, type ResultadoEscala } from "@/features/escala/types";
 import { epochMsNoFuso } from "@/features/escala/tempo";
-import { exposicaoDeApontamentos } from "@/features/escala/exposicaoBloco";
 import { montarEntradaEscala } from "./montarEntrada";
 import { assinaturaAlertas, planosIguais } from "./planoIgual";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento, type SnapshotWipParaGravar } from "./estado";
@@ -80,11 +79,10 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
     }
 
     const montada = montarEntradaEscala(estado, opcoes.agoraMs);
-    // REVEZAMENTO POR BLOCO: com o escopo "bloco" e apontamentos carregados (modo fluxo sombra/ativo), a EVIDÊNCIA do que cada pessoa REALMENTE executou nos períodos já iniciados
-    // (apontamentos "produzindo" com funcionário) substitui a alocação congelada na memória do bloco. Vale para o fluxo E para o fallback oficial (mesma entrada).
-    const entradaBase = montada.entrada;
-    const evidencia = entradaBase.revezamentoEscopo === "bloco" && estado.producaoReal ? exposicaoDeApontamentos(estado.producaoReal.apontamentos, entradaBase.slots, entradaBase.aPartirDe, opcoes.agoraMs) : [];
-    const entrada: EntradaEscala = evidencia.length > 0 ? { ...entradaBase, exposicaoExecutada: evidencia } : entradaBase;
+    // REVEZAMENTO POR BLOCO — exposição individual = (1) troca manual registrada; senão (2) alocação congelada da Escala. O `funcionario_id` do apontamento é quem LANÇOU,
+    // não prova quem operou (29/10: só 2 de 26 apontamentos conferiam com a operação congelada do lançador), por isso NÃO vira evidência de exposição (hotfix 29/10).
+    // O apontamento segue valendo para produção, boas, refugo, WIP e demanda restante. `exposicaoDeApontamentos` continua exportada (replay/testes); futuro: `operador_real_id`.
+    const entrada: EntradaEscala = montada.entrada;
 
     if (entrada.pools.length === 0 && estado.diasExistentes.length === 0) {
       return { status: "ignorado", motivoIgnorado: "Previsão sem itens com máquinas selecionadas", tentativas: tentativa, alertas: montada.avisos, alocacoesGravadas: 0 };

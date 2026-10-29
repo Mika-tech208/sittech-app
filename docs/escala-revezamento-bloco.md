@@ -28,9 +28,7 @@ Substitui, **sob flag**, a regra anterior ("mesma operação em períodos consec
 `repeticoesPorBloco` (auditor independente), `exposicaoDeApontamentos`.
 
 * Ao recalcular o 1º slot mutável **no meio do bloco** (M3 ⇒ M1+M2; T3 ⇒ T1+T2) o motor reconstrói a memória do bloco **inteiro**, nunca só o período anterior.
-* Fonte da exposição de cada (pessoa, período já iniciado): (a) **evidência real** — apontamento `produzindo` com `funcionario_id` e `operacao_id`, lançado até o instante do cálculo
-  (`EntradaEscala.exposicaoExecutada`, montada em `lib/escala/processar.ts` quando há apontamentos carregados, i.e. fluxo sombra/ativo); (b) senão a **alocação congelada**. A evidência
-  *substitui* a congelada daquele (pessoa, período). `sem_producao` não é evidência de execução (continua valendo a congelada — conservador).
+* Fonte da exposição de cada (pessoa, período já iniciado) — **regra vigente desde o hotfix de 29/10**: (1) a **troca manual registrada** (linha congelada com `origem='manual'`); senão (2) a **alocação congelada** da Escala. O `funcionario_id` do apontamento é quem **lançou**, não prova quem operou (medido em 29/10: em M1+M2 só 2 de 26 apontamentos conferiam com a operação congelada do lançador), portanto **não** vira exposição (`processar.ts` não preenche mais `EntradaEscala.exposicaoExecutada`). O apontamento continua valendo para produção, boas, refugo, produto, máquina, WIP e demanda restante; a restrição é só sobre a **identidade** de quem operou. `exposicaoDeApontamentos` segue exportada (replay/testes), fora do caminho de produção. Conceito futuro (NÃO implementado): `operador_real_id` informado/confirmado — só então a evidência individual poderá voltar.
 * Um recálculo não apaga a memória: a memória é reconstruída a cada cálculo a partir do congelado + evidência, e o plano novo só acrescenta.
 
 ## 4. Onde a regra foi aplicada
@@ -87,3 +85,14 @@ Por isso o fluxo ganhou um candidato extra, **sem mudar o objetivo**: quando o v
 
 1. `revezamento_escopo` → `"consecutivo"` (SQL do §2). Recalcula o futuro com a regra anterior.
 2. Código: nenhuma reversão necessária (flag em `consecutivo` = comportamento anterior). A migration é aditiva; `escala_trocar_alocacoes` com escopo consecutivo é idêntica à anterior.
+
+## 8. Hotfix 29/10 — sem evidência do lançador (rollback e verificação)
+
+**O que mudou**: `src/lib/escala/processar.ts` deixou de derivar `exposicaoExecutada` dos apontamentos (3 linhas de código; teste `src/lib/escala/__tests__/revezamentoSemEvidenciaLancador.test.ts`). Motor, fluxo, estabilização, replanejamento restrito e verificador (`restricoes.ts`) já tratam a evidência como opcional: sem ela usam as congeladas — consistência motor × verificador mantida.
+
+**Rollback**:
+1. Reverter o código: `git revert <sha do commit do hotfix>` (commit único; nenhuma outra mudança).
+2. Rollback imediato em produção: promover de volta, na Vercel, o deployment anterior ao hotfix (o de 28/10 14:49, `sittech-m2fr5bsst` / `dpl_F1Amtwtb626oqCTdjE6bb1juuN3h`, é o atual antes da publicação).
+3. Sem migration, sem flag nova, sem mudança em banco: nada a desfazer fora do deploy. (A flag `revezamento_escopo` continua sendo o interruptor do revezamento por bloco, como antes.)
+
+**Verificação pós-publicação** (depois do fechamento de T1): em `escala_fluxo_diagnosticos` conferir o 1º recálculo após o deploy (fechamento T1 / eventos): `resultado='ok'`, sem `fallback`, 0 violações duras (`revezamento`) e `PLANO_VIGENTE_REATRIBUIDO_BLOCO` apenas quando o vigente violava; nas linhas de T2/T3 de hoje (`escala_alocacoes`, `data=hoje`) conferir, por pessoa, que a operação de T2/T3 não repete nenhuma operação **congelada** de T1/T2 (`repeticoesPorBloco`/SQL `escala_repeticoes_bloco`) e que as trocas manuais (`origem='manual'`) de T1/T2 seguem registradas e respeitadas; períodos já iniciados/fechados permanecem intactos (mesma versão/linhas antes e depois).
