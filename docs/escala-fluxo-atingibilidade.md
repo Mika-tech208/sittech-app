@@ -137,3 +137,15 @@ Para cada período FECHADO, por posto (máquina) planejado: `igual` (mesmo produ
 
 ### Diversificação de candidatos (`diversificarCandidatos`, opção do núcleo; default false)
 Acrescenta candidatos: sweeps sobre variantes determinísticas da produtividade (último período do dia −9%, intermediárias −10%, finais −10%) e BUSCA LOCAL por trocas de posto (`melhorarPorTrocas`: move uma pessoa de a→b por período se o valor final melhora, re-simulação exata). Todos julgados no modelo real. Replay 28/10: M3 +R$79, M2 +R$157, 29–30 +R$215 e WIP 1.736→80; a variante com estimador de produtividade ainda acha +R$1.060 em M3 pelo mesmo critério de medida (ela liga a Máquina 8 em TODOS os períodos e tira posto do Parafusar convencional); causa ainda não explicada — a busca continua deixando ~2% na mesa.
+
+
+## 11. Valor do posto OCUPADO × +1 pessoa × +1 máquina; saturação completa (29/10)
+
+Três valores distintos por posto/período (`CapacidadeEtapaSlot`, `capacidade.ts`), todos em R$ do critério econômico e SEM identificador de pessoa:
+* **A) valor do posto JÁ OCUPADO** = remoção exata do posto naquele período. Dois cálculos: `valorPostoOcupadoRestoFixo` (resto da semana como está no plano) e `valorPostoOcupadoRestoReplanejado` (o resto da semana é REPLANEJADO pelo motor depois da remoção; função `replanejar` injetada, o núcleo não importa o planejador; caro, limitado a `slotsReplan` períodos e `maxReplan` replanejamentos). **Lição de 29/10:** com o resto FIXO o valor pode ser um FALSO ZERO (a Embalagem 17 dava R$ 0,00; com o resto replanejado vale R$ 765,49 em T1 = 7.694 pç finais), porque o plano atual de 30/10+ é fraco e deixa capacidade ociosa que "recupera" a remoção. Posto ocupado com A fixo = 0 sempre traz `explicacaoValorZero`.
+* **B) +1 PESSOA** (`valorMaisUmaPessoa`): 0 quando não há máquina livre (a seleção da Previsão é absoluta); com máquina livre, o valor marginal exato.
+* **C) +1 MÁQUINA/posto** (`valorMaisUmaMaquinaInformativo`): só medido quando todos os postos estão ocupados; INFORMATIVO, nunca recomendar.
+
+**Saturação** (`saturacao.ts`, `classificarSaturacao`): MAQUINA > PESSOA > TEMPO > WIP > DOWNSTREAM > DEMANDA; o primeiro verdadeiro é o primário e todos aparecem em `motivos` (regra no cabeçalho do arquivo; testada). SATURADO_POR_TEMPO = último período do horizonte e +1 pessoa/máquina não vira peça final em etapa intermediária. Os códigos antigos (`SATURADO_POR_POSTO`, `GARGALO_*`, `FOLGA_FUTURA`) continuam em `diagnostico` por compatibilidade.
+
+Relatório da proposta (`proposta-tarde.v3.ts`, `rodar-proposta-v3.sh`): seções E/F com as colunas A (fixo e replanejado), B, C e a saturação, para o plano atual e para o econômico; custo medido: ~55 replanejamentos ≈ 16 s. Flag: nenhuma nova (uso offline). Proposta de flag futura, se for ao motor: `producao_real_valor_posto_replanejado` (off|sombra) para gravar A replanejado no diagnóstico do fluxo.

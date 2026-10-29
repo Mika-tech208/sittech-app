@@ -619,8 +619,23 @@ export interface CapacidadeEtapaSlot {
   capEtapa: number; // min(capHumana, o que a etapa realmente produz com todos os postos: material/WIP e downstream)
   producaoPlano: number; // produção da etapa no plano (cenário pessimista)
   valorMarginalAdicionar: number; // R$ finais adicionais até o fim da semana por MAIS uma pessoa aqui (0 se saturado)
-  valorMarginalUltimo: number; // R$ finais que o último posto ocupado gera
+  valorMarginalUltimo: number; // R$ finais que o último posto ocupado gera (marginal concavificado; mantido por compatibilidade)
   diagnostico: DiagnosticoCapacidade;
+  /** A) VALOR DO POSTO JÁ OCUPADO — remoção exata do posto neste período, com o RESTO DA SEMANA como está no plano (pode dar FALSO ZERO se o resto é fraco; ver `...RestoReplanejado`). */
+  valorPostoOcupadoRestoFixo?: number;
+  pecasFinaisPostoRestoFixo?: number;
+  /** A) com o RESTO DA SEMANA REPLANEJADO pelo motor depois da remoção (caro; só nos primeiros períodos). `undefined` = não calculado. */
+  valorPostoOcupadoRestoReplanejado?: number;
+  pecasFinaisPostoRestoReplanejado?: number;
+  wipPostoRestoReplanejado?: number;
+  /** B) valor de +1 PESSOA sem outra máquina = 0 (a seleção da Previsão é absoluta); com máquina livre = valor marginal exato. */
+  valorMaisUmaPessoa?: number;
+  /** C) valor de +1 MÁQUINA/posto — INFORMATIVO, NUNCA recomendar (só medido quando todos os postos estão ocupados). */
+  valorMaisUmaMaquinaInformativo?: number;
+  /** Saturação (precedência determinística em saturacao.ts): motivo primário + todos os motivos e a explicação. */
+  saturacao?: { primaria: string | null; motivos: string[]; explicacao: string };
+  /** Texto obrigatório quando o posto está ocupado e o valor do posto (fixo) é 0: explica por quê e o que muda com o resto replanejado. */
+  explicacaoValorZero?: string;
 }
 
 /** DECISÃO DO POSTO (nunca da pessoa): "Posto Y é ocupado porque: há posto, há material, downstream absorve, produtividade esperada N (do posto), receita marginal R$ A, alternativa seguinte R$ B, ganho líquido R$ C". A pessoa é escolhida à parte (desempate.ts). */

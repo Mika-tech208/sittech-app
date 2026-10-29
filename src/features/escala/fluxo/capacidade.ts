@@ -1,7 +1,8 @@
 // CAPACIDADE FÍSICA, SATURAÇÃO, VALOR MARGINAL e CUSTO DE OPORTUNIDADE por etapa/período (diagnóstico; não decide sozinho — a decisão usa a mesma re-simulação).
 // Valor sem posto = ZERO: só máquinas selecionadas na Previsão (PoolEscala.maquinasIds), disponíveis (Paradas/bloqueios), pessoas presentes, material/WIP e absorção downstream.
 import type { CtxFluxo } from "./estado";
-import { calcularMarginais, capsDoPlano, rodar, selecionarFuturas } from "./avaliar";
+import { calcularMarginais, capsDoPlano, pesoDoGrupo, rodar, selecionarFuturas } from "./avaliar";
+import { classificarSaturacao } from "./saturacao";
 import { modelo } from "./otimizar";
 import { copiarCaps } from "./simulador";
 import { precoDoGrupo } from "./financeiro";
@@ -11,7 +12,19 @@ import type { CapacidadeEtapaSlot, DecisaoEconomica, DiagnosticoCapacidade } fro
 const EPS = 1e-6;
 const r2 = (x: number) => Math.round(x * 100) / 100;
 
-export function analisarCapacidade(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], minimosPorNo?: Record<string, number[]>, limites?: Record<string, number>, nominais?: Record<string, Record<string, number>>): { capacidade: CapacidadeEtapaSlot[]; decisoes: DecisaoEconomica[] } {
+/** Resultado de replanejar o RESTO da semana depois de uma alteração (injetado pelo chamador: o núcleo não importa o planejador). `valor` no mesmo critério econômico do avaliador. */
+export interface ResultadoReplan { valor: number; pecasFinais: number; wipFinal: number }
+export interface OpcoesCapacidade {
+  /** replaneja o resto da semana para o plano informado e avalia o plano completo. Sem isso, só o valor com resto FIXO é calculado. */
+  replanejar?: (plano: AlocacaoEscala[]) => ResultadoReplan;
+  /** quantos períodos (a partir do primeiro mutável) recebem o cálculo caro com resto replanejado (padrão 3) */
+  slotsReplan?: number;
+  /** teto de replanejamentos (padrão 60) */
+  maxReplan?: number;
+}
+export interface ResultadoCapacidade { capacidade: CapacidadeEtapaSlot[]; decisoes: DecisaoEconomica[]; replanejamentos: number; msReplan: number }
+
+export function analisarCapacidade(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], minimosPorNo?: Record<string, number[]>, limites?: Record<string, number>, nominais?: Record<string, Record<string, number>>, opcoes: OpcoesCapacidade = {}): ResultadoCapacidade {
   const T = ctx.entrada.slots.length;
   const m = modelo(ctx);
   const futuras = selecionarFuturas(ctx, alocacoes);
@@ -31,6 +44,13 @@ export function analisarCapacidade(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], m
   const rows: CapacidadeEtapaSlot[] = [];
   const linhaDe = new Map<string, CapacidadeEtapaSlot>();
   const nosOrd = Object.keys(ctx.grafo.nos).sort();
+  const sinkDe = (g: number) => ctx.grafo.grupos[g].sink;
+  const baseCache = new Map<number, { valor: number; pecas: number }>();
+  const pecasDe = (c2: ReturnType<typeof copiarCaps>, g: number) => Math.min(ctx.grafo.nos[sinkDe(g)].quantidade, rodar(ctx, g, c2, "lo", limites, false).B[sinkDe(g)]);
+  const valorFinalGrupo = (c2: ReturnType<typeof copiarCaps>, g: number) => pesoDoGrupo(ctx, g) * pecasDe(c2, g);
+  const baseGrupo = (g: number) => { let b = baseCache.get(g); if (!b) { const p = pecasDe(caps, g); b = { valor: pesoDoGrupo(ctx, g) * p, pecas: p }; baseCache.set(g, b); } return b; };
+  const copiarCapsCom = (n: string, t: number, valor: number) => { const c2 = copiarCaps(caps); c2[n].base[t] = Math.max(0, valor); return c2; };
+  const pecasComBase = (g: number, c2: ReturnType<typeof copiarCaps>) => pecasDe(c2, g);
   for (let t = ctx.aPartirDe; t < T; t++) {
     const slot = ctx.entrada.slots[t];
     const horas = Math.max(0.01, (slot.fimMin - slot.inicioMin) / 60);
@@ -60,6 +80,12 @@ export function analisarCapacidade(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], m
         return { x: r.x[n][i] ?? 0, avail: ins.length === 0 ? Number.POSITIVE_INFINITY : wIni + prodPred };
       };
       const cheio = simCom(pmax);
+      // ---- A) valor do posto OCUPADO (remoção exata, resto fixo) e C) +1 máquina (informativo) ----
+      const baseG = baseGrupo(g);
+      const valorComBase = (postosNovo: number) => { const c2 = copiarCaps(caps); c2[n].base[t] = Math.max(0, postosNovo) * mu; return valorFinalGrupo(c2, g); };
+      const vFixo = k > 0 ? Math.max(0, baseG.valor - valorComBase(k - 1)) : 0;
+      const pecasFixo = k > 0 ? Math.max(0, baseG.pecas - pecasComBase(g, copiarCapsCom(n, t, (k - 1) * mu))) : 0;
+      const vMaq = k >= pmax ? Math.max(0, valorComBase(k + 1) - baseG.valor) : 0;
       const capHumana = Math.min(pmax, m.pessoas[t]) * mu;
       const capEtapa = Math.min(capHumana, cheio.x);
       let diag: DiagnosticoCapacidade = "OK";
@@ -75,10 +101,48 @@ export function analisarCapacidade(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], m
         receitaPorHoraPosto: r2(valorUnit(n) * mu / horas), capMaquinas: Math.round(pmax * mu * 1000) / 1000, capHumana: Math.round(capHumana * 1000) / 1000, capEtapa: Math.round(capEtapa * 1000) / 1000,
         producaoPlano: Math.round(Math.min(k * mu, cheio.avail === Number.POSITIVE_INFINITY ? k * mu : cheio.avail) * 1000) / 1000, valorMarginalAdicionar: r2(vAdd), valorMarginalUltimo: r2(vUlt), diagnostico: diag,
       };
+      // ---- B) +1 pessoa sem outra máquina = 0; saturação com precedência; explicação do valor zero ----
+      const vPessoa = k < pmax ? vAdd : 0;
+      const metaAtendida = baseG.pecas >= ctx.grafo.nos[sinkDe(g)].quantidade - 0.5;
+      const sat = classificarSaturacao({
+        postosOcupados: k, postosMaximos: pmax, pessoasLivres: livres, valorMaisUmaPessoa: k < pmax ? vAdd : 0, valorMaisUmaMaquina: vMaq, periodosApos: T - 1 - t, etapaFinal: no.final,
+        faltaMaterial: cheio.x < pmax * mu - EPS && cheio.avail <= cheio.x + EPS, limitadaAFrente: cheio.x < pmax * mu - EPS && cheio.avail > cheio.x + EPS,
+        demandaCoberta: metaAtendida || (k >= pmax ? vFixo <= EPS && vMaq <= EPS && cheio.x >= pmax * mu - EPS : diag === "FOLGA_FUTURA"),
+      });
+      row.valorPostoOcupadoRestoFixo = r2(vFixo);
+      row.pecasFinaisPostoRestoFixo = Math.round(pecasFixo);
+      row.valorMaisUmaPessoa = r2(vPessoa);
+      row.valorMaisUmaMaquinaInformativo = r2(vMaq);
+      row.saturacao = { primaria: sat.primaria, motivos: sat.motivos, explicacao: sat.explicacao };
+      if (k > 0 && vFixo <= EPS) row.explicacaoValorZero = `valor do posto com o RESTO DA SEMANA FIXO = R$ 0,00: ${sat.explicacao || "a produção removida é recuperada nos períodos seguintes (capacidade ociosa à frente)"}. Isso pode ser falso zero se o resto do plano é fraco; ver o valor com o resto replanejado`;
       rows.push(row);
       linhaDe.set(`${t}|${n}`, row);
     });
   }
+  // ---- A) com o RESTO REPLANEJADO (caro: limitado a poucos períodos) ----
+  let replanejamentos = 0;
+  const tReplan = Date.now();
+  if (opcoes.replanejar) {
+    const base = opcoes.replanejar(alocacoes);
+    replanejamentos++;
+    const limiteSlot = ctx.aPartirDe + Math.max(1, opcoes.slotsReplan ?? 3);
+    const maxR = opcoes.maxReplan ?? 60;
+    for (const row of rows) {
+      if (row.postosOcupados <= 0 || row.slot >= limiteSlot || replanejamentos >= maxR) continue;
+      const alvo = alocacoes
+        .filter((a) => a.maquinaId && a.produtoId && a.etapaId && ctx.idxSlot.get(`${a.data}|${a.periodoId}`) === row.slot && ctx.grafo.noDoPool[chavePool(a.produtoId, a.etapaId)] === row.no && !((a.pecasAdicional ?? 0) > 0 && !((a.pecas ?? 0) > 0)))
+        .sort((x, y) => ((x.maquinaId as string) < (y.maquinaId as string) ? -1 : 1))[0];
+      if (!alvo) continue;
+      const sem = alocacoes.map((a) => (a === alvo ? ({ ...a, maquinaId: null, produtoId: null, etapaId: null, operacaoId: null, pecas: 0, pecasAdicional: 0, motivoSemPosto: "avaliacao_remocao" } as AlocacaoEscala) : a));
+      const r = opcoes.replanejar(sem);
+      replanejamentos++;
+      row.valorPostoOcupadoRestoReplanejado = r2(base.valor - r.valor);
+      row.pecasFinaisPostoRestoReplanejado = Math.round(base.pecasFinais - r.pecasFinais);
+      row.wipPostoRestoReplanejado = Math.round(r.wipFinal - base.wipFinal);
+      if (row.explicacaoValorZero && (row.valorPostoOcupadoRestoReplanejado ?? 0) > 0.5) row.explicacaoValorZero += ` — com o resto replanejado o posto vale R$ ${r2(base.valor - r.valor)} (${Math.round(base.pecasFinais - r.pecasFinais)} pç finais)`;
+    }
+  }
+  const msReplan = Date.now() - tReplan;
   // decisões: cada pessoa num posto, com o valor marginal do k-ésimo posto e a melhor alternativa livre no período (custo de oportunidade)
   const decisoes: DecisaoEconomica[] = [];
   const vistos = new Map<string, number>();
@@ -104,7 +168,7 @@ export function analisarCapacidade(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], m
         texto: `Posto ${a.maquinaId} (${n}) em ${a.data} ${a.periodoId} é ocupado porque: posto ${kk} de ${row.postosMaximos}${ha ? "" : " (sem valor)"}, ${row.diagnostico === "GARGALO_WIP_MATERIAL" ? "SEM material/WIP" : "há material"}, ${row.diagnostico === "GARGALO_DOWNSTREAM" ? "downstream NÃO absorve" : "downstream absorve"}, produtividade esperada ${Math.round(row.produtividadeEsperada)} pç/período, receita marginal R$ ${r2(valor)}, alternativa seguinte R$ ${r2(alt.valor)}${alt.no ? ` (${alt.no})` : ""}, ganho líquido R$ ${r2(valor - alt.valor)}`,
       });
     });
-  return { capacidade: rows, decisoes };
+  return { capacidade: rows, decisoes, replanejamentos, msReplan };
 }
 
 const ctxSlot = (ctx: CtxFluxo, a: AlocacaoEscala) => ctx.idxSlot.get(`${a.data}|${a.periodoId}`) ?? -1;
