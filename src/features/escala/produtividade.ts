@@ -51,6 +51,10 @@ export interface OpcoesProdutividade {
   metaNominal?: number | Record<string, number>;
   /** Período para o qual se quer `pecasPorPeriodo` (com `metaNominal` por periodoId). */
   periodoId?: string;
+  /** Identifica o posto/pool pela OPERAÇÃO em vez do `etapaId`. Necessário quando o roteiro foi reordenado: em PROD (21/10/2026) as etapas da Caixa Amarela
+   *  trocaram de operação mantendo o mesmo `etapa_id` (693 apontamentos, 25% do histórico, têm `operacao_id` ≠ operação atual da etapa). A operação gravada no
+   *  apontamento é a que de fato foi executada (e a meta_periodo_vigente é a dela). Ausente ⇒ casa por `etapaId`. */
+  operacaoId?: string | null;
   /** Z do intervalo (1,2816 ≈ 80% bilateral). */
   z: number;
   /** Ajuste por PERÍODO DO DIA (efeito estrutural de fábrica, ex.: último período do dia rende menos): divide cada razão pelo índice do seu período
@@ -201,7 +205,8 @@ export function produtividadeEsperada(
   opcoes: Partial<OpcoesProdutividade> = {},
 ): ProdutividadeEsperada {
   const o: OpcoesProdutividade = { ...PRODUTIVIDADE_PADRAO, ...opcoes };
-  const doPosto = (a: ObsProdutividade) => a.produtoId === produtoId && a.etapaId === etapaId && a.maquinaId === maquinaId;
+  const mesmaEtapa = (a: ObsProdutividade) => (o.operacaoId ? a.operacaoId === o.operacaoId : a.etapaId === etapaId);
+  const doPosto = (a: ObsProdutividade) => a.produtoId === produtoId && mesmaEtapa(a) && a.maquinaId === maquinaId;
   const idxMap = o.ajustePeriodo && o.periodoId ? o.indicePeriodo ?? indicePorPeriodoDoDia(historico, agora, o) : null;
   const idxDe = (per: string) => (idxMap && idxMap[per] > 0 ? idxMap[per] : 1);
   const idxAlvo = idxMap && o.periodoId ? idxDe(o.periodoId) : 1;
@@ -216,7 +221,7 @@ export function produtividadeEsperada(
   // prior
   let prior = 1, priorOrigem: "nominal" | "pool" = "nominal";
   if (o.prior === "pool") {
-    const pool = razoesDoPosto(historico, agora, (a) => a.produtoId === produtoId && a.etapaId === etapaId, o);
+    const pool = razoesDoPosto(historico, agora, (a) => a.produtoId === produtoId && mesmaEtapa(a), o);
     const np = nivelRobusto(ajusta(pool.razoes), o);
     if (np.nivel !== null && pool.razoes.length >= o.amostraMinima && pool.razoes.length > razoes.length) {
       // o pool também é encolhido ao nominal (mesma regra), para não importar ruído de um pool pequeno

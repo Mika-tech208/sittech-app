@@ -29,22 +29,25 @@ interface Alvo { postoKey: string; poolKey: string; i: number; obs: ObsProdutivi
 function alvos(todas: ObsProdutividade[], horizonte = 30): Alvo[] {
   const prod = todas.filter((a) => a.status === "produzindo" && a.meta > 0).sort((x, y) => (x.fimPeriodoMs as number) - (y.fimPeriodoMs as number) || x.lancadoEmMs - y.lancadoEmMs);
   const porPosto = new Map<string, ObsProdutividade[]>();
-  prod.forEach((a) => { const k = `${a.produtoId}|${a.etapaId}|${a.maquinaId}`; porPosto.set(k, [...(porPosto.get(k) ?? []), a]); });
+  prod.forEach((a) => { const k = `${a.produtoId}|${a.operacaoId}|${a.maquinaId}`; porPosto.set(k, [...(porPosto.get(k) ?? []), a]); });
   const out: Alvo[] = [];
   // histórico relevante por alvo (mesmo pool + sem_producao da máquina) — só otimização; o estimador filtra igual
   const poolIdx = new Map<string, ObsProdutividade[]>(); const semIdx = new Map<string, ObsProdutividade[]>();
-  todas.forEach((a) => { if (a.status === "produzindo") { const k = `${a.produtoId}|${a.etapaId}`; poolIdx.set(k, [...(poolIdx.get(k) ?? []), a]); } else { const k = a.maquinaId as string; semIdx.set(k, [...(semIdx.get(k) ?? []), a]); } });
+  todas.forEach((a) => { if (a.status === "produzindo") { const k = `${a.produtoId}|${a.operacaoId}`; poolIdx.set(k, [...(poolIdx.get(k) ?? []), a]); } else { const k = a.maquinaId as string; semIdx.set(k, [...(semIdx.get(k) ?? []), a]); } });
   porPosto.forEach((lst, k) => lst.forEach((a, i) => {
     if (i < 1) return;
-    out.push({ postoKey: k, poolKey: `${a.produtoId}|${a.etapaId}`, i, obs: a, real: a.boas / a.meta, parcial: (a.fimPeriodoMs as number) - a.lancadoEmMs > 3 * 60000,
-      hist: [...(poolIdx.get(`${a.produtoId}|${a.etapaId}`) ?? []), ...(semIdx.get(a.maquinaId as string) ?? [])], agora: a.lancadoEmMs - 1, proximos: lst.slice(i, i + horizonte).map((x) => x.boas / x.meta), proxPer: lst.slice(i, i + horizonte).map((x) => x.periodoId) });
+    out.push({ postoKey: k, poolKey: `${a.produtoId}|${a.operacaoId}`, i, obs: a, real: a.boas / a.meta, parcial: (a.fimPeriodoMs as number) - a.lancadoEmMs > 3 * 60000,
+      hist: [...(poolIdx.get(`${a.produtoId}|${a.operacaoId}`) ?? []), ...(semIdx.get(a.maquinaId as string) ?? [])], agora: a.lancadoEmMs - 1, proximos: lst.slice(i, i + horizonte).map((x) => x.boas / x.meta), proxPer: lst.slice(i, i + horizonte).map((x) => x.periodoId) });
   }));
   return out;
 }
 
-// f atual do sistema: por POOL (produto×etapa), todas as linhas produzindo visíveis, n/(n+6), n<3 ⇒ 1
-function fAtual(todas: ObsProdutividade[], a: Alvo): number {
-  const v = todas.filter((x) => x.status === "produzindo" && x.meta > 0 && x.produtoId === a.obs.produtoId && x.etapaId === a.obs.etapaId && x.lancadoEmMs <= a.agora);
+// f atual do sistema — FIEL ao que roda em PROD: por POOL (produto×etapa_id), só linhas da SEMANA corrente (visivelNoCorte filtra os slots da semana)
+// lançadas antes do alvo, n/(n+6), n<3 ⇒ 1. (Nota: não corrige a troca de operação das etapas da Caixa Amarela de 21/10.)
+const semanaDe = (d: string) => { const t = new Date(d + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() - ((t.getUTCDay() + 6) % 7)); return t.toISOString().slice(0, 10); };
+function fAtual(todas: ObsProdutividade[], a: Alvo, acumulado = false): number {
+  const sem = semanaDe(a.obs.data);
+  const v = todas.filter((x) => x.status === "produzindo" && x.meta > 0 && x.produtoId === a.obs.produtoId && x.etapaId === a.obs.etapaId && x.lancadoEmMs <= a.agora && (acumulado || semanaDe(x.data) === sem));
   return fatorDesempenho(v.length, v.reduce((s, x) => s + x.boas, 0), v.reduce((s, x) => s + x.meta, 0));
 }
 
@@ -73,18 +76,40 @@ function grade(todas: ObsProdutividade[]) {
   console.log(`alvos: treino=${treino.length} teste=${teste.length}`);
   const base = (nome: string, pred: (a: Alvo) => number) => { console.log(lin(`[treino] ${nome}`, avaliar(treino, pred))); console.log(lin(`[teste ] ${nome}`, avaliar(teste, pred))); };
   base("(a) nominal puro (1,0)", () => 1);
-  base("(b) f atual (pool, n/(n+6))", (a) => fAtual(todas, a));
-  base("(d) média móvel simples posto (sem shrink)", (a) => { const r = produtividadeEsperada(a.hist, a.obs.produtoId as string, a.obs.etapaId as string, a.obs.maquinaId as string, a.agora, { meiaVida: Infinity, k: 0, c: Infinity, parcial: "incluir", prior: "nominal", idadeMaximaDias: null, amostraMinima: 1 }); return r.diagnostico.nivelBruto ?? 1; });
-  base("(e) última observação do posto", (a) => { const h = todas.filter((x) => x.status === "produzindo" && x.meta > 0 && x.postoKey === undefined && x.produtoId === a.obs.produtoId && x.etapaId === a.obs.etapaId && x.maquinaId === a.obs.maquinaId && x.lancadoEmMs <= a.agora).sort((x, y) => y.lancadoEmMs - x.lancadoEmMs)[0]; return h ? h.boas / h.meta : 1; });
-  const passo = (o: Partial<OpcoesProdutividade>) => (a: Alvo) => produtividadeEsperada(a.hist, a.obs.produtoId as string, a.obs.etapaId as string, a.obs.maquinaId as string, a.agora, o).fator;
+  base("(b) f atual de PROD (pool, semana corrente)", (a) => fAtual(todas, a));
+  base("(b2) f acumulado (pool, todo o histórico)", (a) => fAtual(todas, a, true));
+  base("(d) média móvel simples posto (sem shrink)", (a) => { const r = produtividadeEsperada(a.hist, a.obs.produtoId as string, a.obs.etapaId as string, a.obs.maquinaId as string, a.agora, { operacaoId: a.obs.operacaoId, meiaVida: Infinity, k: 0, c: Infinity, parcial: "incluir", prior: "nominal", idadeMaximaDias: null, amostraMinima: 1 }); return r.diagnostico.nivelBruto ?? 1; });
+  base("(e) última observação do posto", (a) => { const h = todas.filter((x) => x.status === "produzindo" && x.meta > 0 && x.postoKey === undefined && x.produtoId === a.obs.produtoId && x.operacaoId === a.obs.operacaoId && x.maquinaId === a.obs.maquinaId && x.lancadoEmMs <= a.agora).sort((x, y) => y.lancadoEmMs - x.lancadoEmMs)[0]; return h ? h.boas / h.meta : 1; });
+  const passo = (o: Partial<OpcoesProdutividade>) => (a: Alvo) => produtividadeEsperada(a.hist, a.obs.produtoId as string, a.obs.etapaId as string, a.obs.maquinaId as string, a.agora, { operacaoId: a.obs.operacaoId, ...o }).fator;
   base("(c) estimador PADRÃO", passo({}));
 
+  // FATIAS (treino+teste): onde cada método ganha ou perde
+  {
+    const cacheI = new Map<string, Record<string, number>>();
+    const ixd = (a: Alvo) => { const d = a.obs.data; if (!cacheI.has(d)) cacheI.set(d, indicePorPeriodoDoDia(todas, Date.parse(`${d}T00:00:00-03:00`))); return cacheI.get(d) as Record<string, number>; };
+    const est: Pred = (a) => produtividadeEsperada(a.hist, a.obs.produtoId as string, a.obs.etapaId as string, a.obs.maquinaId as string, a.agora, { operacaoId: a.obs.operacaoId, periodoId: a.obs.periodoId, indicePeriodo: ixd(a) }).fator;
+    const maqPorPool = new Map<string, Set<string>>();
+    al.forEach((a) => { const n = al.filter((x) => x.postoKey === a.postoKey).length; if (n >= 20) maqPorPool.set(a.poolKey, (maqPorPool.get(a.poolKey) ?? new Set()).add(a.postoKey)); });
+    const dow = (a: Alvo) => (new Date(a.obs.data + "T12:00:00Z").getUTCDay() + 6) % 7;
+    const fatias: [string, (a: Alvo) => boolean][] = [
+      ["último período do dia (t3)", (a) => a.obs.periodoId === "t3"], ["demais períodos", (a) => a.obs.periodoId !== "t3"],
+      ["seg/ter (início da semana)", (a) => dow(a) <= 1], ["qua–sex", (a) => dow(a) >= 2],
+      ["pools com ≥2 máquinas com histórico", (a) => (maqPorPool.get(a.poolKey)?.size ?? 0) >= 2], ["pools com 1 máquina", (a) => (maqPorPool.get(a.poolKey)?.size ?? 0) < 2],
+    ];
+    console.log("\n== FATIAS (treino+teste; MAE do próximo período | viés) ==");
+    fatias.forEach(([nome, f]) => {
+      const sub = al.filter(f);
+      const m = (pred: Pred) => avaliar(sub, pred);
+      const x = m(() => 1), y = m((a) => fAtual(todas, a)), z = m(est);
+      console.log(`${nome.padEnd(40)} n=${String(sub.length).padStart(4)}  nominal ${f3(x.mae)}|${x.vies >= 0 ? "+" : ""}${f3(x.vies)}   f atual ${f3(y.mae)}|${y.vies >= 0 ? "+" : ""}${f3(y.vies)}   estimador ${f3(z.mae)}|${z.vies >= 0 ? "+" : ""}${f3(z.vies)}`);
+    });
+  }
   // índice por período do dia calculado só com o passado (até 00:00 do dia do alvo), em cache por data
   const cacheIdx = new Map<string, Record<string, number>>();
   const idxDe = (a: Alvo) => { const d = a.obs.data; if (!cacheIdx.has(d)) cacheIdx.set(d, indicePorPeriodoDoDia(todas, Date.parse(`${d}T00:00:00-03:00`))); return cacheIdx.get(d) as Record<string, number>; };
   const passoAj = (o: Partial<OpcoesProdutividade>): Pred => (a) => {
     const ix = o.ajustePeriodo ? idxDe(a) : null;
-    const p1 = produtividadeEsperada(a.hist, a.obs.produtoId as string, a.obs.etapaId as string, a.obs.maquinaId as string, a.agora, { ...o, periodoId: a.obs.periodoId, ...(ix ? { indicePeriodo: ix } : {}) }).fator;
+    const p1 = produtividadeEsperada(a.hist, a.obs.produtoId as string, a.obs.etapaId as string, a.obs.maquinaId as string, a.agora, { ...o, operacaoId: a.obs.operacaoId, periodoId: a.obs.periodoId, ...(ix ? { indicePeriodo: ix } : {}) }).fator;
     if (!ix) return [p1, p1];
     const idxT = ix[a.obs.periodoId] ?? 1;
     return [p1, (p1 / idxT) * media(a.proxPer.map((per) => ix[per] ?? 1))];
@@ -107,10 +132,10 @@ function grade(todas: ObsProdutividade[]) {
   const por = (f: (l: (typeof linhas)[number]) => number) => [...linhas].sort((x, y) => f(x) - f(y));
   console.log(`\n${linhas.length} configurações`);
   console.log("\n== TOP 15 por MAE(período completo) no TREINO ==");
-  por((l) => l.tr.maeCompleto).slice(0, 15).forEach((l) => console.log(`${l.nome.padEnd(110)} treino=${f3(l.tr.maeCompleto)} teste=${f3(l.te.maeCompleto)} dia6(treino/teste)=${f3(l.tr.mae30)}/${f3(l.te.mae30)} vies(teste)=${f3(l.te.vies)}`));
-  console.log("\n== TOP 15 por MAE do DIA (média de 6 períodos seguintes) no TREINO ==");
+  por((l) => l.tr.maeCompleto).slice(0, 15).forEach((l) => console.log(`${l.nome.padEnd(110)} treino=${f3(l.tr.maeCompleto)} teste=${f3(l.te.maeCompleto)} sem30(treino/teste)=${f3(l.tr.mae30)}/${f3(l.te.mae30)} vies(teste)=${f3(l.te.vies)}`));
+  console.log("\n== TOP 15 por MAE SEMANAL (média dos 30 períodos seguintes do posto) no TREINO ==");
   por((l) => l.tr.mae30).slice(0, 15).forEach((l) => console.log(`${l.nome.padEnd(110)} treino=${f3(l.tr.mae30)} teste=${f3(l.te.mae30)} MAEcompl(teste)=${f3(l.te.maeCompleto)}`));
-  console.log("\n== varreduras de 1 parâmetro (MAE todos / completo / dia6 : treino | teste) ==");
+  console.log("\n== varreduras de 1 parâmetro (MAE todos / completo / sem30 : treino | teste) ==");
   linhas.slice(0, 1).concat(linhas.filter((l) => Object.keys(l.o).length <= 2)).forEach((l) => console.log(`${l.nome.padEnd(60)} ${f3(l.tr.mae)} ${f3(l.tr.maeCompleto)} ${f3(l.tr.mae30)} | ${f3(l.te.mae)} ${f3(l.te.maeCompleto)} ${f3(l.te.mae30)}  vies ${f3(l.te.vies)}`));
 }
 
@@ -129,10 +154,10 @@ function estab(todas: ObsProdutividade[], opcoes: Partial<OpcoesProdutividade>[]
     console.log(`${rot.padEnd(40)} queda média após 1 período a 0,50: ${f3(media(d1))} (máx ${f3(Math.max(...d1))})   após 3 períodos a 0,70: ${f3(media(d3))}`);
   };
   console.log(`estabilidade: ${amostra.length} (posto, instante) amostrados`);
-  calc("(b) f atual (pool)", (h, a) => { const v = h.filter((x) => x.status === "produzindo" && x.meta > 0 && x.produtoId === a.obs.produtoId && x.etapaId === a.obs.etapaId && x.lancadoEmMs <= a.agora); return fatorDesempenho(v.length, v.reduce((s, x) => s + x.boas, 0), v.reduce((s, x) => s + x.meta, 0)); });
-  calc("(e) última observação", (h, a) => { const x = h.filter((y) => y.status === "produzindo" && y.meta > 0 && y.produtoId === a.obs.produtoId && y.etapaId === a.obs.etapaId && y.maquinaId === a.obs.maquinaId && y.lancadoEmMs <= a.agora).sort((p, q) => q.lancadoEmMs - p.lancadoEmMs)[0]; return x ? x.boas / x.meta : 1; });
-  calc("EWMA α=0,3 do posto (sem proteção)", (h, a) => { const v = h.filter((y) => y.status === "produzindo" && y.meta > 0 && y.produtoId === a.obs.produtoId && y.etapaId === a.obs.etapaId && y.maquinaId === a.obs.maquinaId && y.lancadoEmMs <= a.agora).sort((p, q) => p.lancadoEmMs - q.lancadoEmMs); let e = 1; v.forEach((y) => (e = 0.3 * (y.boas / y.meta) + 0.7 * e)); return e; });
-  opcoes.forEach((o, i) => calc(rotulos[i], (h, a) => produtividadeEsperada(h, a.obs.produtoId as string, a.obs.etapaId as string, a.obs.maquinaId as string, a.agora, o).fator));
+  [false, true].forEach((acum) => calc(acum ? "(b2) f acumulado (pool, histórico todo)" : "(b) f atual de PROD (pool, semana corrente)", (h, a) => { const sem = semanaDe(a.obs.data); const v = h.filter((x) => x.status === "produzindo" && x.meta > 0 && x.produtoId === a.obs.produtoId && x.etapaId === a.obs.etapaId && x.lancadoEmMs <= a.agora && (acum || semanaDe(x.data) === sem)); return fatorDesempenho(v.length, v.reduce((s, x) => s + x.boas, 0), v.reduce((s, x) => s + x.meta, 0)); }));
+  calc("(e) última observação", (h, a) => { const x = h.filter((y) => y.status === "produzindo" && y.meta > 0 && y.produtoId === a.obs.produtoId && y.operacaoId === a.obs.operacaoId && y.maquinaId === a.obs.maquinaId && y.lancadoEmMs <= a.agora).sort((p, q) => q.lancadoEmMs - p.lancadoEmMs)[0]; return x ? x.boas / x.meta : 1; });
+  calc("EWMA α=0,3 do posto (sem proteção)", (h, a) => { const v = h.filter((y) => y.status === "produzindo" && y.meta > 0 && y.produtoId === a.obs.produtoId && y.operacaoId === a.obs.operacaoId && y.maquinaId === a.obs.maquinaId && y.lancadoEmMs <= a.agora).sort((p, q) => p.lancadoEmMs - q.lancadoEmMs); let e = 1; v.forEach((y) => (e = 0.3 * (y.boas / y.meta) + 0.7 * e)); return e; });
+  opcoes.forEach((o, i) => calc(rotulos[i], (h, a) => produtividadeEsperada(h, a.obs.produtoId as string, a.obs.etapaId as string, a.obs.maquinaId as string, a.agora, { operacaoId: a.obs.operacaoId, ...o }).fator));
 }
 
 // QUEDA CONSISTENTE: série sintética 24 períodos a 1,0 e depois 0,80 constante — quantos períodos até o fator refletir a queda?
@@ -142,6 +167,12 @@ function queda(opcoes: Partial<OpcoesProdutividade>[], rotulos: string[]) {
     data: "x", periodoId: "m1", funcionarioId: null, maquinaId: "m", produtoId: "p", etapaId: "e", operacaoId: null, boas: 1000 * (i < n1 ? 1 : r2), refugo: 0, meta: 1000, status: "produzindo" as const, motivo: null,
     lancadoEmMs: base + i * 5_400_000, fimPeriodoMs: base + i * 5_400_000 - 60_000,
   }));
+  {
+    const s = serie(24, 40, 0.8);
+    const tr = Array.from({ length: 40 }, (_, t) => { const v = s.slice(0, 24 + t + 1); return fatorDesempenho(v.length, v.reduce((a, x) => a + x.boas, 0), v.reduce((a, x) => a + x.meta, 0)); });
+    const prim = (lim: number) => { const i = tr.findIndex((x) => x <= lim); return i < 0 ? ">40" : String(i + 1); };
+    console.log(`${"(b) f atual (acumulado do pool)".padEnd(34)} fator após 1/3/6/12/24 períodos a 0,80: ${[0, 2, 5, 11, 23].map((i) => f3(tr[i])).join(" / ")}   períodos p/ ≤0,95: ${prim(0.95)}  ≤0,90: ${prim(0.9)}  ≤0,85: ${prim(0.85)}`);
+  }
   opcoes.forEach((o, j) => {
     const s = serie(24, 40, 0.8);
     const tr = Array.from({ length: 40 }, (_, t) => produtividadeEsperada(s.slice(0, 24 + t + 1), "p", "e", "m", s[24 + t].lancadoEmMs, o).fator);
