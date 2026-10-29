@@ -368,6 +368,12 @@ describe("parâmetros: leitura defensiva e gate de semana", () => {
     expect(o).toMatchObject({ atingibilidadeModo: "sombra", objetivo: "financeiro", pesoComercial: { p: 2 } });
     expect(insumosFluxo(est({}), nominal, 0).opcoes.objetivo).toBeUndefined();
     expect(lerConfigFluxo([]).atingibilidadeK).toBeNull();
+    ["financeiro", "receita", "margem", "lucro_hora"].forEach((v) => expect(lerConfigFluxo(linhas({ producao_real_objetivo_escala: v })).objetivo).toBe(v));
+    expect(lerConfigFluxo(linhas({ producao_real_produtividade_base: "nominal" })).produtividadeBase).toBe("nominal");
+    expect(lerConfigFluxo(linhas({ producao_real_produtividade_base: "x" })).produtividadeBase).toBe("real");
+    expect(lerConfigFluxo(linhas({ producao_real_custo_hora_empresa: 30 })).custoHoraEmpresa).toBe(30);
+    expect(lerConfigFluxo(linhas({ producao_real_custo_hora_empresa: -5 })).custoHoraEmpresa).toBeNull();
+    expect(insumosFluxo(est({ objetivo: "lucro_hora", produtividadeBase: "nominal", custoHoraEmpresa: 30 }), nominal, 0).opcoes).toMatchObject({ objetivo: "lucro_hora", produtividadeBase: "nominal", custoHoraEmpresa: 30 });
     expect(lerConfigFluxo(linhas({ producao_real_atingibilidade_k: 3 })).atingibilidadeK).toBe(3);
     ["x", 0, -1, null].forEach((v) => expect(lerConfigFluxo(linhas({ producao_real_atingibilidade_k: v })).atingibilidadeK).toBeNull());
     expect(insumosFluxo(est({ atingibilidadeK: 3 }), nominal, 0).opcoes.atingibilidadeK).toBe(3);

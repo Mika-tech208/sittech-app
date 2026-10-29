@@ -13,6 +13,8 @@ export const CHAVE_PR_ATINGIBILIDADE = "producao_real_atingibilidade"; // "desli
 export const CHAVE_PR_ATINGIBILIDADE_MODO = "producao_real_atingibilidade_modo"; // "off" (padrão) | "sombra" | "ativo"; tem precedência sobre a chave legada acima
 export const CHAVE_PR_OBJETIVO = "producao_real_objetivo_escala"; // "pecas" (padrão) | "financeiro"
 export const CHAVE_PR_K = "producao_real_atingibilidade_k"; // k do limite econômico da atingibilidade (número > 0); ausente = padrão do núcleo (2)
+export const CHAVE_PR_PRODBASE = "producao_real_produtividade_base"; // "real" (padrão) | "nominal"
+export const CHAVE_PR_CUSTO_HORA = "producao_real_custo_hora_empresa"; // R$/h do lucro/h da tela (padrão 31,92 do núcleo); provisório até o módulo canônico
 export const CHAVE_PR_PESOS = "producao_real_pesos_comerciais"; // jsonb {produtoId: peso>0}; vazio por padrão (peso comercial manual)
 export const PRIMEIRA_SEMANA_FLUXO = "2026-10-26";
 
@@ -29,13 +31,15 @@ export interface ConfigFluxo {
   atingibilidade: boolean;
   /** off | sombra (mede e reporta, não altera o plano) | ativo. Derivado de producao_real_atingibilidade_modo; se ausente, da chave legada ("ativo" ⇒ ativo). `atingibilidade` = (modo === ativo). */
   atingibilidadeModo: "off" | "sombra" | "ativo";
-  objetivo: "pecas" | "financeiro";
+  objetivo: "pecas" | "financeiro" | "receita" | "margem" | "lucro_hora";
+  produtividadeBase: "real" | "nominal";
+  custoHoraEmpresa: number | null;
   pesosComerciais: Record<string, number>;
   /** producao_real_atingibilidade_k (> 0) ou null = padrão do núcleo. */
   atingibilidadeK: number | null;
 }
 
-export const CONFIG_FLUXO_PADRAO: ConfigFluxo = { modo: "desligado", semanasAtivas: [], limiar: null, paresLegado: [], contagensFisicas: [], contagensFisicasDescartadas: [], atingibilidade: false, atingibilidadeModo: "off", objetivo: "pecas", pesosComerciais: {}, atingibilidadeK: null };
+export const CONFIG_FLUXO_PADRAO: ConfigFluxo = { modo: "desligado", semanasAtivas: [], limiar: null, paresLegado: [], contagensFisicas: [], contagensFisicasDescartadas: [], atingibilidade: false, atingibilidadeModo: "off", objetivo: "pecas", produtividadeBase: "real", custoHoraEmpresa: null, pesosComerciais: {}, atingibilidadeK: null };
 
 const ehTexto = (v: unknown): v is string => typeof v === "string" && v.length > 0;
 
@@ -128,7 +132,9 @@ export function lerConfigFluxo(linhas: { chave: string; valor: unknown }[] | nul
     contagensFisicasDescartadas: contagens.descartes,
     atingibilidade: atingModo === "ativo",
     atingibilidadeModo: atingModo,
-    objetivo: mapa.get(CHAVE_PR_OBJETIVO) === "financeiro" ? "financeiro" : "pecas",
+    objetivo: (["financeiro", "receita", "margem", "lucro_hora"] as const).find((x) => x === mapa.get(CHAVE_PR_OBJETIVO)) ?? "pecas",
+    produtividadeBase: mapa.get(CHAVE_PR_PRODBASE) === "nominal" ? "nominal" : "real",
+    custoHoraEmpresa: (() => { const c = mapa.get(CHAVE_PR_CUSTO_HORA); return typeof c === "number" && Number.isFinite(c) && c > 0 ? c : null; })(),
     pesosComerciais: lerPesos(mapa.get(CHAVE_PR_PESOS)),
     atingibilidadeK: (() => { const k = mapa.get(CHAVE_PR_K); return typeof k === "number" && Number.isFinite(k) && k > 0 ? k : null; })(),
   };

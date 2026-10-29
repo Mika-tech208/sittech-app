@@ -120,7 +120,9 @@ export interface EstadoProducaoReal {
   contagensFisicas?: ContagemFisicaPar[]; // producao_real_contagens_fisicas (itens bem formados; o núcleo revalida)
   contagensFisicasDescartadas?: DiagnosticoItem[]; // itens malformados dessa chave (ignorados, com diagnóstico)
   atingibilidadeModo?: "off" | "sombra" | "ativo"; // producao_real_atingibilidade_modo (ou a chave legada)
-  objetivo?: "pecas" | "financeiro"; // producao_real_objetivo_escala
+  objetivo?: "pecas" | "financeiro" | "receita" | "margem" | "lucro_hora"; // producao_real_objetivo_escala
+  produtividadeBase?: "nominal" | "real"; // producao_real_produtividade_base
+  custoHoraEmpresa?: number; // producao_real_custo_hora_empresa
   pesosComerciais?: Record<string, number>; // producao_real_pesos_comerciais
   atingibilidadeK?: number; // producao_real_atingibilidade_k
   atingibilidade?: boolean; // legado: producao_real_atingibilidade = "ativo": preservarAtingibilidade no núcleo

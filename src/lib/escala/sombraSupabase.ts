@@ -8,7 +8,7 @@ import type { SnapshotSombra } from "@/features/escala/snapshotSombra";
 import { versaoDeLinhaBanco } from "./planoVersionado";
 import { criarEscalaIO } from "./supabaseIO";
 import { carregarApontamentosBanco, registrarDiagnosticoFluxo } from "./fluxo/supabaseFluxo";
-import { CHAVE_PR_ATINGIBILIDADE, CHAVE_PR_ATINGIBILIDADE_MODO, CHAVE_PR_OBJETIVO, CHAVE_PR_PESOS, CHAVE_PR_K, CHAVE_PR_CONTAGENS, CHAVE_PR_LIMIAR, CHAVE_PR_MODO, CHAVE_PR_PARES, CHAVE_PR_SEMANAS, lerConfigFluxo } from "./fluxo/parametrosFluxo";
+import { CHAVE_PR_ATINGIBILIDADE, CHAVE_PR_ATINGIBILIDADE_MODO, CHAVE_PR_OBJETIVO, CHAVE_PR_PESOS, CHAVE_PR_K, CHAVE_PR_PRODBASE, CHAVE_PR_CUSTO_HORA, CHAVE_PR_CONTAGENS, CHAVE_PR_LIMIAR, CHAVE_PR_MODO, CHAVE_PR_PARES, CHAVE_PR_SEMANAS, lerConfigFluxo } from "./fluxo/parametrosFluxo";
 import { fluxoNoFechamento } from "./fluxo/fechamento";
 import { processarSemana } from "./processar";
 import { processarSombra, type AplicacaoRestrita, type DecisaoParaGravar, type EventoSombra, type RegistroAvaliacao, type ResumoSombra, type SombraIO } from "./sombraServico";
@@ -62,7 +62,7 @@ export function criarSombraIO(admin: SupabaseClient): SombraIO {
       return lerParametros(data as { chave: string; valor: unknown }[]).replanejamentoSemanasAtivas;
     },
     async lerConfigFluxo() {
-      const { data, error } = await admin.from("escala_parametros").select("chave, valor").in("chave", [CHAVE_PR_MODO, CHAVE_PR_SEMANAS, CHAVE_PR_LIMIAR, CHAVE_PR_PARES, CHAVE_PR_CONTAGENS, CHAVE_PR_ATINGIBILIDADE, CHAVE_PR_ATINGIBILIDADE_MODO, CHAVE_PR_OBJETIVO, CHAVE_PR_PESOS, CHAVE_PR_K]);
+      const { data, error } = await admin.from("escala_parametros").select("chave, valor").in("chave", [CHAVE_PR_MODO, CHAVE_PR_SEMANAS, CHAVE_PR_LIMIAR, CHAVE_PR_PARES, CHAVE_PR_CONTAGENS, CHAVE_PR_ATINGIBILIDADE, CHAVE_PR_ATINGIBILIDADE_MODO, CHAVE_PR_OBJETIVO, CHAVE_PR_PESOS, CHAVE_PR_K, CHAVE_PR_PRODBASE, CHAVE_PR_CUSTO_HORA]);
       if (error) throw new Error(`escala_parametros: ${error.message}`);
       return lerConfigFluxo(data as { chave: string; valor: unknown }[]);
     },
