@@ -30,15 +30,21 @@ const planoDeEntrada = zero ? d.planoAtual.filter((a) => (idx.get(`${a.data}|${a
 const FICTICIA: Record<string, number> = { "Caixa Amarela 4x2": 0.5, 'Conector 3/4 Conv.': 0.3, "Conector 3/4 Autom.": 0.35, Pino: 0.6, "Plug Macho": 0.2, 'Conector 1.1/4"': 0.4 };
 const margemFicticia = (produtoId: string) => { const preco = d.decisao.entrada.pools.find((p) => p.produtoId === produtoId)?.valorUnitario ?? 0; return { valor: preco * (FICTICIA[nome(produtoId)] ?? 0.3), natureza: "contribuicao" as const, fonte: "FICTICIA (teste de arquitetura)", confiavel: true }; };
 const KS = (arg("ks") ?? "1,2,3,5,7,10,100").split(",").map(Number);
+const MODOS = (process.env.MODOS ?? "4").length > 0;
+void MODOS;
 const configs: Record<string, Partial<OpcoesFluxo>> = {
   A_pecas: {},
-  B_receita_sem_ating: { objetivo: "financeiro" },
-  B_receita_ating_k2: { objetivo: "financeiro", atingibilidadeModo: "ativo", atingibilidadeK: 2 },
-  C_margem_FICTICIA: { objetivo: "margem", semanaInicio: "2026-10-26", margem: margemFicticia, atingibilidadeModo: "ativo" },
-  ...Object.fromEntries(KS.filter((k) => k !== 2).map((k) => [`B_k${k}`, { objetivo: "financeiro" as const, atingibilidadeModo: "ativo" as const, atingibilidadeK: k }])),
+  B_receita: { objetivo: "financeiro", atingibilidadeModo: "ativo", atingibilidadeK: 2 },
+  C_lucroHora_nominal: { objetivo: "lucro_hora", produtividadeBase: "nominal", atingibilidadeModo: "ativo", atingibilidadeK: 2 },
+  D_lucroHora_real: { objetivo: "lucro_hora", atingibilidadeModo: "ativo", atingibilidadeK: 2 },
+  D_lucroHora_real_k1: { objetivo: "lucro_hora", atingibilidadeModo: "ativo", atingibilidadeK: 1 },
+  D_lucroHora_real_k5: { objetivo: "lucro_hora", atingibilidadeModo: "ativo", atingibilidadeK: 5 },
+  D_lucroHora_real_k10: { objetivo: "lucro_hora", atingibilidadeModo: "ativo", atingibilidadeK: 10 },
+  D_lucroHora_real_k100: { objetivo: "lucro_hora", atingibilidadeModo: "ativo", atingibilidadeK: 100 },
 };
 const medir: Partial<OpcoesFluxo> = { objetivo: "financeiro", atingibilidadeModo: "sombra", economiaSlots: 99 };
 const est = montarEstadoAting(d, agoraMs, d.planoAtual, desloc, medir, bloco);
+const estL = montarEstadoAting(d, agoraMs, d.planoAtual, desloc, { objetivo: "lucro_hora", atingibilidadeModo: "sombra", economiaSlots: 99 }, bloco);
 const out: any = { agora: arg("agora"), primeiroPeriodoMutavel: `${slots[base.aPartirDe].data} ${slots[base.aPartirDe].periodoId}`, planos: {} };
 const planos: Record<string, { aloc: AlocacaoEscala[]; ms?: number; escolhido?: string; diag?: string[]; eco?: any }> = { vigente: { aloc: vig } };
 for (const [nm, op] of Object.entries(configs)) {
@@ -51,8 +57,11 @@ for (const [nm, op] of Object.entries(configs)) {
 for (const [nm, p] of Object.entries(planos)) {
   const av = avaliarPlano(est.entrada, est.dados, [...est.entrada.congeladas, ...p.aloc], est.opcoes);
   const fin = av.financeiro!;
+  const avL = avaliarPlano(estL.entrada, estL.dados, [...estL.entrada.congeladas, ...p.aloc], estL.opcoes);
+  const finL = avL.financeiro!;
   out.planos[nm] = {
     escolhido: p.escolhido, ms: p.ms, diag: p.diag, eco: p.eco,
+    lucro: { projetado: finL.total.rsProjetadoFechamento, faltaInevitavel: finL.total.rsFaltaInevitavel, porProduto: Object.fromEntries(finL.produtos.map((x) => [nome(x.produtoId), x.rsProjetadoFechamento])) },
     total: { ...fin.total, pecasFinal: Math.round(av.totais.finalEntregueLo), wipFinal: Math.round(av.totais.wipFinalLo), excessoWip: Math.round(av.totais.excessoWip), atingiveisPerdidas: av.atingibilidade!.atingiveisPerdidas },
     churnVsVigente: calcularChurn(est.ctx, p.aloc),
     violacoesDuras: verificarRestricoesDuras(est.entrada, p.aloc).length,

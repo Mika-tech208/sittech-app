@@ -9,6 +9,8 @@ import { analisarCapacidade } from "@/features/escala/fluxo/capacidade";
 import { contagensDoPlano, varrerContagensPreservando } from "@/features/escala/fluxo/otimizar";
 import { maximosPossiveis } from "@/features/escala/fluxo/atingibilidade";
 import type { AlocacaoEscala } from "@/features/escala/types";
+import { lucroHoraDaTela } from "@/features/escala/fluxo/economiaProduto";
+import { aplicarProdutividade } from "@/features/escala/fluxo/produtividade";
 
 const arg = (k: string) => { const i = process.argv.indexOf("--" + k); return i >= 0 ? process.argv[i + 1] : undefined; };
 const agoraMs = Date.parse(arg("agora") ?? "2026-10-28T09:45:00-03:00");
@@ -18,11 +20,12 @@ const d = carregar(buscar({ semana: "2026-10-26", antesIso: "2026-10-28T08:50:00
 const nome = (id: string) => (d.nomes[id] ?? id.slice(0, 8)).trim().replace('Conector 3/4" - Maquina Automatica', "Conector 3/4 Autom.").replace('Conector 3/4"', "Conector 3/4 Conv.");
 const opPorEtapa = new Map(d.decisao.entrada.pools.map((p) => [p.etapaId, p.operacaoId]));
 const nomeNo = (k: string) => { const [p, e] = k.split("|"); const op = opPorEtapa.get(e); return `${nome(p)}·${op ? nome(op) : e.slice(0, 6)}`; };
-const med: Partial<OpcoesFluxo> = { objetivo: "financeiro", atingibilidadeModo: "sombra", economiaSlots: 99 };
+const OBJ = (arg("obj") ?? "financeiro") as OpcoesFluxo["objetivo"];
+const med: Partial<OpcoesFluxo> = { objetivo: OBJ, atingibilidadeModo: "sombra", economiaSlots: 99 };
 const est = montarEstadoAting(d, agoraMs, d.planoAtual, desloc, med, bloco);
 const idx = new Map(est.slots.map((s) => [`${s.data}|${s.periodoId}`, s.indice]));
 const fut = (l: AlocacaoEscala[]) => l.filter((a) => (idx.get(`${a.data}|${a.periodoId}`) ?? -1) >= est.aPartirDe);
-const eB = montarEstadoAting(d, agoraMs, d.planoAtual, desloc, { objetivo: "financeiro", atingibilidadeModo: "ativo", atingibilidadeK: 2, economiaSlots: 99 }, bloco);
+const eB = montarEstadoAting(d, agoraMs, d.planoAtual, desloc, { objetivo: OBJ, atingibilidadeModo: "ativo", atingibilidadeK: 2, economiaSlots: 99 }, bloco);
 const r = planejarComFluxo(eB.entrada, eB.dados, eB.opcoes);
 const planos: Record<string, AlocacaoEscala[]> = { vigente_PROD: fut(d.planoAtual), B_receita_k2: fut(r.resultado.alocacoes) };
 const L: string[] = [];
@@ -35,7 +38,7 @@ for (const [nm, aloc] of Object.entries(planos)) {
   const an = analisarCapacidade(est.ctx, completo, mins);
   const mx = maximosPossiveis(est.ctx);
   L.push(`\n## ${nm} — primeiro período mutável ${est.slots[est.aPartirDe].data} ${est.slots[est.aPartirDe].periodoId}`);
-  L.push("| Produto | Meta pç | Preço | Meta R$ | Produzido final pç | R$ | Restante pç | Cap. máq. restante (etapa final) pç | Máx. atingível pç | Meta atingível | Selecionadas/Disponíveis/Ocupadas (etapa final) | Prod. nominal | Prod. real | Receita/h posto | Margem/h | Gargalo atual | R$ ainda capturável | R$ proj. fechamento | R$ falta inevitável |");
+  L.push("| Produto | Meta pç | Preço | Meta R$ | Produzido final pç | R$ | Restante pç | Cap. máq. restante (etapa final) pç | Máx. atingível pç | Meta atingível | Selecionadas/Disponíveis/Ocupadas (etapa final) | Prod. nominal | Prod. real | Receita/h posto | Lucro/h tela (nominal/real) | Gargalo atual | R$ ainda capturável | R$ proj. fechamento | R$ falta inevitável |");
   L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
   av.financeiro!.produtos.forEach((p) => {
     const sinkRow = an.capacidade.filter((c) => c.produtoId === p.produtoId && c.etapaId === p.etapaFinalId);
@@ -43,7 +46,7 @@ for (const [nm, aloc] of Object.entries(planos)) {
     const capRest = sinkRow.reduce((s, c) => s + c.capMaquinas, 0);
     const sel = est.entrada.pools.find((q) => q.produtoId === p.produtoId && q.etapaId === p.etapaFinalId)?.maquinasIds.length ?? 0;
     const garg = av.produtos.find((q) => q.produtoId === p.produtoId)?.gargaloFluxo;
-    L.push(`| ${nome(p.produtoId)} | ${Math.round(p.meta)} | ${p.precoCongelado} | ${p.rsMeta.toFixed(0)} | ${Math.round(p.realizadoFinal)} | ${p.rsRealizado.toFixed(0)} | ${Math.round(p.restante)} | ${Math.round(capRest)} | ${Math.round(p.maximoProduzivel)} | ${p.metaAtingivel ? "SIM" : "NÃO"} | ${sel}/${primeiro?.postosMaximos ?? "-"}/${primeiro?.postosOcupados ?? "-"} | ${primeiro ? Math.round(primeiro.produtividadeNominal) : "-"} | ${primeiro ? Math.round(primeiro.produtividadeEsperada) : "-"} | ${primeiro?.receitaPorHoraPosto ?? "-"} | indisponível | ${garg ? nomeNo(`${garg.produtoId}|${garg.etapaId}`) : "-"} | ${(p.rsMaximoAtingivel - p.rsRealizado).toFixed(0)} | ${p.rsProjetadoFechamento.toFixed(0)} | ${p.rsFaltaInevitavel.toFixed(0)} |`);
+    L.push(`| ${nome(p.produtoId)} | ${Math.round(p.meta)} | ${p.precoCongelado} | ${p.rsMeta.toFixed(0)} | ${Math.round(p.realizadoFinal)} | ${p.rsRealizado.toFixed(0)} | ${Math.round(p.restante)} | ${Math.round(capRest)} | ${Math.round(p.maximoProduzivel)} | ${p.metaAtingivel ? "SIM" : "NÃO"} | ${sel}/${primeiro?.postosMaximos ?? "-"}/${primeiro?.postosOcupados ?? "-"} | ${primeiro ? Math.round(primeiro.produtividadeNominal) : "-"} | ${primeiro ? Math.round(primeiro.produtividadeEsperada) : "-"} | ${primeiro?.receitaPorHoraPosto ?? "-"} | ${(() => { const L = lucroHoraDaTela(est.entrada)(p.produtoId, ""); const N = lucroHoraDaTela(aplicarProdutividade(est.entrada, { ...est.opcoes, produtividadeBase: "nominal" }, 0).entrada)(p.produtoId, ""); return L && N ? `${N.lucroHora.toFixed(2)} nom / ${L.lucroHora.toFixed(2)} real` : "-"; })()} | ${garg ? nomeNo(`${garg.produtoId}|${garg.etapaId}`) : "-"} | ${(p.rsMaximoAtingivel - p.rsRealizado).toFixed(0)} | ${p.rsProjetadoFechamento.toFixed(0)} | ${p.rsFaltaInevitavel.toFixed(0)} |`);
   });
   L.push(`\nCapacidade por etapa no 1º período mutável (${nm}):`);
   L.push("| Etapa | Máx | Ocup. | Disp. | Mín. atingib. | Pessoas | Nominal | Real | R$/h posto | CAP_ETAPA pç | V+1 pessoa R$ | V último R$ | Diagnóstico |");

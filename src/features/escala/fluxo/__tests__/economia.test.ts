@@ -143,3 +143,38 @@ describe("compatibilidade", () => {
     expect(a.r.diagnostico.avaliacaoFluxo.financeiro!.produtos.every((p) => p.pesoComercial === 1)).toBe(true);
   });
 });
+
+describe("lucro/hora = tela Produtos (calcularMargemProduto reaproveitado)", () => {
+  const A = [
+    pool({ produto: "A", etapa: "A1", op: "opA1", ordem: 1, q: 900000, maquinas: ["a1"], mu: 1000, valor: 0.2 }),
+    pool({ produto: "A", etapa: "A2", op: "opA2", ordem: 2, q: 900000, maquinas: ["a2"], mu: 500, valor: 0.2 }),
+  ];
+  it("fórmula da tela: margem = valor − Σ(tempo/peça × custo/hora); lucro/h = margem ÷ Σ tempo/peça; = receita/h − k quando o custo/hora é único", async () => {
+    const { lucroHoraDaTela } = await import("../economiaProduto");
+    const m = montar({ pools: A, funcionarios: equipe(2), c: 1, extra: { revezamentoDuro: false }, dias: DIAS });
+    const k = 30;
+    const r = lucroHoraDaTela(m.entrada, { custoHoraEmpresa: k })("A", "")!;
+    const horasTot = [...new Map(m.entrada.slots.map((s) => [s.periodoId, (s.fimMin - s.inicioMin) / 60])).values()].reduce((a, b) => a + b, 0); // Σ horas dos 6 períodos
+    const T = horasTot / (6 * 1000) + horasTot / (6 * 500); // tempo/peça = Σ horas ÷ Σ metas, por etapa
+    expect(T).toBeGreaterThan(0);
+    expect(r.tempoTotalHoras).toBeCloseTo(T, 9);
+    expect(r.custoUnitario).toBeCloseTo(T * k, 9);
+    expect(r.margemUnitaria).toBeCloseTo(0.2 - T * k, 9);
+    expect(r.lucroHora).toBeCloseTo((0.2 - T * k) / T, 9);
+    expect(r.lucroHora).toBeCloseTo(r.receitaHora - k, 9);
+  });
+  it("objetivo lucro_hora: usa a margem da tela por peça final (nível margem, fonte 'tela Produtos'); sem provedor próprio o núcleo constrói o da tela", () => {
+    const { r } = rodar(A, 2, { objetivo: "lucro_hora" });
+    expect(r.diagnostico.economia!.nivel).toBe("margem");
+    const p = r.diagnostico.avaliacaoFluxo.financeiro!.produtos[0];
+    expect(p.fonteValor).toContain("tela Produtos");
+    expect(p.valorEconomicoUnitario).toBeLessThan(0.2); // margem < valor
+    expect(p.rsMeta).toBeCloseTo(p.meta * (p.valorEconomicoUnitario as number), 1);
+  });
+  it("lucro/h nominal × real: base nominal remove o f embutido da produtividade e da margem", async () => {
+    const { lucroHoraDaTela } = await import("../economiaProduto");
+    const m = montar({ pools: A, funcionarios: equipe(2), c: 1, extra: { revezamentoDuro: false }, dias: DIAS });
+    const lento = { ...m.entrada, pools: m.entrada.pools.map((p) => ({ ...p, metas: Object.fromEntries(Object.entries(p.metas).map(([k, v]) => [k, v * 0.5])) })) };
+    expect(lucroHoraDaTela(lento)("A", "")!.lucroHora).toBeLessThan(lucroHoraDaTela(m.entrada)("A", "")!.lucroHora);
+  });
+});
