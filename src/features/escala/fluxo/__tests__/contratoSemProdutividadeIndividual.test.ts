@@ -17,6 +17,7 @@ const RAIZ = path.resolve(__dirname, "../..");
 // nunca em capacidade.ts. `desempate.ts` trata da ESCOLHA da pessoa e fica de fora por definição; ver docs/escala-fluxo-atingibilidade.md.)
 const PROIBIDO = [
   "produtividade.ts", "fluxo/produtividade.ts", "desempenho.ts", "fluxo/financeiro.ts", "fluxo/capacidade.ts", "fluxo/economiaProduto.ts", "fluxo/atingibilidade.ts", "fluxo/aderencia.ts",
+  "fluxo/demandaFutura.ts", "fluxo/proximaSemana.ts", "fluxo/pessoaParada.ts",
 ];
 const semComentarios = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
 
