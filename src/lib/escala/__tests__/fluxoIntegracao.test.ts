@@ -367,6 +367,10 @@ describe("parâmetros: leitura defensiva e gate de semana", () => {
     const o = insumosFluxo(est({ atingibilidadeModo: "sombra", objetivo: "financeiro", pesosComerciais: { p: 2 } }), nominal, 0).opcoes;
     expect(o).toMatchObject({ atingibilidadeModo: "sombra", objetivo: "financeiro", pesoComercial: { p: 2 } });
     expect(insumosFluxo(est({}), nominal, 0).opcoes.objetivo).toBeUndefined();
+    expect(lerConfigFluxo([]).atingibilidadeK).toBeNull();
+    expect(lerConfigFluxo(linhas({ producao_real_atingibilidade_k: 3 })).atingibilidadeK).toBe(3);
+    ["x", 0, -1, null].forEach((v) => expect(lerConfigFluxo(linhas({ producao_real_atingibilidade_k: v })).atingibilidadeK).toBeNull());
+    expect(insumosFluxo(est({ atingibilidadeK: 3 }), nominal, 0).opcoes.atingibilidadeK).toBe(3);
   });
   it("semanas anteriores a 2026-10-26 e datas inválidas nunca valem (defesa em profundidade)", () => {
     const c = lerConfigFluxo(linhas({ producao_real_modo: "ativo", producao_real_semanas_ativas: ["2026-10-19", "2026-10-26", "lixo", 5, "2026-11-02", "2026-11-02"] }));

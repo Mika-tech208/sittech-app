@@ -122,6 +122,7 @@ export interface EstadoProducaoReal {
   atingibilidadeModo?: "off" | "sombra" | "ativo"; // producao_real_atingibilidade_modo (ou a chave legada)
   objetivo?: "pecas" | "financeiro"; // producao_real_objetivo_escala
   pesosComerciais?: Record<string, number>; // producao_real_pesos_comerciais
+  atingibilidadeK?: number; // producao_real_atingibilidade_k
   atingibilidade?: boolean; // legado: producao_real_atingibilidade = "ativo": preservarAtingibilidade no núcleo
   apontamentos: ApontamentoReal[]; // TODAS as linhas de apontamento da semana (produzindo e sem_producao, com motivo e carimbo)
 }

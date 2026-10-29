@@ -12,6 +12,7 @@ export const CHAVE_PR_CONTAGENS = "producao_real_contagens_fisicas";
 export const CHAVE_PR_ATINGIBILIDADE = "producao_real_atingibilidade"; // "desligado" (padrão) | "ativo": preserva a atingibilidade das metas semanais (tier 1)
 export const CHAVE_PR_ATINGIBILIDADE_MODO = "producao_real_atingibilidade_modo"; // "off" (padrão) | "sombra" | "ativo"; tem precedência sobre a chave legada acima
 export const CHAVE_PR_OBJETIVO = "producao_real_objetivo_escala"; // "pecas" (padrão) | "financeiro"
+export const CHAVE_PR_K = "producao_real_atingibilidade_k"; // k do limite econômico da atingibilidade (número > 0); ausente = padrão do núcleo (2)
 export const CHAVE_PR_PESOS = "producao_real_pesos_comerciais"; // jsonb {produtoId: peso>0}; vazio por padrão (peso comercial manual)
 export const PRIMEIRA_SEMANA_FLUXO = "2026-10-26";
 
@@ -30,9 +31,11 @@ export interface ConfigFluxo {
   atingibilidadeModo: "off" | "sombra" | "ativo";
   objetivo: "pecas" | "financeiro";
   pesosComerciais: Record<string, number>;
+  /** producao_real_atingibilidade_k (> 0) ou null = padrão do núcleo. */
+  atingibilidadeK: number | null;
 }
 
-export const CONFIG_FLUXO_PADRAO: ConfigFluxo = { modo: "desligado", semanasAtivas: [], limiar: null, paresLegado: [], contagensFisicas: [], contagensFisicasDescartadas: [], atingibilidade: false, atingibilidadeModo: "off", objetivo: "pecas", pesosComerciais: {} };
+export const CONFIG_FLUXO_PADRAO: ConfigFluxo = { modo: "desligado", semanasAtivas: [], limiar: null, paresLegado: [], contagensFisicas: [], contagensFisicasDescartadas: [], atingibilidade: false, atingibilidadeModo: "off", objetivo: "pecas", pesosComerciais: {}, atingibilidadeK: null };
 
 const ehTexto = (v: unknown): v is string => typeof v === "string" && v.length > 0;
 
@@ -127,6 +130,7 @@ export function lerConfigFluxo(linhas: { chave: string; valor: unknown }[] | nul
     atingibilidadeModo: atingModo,
     objetivo: mapa.get(CHAVE_PR_OBJETIVO) === "financeiro" ? "financeiro" : "pecas",
     pesosComerciais: lerPesos(mapa.get(CHAVE_PR_PESOS)),
+    atingibilidadeK: (() => { const k = mapa.get(CHAVE_PR_K); return typeof k === "number" && Number.isFinite(k) && k > 0 ? k : null; })(),
   };
 }
 

@@ -77,3 +77,35 @@ on conflict (chave) do update set valor = excluded.valor, atualizado_em = now();
 
 ### Ordem de deploy
 1) migration do revezamento por bloco (feat/escala-rev-bloco, 20261105200000) em DEV → 2) código (esta branch já contém o merge) com TODAS as flags desligadas → 3) `revezamento_escopo = bloco` → 4) `atingibilidade_modo = sombra` + `objetivo = pecas` (comparar `diagnostico.financeiro`) → 5) `ativo`/`financeiro` só após critérios de PROD. Rollback: voltar cada flag ao padrão (sem migration, sem deploy).
+
+
+## 8. Objetivo ECONÔMICO (v3): receita/hora por posto, capacidade física, limite econômico da atingibilidade
+
+**Correção conceitual**: nem peças, nem preço unitário, nem R$/peça isolados — o que importa é quanto resultado econômico um RECURSO gera na capacidade disponível (A: R$1,00×100/h = R$100/h < B: R$0,30×1.000/h = R$300/h). Três níveis, mesma arquitetura:
+
+| nível | valor por peça final | como entra | estado |
+|---|---|---|---|
+| N1 receita/unidade | preço congelado da Previsão (`PoolEscala.valorUnitario`) | `objetivo = "financeiro"` (≡ `"receita"`) | real |
+| N2 receita/hora por posto | preço × produtividade esperada (meta × f ou `ProdutividadeProvider`) ÷ horas do período | implícito no valor marginal (peças × preço); exposto em `CapacidadeEtapaSlot.receitaPorHoraPosto` | real |
+| N3 margem de contribuição/hora | (preço − custo variável) × produtividade, via `MargemProvider` | `objetivo = "margem"`; sem margem confiável cai para RECEITA ("receita marginal", `MARGEM_INDISPONIVEL`) | **indisponível hoje** (docs/escala-economia-dados.md: não há custo variável por peça; custo/hora do sistema é todo fixo e NÃO entra na decisão) |
+
+Receita só da **peça final** (nunca soma "preço × produtividade da etapa" entre etapas); intermediárias geram WIP. Custo fixo nunca é rateado.
+
+### Fórmulas
+* **Produtividade esperada** `p(pool, período)` = média, nas máquinas SELECIONADAS na Previsão, de `pecasPorPeriodo × fator` (`ProdutividadeProvider(produto, etapa, máquina, período, agora)`; default = meta nominal × f do pool, como hoje). `produtividadeBase = "nominal" | "real"` escolhe a base (a ordem de receita/h entre produtos muda com a base).
+* **Capacidade da etapa** `CAP_ETAPA(t) = min( postosMáx(t)·p , min(postosMáx, pessoas presentes)·p , produção da etapa com todos os postos pela simulação [material/WIP e absorção downstream] )`. Postos máximos = máquinas da Previsão disponíveis (Paradas/bloqueios descontados); nunca máquinas compatíveis do cadastro. Capacidade do produto final = elo mais restritivo da cadeia com o estoque entre etapas = `maximosPossiveis`.
+* **Valor marginal** de uma pessoa neste posto neste período = `Δ (R$ de produto FINAL até o fim da semana)` por re-simulação exata da cadeia (`calcularMarginais`): só conta o que CHEGA ao produto final (3.000/período de upstream com downstream consumindo 1.000 ⇒ 1.000 contam; produzir acima da etapa limitante vale 0). Não premia WIP.
+* **Saturação/gargalos** (`analisarCapacidade`): `SATURADO_POR_POSTO` (todos os postos ocupados ⇒ valor marginal 0), `GARGALO_PESSOA` (posto livre com valor, sem pessoa), `GARGALO_WIP_MATERIAL` (posto livre sem material), `GARGALO_DOWNSTREAM` (a cadeia/demanda não absorve), `FOLGA_FUTURA` (o posto produz mas a capacidade dos períodos seguintes já cobre o material da semana: mais uma pessoa só antecipa).
+* **Custo de oportunidade** de uma pessoa = melhor valor marginal alternativo no mesmo período (posto livre de outra etapa); `ganho líquido = valor marginal − custo de oportunidade`. Log por decisão em `diagnostico.economia.decisoes[].texto`: "Pessoa X → posto Y porque: posto k de N, há material, downstream absorve, produtividade esperada N, receita marginal R$ A, alternativa seguinte R$ B, ganho líquido R$ C".
+
+### Limite econômico da atingibilidade (regra geral, `atingibilidadeK`)
+Preservar uma meta atingível só se `custo de oportunidade (R$ da semana) ≤ k × valor recuperado (R$)`, com `custo = R$ falta(c) − R$ falta(A)` (A = melhor plano puramente econômico, todos os candidatos reavaliados da mesma forma) e `valor recuperado = Σ (falta evitável_A − falta evitável_c) × valor` nas metas atingíveis. Candidatos que preservam e passam no limite competem pela J (tier 1 primeiro); os que não passam geram `ATINGIBILIDADE_NAO_PRESERVADA_CUSTO` (custo, valor, razão, k). Quando não dá para cumprir todas as metas, vale a otimização econômica e `PRODUTO_SACRIFICADO` mostra produto, peças e R$ perdidos.
+
+**Escolha de k**: k = 1 é o piso racional (não pagar mais do que se recupera); a incerteza do próprio modelo (produtividade real ficou até 16% abaixo do plano em M1) exige folga de ~1/(1−0,16)² ≈ 1,4 para o julgamento não ser ruído; k = 2 deixa uma meta atingível valer até 2× a sua receita (prêmio de compromisso explícito e parametrizado). A sensibilidade nos replays de 28/10 mostra um platô: a decisão é IDÊNTICA para qualquer k < 5,24 (Pino: custo R$183 × valor R$35) e muda só para k ≥ 5,24. Padrão: k = 2; k maior é decisão comercial, não técnica.
+
+### Flags novas (todas desligadas por padrão; `producao_real_%`)
+`producao_real_objetivo_escala` (pecas|financeiro|receita|margem), `producao_real_atingibilidade_modo` (off|sombra|ativo), `producao_real_pesos_comerciais`, `producao_real_atingibilidade_k` (número > 0; padrão 2). Provedores `produtividade`/`margem` são injetados por código (nenhum em PROD hoje).
+
+### Pendências conhecidas
+* Os provedores reais de produtividade (feat/escala-produtividade) e de margem (feat/escala-economia-dados) não foram publicados; usam-se os padrões.
+* Revezamento por bloco é hard e vem do merge de main; as equivalências ficam desligadas.
