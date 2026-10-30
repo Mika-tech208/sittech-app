@@ -114,6 +114,10 @@ export interface AcaoUpstream {
   /** peças que NÃO dá para repor a tempo mesmo ligando tudo (capacidade/estoque): ruptura inevitável */
   inevitavel: number;
   inevitavelDesdePeriodo: number | null;
+  /** peças de consumo do DESTINO que a ação evita perder (falta no plano − falta com a ação), somadas no horizonte. Com 2+ origens é do destino (compartilhada). */
+  faltaEvitada: number;
+  /** custo da ação em postos-período (Σ postosAdicionais): confronte com `faltaEvitada` — um posto inteiro para repor poucas peças não compensa */
+  postosPeriodoAdicionais: number;
 }
 
 export interface DiagnosticoLigacao {
@@ -162,6 +166,10 @@ export interface DiagnosticoNo {
   rupturaPrevista: Ruptura | null;
   /** producao total alvo = plano + ação */
   producaoAlvo: number[];
+  /** peças que os postos do plano deixam de produzir por falta de material (desejado − efetivo), por período: capacidade de pessoas SEM peça para trabalhar */
+  pecasSemMaterial: number[];
+  /** idem em postos-equivalentes (peças ÷ produtividade de 1 posto): quanto de uma pessoa fica sem material no período (fracionário) */
+  postosSemMaterial: number[];
   /** peças que podiam deixar de ser produzidas aqui sem criar ruptura adiante, por período, SEM somar entre períodos (capacidade livre para outra necessidade) */
   removivel: number[];
   postosLivres: number[];
@@ -244,15 +252,10 @@ export function agendarMontante(consumoCum: number[], s0: number, cap: number[],
     // 1º período cujo requisito só é atendido pelo que falta
     desde = mesmoPeriodo ? 0 : 0;
   }
-  // produção realizável: a partir do zero antes do horizonte, no máximo a capacidade por período
+  // produção por período = incremento da curva acumulada (já limitado pela capacidade); o que só existiria ANTES do horizonte fica em `inevitavel`
+  // (nada de produção "de recuperação" depois do prazo: peça que chega após o consumo não evita a ruptura).
   const prod = zeros(H);
-  let acum = 0;
-  for (let k = 0; k < H; k++) {
-    const alvo = Math.max(P[k + 1], P[0]);
-    const x = Math.min(Math.max(0, cap[k] ?? 0), Math.max(0, alvo - acum));
-    prod[k] = x;
-    acum += x;
-  }
+  for (let k = 0; k < H; k++) prod[k] = Math.max(0, P[k + 1] - P[k]);
   return { producao: prod.map(r3), inevitavel: r3(Math.max(0, inevitavel)), inevitavelDesde: desde };
 }
 
@@ -549,6 +552,8 @@ export function forecastBuffer(entrada: EntradaForecast, op: OpcoesForecast = {}
     return {
       noId: n.id, rotulo: n.rotulo, producaoPlano: x.map(r3), producaoDesejada: des.map(r3),
       rupturaPrevista: n.entradas.length === 0 ? null : ruptura(des, x, wIniNo(sim1, n), entrada.periodos),
+      pecasSemMaterial: des.map((v, k) => r3(Math.max(0, v - x[k]))),
+      postosSemMaterial: des.map((v, k) => (pp[k] > EPS_FB ? r3(Math.max(0, v - x[k]) / pp[k]) : 0)),
       producaoAlvo: (alvo.get(n.id) as number[]).map(r3), removivel: rem,
       postosLivres: rem.map((v, k) => (pp[k] > EPS_FB ? Math.floor(v / pp[k] + 1e-9) : 0)),
       fonteTaxa: n.fonteTaxa,
@@ -556,6 +561,8 @@ export function forecastBuffer(entrada: EntradaForecast, op: OpcoesForecast = {}
   });
 
   // ---- diagnósticos por ligação ----
+  // falta do destino contra o desejado DO PLANO (sim1), para que as extras do próprio destino não inflem a comparação
+  const faltaDe = (sm: Sim, id: string) => (sim1.desejado.get(id) as number[]).reduce((q, v, k) => q + Math.max(0, v - (sm.x.get(id) as number[])[k]), 0);
   const durs = entrada.periodos.map((p) => p.duracaoMin);
   const lig: DiagnosticoLigacao[] = ligs.map((l) => {
     const dest = nos.get(l.destino) as NoN;
@@ -594,7 +601,8 @@ export function forecastBuffer(entrada: EntradaForecast, op: OpcoesForecast = {}
       coberturaSemReposicao: cobertura, rupturaPrevista: rup, pontoDePedido: g.pontoPedido, gatilhoPontoDePedido: gatilho,
       acao: {
         tipo, ligarEm: primeira >= 0 ? primeira : null, ligarEmRotulo: primeira >= 0 ? entrada.periodos[primeira].rotulo : null, adicionar: A.map(r3),
-        postosAdicionais: A.map((v, k) => (ppo[k] > EPS_FB ? Math.ceil(v / ppo[k] - 1e-9) : v > EPS_FB ? 1 : 0)), inevitavel, inevitavelDesdePeriodo: inevitavel > EPS_FB ? 0 : null,
+        postosAdicionais: A.map((v, k) => (ppo[k] > EPS_FB ? Math.ceil(v / ppo[k] - 1e-9) : v > EPS_FB ? 1 : 0)), inevitavel, inevitavelDesdePeriodo: inevitavel > EPS_FB ? (rup2 ? rup2.periodo : null) : null,
+        faltaEvitada: r3(faltaDe(sim1, dest.id) - faltaDe(sim2, dest.id)), postosPeriodoAdicionais: A.reduce((q, v, k) => q + (ppo[k] > EPS_FB ? Math.ceil(v / ppo[k] - 1e-9) : v > EPS_FB ? 1 : 0), 0),
       },
       saldoComAcao: saldoAcao, rupturaComAcao: rup2,
       excedeTeto: l.tetoWip !== undefined && Math.max(...saldoAcao, l.wipInicial) > l.tetoWip + EPS_FB,
@@ -620,7 +628,7 @@ export function formatarDiagnosticoLigacao(d: DiagnosticoLigacao, periodos: Peri
   const saldos = Array.from({ length: T }, (_, t) => `${periodos[t].rotulo} saldo ${n(d.saldoProjetado[t])}`).join(" | ");
   const rup = d.rupturaPrevista ? `RUPTURA ${d.rupturaPrevista.rotulo}${d.rupturaPrevista.minuto !== null ? ` (~min ${Math.round(d.rupturaPrevista.minuto)})` : ""}` : "sem ruptura";
   const cob = d.coberturaSemReposicao.periodos === null ? "cobre o horizonte" : `${d.coberturaSemReposicao.periodos.toFixed(2)} períodos`;
-  const acao = d.acao.tipo === "nenhuma" ? "AÇÃO: nenhuma" : d.acao.tipo === "sem_fonte" ? `AÇÃO: ligar ${d.acao.ligarEmRotulo ?? "já"} e mesmo assim faltam ${n(d.acao.inevitavel)} pç` : `AÇÃO: ligar ${d.acao.ligarEmRotulo} (+${n(d.acao.adicionar.reduce((s, v) => s + v, 0))} pç)`;
+  const acao = d.acao.tipo === "nenhuma" ? "AÇÃO: nenhuma" : d.acao.tipo === "sem_fonte" ? `AÇÃO: ${d.acao.ligarEmRotulo ? `ligar ${d.acao.ligarEmRotulo} e ` : ""}mesmo assim faltam ${n(d.acao.inevitavel)} pç (origem sem capacidade/estoque a tempo)` : `AÇÃO: ligar ${d.acao.ligarEmRotulo} (+${n(d.acao.adicionar.reduce((s, v) => s + v, 0))} pç)`;
   return `${d.rotulo}: WIP ${n(d.wipInicial)} | cobertura ${cob} | ${saldos} | ${rup} | ${acao}`;
 }
 

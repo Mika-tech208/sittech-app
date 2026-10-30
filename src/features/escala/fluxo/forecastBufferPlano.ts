@@ -120,8 +120,8 @@ export function forecastDoPlano(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], op: 
   return { entrada, mapa, resultado };
 }
 
-/** Traduz as ações do forecast em postos mínimos por (slot, pool) — formato de `EntradaEscala.reposicaoMinima` — e as peças extras a somar ao `rem` do pool. */
-export function reposicaoMinimaDe(f: ForecastDoPlano): { reposicaoMinima: Record<string, Record<string, number>>; remExtra: Record<string, number> } {
+/** Traduz as ações do forecast em postos mínimos por (slot, pool) (só os `maxPeriodos` primeiros períodos: "ligar AGORA" com horizonte rolante) — formato de `EntradaEscala.reposicaoMinima` — e as peças extras a somar ao `rem` do pool. */
+export function reposicaoMinimaDe(f: ForecastDoPlano, maxPeriodos = Number.POSITIVE_INFINITY): { reposicaoMinima: Record<string, Record<string, number>>; remExtra: Record<string, number> } {
   const reposicaoMinima: Record<string, Record<string, number>> = {};
   const remExtra: Record<string, number> = {};
   f.resultado.ligacoes.forEach((l) => {
@@ -129,7 +129,7 @@ export function reposicaoMinimaDe(f: ForecastDoPlano): { reposicaoMinima: Record
     const n = f.mapa.poolDoNo[l.origem];
     const planejados = f.entrada.nos.find((x) => x.id === l.origem)?.postosPrevistos ?? [];
     l.acao.postosAdicionais.forEach((extra, i) => {
-      if (extra <= 0) return;
+      if (extra <= 0 || i >= maxPeriodos) return;
       const slot = String(f.mapa.slotDoPeriodo[i]);
       const chave = n.representante;
       const total = (planejados[i] ?? 0) + extra;

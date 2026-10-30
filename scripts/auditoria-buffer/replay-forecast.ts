@@ -10,6 +10,7 @@ import { capsDoPlano } from "@/features/escala/fluxo/avaliar";
 import { forecastDoPlano, reposicaoMinimaDe, type ForecastDoPlano } from "@/features/escala/fluxo/forecastBufferPlano";
 import { criarEstimadorPosto, fatorReposicaoMedido, type ConsultaPosto } from "@/features/escala/fluxo/produtividadePosto";
 import { gerarEscala } from "@/features/escala/gerarEscala";
+import { estabilizarPessoas } from "@/features/escala/estabilidade";
 import { chavePool, type AlocacaoEscala } from "@/features/escala/types";
 import { churnIndependente } from "../escala-fluxo-replay/independente";
 
@@ -90,7 +91,7 @@ function verdade(): CelulaVerdade[] {
 // ---------------------------------------------------------------------------------------------------------------------------------
 const celulasVerdade = verdade();
 const saida: any = { parametros: { JANELA, NMIN, agoras: AGORAS.length, ufechFinal, slotFinal: `${slots[ufechFinal].data} ${slots[ufechFinal].periodoId}` }, verdadeCelulas: celulasVerdade, recalculos: [] as any[] };
-const previsoes: { agora: string; ap: number; slot: number; no: string; falta: number; desejado: number; rotulo: string }[] = [];
+const previsoes: { agora: string; ap: number; slot: number; no: string; falta: number; desejado: number; rotulo: string; previsto: boolean }[] = [];
 const ligacaoTexto: Record<string, string[]> = {};
 
 for (const iso of AGORAS) {
@@ -115,50 +116,74 @@ for (const iso of AGORAS) {
   const fRec = forecastDoPlano(ctx, vig, fopt);
   fRec.resultado.nos.forEach((n) => n.producaoDesejada.forEach((des, i) => {
     const falta = des - n.producaoPlano[i];
-    if (falta > 1e-3 && fRec.entrada.ligacoes.some((l) => l.destino === n.noId)) previsoes.push({ agora: iso, ap, slot: fRec.mapa.slotDoPeriodo[i], no: n.noId, falta, desejado: des, rotulo: n.rotulo });
+    if (fRec.entrada.ligacoes.some((l) => l.destino === n.noId)) previsoes.push({ agora: iso, ap, slot: fRec.mapa.slotDoPeriodo[i], no: n.noId, falta: Math.max(0, falta), desejado: des, rotulo: n.rotulo, previsto: falta > 1e-3 });
   }));
 
-  // (2) forecast sobre o plano do motor de hoje (OFF)
+  // (2) forecast sobre o plano do motor de hoje (OFF) e simulações ON (mínimo de reposição imposto + regeração)
   const fOff = forecastDoPlano(ctx, off, fopt);
-  const { reposicaoMinima, remExtra } = reposicaoMinimaDe(fOff);
-  const remON: Record<string, number> = { ...rem };
-  Object.entries(remExtra).forEach(([k, v]) => (remON[k] = (remON[k] ?? 0) + v));
-  const offRegen = gerarEscala(r0.entradaFluxo).alocacoes.filter((a) => ix(a) >= ap);
-  const onEnt = { ...r0.entradaFluxo, reposicaoMinima, remPorPool: remON };
-  const on = gerarEscala(onEnt).alocacoes.filter((a) => ix(a) >= ap);
+  // mesma estabilização de pessoas que o planejador aplica (mantém a pessoa no posto do plano vigente quando os postos são os mesmos)
+  const estab = (linhas: AlocacaoEscala[]) => {
+    const marc = linhas.filter((a) => ix(a) >= ap);
+    if (vig.length === 0 || marc.length === 0) return marc;
+    const e = estabilizarPessoas(marc, vig, ent.congeladas, ent.slots, { escopo: "bloco", equivalencias: ent.equivalenciaOperacoes, ...(ent.revezamentoPonteM3T1 ? { ponteM3T1: true } : {}) });
+    return e.estabilizou ? e.linhas.filter((a) => ix(a) >= ap) : marc;
+  };
+  const offRegen = estab(gerarEscala(r0.entradaFluxo).alocacoes);
 
-  const avalia = (plan: AlocacaoEscala[], rm: Record<string, number>, mesmo: boolean) => {
+  // mundo W2: produtividade do posto pelo HISTÓRICO real (em vez de meta × f do motor), aproximada por pool (média da razão das máquinas do pool)
+  const entW2 = { ...ent, pools: ent.pools.map((p) => {
+    const k = chavePool(p.produtoId, p.etapaId);
+    const f = (ctx.fator[k] ?? 1) || 1;
+    const rs = p.maquinasIds.map((m) => estimador({ produtoId: p.produtoId, operacaoId: p.operacaoId, maquinaId: m })).filter((t) => t.fonte === "historico").map((t) => t.razao);
+    const razao = rs.length > 0 ? rs.reduce((q, v) => q + v, 0) / rs.length : f;
+    return { ...p, metas: Object.fromEntries(Object.entries(p.metas).map(([per, v]) => [per, (v / f) * razao])) };
+  }) };
+
+  const avalia = (plan: AlocacaoEscala[], rm: Record<string, number>, mesmo: boolean, mundo: "W1" | "W2" = "W1") => {
+    const e2 = mundo === "W2" ? entW2 : ent;
     const op = { ...opcoes, fluxoMesmoPeriodo: mesmo, limitesRemPorPool: rm };
-    const av = avaliarPlano(ent, dados, [...ent.congeladas, ...plan], op);
+    const av = avaliarPlano(e2, dados, [...ent.congeladas, ...plan], op);
     const vio = verificarRestricoesDuras(ent, [...ent.congeladas, ...plan], { somenteLinhasNovas: true }).length;
     return {
-      finalLo: Math.round(av.totais.finalEntregueLo), faltaLo: Math.round(av.totais.faltaFinalLo), receitaLo: receita(ent, av), wipFinalLo: Math.round(av.totais.wipFinalLo), excessoWip: Math.round(av.totais.excessoWip),
+      finalLo: Math.round(av.totais.finalEntregueLo), faltaLo: Math.round(av.totais.faltaFinalLo), receitaLo: receita(e2, av), wipFinalLo: Math.round(av.totais.wipFinalLo), excessoWip: Math.round(av.totais.excessoWip),
       semPosto: plan.filter((a) => !a.maquinaId).length, comPosto: plan.filter((a) => a.maquinaId).length, violacoes: vio,
     };
   };
-  const m = {
-    off: avalia(off, rem, false), offRegen: avalia(offRegen, rem, false), on: avalia(on, remON, false),
-    offRegen_mesmoTrue: avalia(offRegen, rem, true), on_mesmoTrue: avalia(on, remON, true),
+  const construirON = (f: ForecastDoPlano, K: number) => {
+    const { reposicaoMinima, remExtra } = reposicaoMinimaDe(f, K);
+    const remON: Record<string, number> = { ...rem };
+    const remGer: Record<string, number> = { ...(r0.entradaFluxo.remPorPool ?? {}) };
+    Object.entries(remExtra).forEach(([k, v]) => { remON[k] = (remON[k] ?? 0) + v; remGer[k] = (remGer[k] ?? 0) + v; });
+    const plano = estab(gerarEscala({ ...r0.entradaFluxo, reposicaoMinima, remPorPool: remGer }).alocacoes);
+    return { plano, remON, postosPedidos: Object.values(reposicaoMinima).reduce((q, o) => q + Object.keys(o).length, 0) };
   };
-  const fOn = forecastDoPlano(ctx, on, { ...fopt, limites: remON });
-
-  // ações individuais (ablação): cada ligação sozinha
-  const individuais: any[] = [];
-  fOff.resultado.ligacoes.filter((l) => l.acao.tipo !== "nenhuma").forEach((l) => {
-    const fOne: ForecastDoPlano = { ...fOff, resultado: { ...fOff.resultado, ligacoes: [l] } };
-    const rm = reposicaoMinimaDe(fOne);
-    const remI: Record<string, number> = { ...rem };
-    Object.entries(rm.remExtra).forEach(([k, v]) => (remI[k] = (remI[k] ?? 0) + v));
-    const pl = gerarEscala({ ...r0.entradaFluxo, reposicaoMinima: rm.reposicaoMinima, remPorPool: remI }).alocacoes.filter((a) => ix(a) >= ap);
-    const mi = avalia(pl, remI, false);
-    individuais.push({ ligacao: l.rotulo, tipo: l.acao.tipo, ligarEm: l.acao.ligarEmRotulo, adicionar: Math.round(l.acao.adicionar.reduce((s, v) => s + v, 0)), inevitavel: Math.round(l.acao.inevitavel), dFinal: mi.finalLo - m.offRegen.finalLo, dReceita: mi.receitaLo - m.offRegen.receitaLo, dWip: mi.wipFinalLo - m.offRegen.wipFinalLo, pessoas: diff(offRegen, pl, ap).pessoasAlteradas, linhas: diff(offRegen, pl, ap).linhasAlteradas });
-  });
-
+  const variantes: Record<string, any> = {};
+  for (const [nomeV, K] of [["agora", 1], ["prox2", 2], ["horizonte", Number.POSITIVE_INFINITY]] as [string, number][]) {
+    const v = construirON(fOff, K);
+    const fv = forecastDoPlano(ctx, v.plano, { ...fopt, limites: v.remON });
+    variantes[nomeV] = {
+      W1: avalia(v.plano, v.remON, false), W2: avalia(v.plano, v.remON, false, "W2"), W1_mesmoTrue: avalia(v.plano, v.remON, true),
+      diffVsRegen: diff(offRegen, v.plano, ap), diffVsOff: diff(off, v.plano, ap), churnVsVigente: churnIndependente(ent, v.plano, vig),
+      rupturasRestantes: fv.resultado.ligacoes.filter((l) => l.rupturaPrevista).length, postosPedidos: v.postosPedidos,
+    };
+  }
+  const m = {
+    off: avalia(off, rem, false), offRegen: avalia(offRegen, rem, false),
+    off_W2: avalia(off, rem, false, "W2"), offRegen_W2: avalia(offRegen, rem, false, "W2"), offRegen_mesmoTrue: avalia(offRegen, rem, true),
+  };
+  const fOnRup = variantes.horizonte.rupturasRestantes as number;
   const rupOff = fOff.resultado.ligacoes.filter((l) => l.rupturaPrevista).length;
-  const rupOn = fOn.resultado.ligacoes.filter((l) => l.rupturaPrevista).length;
+  const rupOn = fOnRup;
+  const individuais: any[] = [];
+  fOff.resultado.ligacoes.filter((l) => l.acao.tipo !== "nenhuma" && l.acao.ligarEm !== null && l.acao.ligarEm <= 1).forEach((l) => {
+    const fOne: ForecastDoPlano = { ...fOff, resultado: { ...fOff.resultado, ligacoes: [l] } };
+    const v = construirON(fOne, 2);
+    const mi = avalia(v.plano, v.remON, false);
+    individuais.push({ ligacao: l.rotulo, tipo: l.acao.tipo, faltaEvitada: Math.round(l.acao.faltaEvitada), postosPeriodo: l.acao.postosPeriodoAdicionais, ligarEm: l.acao.ligarEmRotulo, adicionar: Math.round(l.acao.adicionar.slice(0, 2).reduce((q, x) => q + x, 0)), dFinal: mi.finalLo - m.offRegen.finalLo, dReceita: mi.receitaLo - m.offRegen.receitaLo, dWip: mi.wipFinalLo - m.offRegen.wipFinalLo, pessoas: diff(offRegen, v.plano, ap).pessoasAlteradas, linhas: diff(offRegen, v.plano, ap).linhasAlteradas });
+  });
   const linhasDiag = fOff.resultado.ligacoes.filter((l) => l.rupturaPrevista || l.acao.tipo !== "nenhuma" || l.coberturaSemReposicao.periodos !== null).map((l) => ({
     ligacao: l.rotulo, wip: Math.round(l.wipInicial), conf: l.confianca, coberturaPeriodos: l.coberturaSemReposicao.periodos, ruptura: l.rupturaPrevista ? { p: l.rupturaPrevista.rotulo, per: l.rupturaPrevista.periodo, falta: Math.round(l.rupturaPrevista.faltaPecas) } : null,
-    gatilho: l.gatilhoPontoDePedido, acao: l.acao.tipo, ligarEm: l.acao.ligarEmRotulo, ligarEmIdx: l.acao.ligarEm, adicionar: Math.round(l.acao.adicionar.reduce((s, v) => s + v, 0)), postosAdic: l.acao.postosAdicionais.reduce((s, v) => s + v, 0), inevitavel: Math.round(l.acao.inevitavel),
+    gatilho: l.gatilhoPontoDePedido, acao: l.acao.tipo, ligarEm: l.acao.ligarEmRotulo, ligarEmIdx: l.acao.ligarEm, adicionar: Math.round(l.acao.adicionar.reduce((q, x) => q + x, 0)), postosAdic: l.acao.postosAdicionais.reduce((q, x) => q + x, 0), inevitavel: Math.round(l.acao.inevitavel),
     antecedencia: l.rupturaPrevista && l.acao.ligarEm !== null ? l.rupturaPrevista.periodo - l.acao.ligarEm : null, rupturaComAcao: !!l.rupturaComAcao,
   }));
   const capLivre = fOff.resultado.nos.map((n) => ({ no: n.rotulo, postosLivresMax: Math.max(0, ...n.postosLivres), periodosComLivre: n.postosLivres.filter((v) => v > 0).length, removivelTotalMax: Math.round(Math.max(0, ...n.removivel)) })).filter((x) => x.postosLivresMax > 0);
@@ -167,35 +192,21 @@ for (const iso of AGORAS) {
     fatorMedido: { ...fatMed }, fatorUsado: fator, confianca: fOff.resultado.confianca, menorCobertura: fOff.resultado.menorCobertura,
     forecastGravado: { rupturas: fRec.resultado.ligacoes.filter((l) => l.rupturaPrevista).length, ligacoes: fRec.resultado.ligacoes.length },
     forecastOff: { rupturas: rupOff, acoes: fOff.resultado.ligacoes.filter((l) => l.acao.tipo === "ligar_upstream").length, semFonte: fOff.resultado.ligacoes.filter((l) => l.acao.tipo === "sem_fonte").length },
-    forecastOnRupturas: rupOn, metricas: m, diff: { offRegen_on: diff(offRegen, on, ap), off_on: diff(off, on, ap) },
-    churn: { offVsVigente: churnIndependente(ent, off, vig), onVsVigente: churnIndependente(ent, on, vig) },
-    individuais, linhasDiag, capLivre, textos: fOff.resultado.ligacoes.filter((l) => l.rupturaPrevista || l.acao.tipo !== "nenhuma").map((l) => l.rotulo + " :: " + l.acao.tipo + " " + (l.acao.ligarEmRotulo ?? "")),
+    forecastOnRupturas: rupOn, metricas: m, variantes, churnOff: churnIndependente(ent, off, vig), churnOffRegen: churnIndependente(ent, offRegen, vig),
+    individuais, linhasDiag, capLivre,
   });
-  console.error("ok", iso, (Date.now() - t0) / 1000, "s", "rup OFF", rupOff, "acoes", fOff.resultado.ligacoes.filter((l) => l.acao.tipo !== "nenhuma").length, "dFinal", m.on.finalLo - m.offRegen.finalLo);
+  console.error("ok", iso, (Date.now() - t0) / 1000, "s", "rup OFF", rupOff, "acoes", fOff.resultado.ligacoes.filter((l) => l.acao.tipo !== "nenhuma").length, "dFinal agora/prox2/hor", variantes.agora.W1.finalLo - m.offRegen.finalLo, variantes.prox2.W1.finalLo - m.offRegen.finalLo, variantes.horizonte.W1.finalLo - m.offRegen.finalLo);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// (a) antecipação: previsões do forecast sobre o plano gravado × verdade
+// (a) antecipação: TODAS as avaliações (recálculo × nó × slot) do forecast sobre o plano gravado, com a verdade do slot (quando fechado)
 // ---------------------------------------------------------------------------------------------------------------------------------
-const anal = celulasVerdade.map((c) => {
-  const prev = previsoes.filter((p) => p.slot === c.slot && p.no === c.no);
-  const lead = prev.length ? Math.max(...prev.map((p) => p.slot - p.ap)) : null;
+const vd = new Map(celulasVerdade.map((c) => [`${c.slot}|${c.no}`, c]));
+saida.avaliacoes = previsoes.filter((p) => vd.has(`${p.slot}|${p.no}`)).map((p) => {
+  const c = vd.get(`${p.slot}|${p.no}`) as CelulaVerdade;
   const quedaReal = c.real !== null && c.real < 0.85 * c.planejado;
   const estoqueInsuf = c.w0hi < c.planejado;
-  const estoqueInsufLo = c.w0lo < c.planejado;
-  const verdadeMaterial = c.faltaMaterial || (estoqueInsuf && quedaReal);
-  return { ...c, quedaReal, estoqueInsuf, estoqueInsufLo, verdadeMaterial, previsto: prev.length > 0, nRecalcsQuePrevisto: prev.length, leadMax: lead, leadsPorRecalc: prev.map((p) => `${p.agora.slice(5, 16)}:${p.slot - p.ap}`) };
+  return { agora: p.agora, lead: p.slot - p.ap, slot: p.slot, no: p.no, rotulo: p.rotulo, previsto: p.previsto, falta: Math.round(p.falta), desejado: Math.round(p.desejado), confirmado: c.confirmado, apontado: c.apontado, planejado: Math.round(c.planejado), real: c.real, w0lo: Math.round(c.w0lo), w0hi: Math.round(c.w0hi), faltaMaterial: c.faltaMaterial, quedaReal, estoqueInsuf, verdadeMaterial: c.faltaMaterial || (estoqueInsuf && quedaReal) };
 });
-saida.antecipacao = anal;
-saida.resumoAntecipacao = {
-  celulas: anal.length, celulasComRecalcNaHorizonte: anal.filter((c) => previsoes.length >= 0).length,
-  verdadeMaterial: anal.filter((c) => c.verdadeMaterial).length,
-  verdadeMaterial_previsto: anal.filter((c) => c.verdadeMaterial && c.previsto).length,
-  verdadeMaterial_previstoComAntecedencia: anal.filter((c) => c.verdadeMaterial && (c.leadMax ?? 0) >= 1).length,
-  estoqueInsuf: anal.filter((c) => c.estoqueInsuf).length, estoqueInsuf_previsto: anal.filter((c) => c.estoqueInsuf && c.previsto).length,
-  previsto_total: anal.filter((c) => c.previsto).length, previsto_semVerdadeMaterial: anal.filter((c) => c.previsto && !c.verdadeMaterial).length,
-  previsto_semEstoqueInsuf: anal.filter((c) => c.previsto && !c.estoqueInsuf).length,
-  quedaReal: anal.filter((c) => c.quedaReal).length, quedaReal_comMaterialOK: anal.filter((c) => c.quedaReal && !c.estoqueInsuf).length,
-};
 fs.writeFileSync(process.env.OUT ?? "/dev/stdout", JSON.stringify(saida, null, 1));
 void SEMANA; void ligacaoTexto;

@@ -228,6 +228,16 @@ describe("reposição ≠ produção excessiva", () => {
   });
 });
 
+describe("posto sem material (capacidade de pessoas sem peça)", () => {
+  it("mede peças e postos-equivalentes que o plano deixa de produzir por falta de material", () => {
+    const H = 3;
+    const r = forecastBuffer(cadeia(H, [no("A", H, 0, 0), no("B", H, 3000)], [lig("A", "B", 4500)]));
+    const B = r.nos.find((n) => n.noId === "B")!;
+    expect(B.pecasSemMaterial).toEqual([0, 1500, 3000]);
+    expect(B.postosSemMaterial).toEqual([0, 1.5, 3]); // 1 posto = 1.000 pç/período no helper
+  });
+});
+
 describe("fonte alternativa de reposição (relatório)", () => {
   const H = 4;
   const nec = [0, 3000, 3000, 0];

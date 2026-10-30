@@ -84,3 +84,27 @@ describe("bonusContinuidade", () => {
     expect(checarInvariantes(x0, r)).toEqual([]);
   });
 });
+
+describe("reposicaoMinima (forecast de buffer; protótipo desligado)", () => {
+  it("ausente ou vazio ⇒ saída byte-idêntica", () => {
+    const x0 = e({}, 3);
+    const base = JSON.stringify(gerarEscala(x0));
+    expect(JSON.stringify(gerarEscala({ ...x0, reposicaoMinima: {} }))).toBe(base);
+    expect(JSON.stringify(gerarEscala({ ...x0, reposicaoMinima: { "7": { "A|A1": 1 } } }))).toBe(base); // slot inexistente
+  });
+  it("força o nº mínimo de postos do pool no slot, mesmo contra a ordem legada/valor marginal", () => {
+    const x0 = e({}, 2);
+    const legado = gerarEscala(x0);
+    const doLegado = postosDe(legado, 0, x0);
+    const alvoEtapa = doLegado.includes("C1") ? "A1" : "C1";
+    const alvo = { A1: "A|A1", C1: "C|C1" }[alvoEtapa] as string;
+    const r = gerarEscala({ ...x0, reposicaoMinima: { "0": { [alvo]: 2 } } });
+    expect(postosDe(r, 0, x0)).toEqual([alvoEtapa, alvoEtapa]);
+    checarInvariantes(x0, r);
+  });
+  it("não fura as restrições: sem máquina livre suficiente, entra só o que cabe", () => {
+    const x0 = e({}, 3);
+    const r = gerarEscala({ ...x0, reposicaoMinima: { "0": { "A|A1": 5 } } });
+    expect(postosDe(r, 0, x0).filter((p) => p === "A1")).toHaveLength(2); // A tem só 2 máquinas
+  });
+});
