@@ -149,6 +149,9 @@ export interface EntradaEscala {
   // `bonusContinuidade`: bônus (em peças finais equivalentes) somado ao valor marginal do posto (máquina, pool) que já está ocupado no plano
   // vigente (índice do slot -> "maquinaId|produto|etapa" -> bônus). Só tem efeito junto com `ordemPostos`.
   bonusContinuidade?: Record<string, Record<string, number>>;
+  // `coberturaMax` (protótipo, DESLIGADO por padrão): nº MÁXIMO de postos por pool ("produto|etapa") em cada slot (índice do slot -> chave -> máx.), porque o material do
+  // posto não dura o período inteiro (fluxo/coberturaIntraperiodo.ts). Ausente (ou vazio) ⇒ saída byte-idêntica. Só vale na 1ª camada (previsto).
+  coberturaMax?: Record<string, Record<string, number>>;
 }
 
 export type TipoAlerta =

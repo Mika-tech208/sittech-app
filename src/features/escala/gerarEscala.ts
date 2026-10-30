@@ -336,6 +336,9 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
       // devolve false se o posto foi recusado (nunca altera o estado nesse caso, exceto o registro de corte por revezamento)
       if (maquinasUsadas.has(par.m)) return false;
       if ((contagem.get(par.chave) ?? 0) >= (permitido.get(par.chave) as number)) return false;
+      // HOOK (cobertura intraperíodo): o material deste pool não sustenta mais postos neste slot (protótipo; ausente = regra de sempre)
+      const tetoCobertura = entrada.coberturaMax?.[String(t)]?.[par.chave];
+      if (tetoCobertura !== undefined && (contagem.get(par.chave) ?? 0) >= tetoCobertura) return false;
       const mu = metaNoSlot(par.pool, slot);
       const g = Math.min(mu, (rem.get(par.chave) as number) - (comprometido.get(par.chave) ?? 0));
       if (g <= EPS) return false;
