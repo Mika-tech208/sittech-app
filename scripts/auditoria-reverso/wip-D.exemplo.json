@@ -1,0 +1,12 @@
+{
+  "_ajuda": "Cenário D (contagem física final do dia). Chave = nome do produto como na Previsão; valor = estoque no início de 03/11 em cada ligação, na ordem da rota (montante→jusante). Copie para wip-D.json (WIP_JSON=caminho) e rode de novo: D vira o cenário PRINCIPAL. 'locais' é só documentação.",
+  "D_contagem_final": {
+    "Conector 3/4\"": [0, 0, 0],
+    "Conector 3/4\" - Maquina Automatica": [0, 0],
+    "Caixa Amarela 4x2": [0]
+  },
+  "locais": {
+    "Conector 3/4\"": ["Rosquear→Parafusar", "Parafusadas (mesa Etiquetadora 15 + intermediário + pilha M8 se contada junto)", "Etiquetadas esperando Embalagem 17"],
+    "Conector 3/4\" - Maquina Automatica": ["pilha M8→Etiquetar", "etiquetadas Automática esperando Embalagem 17"]
+  }
+}

@@ -99,6 +99,7 @@ describe("planoReverso — headcount e camadas", () => {
     const estoqueSaida = p.ligacoes.map((l) => l.wipProjetado[H]);
     estoqueSaida.forEach((v) => expect(v).toBeLessThanOrEqual(2000 + 1e-6));
     expect(soma(p.ligacoes[1].producaoOrigemAntecipacao)).toBeGreaterThan(0);
+    expect(validarPlanoCadeia(cadeiaDe(prod), p.plano).valido).toBe(true); // a antecipação nunca consome o que não existe
     const sem = rodar([{ ...prod, recorrentePorPeriodo: 0 }], recs).produtos[0];
     expect(sem.ligacoes[1].wipProjetado[H]).toBe(0);
   });
@@ -108,6 +109,15 @@ describe("planoReverso — headcount e camadas", () => {
     const folga = rodar([prod], recs, { pessoas: new Array(H).fill(10) }).headcountMinimo;
     const r = rodar([prod], recs, { pessoas: new Array(H).fill(folga) });
     r.headcount.forEach((h) => expect(h.postosObrigatorios + h.postosAntecipacao).toBeLessThanOrEqual(Math.max(h.postosObrigatorios, folga)));
+  });
+  it("antecipação é tudo-ou-nada por produto: sem pessoas para sustentar a cadeia inteira, reduz (e o plano continua válido)", () => {
+    const { prod, recs } = rota([5000, 5000, 5000, 5000], 3000, [0, 0, 0]);
+    prod.recorrentePorPeriodo = 2000;
+    const obrigatorio = rodar([{ ...prod, recorrentePorPeriodo: 0 }], recs, { pessoas: new Array(H).fill(10) });
+    const pico = obrigatorio.headcountMinimo;
+    const r = rodar([prod], recs, { pessoas: new Array(H).fill(pico) });
+    expect(validarPlanoCadeia(cadeiaDe(prod), r.produtos[0].plano).valido).toBe(true);
+    r.headcount.forEach((h) => expect(h.postosObrigatorios + h.postosAntecipacao).toBeLessThanOrEqual(pico));
   });
   it("explicação em cadeia usa os números reais", () => {
     const { prod, recs } = rota([2000, 2000, 2000, 2000], 4000, [0, 0, 0]);

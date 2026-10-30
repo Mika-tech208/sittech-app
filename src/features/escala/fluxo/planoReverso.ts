@@ -248,29 +248,37 @@ export function planejarReverso(e: EntradaReverso): ResultadoReverso {
 
   // ---------- camada 2: ANTECIPAÇÃO ÚTIL (estoque de saída limitado à demanda recorrente; só com capacidade E pessoas que sobram) ----------
   const K = e.extensaoPeriodos ?? 1;
-  const antec = new Map<string, { P: number[][]; uso: Record<string, number[]>[] }>();
+  const antec = new Map<string, { P: number[][]; uso: Record<string, number[]>[]; frac: number }>();
+  const snap = (lg: Ledger) => ({ livre: new Map([...lg.livre].map(([k, v]) => [k, v.slice()] as [string, number[]])), uso: new Map([...lg.uso].map(([k, v]) => [k, v.slice()] as [string, number[]])) });
   for (const p of e.produtos) {
     const o = obrig.get(p.id)!;
     const n = p.etapas.length;
-    const rec = Math.max(0, p.recorrentePorPeriodo ?? 0) * K;
-    const usoAnt: Record<string, number[]>[] = p.etapas.map(() => ({}));
-    const Ptot = o.P.map((v) => v.slice());
-    if (rec > 0 && n > 1) {
-      const tetoPostos = pessoas ? (t: number) => (pessoas[t] ?? 0) - pessoasUsadas(t) : undefined;
+    const base = Math.max(0, p.recorrentePorPeriodo ?? 0) * K;
+    const tetoPostos = pessoas ? (t: number) => (pessoas[t] ?? 0) - pessoasUsadas(t) : undefined;
+    // TUDO OU NADA por produto: a antecipação só vale se a cadeia inteira (cada etapa até a primeira) a sustenta; senão reduz a meta de estoque de saída.
+    const tentar = (frac: number) => {
+      const S = snap(ledger);
+      const Ptot = o.P.map((v) => v.slice());
+      const usoAnt: Record<string, number[]>[] = p.etapas.map(() => ({}));
+      const rec = base * frac;
       for (let s = n - 1; s >= 1; s--) {
-        const C = [...Ptot[s], rec]; // consumo do destino + 1 período de demanda recorrente da semana seguinte
+        const C = [...Ptot[s], rec]; // consumo do destino + demanda recorrente da semana seguinte
         const req = requisitoAcumulado(C, p.wipInicial[s - 1], 1, zeros(H + 1));
         const capLeft = capacidadeEtapa(p.etapas[s - 1], H, ledger, () => 1, tetoPostos);
-        const capTot = capLeft.map((v, t) => v + Ptot[s - 1][t]);
-        const novo = alapCurva(req, [...capTot, 0]).producao.slice(0, H);
-        const extra = novo.map((v, t) => Math.max(0, v - Ptot[s - 1][t]));
+        const al = alapCurva(req, [...capLeft.map((v, t) => v + Ptot[s - 1][t]), 0]);
+        if (al.inevitavel > (o.inev[s - 1] ?? 0) + 1e-3) { ledger.livre = S.livre; ledger.uso = S.uso; return null; }
+        const extra = al.producao.slice(0, H).map((v, t) => Math.max(0, v - Ptot[s - 1][t]));
         if (extra.some((v) => v > EPS)) {
           usoAnt[s - 1] = alocarEtapa(p.etapas[s - 1], extra, ledger, () => 1, tetoPostos);
           Ptot[s - 1] = Ptot[s - 1].map((v, t) => v + extra[t]);
         }
       }
-    }
-    antec.set(p.id, { P: Ptot, uso: usoAnt });
+      return { P: Ptot, uso: usoAnt, frac };
+    };
+    let escolhido: { P: number[][]; uso: Record<string, number[]>[]; frac: number } = { P: o.P.map((v) => v.slice()), uso: p.etapas.map(() => ({})), frac: 0 };
+    if (base > 0 && n > 1) for (const f of [1, 0.75, 0.5, 0.25, 0.1]) { const r = tentar(f); if (r) { escolhido = r; break; } }
+    if (base > 0 && n > 1 && escolhido.frac < 1) avisos.push(`${p.rotulo}: antecipação útil limitada a ${Math.round(escolhido.frac * 100)}% da demanda recorrente (capacidade/pessoas)`);
+    antec.set(p.id, escolhido);
   }
 
   // ---------- montagem do resultado ----------
@@ -287,11 +295,11 @@ export function planejarReverso(e: EntradaReverso): ResultadoReverso {
       const po = zeros(H), pa = zeros(H);
       Object.values(o.uso[k] ?? {}).forEach((v) => v.forEach((x, t) => (po[t] += x)));
       Object.values(uAnt).forEach((v) => v.forEach((x, t) => (pa[t] += x)));
-      const dispTot = et.alternativas.reduce((s, al) => s + (ledger.livre.get(al.recursoId) ? e.recursos.find((r) => r.id === al.recursoId)!.unidades.slice(0, H).reduce((x, y) => x + y, 0) : 0), 0);
-      const usado = po.reduce((x, y) => x + y, 0) + pa.reduce((x, y) => x + y, 0);
+      const dispPecas = o.caps[k].reduce((x, y) => x + y, 0);
+      const usadoPecas = o.P[k].reduce((x, y) => x + y, 0);
       return {
         etapaId: et.id, rotulo: et.rotulo, producaoObrigatoria: o.P[k].map(r3), producaoAntecipacao: a.P[k].map((v, t) => r3(v - o.P[k][t])),
-        postosObrigatorios: po.map(r3), postosAntecipacao: pa.map(r3), usoPorRecurso: uso, utilizacao: dispTot > 0 ? r3(usado / dispTot) : 0,
+        postosObrigatorios: po.map(r3), postosAntecipacao: pa.map(r3), usoPorRecurso: uso, utilizacao: dispPecas > 0 ? r3(usadoPecas / dispPecas) : 0,
       };
     });
     const ligacoes: ResultadoLigacao[] = [];
