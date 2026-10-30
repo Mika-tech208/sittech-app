@@ -4,7 +4,7 @@
 // (mínimo de reposição upstream imposto no período indicado + regeração pelo gerarEscala) — SIMULAÇÃO sobre o mesmo simulador (pode ser otimista).
 // Env: AGORAS=iso,iso  OUT=arquivo.json  JANELA=14  NMIN=3  FATOR=medido|1
 import * as fs from "node:fs";
-import { abrir, estadoEm, versaoEm, receita, SEMANA, modoLigacaoConector, type EstadoReplay } from "./comum";
+import { abrir, estadoEm, versaoEm, receita, SEMANA, type EstadoReplay } from "./comum";
 import { avaliarPlano, planejarComFluxo, verificarRestricoesDuras } from "@/features/escala/fluxo";
 import { capsDoPlano } from "@/features/escala/fluxo/avaliar";
 import { cenarioContinuo, forecastDoPlano, reposicaoMinimaDe, transferenciaPorArestaDe, type ForecastDoPlano, type OpcoesForecastPlano } from "@/features/escala/fluxo/forecastBufferPlano";
@@ -94,7 +94,6 @@ const celulasVerdade = verdade();
 const saida: any = { parametros: { JANELA, NMIN, agoras: AGORAS.length, ufechFinal, slotFinal: `${slots[ufechFinal].data} ${slots[ufechFinal].periodoId}` }, verdadeCelulas: celulasVerdade, recalculos: [] as any[] };
 type Cen = "cons" | "cont"; // cenário das ligações DESCONHECIDAS: cons = lote de 1 período (conservador), cont = contínuo
 const previsoes: { cen: Cen; agora: string; ap: number; slot: number; no: string; falta: number; desejado: number; rotulo: string; previsto: boolean }[] = [];
-const modoLigacao = modoLigacaoConector(nome);
 
 for (const iso of AGORAS) {
   const t0 = Date.now();
@@ -113,7 +112,7 @@ for (const iso of AGORAS) {
   const fatMed = fatorReposicaoMedido(estimador, postosDoPlano(off, ap, ctx));
   const fator = process.env.FATOR === "1" ? 1 : process.env.FATOR === "medido" ? fatMed.fator : 1;
   const rn = rotuloNo(null);
-  const fopt: OpcoesForecastPlano = { limites: demandaFluxo, estimador, rotuloNo: rn, fatorReposicao: fator, mesmoPeriodo: false, modoLigacao };
+  const fopt: OpcoesForecastPlano = { limites: demandaFluxo, estimador, rotuloNo: rn, fatorReposicao: fator, mesmoPeriodo: false };
 
   // (1) forecast sobre o plano GRAVADO (antecipação × realidade), nos DOIS cenários das ligações desconhecidas
   const fRec = forecastDoPlano(ctx, vig, fopt);

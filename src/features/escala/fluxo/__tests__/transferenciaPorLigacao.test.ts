@@ -1,4 +1,4 @@
-// Modo de transferência POR LIGAÇÃO: simulador (lagPorAresta, default byte-idêntico) e forecast de buffer (contínuo / lote / desconhecido).
+// REGRA ÚNICA = lote no período seguinte (default). Os modos por ligação (contínuo / lote com atraso / desconhecido) são PARÂMETRO DE TESTE, desligados em produção e nos replays.
 import { describe, expect, it } from "vitest";
 import { construirGrafo } from "../grafo";
 import { novaCap, simularGrupo } from "../simulador";
@@ -109,7 +109,7 @@ describe("forecast: contínuo × lote × desconhecido por ligação", () => {
   });
 });
 
-describe("Conector 3/4\": Rosquear→Parafusar DESCONHECIDO · Parafusar→Etiquetar LOTE · Etiquetar→Embalar CONTÍNUO · Máquina 8 como fonte alternativa (DESCONHECIDO)", () => {
+describe("(parâmetro de teste, desligado) combinação mista no Conector 3/4\": Rosquear→Parafusar DESCONHECIDO · Parafusar→Etiquetar LOTE · Etiquetar→Embalar CONTÍNUO · Máquina 8 como fonte alternativa (DESCONHECIDO)", () => {
   // A = Rosquear, B = Parafusar, C = Etiquetar (fundido), D = Embalar, M8 = Rosquear+Parafusar automática (2ª origem de C)
   const nosC = [no("A", 0, 3000), no("B", 0, 2280), no("C", 3000, 6000), no("D", 5400), no("M8", 0, 996)];
   const ligC = (cd: LigacaoForecast["transferencia"] = "continuo") => [
@@ -169,5 +169,47 @@ describe("Conector 3/4\": Rosquear→Parafusar DESCONHECIDO · Parafusar→Etiqu
     expect(abAlt.acao.tipo).toBe("ligar_upstream"); // contínuo: A liga no próprio T0, junto com B
     expect(abAlt.acao.ligarEm).toBe(0);
     expect(ab.divergeEntreCenarios).toBe(true);
+  });
+});
+
+describe("REGRA ÚNICA (lote no período seguinte) no Conector 3/4\": Rosquear → Parafusar → Etiquetar → Embalar, propagação em cadeia", () => {
+  // nenhuma ligação declara modo ⇒ todas são lote de 1 período (default)
+  const H4 = 4;
+  const per4 = Array.from({ length: H4 }, (_, t) => ({ rotulo: `T${t + 1}`, duracaoMin: 100 }));
+  const n4 = (id: string, prod: number, cap = prod): NoForecast => ({ id, rotulo: id, producaoPrevista: new Array(H4).fill(prod), capacidadeMaxima: new Array(H4).fill(cap), pecasPorPosto: new Array(H4).fill(1000) });
+  const L4 = (r: ReturnType<typeof forecastBuffer>, id: string) => r.ligacoes.find((l) => l.ligacaoId === id)!;
+  it("saldo início → consumo limitado ao saldo do início → saldo fim; a produção de Tn entra no início de Tn+1", () => {
+    const e: EntradaForecast = { periodos: per4, nos: [n4("Ros", 2000), n4("Paraf", 0), n4("Etiq", 0), n4("Emb", 3000)], ligacoes: [lig("Ros", "Paraf", 0), lig("Paraf", "Etiq", 0), lig("Etiq", "Emb", 2000)] };
+    const emb = L4(forecastBuffer(e), "EtiqEmb");
+    expect(emb.transferencia).toBe("lote");
+    expect(emb.saldoInicial[0]).toBe(2000);
+    expect(emb.saidaNoPeriodo[0]).toBe(2000); // consumo desejado 3.000, limitado ao saldo do início
+    expect(emb.rupturaPrevista?.periodo).toBe(0);
+    const ros = L4(forecastBuffer(e), "RosParaf");
+    expect(ros.entradaNoPeriodo).toEqual([0, 2000, 2000, 2000]); // Ros produz 2.000/período, entra no período seguinte
+    expect(ros.saldoInicial).toEqual([0, 2000, 4000, 6000]);
+  });
+  it("Embalar vai faltar em T4 ⇒ Etiquetar liga em T3, Parafusar em T2 e Rosquear em T1 (cada etapa um período antes da seguinte)", () => {
+    const e: EntradaForecast = { periodos: per4, nos: [n4("Ros", 0, 3000), n4("Paraf", 0, 3000), n4("Etiq", 0, 3000), n4("Emb", 3000)], ligacoes: [lig("Ros", "Paraf", 0), lig("Paraf", "Etiq", 0), lig("Etiq", "Emb", 9000)] };
+    const r = forecastBuffer(e);
+    expect(L4(r, "EtiqEmb").rupturaPrevista?.rotulo).toBe("T4");
+    expect(L4(r, "EtiqEmb").acao.ligarEm).toBe(2);
+    expect(L4(r, "ParafEtiq").acao.ligarEm).toBe(1);
+    expect(L4(r, "RosParaf").acao.ligarEm).toBe(0);
+    r.ligacoes.forEach((l) => { expect(l.acao.inevitavel).toBe(0); expect(l.rupturaComAcao).toBeNull(); });
+  });
+  it("Embalar falta em T3 sem estoque nas etapas anteriores ⇒ a cadeia pede reposição que nasceria ANTES do horizonte (inevitável na ligação de Rosquear)", () => {
+    const e: EntradaForecast = { periodos: per4, nos: [n4("Ros", 0, 3000), n4("Paraf", 0, 3000), n4("Etiq", 0, 3000), n4("Emb", 3000)], ligacoes: [lig("Ros", "Paraf", 0), lig("Paraf", "Etiq", 0), lig("Etiq", "Emb", 6000)] };
+    const r = forecastBuffer(e);
+    expect(L4(r, "EtiqEmb").acao.ligarEm).toBe(1); // Etiquetar liga em T2
+    expect(L4(r, "ParafEtiq").acao.ligarEm).toBe(0); // Parafusar liga em T1
+    expect(L4(r, "RosParaf").acao.tipo).toBe("sem_fonte"); // Rosquear teria que ter produzido em T0
+    expect(L4(r, "RosParaf").acao.inevitavel).toBeGreaterThan(0);
+  });
+  it("estoque inicial é a contagem física: consumo nunca passa do disponível (contagem 3.600 ⇒ Embalar limitado a 3.600 mesmo que o apontamento diga mais)", () => {
+    const e: EntradaForecast = { periodos: per4, nos: [n4("Etiq", 0), n4("Emb", 5400)], ligacoes: [lig("Etiq", "Emb", 3600)] };
+    const l = forecastBuffer(e).ligacoes[0];
+    expect(l.saidaNoPeriodo[0]).toBe(3600);
+    expect(l.rupturaPrevista?.faltaPecas).toBe(1800);
   });
 });

@@ -5,7 +5,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { montarEstado as montarEstado1102 } from "./carga1102";
-import { abrir, estadoEm, modoLigacaoConector } from "./comum";
+import { abrir, estadoEm } from "./comum";
 import { CACHE } from "./carga";
 import { montarEntradaEscala } from "@/lib/escala/montarEntrada";
 import { gerarEscala } from "@/features/escala/gerarEscala";
@@ -66,7 +66,7 @@ for (const modo of ["A", "B", "C"] as const) {
   const rem = fluxo.diagnostico.estado.remPorPool;
   const demandaFluxo: Record<string, number> = Object.fromEntries(fluxo.diagnostico.estado.demanda.map((x) => [x.chave, x.demandaFluxo]));
   for (const [nomePlano, plano] of [["oficial (legado)", legado], ["fluxo (hipotético)", fluxo.resultado.alocacoes]] as [string, AlocacaoEscala[]][]) {
-    const f = forecastDoPlano(ctx, plano, { limites: demandaFluxo, rotuloNo: rotulo, estimador, mesmoPeriodo: false, modoLigacao: modoLigacaoConector(nome) });
+    const f = forecastDoPlano(ctx, plano, { limites: demandaFluxo, rotuloNo: rotulo, estimador, mesmoPeriodo: false });
     for (const [cenNome, r] of [["desconhecidas=lote", f.resultado], ["desconhecidas=contínuo", f.resultado.alternativo ?? f.resultado]] as [string, typeof f.resultado][]) {
     const semMat = r.nos.reduce((q, n) => q + n.postosSemMaterial.reduce((s, v) => s + v, 0), 0);
     const pecasSem = r.nos.reduce((q, n) => q + n.pecasSemMaterial.reduce((s, v) => s + v, 0), 0);

@@ -49,10 +49,12 @@ export interface NoForecast {
 }
 
 /**
- * Como o que a origem produz chega ao destino — POR LIGAÇÃO (não há regra global):
- *  • continuo: o destino consome durante o período o que a origem produz nesse período (ex.: Etiquetadora 15 → Embalagem 17, confirmado em 30/10 T1);
- *  • lote: só chega `atrasoPeriodos` períodos depois (default 1);
- *  • desconhecido: NÃO se inventa uma regra — o forecast calcula os DOIS cenários (lote × contínuo) e sinaliza a incerteza.
+ * REGRA ÚNICA DA SITTECH (confirmada no chão de fábrica, 30/10 ~14:42): TODAS as ligações entre operações são LOTE_PROXIMO_PERIODO — a produção de Tn só fica disponível
+ * para a operação seguinte em Tn+1 (`producao_real_fluxo_mesmo_periodo=false`, em PROD). É o DEFAULT do módulo (ligação sem `transferencia` = lote de 1 período).
+ * Os outros modos existem só como PARÂMETRO DE TESTE/EXPERIMENTO, desligados nos replays e relatórios:
+ *  • continuo: o destino consome durante o período o que a origem produz nesse período;
+ *  • lote com `atrasoPeriodos` > 1;
+ *  • desconhecido: calcula os dois cenários (lote × contínuo) e sinaliza a incerteza.
  */
 export type ModoTransferencia = "continuo" | "lote" | "desconhecido";
 

@@ -3,7 +3,7 @@
 // Env: OUT=arquivo.json  MD=arquivo.md  JANELA=14  NMIN=3
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { abrir, estadoEm, receita, modoLigacaoConector } from "./comum";
+import { abrir, estadoEm, receita } from "./comum";
 import { CACHE } from "./carga";
 import { avaliarPlano, planejarComFluxo } from "@/features/escala/fluxo";
 import { cenarioContinuo, forecastDoPlano, fontesDoNo, reposicaoMinimaDe, transferenciaPorArestaDe } from "@/features/escala/fluxo/forecastBufferPlano";
@@ -47,7 +47,7 @@ function linhaFluxo(l: ReturnType<typeof forecastDoPlano>["resultado"]["ligacoes
   return `${l.rotulo} [${l.transferencia}${l.transferencia === "lote" ? ` ${l.atrasoPeriodos}p` : ""}] WIP ${n0(l.wipInicial)} | cobertura ${l.coberturaSemReposicao.periodos === null ? "cobre" : l.coberturaSemReposicao.periodos.toFixed(2) + " per."} | ${T} | ${rup} | REORDER_POINT ${l.pontoDePedido.map(n0).join("/")}${l.gatilhoPontoDePedido !== null ? ` (gatilho ${per[l.gatilhoPontoDePedido].rotulo})` : ""} | AÇÃO: ${acao}`;
 }
 function rodar(titulo: string, plano: AlocacaoEscala[], opts: any) {
-  const f = forecastDoPlano(ctx, plano.filter((a) => ix(a) >= ap), { limites: demandaFluxo, rotuloNo: rotulo, mesmoPeriodo: false, modoLigacao: modoLigacaoConector(nome), ...opts });
+  const f = forecastDoPlano(ctx, plano.filter((a) => ix(a) >= ap), { limites: demandaFluxo, rotuloNo: rotulo, mesmoPeriodo: false, ...opts });
   const r = f.resultado;
   md.push(`\n### ${titulo}\n`);
   md.push(`Períodos: ${r.periodos.map((p) => p.rotulo).join(", ")} | confiança do forecast: ${r.confianca}${r.alternativo ? " | ligações DESCONHECIDAS: principal = lote, alternativo = contínuo" : ""}\n`);
@@ -82,7 +82,7 @@ md.push("\n### Postos que ficarão sem material (plano em vigor, histórico)\n")
 out.nosSemMaterial.forEach((n: any) => md.push(`- ${n.no}: desejado ${n.desejado.join("/")} | efetivo ${n.efetivo.join("/")} | peças sem material ${n.pecasSemMaterial.join("/")} | postos-equivalentes ${n.postosSemMaterial.join("/")}`));
 // ---- o motor de hoje (regra global) × o mesmo motor conhecendo o modo de cada aresta ----
 {
-  const fb = forecastDoPlano(ctx, vig, { limites: demandaFluxo, mesmoPeriodo: false, modoLigacao: modoLigacaoConector(nome), rotuloNo: rotulo });
+  const fb = forecastDoPlano(ctx, vig, { limites: demandaFluxo, mesmoPeriodo: false, rotuloNo: rotulo });
   const lags = { cons: transferenciaPorArestaDe(fb.entrada, "conservador"), cont: transferenciaPorArestaDe(fb.entrada, "continuo") };
   const resumo = (pl: AlocacaoEscala[], c: "cons" | "cont") => { const av = avaliarPlano(ent, dados, [...ent.congeladas, ...pl], { ...opcoes, fluxoMesmoPeriodo: false, limitesRemPorPool: rem, transferenciaPorAresta: lags[c] }); return { finalLo: Math.round(av.totais.finalEntregueLo), receitaLo: receita(ent, av), wipFinalLo: Math.round(av.totais.wipFinalLo) }; };
   out.motorPorAresta = {};

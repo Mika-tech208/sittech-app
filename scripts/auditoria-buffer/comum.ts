@@ -11,7 +11,6 @@ import type { ApontamentoReal } from "@/features/escala/producaoReal";
 import type { ContagemFisicaPar, DadosProducaoReal, OpcoesFluxo } from "@/features/escala/fluxo";
 import type { AlocacaoEscala, EntradaEscala, SlotEscala } from "@/features/escala/types";
 import { montarCenario } from "../escala-fluxo-replay/montar";
-import type { OpcoesForecastPlano } from "@/features/escala/fluxo/forecastBufferPlano";
 
 export const SEMANA = "2026-10-26";
 
@@ -91,17 +90,3 @@ export const receita = (ent: EntradaEscala, av: any) => {
   ent.pools.forEach((p) => val.set(p.produtoId, Math.max(val.get(p.produtoId) ?? 0, p.valorUnitario)));
   return Math.round(av.produtos.reduce((s: number, p: any) => s + p.finalEntregue.lo * (val.get(p.produtoId) ?? 0), 0));
 };
-
-/**
- * TIPO_TRANSFERENCIA por ligação, confirmado pelo usuário no chão de fábrica (30/10): Etiquetar→Embalar = CONTÍNUO no mesmo período; Parafusar→Etiquetar = LOTE (Tn entra no WIP disponível só em Tn+1);
- * Rosquear→Parafusar e Máquina 8 (Rosquear+Parafusar)→Etiquetar = DESCONHECIDO (os dois cenários são calculados). Qualquer outra ligação (Caixa Amarela, 1.1/4", Pino...) = DESCONHECIDO.
- * É DADO de entrada do forecast (por aresta), não flag global.
- */
-export function modoLigacaoConector(nome: (id: string | null | undefined) => string): NonNullable<OpcoesForecastPlano["modoLigacao"]> {
-  return (a) => {
-    const o = nome(a.etapaOrigemId), d = nome(a.etapaSeguinteId);
-    if (o === "Etiquetar" && d === "Embalar") return { modo: "continuo" };
-    if (o === "Parafusar" && d === "Etiquetar") return { modo: "lote", atrasoPeriodos: 1 };
-    return { modo: "desconhecido" };
-  };
-}
