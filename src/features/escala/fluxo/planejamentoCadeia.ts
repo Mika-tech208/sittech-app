@@ -407,6 +407,8 @@ export interface CandidatoCadeia {
   simulacao: SimulacaoCadeia; valida: boolean; violacoesRestantes: number;
   /** peças dos nós FINAIS: desejadas pelo plano original × efetivas neste candidato */
   pecasFinaisDesejadas: number; pecasFinais: number;
+  /** peças efetivas dos nós finais no 1º período do PRÓXIMO DIA PRODUTIVO (0 sem `proximoDia`): o estoque de saída que a sexta deixa para a terça */
+  pecasProximoDia: number;
   wipFinal: number; picoWip: number;
   /** valor do callback `avaliar` (ex.: peças finais × valor pelo avaliador de fluxo); null se ausente */
   valor: number | null;
@@ -415,6 +417,8 @@ export interface OpcoesReparo extends OpcoesCadeia {
   /** custo de oportunidade pelo PRODUTO FINAL do candidato (ex.: avaliador do fluxo). Maior = melhor. */
   avaliar?: (c: CandidatoCadeia) => number | null;
   maxIteracoes?: number;
+  /** peso das peças finais do 1º período do próximo dia produtivo no critério de desempate sem `avaliar` (default 1; 0 ignora). Só vale se o plano do dia seguinte as realizar. */
+  pesoProximoDia?: number;
   /** quais famílias de candidato gerar (default todas) */
   familias?: TipoCandidato[];
 }
@@ -499,6 +503,7 @@ function montarCandidato(p: Prep, id: string, tipo: TipoCandidato, descricao: st
     id, tipo, descricao, fontes, plano, extra, corte, postosExtra, pessoasPeriodoExtra: soma(Object.values(postosExtra).map(soma)), postosLivresPorCorte: livres, pessoasPeriodoLivres: r3(soma(Object.values(livres).map(soma))),
     simulacao: sim, valida: sim.valido, violacoesRestantes: sim.violacoes.length,
     pecasFinaisDesejadas: r3(soma(finais.map((n) => soma(original[n.id].slice(0, p.Hbase))))), pecasFinais: r3(soma(finais.map((n) => soma((sim.nos.find((x) => x.noId === n.id) as SimNo).efetiva.slice(0, p.Hbase))))),
+    pecasProximoDia: p.temProximoDia ? r3(soma(finais.map((n) => (sim.nos.find((x) => x.noId === n.id) as SimNo).efetiva[p.Hbase] ?? 0))) : 0,
     wipFinal: r3(wipFinal), picoWip: r3(Math.max(0, ...sim.ligacoes.flatMap((l) => l.saldoFinal))), valor: null,
   };
   return c;
@@ -548,7 +553,8 @@ export function repararCadeia(e: EntradaForecast, plano?: PlanoProducao, op: Opc
   const ordenado = [...cands].sort((a, b) => {
     if (a.valida !== b.valida) return a.valida ? -1 : 1;
     if (!a.valida && a.violacoesRestantes !== b.violacoesRestantes) return a.violacoesRestantes - b.violacoesRestantes;
-    const va = a.valor ?? a.pecasFinais, vb = b.valor ?? b.pecasFinais;
+    const w = op.pesoProximoDia ?? 1;
+    const va = a.valor ?? a.pecasFinais + w * a.pecasProximoDia, vb = b.valor ?? b.pecasFinais + w * b.pecasProximoDia;
     if (Math.abs(va - vb) > 1e-6) return vb - va;
     if (a.pessoasPeriodoExtra !== b.pessoasPeriodoExtra) return a.pessoasPeriodoExtra - b.pessoasPeriodoExtra;
     return a.id.localeCompare(b.id);
@@ -577,23 +583,26 @@ export function fontesAlternativas(e: EntradaForecast, destinoId: string, op: Op
   const p = prepararCadeia(e, op);
   const d = p.nos.get(destinoId);
   if (!d) throw new Error("planejamentoCadeia: destino inexistente");
-  return d.entradas.map((lg) => {
-    const pp = prepararCadeia(e, { ...op, fontes: { ...(op.fontes ?? {}), [destinoId]: [lg.id] } });
+  const ids = d.entradas.map((l) => l.id);
+  // cada fonte sozinha e, com 2+ fontes, cada ordem de uso conjunto (a 1ª até a capacidade, a seguinte cobre o resto)
+  const ordens: string[][] = [...ids.map((i) => [i]), ...(ids.length > 1 ? permutacoes(ids) : [])];
+  return ordens.map((ordem) => {
+    const pp = prepararCadeia(e, { ...op, fontes: { ...(op.fontes ?? {}), [destinoId]: ordem } });
     const nec = necessidadePrep(pp);
-    // nós a montante da fonte (inclui a origem)
     const montante = new Set<string>();
-    const visita = (id: string) => { if (montante.has(id)) return; montante.add(id); (pp.nos.get(id) as NoP).entradas.forEach((l) => visita(l.origem)); };
-    visita(lg.origem);
+    const visita = (id: string) => { if (montante.has(id)) return; montante.add(id); (pp.nos.get(id) as NoP).entradas.forEach((l) => { if (id !== destinoId || ordem.includes(l.id)) visita(l.origem); }); };
+    ordem.forEach((i) => visita((pp.ligs.get(i) as LigP).l.origem));
     const etapas = nec.nos.filter((n) => montante.has(n.noId));
     const ligsMont = nec.ligacoes.filter((l) => montante.has(l.destino) && l.destino !== destinoId);
-    const propria = nec.ligacoes.find((l) => l.ligacaoId === lg.id) as NecessidadeLigacao;
-    const todos = nec.ligacoes.filter((l) => l.destino === destinoId);
+    const todos = nec.ligacoes.filter((l) => l.destino === destinoId && ordem.includes(l.ligacaoId));
     const inev = todos.reduce((s, l) => s + l.inevitavel, 0);
+    const primeiro = todos.map((l) => l.ultimoPeriodoSeguroLigar).filter((x): x is number => x !== null);
+    const ligarEm = primeiro.length ? Math.min(...primeiro) : null;
     return {
-      ligacaoId: lg.id, rotulo: lg.rotulo ?? lg.id, cobre: inev <= p.op.toleranciaPecas, inevitavel: r3(inev),
-      pessoasPeriodo: soma(etapas.map((n) => soma((nec.ligacoes.find((l) => l.origem === n.noId)?.postosNecessarios ?? [])))),
+      ligacaoId: ordem.join(" > "), rotulo: ordem.map((i) => (pp.ligs.get(i) as LigP).l.rotulo ?? i).join(" > "), cobre: inev <= p.op.toleranciaPecas, inevitavel: r3(inev),
+      pessoasPeriodo: soma(etapas.map((n) => soma(nec.ligacoes.filter((l) => l.origem === n.noId && (l.destino !== destinoId || ordem.includes(l.ligacaoId))).flatMap((l) => l.postosNecessarios)))),
       wipMontanteConsumido: r3(soma(ligsMont.map((l) => soma(l.consumoRequerido)))),
-      ligarEm: propria.ultimoPeriodoSeguroLigar, ligarEmRotulo: propria.ultimoPeriodoSeguroLigarRotulo,
+      ligarEm, ligarEmRotulo: ligarEm === null ? null : p.periodos[ligarEm].rotulo,
       producaoPorEtapa: etapas.map((n) => ({ no: n.noId, rotulo: n.rotulo, producao: n.producaoNecessaria })),
     };
   });
