@@ -101,7 +101,7 @@ export interface ViabilidadeItem {
   atingivel: boolean;
   maxPecas: number;
   gargalo: string | null;
-  funcionariosNecessarios: number;
+  maquinasEnvolvidas: number; // máquinas únicas do item — NÃO é headcount
 }
 
 export interface PeriodosEtapa {

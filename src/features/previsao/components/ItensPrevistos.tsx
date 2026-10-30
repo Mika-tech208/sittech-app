@@ -1,11 +1,13 @@
 "use client";
 
 import {
-  calcularViabilidadeItem, calcularFuncionariosTotalSemana, calcularMaquinasDaEtapa, encontrarSelecoesInvalidas,
+  calcularViabilidadeItem, calcularMaquinasEnvolvidas, calcularMaquinasDaEtapa, encontrarSelecoesInvalidas,
 } from "@/features/capacidade/calculations";
 import { toNumber } from "@/lib/format";
 import type { Produto, Maquina, Previsao, PrevisaoItem, PeriodoComDuracao } from "@/types/domain";
 import type { AnaliseCapacidadeSemanal } from "@/features/capacidade/types";
+import type { EstadoFuncionariosNecessarios } from "@/features/previsao/useFuncionariosNecessarios";
+import { funcionariosNecessariosDe, textoEquipeMarcada, valorFuncionariosNecessarios, ROTULO_FUNCIONARIOS_NECESSARIOS, ROTULO_MAQUINAS_ENVOLVIDAS, TEXTO_USO_HORAS_MAQUINA } from "@/features/previsao/textosEquipe";
 
 export interface PrevItemFormState {
   produtoId: string;
@@ -36,6 +38,8 @@ export interface ItensPrevistosProps {
   valorPrevistoSemana: number;
   // funcionários marcados como produtivos NESTA semana (não o total de ativos)
   equipeProdutivaCount: number;
+  // funcionários necessários para executar a programação (servidor, motor da Escala); NUNCA derivado da contagem de máquinas
+  funcionariosNecessarios: EstadoFuncionariosNecessarios;
   formatBRL: (v: number) => string;
 }
 
@@ -44,7 +48,7 @@ export interface ItensPrevistosProps {
 export default function ItensPrevistos({
   loading, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, semana,
   showForm, setShowForm, editingId, form, onSelecionarProduto, onQuantidadeChange, onToggleMaquina,
-  onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, equipeProdutivaCount, formatBRL,
+  onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, equipeProdutivaCount, funcionariosNecessarios, formatBRL,
 }: ItensPrevistosProps) {
   const produtoSel = produtos.find((p) => p.id === form.produtoId) || null;
   const roteiroSel = produtoSel?.roteiro || [];
@@ -149,11 +153,11 @@ export default function ItensPrevistos({
               )}
 
               {form.produtoId && produtoSel && roteiroSel.length > 0 && (
-                viabAoVivo && viabAoVivo.funcionariosNecessarios === 0 ? (
-                  <p className="stx-panel-sub stx-form-full" style={{ margin: 0 }}>Marca as máquinas acima pra ver quantos funcionários isso exige e quantas peças dá pra fazer.</p>
+                viabAoVivo && viabAoVivo.maquinasEnvolvidas === 0 ? (
+                  <p className="stx-panel-sub stx-form-full" style={{ margin: 0 }}>Marca as máquinas acima pra ver quantas peças dá pra fazer.</p>
                 ) : viabAoVivo ? (
                   <div className="stx-form-full stx-resumo-ao-vivo" style={{ borderColor: viabAoVivo.atingivel ? "var(--accent)" : "var(--warning)" }}>
-                    Com essas máquinas, você vai usar <b>{viabAoVivo.funcionariosNecessarios} funcionário{viabAoVivo.funcionariosNecessarios > 1 ? "s" : ""}</b> e consegue produzir até <b>{viabAoVivo.maxPecas}</b> peças essa semana.
+                    Com essas máquinas você consegue produzir até <b>{viabAoVivo.maxPecas}</b> peças essa semana.
                     {!viabAoVivo.atingivel && toNumber(form.quantidade) > 0 && (
                       <> Isso é menos que a quantidade pedida ({toNumber(form.quantidade)}) — falta capacidade em <b>{viabAoVivo.gargalo}</b>.</>
                     )}
@@ -209,7 +213,7 @@ export default function ItensPrevistos({
                 )}
                 <p className="stx-entry-meta">
                   {it.quantidade} × {formatBRL(it.valorUnitario)}
-                  {viab.funcionariosNecessarios > 0 && ` · usa ${viab.funcionariosNecessarios} máquina${viab.funcionariosNecessarios > 1 ? "s" : ""} → precisa de ${viab.funcionariosNecessarios} funcionário${viab.funcionariosNecessarios > 1 ? "s" : ""}`}
+                  {viab.maquinasEnvolvidas > 0 && ` · usa ${viab.maquinasEnvolvidas} máquina${viab.maquinasEnvolvidas > 1 ? "s" : ""}`}
                 </p>
                 {(it.quantidadeAdicional ?? 0) > 0 && (
                   <p className="stx-entry-meta">
@@ -229,8 +233,12 @@ export default function ItensPrevistos({
       <p className="stx-custos-total" style={{ marginTop: 10 }}>Previsão da semana: <b>{formatBRL(valorPrevistoSemana)}</b></p>
       {semana.itens.length > 0 && (
         <>
-          <p className="stx-custos-total" style={{ marginTop: 4 }}>
-            Funcionários necessários pra essa programação: <b>{calcularFuncionariosTotalSemana(semana.itens)}</b> de {equipeProdutivaCount} produtivos na semana
+          <p className="stx-custos-total" style={{ marginTop: 4 }} data-testid="funcionarios-necessarios">
+            {ROTULO_FUNCIONARIOS_NECESSARIOS}: <b>{valorFuncionariosNecessarios(funcionariosNecessarios)}</b>
+            {" "}<span style={{ fontWeight: 400, color: "var(--text-muted)", fontSize: 12 }}>({textoEquipeMarcada(funcionariosNecessariosDe(funcionariosNecessarios), equipeProdutivaCount)})</span>
+          </p>
+          <p className="stx-custos-total" style={{ marginTop: 4 }} data-testid="maquinas-envolvidas">
+            {ROTULO_MAQUINAS_ENVOLVIDAS}: <b>{calcularMaquinasEnvolvidas(semana.itens)}</b>
           </p>
           {equipeProdutivaCount === 0 ? (
             <p className="stx-custos-total" style={{ marginTop: 4, color: "var(--warning)" }}>
@@ -238,9 +246,9 @@ export default function ItensPrevistos({
             </p>
           ) : (
             <p className="stx-custos-total" style={{ marginTop: 4 }}>
-              <span title="Leitura baseada na carga produtiva e nas máquinas (horas-máquina demandadas × horas disponíveis da equipe). Não é a Cobertura da equipe: ela vem da simulação da Escala e responde se os funcionários terão posto em cada período." style={{ cursor: "help", borderBottom: "1px dotted var(--text-muted)" }}>Uso estimado em horas-máquina</span>: <b style={{ color: "var(--accent)" }}>{pctEquipe.toFixed(1)}%</b>
+              <span title={TEXTO_USO_HORAS_MAQUINA} style={{ cursor: "help", borderBottom: "1px dotted var(--text-muted)" }}>Uso estimado em horas-máquina</span>: <b style={{ color: "var(--accent)" }}>{pctEquipe.toFixed(1)}%</b>
               {" "}<span style={{ fontWeight: 400, color: "var(--text-muted)", fontSize: 12 }}>
-                ({horasPessoaDemandadas.toFixed(1)}h demandadas de {horasPessoaDisponiveis.toFixed(1)}h disponíveis nos {equipeProdutivaCount} funcionários produtivos — para saber se a equipe terá posto em cada período, veja a <b>Cobertura da equipe</b>)
+                ({horasPessoaDemandadas.toFixed(1)}h demandadas ÷ {horasPessoaDisponiveis.toFixed(1)}h disponíveis ({equipeProdutivaCount} produtivos × {horasPorMaquinaSemana.toFixed(1)}h). É a carga média e pode passar de 100%; não é o nº de pessoas necessárias — para saber se a equipe terá posto em cada período, veja a <b>Cobertura da equipe</b>)
               </span>
             </p>
           )}

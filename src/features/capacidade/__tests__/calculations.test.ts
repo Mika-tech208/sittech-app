@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  calcularFuncionariosNecessarios, calcularFuncionariosTotalSemana, calcularPeriodosEtapa, textoDiasPeriodos,
+  calcularMaquinasEnvolvidasItem, calcularMaquinasEnvolvidas, idsMaquinasEnvolvidas, calcularPeriodosEtapa, textoDiasPeriodos,
   calcularMaquinasDaEtapa, calcularHorasPorMaquina, calcularAnaliseCapacidadeSemanal, calcularCapacidadeMaximaSemana,
   calcularUsoPorMaquina, calcularCapacidadeMaximaProduto, calcularViabilidadeItem, calcularObservacoesSetup,
   calcularItensSemanaAgregados, calcularCapacidadeInicialPorMaquina, calcularHistoricoSemanas, calcularAlocacaoSemanal,
@@ -350,16 +350,17 @@ describe("Parte 1 — elegibilidade de máquina na Previsão", () => {
   });
 });
 
-describe("calcularFuncionariosNecessarios / TotalSemana", () => {
+describe("calcularMaquinasEnvolvidas / calcularMaquinasEnvolvidasItem (máquinas únicas — NÃO é headcount)", () => {
   it("conta máquinas únicas usadas por um item", () => {
     const it1 = item("it1", "produtoA", "A", 1, 1, { e1: ["m1", "m2"], e2: ["m1"] });
-    expect(calcularFuncionariosNecessarios(it1)).toBe(2); // m1 e m2, m1 repetido não conta 2x
+    expect(calcularMaquinasEnvolvidasItem(it1)).toBe(2); // m1 e m2, m1 repetido não conta 2x
   });
 
   it("conta máquinas únicas em TODOS os itens da semana, sem contar a mesma máquina 2x entre itens", () => {
     const it1 = item("it1", "produtoA", "A", 1, 1, { e1: ["m1"] });
     const it2 = item("it2", "produtoB", "B", 1, 1, { e1: ["m1", "m2"] });
-    expect(calcularFuncionariosTotalSemana([it1, it2])).toBe(2); // m1, m2
+    expect(calcularMaquinasEnvolvidas([it1, it2])).toBe(2); // m1, m2
+    expect(idsMaquinasEnvolvidas([it1, it2]).sort()).toEqual(["m1", "m2"]);
   });
 });
 

@@ -67,3 +67,22 @@ export async function analisarCoberturaNoServidor(
   if (!resp.ok) return { ok: false, erro: json?.erro || "Falha ao analisar a cobertura." };
   return { ok: true, dados: json };
 }
+
+// Funcionários necessários para executar a programação (simulação SOMENTE LEITURA, mesmo motor da Escala, equipe virtual).
+// Sem valor disponível (sessão, rede, Previsão não salva) devolve `ok: false`: quem chama NUNCA deve cair para a contagem de máquinas.
+export async function calcularFuncionariosNecessariosNoServidor(
+  semanaInicio: string,
+  itens?: { produto_id: string; quantidade?: number; valor_unitario?: number; maquinas_por_etapa?: Record<string, string[]> }[]
+): Promise<{ ok: true; dados: import("./funcionariosNecessarios").FuncionariosNecessariosResultado } | { ok: false; erro: string }> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return { ok: false, erro: "Sessão expirada." };
+  const resp = await fetch("/api/escala/funcionarios-necessarios", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ semana_inicio: semanaInicio, itens }),
+  });
+  const json = await resp.json().catch(() => ({}));
+  if (!resp.ok) return { ok: false, erro: json?.erro || "Falha ao calcular os funcionários necessários." };
+  return { ok: true, dados: json };
+}

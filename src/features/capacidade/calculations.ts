@@ -16,24 +16,28 @@ import type {
 
 // ---- itens previstos ----
 
-export function calcularFuncionariosNecessarios(it: Pick<PrevisaoItem, "maquinasPorEtapa">): number {
-  const idsUnicos = new Set<string>();
-  Object.values(it.maquinasPorEtapa || {}).forEach((ids) => {
-    (ids || []).forEach((id) => idsUnicos.add(id));
-  });
-  return idsUnicos.size;
+// ATENÇÃO: isto conta MÁQUINAS, não pessoas. Uma mesma pessoa pode operar máquinas diferentes em períodos
+// diferentes, e uma máquina compartilhada por vários produtos é um recurso só. O headcount ("funcionários
+// necessários para executar a programação") NÃO sai daqui: vem do servidor, rodando o motor da Escala
+// (src/lib/escala/funcionariosNecessarios.ts, rota /api/escala/funcionarios-necessarios).
+export function calcularMaquinasEnvolvidasItem(it: Pick<PrevisaoItem, "maquinasPorEtapa">): number {
+  return idsMaquinasEnvolvidas([it]).length;
 }
 
-export function calcularFuncionariosTotalSemana(itens: Pick<PrevisaoItem, "maquinasPorEtapa">[]): number {
-  // conta máquinas ÚNICAS em todos os itens da semana — se a mesma máquina for usada
-  // em mais de um item (ex: mesma etiquetadora em duas luvas diferentes), conta só 1 vez
+// Ids das máquinas ÚNICAS selecionadas em todos os itens (a mesma máquina em dois itens/etapas conta uma vez).
+export function idsMaquinasEnvolvidas(itens: Pick<PrevisaoItem, "maquinasPorEtapa">[]): string[] {
   const idsUnicos = new Set<string>();
   itens.forEach((it) => {
     Object.values(it.maquinasPorEtapa || {}).forEach((ids) => {
       (ids || []).forEach((id) => idsUnicos.add(id));
     });
   });
-  return idsUnicos.size;
+  return [...idsUnicos];
+}
+
+// "Máquinas envolvidas na semana": máquinas únicas em todos os itens. NÃO é número de funcionários.
+export function calcularMaquinasEnvolvidas(itens: Pick<PrevisaoItem, "maquinasPorEtapa">[]): number {
+  return idsMaquinasEnvolvidas(itens).length;
 }
 
 export function calcularPeriodosEtapa(
@@ -372,7 +376,7 @@ export function calcularViabilidadeItem(
     atingivel: maxPecas >= it.quantidade,
     maxPecas,
     gargalo: maxPecas < it.quantidade ? gargalo : null,
-    funcionariosNecessarios: calcularFuncionariosNecessarios(it),
+    maquinasEnvolvidas: calcularMaquinasEnvolvidasItem(it),
   };
 }
 

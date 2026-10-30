@@ -6,9 +6,10 @@
 
 import {
   calcularAnaliseCapacidadeSemanal, calcularUsoPorMaquina, calcularObservacoesSetup, calcularViabilidadeItem,
-  calcularFuncionariosTotalSemana, calcularPeriodosEtapa, textoDiasPeriodos,
+  calcularMaquinasEnvolvidas, calcularPeriodosEtapa, textoDiasPeriodos,
 } from "@/features/capacidade/calculations";
 import { weekLabel } from "@/lib/date";
+import { ROTULO_FUNCIONARIOS_NECESSARIOS, ROTULO_MAQUINAS_ENVOLVIDAS } from "@/features/previsao/textosEquipe";
 import { LOGO_LIGHT } from "@/lib/logos";
 import type { Produto, Maquina, PeriodoComDuracao, Previsao } from "@/types/domain";
 
@@ -26,12 +27,15 @@ export interface GerarProgramacaoParams {
   diasProdutivosSemana: number;
   equipeProdutivaCount: number;
   getLucroHora: (produto: Produto) => number;
+  // funcionários necessários para executar a programação, calculado no SERVIDOR (motor da Escala). null = ainda não calculado:
+  // o PDF diz "não calculado" e NUNCA usa a contagem de máquinas no lugar.
+  funcionariosNecessarios: number | null;
 }
 
 export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): string {
   const {
     semanaAtual, semanaAtualRec, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana,
-    duracaoMediaPeriodo, diasProdutivosSemana, equipeProdutivaCount, getLucroHora,
+    duracaoMediaPeriodo, diasProdutivosSemana, equipeProdutivaCount, getLucroHora, funcionariosNecessarios,
   } = params;
 
   const analiseCapacidade = calcularAnaliseCapacidadeSemanal(semanaAtualRec.itens, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana);
@@ -73,11 +77,11 @@ export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): stri
           const g = etapaGargalo as { nome: string; periodos: ReturnType<typeof calcularPeriodosEtapa> };
           return `<p class="callout">${g.nome} é a etapa mais lenta — tempo total estimado do produto: ${g.periodos.manha} período${g.periodos.manha !== 1 ? "s" : ""} de manhã e ${g.periodos.tarde} de tarde, ${textoDiasPeriodos(g.periodos.manha, g.periodos.tarde)}.</p>`;
         })() : ""}
-        <p class="resumo-item">Meta da semana: <b>${it.quantidade}</b> peças &nbsp;·&nbsp; Funcionários pra esse item: <b>${viab.funcionariosNecessarios}</b></p>
+        <p class="resumo-item">Meta da semana: <b>${it.quantidade}</b> peças &nbsp;·&nbsp; Máquinas desse item: <b>${viab.maquinasEnvolvidas}</b></p>
       </div>`;
   }).join("");
 
-  const totalFuncionarios = calcularFuncionariosTotalSemana(semanaAtualRec.itens);
+  const totalMaquinasEnvolvidas = calcularMaquinasEnvolvidas(semanaAtualRec.itens);
 
   const linhasMaquinas = usoMaquinas.map((u) => {
     const idsProdutos = Object.keys(u.produtos);
@@ -166,8 +170,9 @@ export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): stri
     </div>
   </div>
   ${semanaAtualRec.itens.length === 0 ? "<p>Nenhum item lançado pra essa semana.</p>" : linhasItens}
-  ${semanaAtualRec.itens.length > 0 ? `<p class="total">Total geral de funcionários necessários na semana: <b>${totalFuncionarios}</b> de ${equipeProdutivaCount} produtivos na semana</p>
-  <p style="margin-top:4px; font-size:14px;">Uso estimado em horas-máquina: <b>${pctEquipePDF.toFixed(1)}%</b> <span style="font-weight:400; color:#8a8f94; font-size:12px;">(${horasPessoaDemandadasPDF.toFixed(1)}h demandadas de ${horasPessoaDisponiveisPDF.toFixed(1)}h disponíveis)</span></p>` : ""}
+  ${semanaAtualRec.itens.length > 0 ? `<p class="total">${ROTULO_FUNCIONARIOS_NECESSARIOS}: <b>${funcionariosNecessarios === null ? "não calculado" : funcionariosNecessarios}</b> <span style="font-weight:400; color:#8a8f94; font-size:12px;">(equipe produtiva marcada nesta semana: ${equipeProdutivaCount})</span></p>
+  <p style="margin-top:4px; font-size:14px;">${ROTULO_MAQUINAS_ENVOLVIDAS}: <b>${totalMaquinasEnvolvidas}</b></p>
+  <p style="margin-top:4px; font-size:14px;">Uso estimado em horas-máquina: <b>${pctEquipePDF.toFixed(1)}%</b> <span style="font-weight:400; color:#8a8f94; font-size:12px;">(${horasPessoaDemandadasPDF.toFixed(1)}h demandadas ÷ ${horasPessoaDisponiveisPDF.toFixed(1)}h disponíveis; carga média, pode passar de 100% e não é o nº de pessoas necessárias)</span></p>` : ""}
   ${usoMaquinas.length > 0 ? `
   <h2 class="secao">Uso de cada máquina essa semana</h2>
   <p class="secao-sub">Todas as máquinas com demanda na programação, não só as compartilhadas entre produtos.</p>

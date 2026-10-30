@@ -53,6 +53,8 @@ import { metodologiaDaSemana, APONTADO_REAL_PROGRESSO_DESDE } from "@/features/p
 import ProdutosProgramadosLegado from "@/features/previsao/components/ProdutosProgramadosLegado";
 import { formatPct } from "@/features/previsao/formatPct";
 import Recolhivel from "@/features/previsao/components/Recolhivel";
+import { useFuncionariosNecessarios } from "@/features/previsao/useFuncionariosNecessarios";
+import { funcionariosNecessariosDe } from "@/features/previsao/textosEquipe";
 import type { Produto, PrevisaoItem, Previsao } from "@/types/domain";
 
 const emptyPrevItemForm: PrevItemFormState = { produtoId: "", quantidade: "", maquinasPorEtapa: {} };
@@ -128,6 +130,8 @@ export default function PrevisaoSemanalPage() {
     [semanaAtualRec, elegiveisHook.funcionarios]
   );
   const equipeProdutivaCount = equipeProdutiva.filter((m) => m.produtivo).length;
+  // headcount da programação salva (servidor, motor da Escala): é o mesmo conjunto de itens que a lista e o PDF mostram
+  const funcionariosNecessarios = useFuncionariosNecessarios(semanaAtual, semanaAtualRec.itens, !!auth.autenticado);
   const nomePorFuncionarioId = useMemo(() => new Map(elegiveisHook.funcionarios.map((f) => [f.id, f.nome])), [elegiveisHook.funcionarios]);
   const funcionariosInativos = useMemo(() => new Set(elegiveisHook.funcionarios.filter((f) => !f.ativo).map((f) => f.id)), [elegiveisHook.funcionarios]);
   const operacaoCadastroPorId = useMemo(() => new Map<string, string | null>(elegiveisHook.funcionarios.map((f) => [f.id, f.operacaoId])), [elegiveisHook.funcionarios]);
@@ -448,6 +452,7 @@ export default function PrevisaoSemanalPage() {
                   <button className="stx-prev-pill-btn" onClick={() => baixarProgramacaoSemanaPDF({
                     semanaAtual, semanaAtualRec, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana,
                     duracaoMediaPeriodo, diasProdutivosSemana: diasProdutivos.length, equipeProdutivaCount, getLucroHora,
+                    funcionariosNecessarios: funcionariosNecessariosDe(funcionariosNecessarios),
                   })}>Exportar PDF</button>
                   <p className="stx-prev-pdf-hint">Cmd/Ctrl+P → Salvar como PDF</p>
                 </div>
@@ -632,6 +637,7 @@ export default function PrevisaoSemanalPage() {
                   analise={analiseCapacidadeSemana}
                   valorPrevistoSemana={resumoSemana.valorPrevisto}
                   equipeProdutivaCount={equipeProdutivaCount}
+                  funcionariosNecessarios={funcionariosNecessarios}
                   formatBRL={formatBRL}
                 />
 
