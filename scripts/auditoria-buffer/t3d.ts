@@ -15,12 +15,12 @@ const plano = d0.versaoAntes!.linhas;
 const T14_20 = Date.parse("2026-10-30T17:20:00Z");
 const ext = (p: string, a: string, b: string, s: number) => ({ produtoId: p, etapaOrigemId: a, etapaSeguinteId: b, saldo: s, contadoEmMs: T14_20, informadoPor: "audit", observacao: "fim de T1 (derivado: contagem 12:00 + apontado T1; Paf>Eti sem rateio do ramo Auto)" });
 const dx: any = { ...d0, cfg: { ...d0.cfg, contagensFisicas: [...d0.cfg.contagensFisicas,
-  ext(PC, "78aaa207-b8cc-412a-8a8b-d17bd95a1930", "34371af3-2608-42cc-9ded-1f7815a635a8", 3350),
-  ext(PC, "34371af3-2608-42cc-9ded-1f7815a635a8", "b3db9629-c3f8-46d8-b4dd-64c9a61a5bc4", 850),
+  ext(PC, "78aaa207-b8cc-412a-8a8b-d17bd95a1930", "34371af3-2608-42cc-9ded-1f7815a635a8", Number(process.env.PAF ?? 3350)),
+  ext(PC, "34371af3-2608-42cc-9ded-1f7815a635a8", "b3db9629-c3f8-46d8-b4dd-64c9a61a5bc4", Number(process.env.EMB ?? 850)),
   ext(PC, "ca90456c-9077-40f4-a058-bd0f467e87ec", "78aaa207-b8cc-412a-8a8b-d17bd95a1930", 6000),
   ext(PA, "1b72bf46-5d13-43c5-89b4-6169436085b7", "1863b452-77f3-4d5c-9c49-a6d28ae77131", M8PILHA),
 ] } };
-const modo = { [N.Eti]: true, [N.Paf]: false, [N.M8]: false, [N.Ros]: ROSCONT };
+const modo = process.env.LOTE_TUDO === "1" ? {} : { [N.Eti]: true, [N.Paf]: false, [N.M8]: false, [N.Ros]: ROSCONT };
 const e = montarEstadoAting(dx, AGORA, plano, 100 + 29, { fluxoMesmoPeriodo: false, fluxoMesmoPeriodoPorAresta: modo }, true);
 const ctx = e.ctx; const st = montarEstado(ctx);
 const I = ctx.iniAPartirDe;
@@ -100,6 +100,11 @@ const cfgs: [string, { remover: string[]; add: any[] }][] = [
   ["3 pessoas: Luana->Paf10, Tania->Paf9, Sara->M8 (Et15/Emb17 vazios)", { remover: ["Luana", "Tania", "Sara Perez Valera"], add: [linha("Luana", "Paf", "Parafusadeira 10"), linha("Tania", "Paf", "Parafusadeira 9"), linha("Sara Perez Valera", "M8", "Maquina Automatica 8")] }],
   ["2 pessoas: Luana->Paf10, Tania->Paf9 (Sara fica Et15)", { remover: ["Luana", "Tania"], add: [linha("Luana", "Paf", "Parafusadeira 10"), linha("Tania", "Paf", "Parafusadeira 9")] }],
   ["2 pessoas: Luana->Paf10, Tania->M8 (Sara fica Et15)", { remover: ["Luana", "Tania"], add: [linha("Luana", "Paf", "Parafusadeira 10"), linha("Tania", "M8", "Maquina Automatica 8")] }],
+  ["LOTE: Luana->Paf10 + Sara->M8", { remover: ["Luana", "Sara Perez Valera"], add: [linha("Luana", "Paf", "Parafusadeira 10"), linha("Sara Perez Valera", "M8", "Maquina Automatica 8")] }],
+  ["LOTE: Luana->Paf10 + Sara->M8 + Samantha->Paf9", { remover: ["Luana", "Sara Perez Valera", "Samantha Gonzalez Leon"], add: [linha("Luana", "Paf", "Parafusadeira 10"), linha("Sara Perez Valera", "M8", "Maquina Automatica 8"), linha("Samantha Gonzalez Leon", "Paf", "Parafusadeira 9")] }],
+  ["LOTE: Luana->Paf10 + Sara->Paf9 (se Sara puder Parafusar)", { remover: ["Luana", "Sara Perez Valera"], add: [linha("Luana", "Paf", "Parafusadeira 10"), linha("Sara Perez Valera", "Paf", "Parafusadeira 9")] }],
+  ["LOTE: Luana->Paf10 + Sara->M8 + Aly->Paf9", { remover: ["Luana", "Sara Perez Valera", "Aly"], add: [linha("Luana", "Paf", "Parafusadeira 10"), linha("Sara Perez Valera", "M8", "Maquina Automatica 8"), linha("Aly", "Paf", "Parafusadeira 9")] }],
+  ["LOTE: Luana->Paf10 + Sara->M8 + Tania->Paf9 (tira Emb17)", { remover: ["Luana", "Sara Perez Valera", "Tania"], add: [linha("Luana", "Paf", "Parafusadeira 10"), linha("Sara Perez Valera", "M8", "Maquina Automatica 8"), linha("Tania", "Paf", "Parafusadeira 9")] }],
   ["SEM Ros6 adic (Luana sem posto)", { remover: ["Luana"], add: [] }],
   ["Luana mantem Ros6 + 2 Paf (Sara,Tania)", { remover: ["Sara Perez Valera", "Tania"], add: [linha("Sara Perez Valera", "Paf", "Parafusadeira 9"), linha("Tania", "Paf", "Parafusadeira 10")] }],
 ];
@@ -108,8 +113,8 @@ for (const [t, c] of cfgs) {
   const r = avalia(t, c); const s = resumo(r); out[t] = s;
   const x = (k: string) => Math.round(r.av.trajetoria.length ? 0 : 0);
   const wv = (k: string) => (s.Wfim_lo as any)[k] ?? 0;
-  const etiTue = Math.min(Math.round((pool(N.Eti).metas["m1"] ?? 0)), wv("Paf") + wv("M8")); const embTue = Math.min(Math.round(pool(N.Emb).metas["m1"] ?? 0), etiTue + wv("Eti"));
-  console.log("     TERCA M1 (Etiq cap 3511/Emb 4438): Etiq produz", etiTue, "| Emb final", embTue, "| R$", Math.round(embTue * vu(PC, "b3db9629-c3f8-46d8-b4dd-64c9a61a5bc4")));
+  const etiM1 = Math.min(Math.round(pool(N.Eti).metas["m1"] ?? 0), wv("Paf") + wv("M8")); const embM1 = Math.min(Math.round(pool(N.Emb).metas["m1"] ?? 0), wv("Eti"));
   console.log(" *", t, "\n     dFinalHoje(lo/hi):", s.dlo_hi_pecas_finais, "| dR$ lo", s.dR_lo, "hi", s.dR_hi, "| Wfim lo", JSON.stringify(s.Wfim_lo), "hi", JSON.stringify(s.Wfim_hi));
+  console.log("     TERCA (lote): M1 Emb final", embM1, "pç (R$", Math.round(embM1 * vu(PC, "b3db9629-c3f8-46d8-b4dd-64c9a61a5bc4")), ") | M1 Etiq produz", etiM1, "pç => Emb final em M2 (R$", Math.round(etiM1 * vu(PC, "b3db9629-c3f8-46d8-b4dd-64c9a61a5bc4")), ")");
 }
 require("node:fs").writeFileSync(`${process.env.OUT ?? "/tmp"}/t3d-${ROSCONT ? "rosC" : "rosL"}-m8${M8PILHA}.json`, JSON.stringify(out, null, 1));
