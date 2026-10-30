@@ -92,7 +92,7 @@ function montarPostos(av: AvaliacaoAlvos, prods: ProdutoRev[]): Posto[][] {
     rp.etapas.forEach((e) => {
       const et = prod.etapas.find((x) => x.id === e.etapaId) as ProdutoRev["etapas"][number];
       Object.entries(e.usoPorRecurso).forEach(([rid, v]) => v.forEach((u, t) => {
-        if (u < 1e-6) return;
+        if (u < 5e-4) return; // mesmo corte do headcount do reverso (usos arredondados a 3 casas): resíduo numérico < 0,05% de posto não é posto
         const taxa = et.alternativas.find((a) => a.recursoId === rid)!.pecasPorPosto[t];
         const d: Detalhe = { produtoId: rp.produtoId, etapaId: e.etapaId, pecas: u * taxa, uso: u };
         const k = `${t}|${rid}`;
@@ -106,6 +106,35 @@ function montarPostos(av: AvaliacaoAlvos, prods: ProdutoRev[]): Posto[][] {
   return out;
 }
 const compartilhadasComOpDiferente = (pp: Posto[][]) => soma(pp.map((l) => l.filter((x) => new Set(x.detalhes.map((d) => opDe(d.produtoId, d.etapaId))).size > 1).length));
+
+
+// OCIOSIDADE: pessoa sem posto num período em que há trabalho útil. Preenche com etapa ÚNICA (produto de 1 etapa, sem upstream) ainda abaixo da demanda, na máquina da Previsão
+// livre no período, por margem/posto-período decrescente. Não cria WIP, não toca a cadeia dos demais produtos. Respeita o teto de demanda; o revezamento é conferido depois.
+function preencherOciosidade(pp: Posto[][], prods: ProdutoRev[], entregueAtual: Record<string, number>): { adicionadas: number; pecas: number } {
+  const falta: Record<string, number> = Object.fromEntries(prods.map((p) => [p.id, Math.max(0, p.demandaFinal - (entregueAtual[p.id] ?? 0))]));
+  const unicos = prods.filter((p) => p.etapas.length === 1);
+  let n = 0, pc = 0;
+  for (let t = 0; t < H; t++) {
+    const livre = () => NP - pp[t].length;
+    if (livre() <= 0) continue;
+    const cands: { p: ProdutoRev; m: string; taxa: number; score: number }[] = [];
+    unicos.forEach((p) => p.etapas[0].alternativas.forEach((a) => {
+      const taxa = a.pecasPorPosto[t];
+      const rec = recursos.find((r) => r.id === a.recursoId)!;
+      if (taxa > 0 && rec.unidades[t] > 0 && !pp[t].some((x) => x.maquinaId === a.recursoId)) cands.push({ p, m: a.recursoId, taxa, score: econ[p.id].margem * taxa });
+    }));
+    cands.sort((a, b) => b.score - a.score);
+    for (const c of cands) {
+      if (livre() <= 0) break;
+      if (falta[c.p.id] < 50 || pp[t].some((x) => x.maquinaId === c.m)) continue;
+      const q = Math.min(c.taxa, falta[c.p.id]);
+      const et = c.p.etapas[0];
+      const row: Posto = { t, maquinaId: c.m, produtoId: c.p.id, etapaId: et.id, operacaoId: opDe(c.p.id, et.id), pecas: q, uso: q / c.taxa, detalhes: [{ produtoId: c.p.id, etapaId: et.id, pecas: q, uso: q / c.taxa }] };
+      pp[t].push(row); falta[c.p.id] -= q; n++; pc += q;
+    }
+  }
+  return { adicionadas: n, pecas: pc };
+}
 
 // arredonda e "fecha" a cadeia por construção: produção do destino nunca excede o estoque (peças inteiras, produção de Tn só em Tn+1)
 function inteirizar(pp: Posto[][], prods: ProdutoRev[]): { perdidas: number } {
@@ -236,7 +265,15 @@ function rodar(obj: Obj, wipCen: D.CenWip, mundo: "meta" | "hist", opts: { teto?
       if (maxPostos > NP) { ajustes.push(`${semAnt ? "plano obrigatório" : "com antecipação"}: ${maxPostos} postos simultâneos > ${NP} (descartado; a antecipação do reverso conta unidades, não pessoas)`); continue; }
       const comp = compartilhadasComOpDiferente(pp);
       const { perdidas } = inteirizar(pp, prods0);
-      const pl = atribuirPessoas(pp);
+      // plano ANTES do preenchimento (para voltar atrás se o revezamento não fechar com as linhas extras)
+      const ppSem = pp.map((l) => l.map((x) => ({ ...x, detalhes: x.detalhes.map((d) => ({ ...d })) })));
+      const entPre = validarPlano(planoDePostos(pp), prods0).pecasFinais;
+      const fill = preencherOciosidade(pp, prods0, entPre);
+      inteirizar(pp, prods0);
+      let pl = atribuirPessoas(pp);
+      let usouFill = fill.adicionadas > 0;
+      if (!pl.ok && usouFill) { ajustes.push(`preenchimento de ociosidade (${fill.adicionadas} postos) inviabilizou o revezamento; removido`); pp.splice(0, pp.length, ...ppSem); pl = atribuirPessoas(pp); usouFill = false; }
+      if (usouFill) ajustes.push(`ociosidade preenchida com etapa única: +${fill.adicionadas} postos-período, +${n0(fill.pecas)} peças (produtos de 1 etapa abaixo da demanda)`);
       if (!pl.ok) { ajustes.push(`${semAnt ? "plano obrigatório" : "com antecipação"}: ${pl.motivo}`); continue; }
       const cad = validarPlano(planoDePostos(pp), prods0);
       const viol = violacoes(pl.linhas);
@@ -379,8 +416,8 @@ const forcado: { A: number; c: Cenario }[] = [];
 for (const A of [0, 8000, 16000, 25000]) { try { forcado.push({ A, c: rodar("MAX_RESULTADO_ECONOMICO", WIPP, "meta", { teto: { [aut]: A }, piso: { [aut]: A } }) }); } catch (e: any) { console.error("forçado falhou", A, e.message.slice(0, 100)); } }
 
 // -------- recomendado --------
-const recomendado = principais.MAX_RESULTADO_ECONOMICO;
-const recObj: Obj = "MAX_RESULTADO_ECONOMICO";
+const recObj: Obj = "EQUILIBRIO";
+const recomendado = principais[recObj];
 
 // ===== comparação com o legado real (288 linhas de PROD) =====
 const legRows: any[] = (() => { const t = fs.readFileSync(path.join(SCRATCH, "sql/aloc_0211.sql.out"), "utf8"); return JSON.parse(t.slice(t.indexOf("{"))).rows; })();
@@ -452,6 +489,36 @@ for (const o of OBJS) {
   c.postos.forEach((l, t) => P(`| ${periodos[t].rotulo} | ${l.length} | ${l.map((x) => `${nomeM(x.maquinaId)}: ${nomeCurto(x.produtoId)} · ${nomeO(x.operacaoId)} · ${n0(x.pecas)}`).join(" ; ")} |`));
 }
 
+// ---- A–E: máximo entregável, upstream mínimo, gargalos, headcount obrigatório, capacidade excedente ----
+{
+  const bM = baseDe("meta", WIPP.wip), bH = baseDe("hist", WIPP.wip);
+  const soloH: Record<string, { fis: number; p12: number }> = {};
+  for (const i of idsProd) { soloH[i] = { fis: maxSozinho(bH, i, false).q, p12: maxSozinho(bH, i, true).q }; }
+  P(`\n## 2A. Máximo FISICAMENTE entregável por produto (cada produto SOZINHO; WIP ${WIPP.nome})`);
+  P(`| Produto | Demanda | Máx. físico META | Máx. físico HISTÓRICA | Máx. com 12 pessoas META | Máx. com 12 pessoas HIST. | Gargalo (etapa) |`); P(`|---|---:|---:|---:|---:|---:|---|`);
+  idsProd.forEach((i) => P(`| ${nomeCurto(i)} | ${n0(demandaDe(bM)[i])} | ${n0(solo[i].fis)} | ${n0(soloH[i].fis)} | ${n0(solo[i].p12)} | ${n0(soloH[i].p12)} | ${solo[i].garg ?? "—"} |`));
+  P(`Soma dos máximos individuais META = ${n0(soma(idsProd.map((i) => solo[i].fis)))} (não é simultaneamente atingível: Etiquetadora 15/Embalagem 17 e Parafusadeira Pino 2 são compartilhadas e as pessoas são 12).`);
+  const cheio = avaliarAlvos({ ...bM, pessoas: pessoas.map(() => 99) }, demandaDe(bM), idsProd, { semAntecipacao: true });
+  P(`\n## 2B. Upstream MÍNIMO e headcount da NECESSIDADE FÍSICA COMPLETA (atender o máximo físico de todos, sem limite de pessoas)`);
+  P(`Pico de postos simultâneos: **${cheio.picoPostos}** contra ${NP} pessoas; períodos com déficit: ${cheio.res.headcount.filter((h) => h.postosObrigatorios > NP).length}/${H}. Peças finais fisicamente atingíveis em conjunto: ${n0(soma(Object.values(cheio.entregue)))} (META) — demanda ${n0(soma(Object.values(demandaDe(bM))))}.`);
+  P(`| Período | ${periodos.map((p) => p.rotulo.replace(/^0/, "")).join(" | ")} |`); P(`|---|${periodos.map(() => "---:").join("|")}|`);
+  P(`| Postos obrigatórios | ${cheio.res.headcount.map((h) => h.postosObrigatorios).join(" | ")} |`);
+  P(`| Folga(+)/déficit(−) vs ${NP} | ${cheio.res.headcount.map((h) => NP - h.postosObrigatorios).join(" | ")} |`);
+  P(`\n**Upstream mínimo reservado no plano recomendado** (${recObj}; obrigatório = sustenta o produto final; antecipação = só com pessoas que sobram, limitada à demanda recorrente):`);
+  P(`| Produto · etapa | Peças obrigatórias | Peças de antecipação | Postos-período obrigatórios | Postos-período de antecipação | 1º período de produção |`); P(`|---|---:|---:|---:|---:|---|`);
+  recomendado.av.res.produtos.forEach((rp) => rp.etapas.forEach((e) => { if (soma(e.producaoObrigatoria) + soma(e.producaoAntecipacao) < 1) return; const f = e.producaoObrigatoria.findIndex((v) => v > 0.5); P(`| ${nomeCurto(rp.produtoId)} · ${e.rotulo} | ${n0(soma(e.producaoObrigatoria))} | ${n0(soma(e.producaoAntecipacao))} | ${n1(soma(e.postosObrigatorios))} | ${n1(soma(e.postosAntecipacao))} | ${f < 0 ? "—" : periodos[f].rotulo} |`); }));
+  P(`\n## 2C. Gargalos`);
+  const etiq = RS("Etiquetadora 15"), emb = RS("Embalagem 17");
+  const usoRec = (ids: string[]) => soma(ids.map((r) => soma(recomendado.av.res.usoPorRecurso[r]?.obrigatorio ?? []) + soma(recomendado.av.res.usoPorRecurso[r]?.antecipacao ?? [])));
+  P(`- **Etiquetadora 15** (Conector 3/4 Conv. + Automática; UMA capacidade de ~78.000 pç/semana contra 93.300 pedidos): no plano recomendado usa ${n1(usoRec(etiq))} de ${soma(recursos.find((r) => r.id === etiq[0])!.unidades)} postos-período (${n1((100 * usoRec(etiq)) / H)}%). **Embalagem 17**: ${n1(usoRec(emb))} de ${H}.`);
+  P(`- **Máquina 8** (única): limita a Automática a ~26.300 pç (${n1(usoRec(RS("Maquina Automatica")))} de ${H} postos-período).`);
+  P(`- **Parafusadeira Pino 2** (compartilhada Pino × Plug) e as 12 pessoas (revezamento: ninguém repete a MESMA operação no bloco ⇒ no máximo 12 postos da mesma operação por bloco).`);
+  P(`\n## 2E. Capacidade excedente no plano recomendado (onde sobra pessoa/máquina)`);
+  const sem = recomendado.pessoasPlano.linhas.filter((a) => !a.maquinaId);
+  const semPorPer = periodos.map((_, t) => sem.filter((a) => a.data === slots[t].data && a.periodoId === slots[t].periodoId).length);
+  P(`Pessoas SEM posto por período: ${periodos.map((p, t) => `${p.rotulo}=${semPorPer[t]}`).filter((x) => !x.endsWith("=0")).join(" · ") || "nenhuma"} (total ${sem.length} de 288 linhas). Onde sobra, o trabalho útil restante é só o que não tem destino (estoque de saída já no teto da demanda recorrente) ou o que o lead time de 1 período inviabiliza (últimos períodos de sexta); preenchimento com etapa única: ver ajustes do cenário.`);
+}
+
 // ---- Conector programação ----
 P(`\n## 3. Conector 3/4 — programação por período (cenário recomendado ${recObj}, WIP ${WIPP.nome})`);
 programacaoConector(recomendado).forEach((l) => P(l));
@@ -509,6 +576,12 @@ for (let t = 0; t < H; t++) {
   const L = new Set(legPostos[t].map(chaveP)), N = new Set(recomendado.postos[t].map(chaveP));
   P(`| ${periodos[t].rotulo} | ${L.size} | ${N.size} | ${[...L].filter((k) => !N.has(k)).join("; ") || "—"} | ${[...N].filter((k) => !L.has(k)).join("; ") || "—"} |`);
 }
+{
+  const k = (a: AlocacaoEscala) => `${a.data}|${a.periodoId}|${a.funcionarioId}`;
+  const L = new Map(legLin.map((a) => [k(a), a]));
+  const alt = candLin.filter((a) => { const l = L.get(k(a)); return !l || l.maquinaId !== a.maquinaId || l.produtoId !== a.produtoId || l.etapaId !== a.etapaId; }).length;
+  P(`\n**Churn de pessoas vs legado** (linhas pessoa×período cujo posto muda): ${alt} de ${candLin.length}. A estabilização de pessoas (estabilidade.ts → reatribuirPessoasBloco) mantém os postos do plano físico e só decide QUEM ocupa cada um respeitando bloco + ponte M3→T1; como os POSTOS mudam muito, o churn é alto e é inevitável — não há ganho em preservar pessoas do legado.`);
+}
 P(`\nPor quê: o legado liga postos de etapas downstream (Etiquetar/Embalar, Montar Presilha…) sem o upstream que os abastece (lote de 1 período) e distribui as 12 pessoas sem reservar Rosquear/Parafusar/M8 nos períodos certos; o plano novo reserva o upstream mínimo antes e só então preenche o resto, cortando os produtos de menor valor por posto-período.`);
 
 // ---- sensibilidade ----
@@ -516,6 +589,14 @@ P(`\n## 7. Sensibilidade (WIP A/B/C e produtividade META × HISTÓRICA)`);
 P(`| Objetivo | WIP | Produtividade | Σ peças | Margem R$ | Cadeia | Violações duras | Conv. | Autom. | Caixa | Pino | Plug |`); P(`|---|---|---|---:|---:|---|---:|---:|---:|---:|---:|---:|`);
 [...Object.values(principais), ...sens].forEach((c) => P(`| ${c.obj} | ${c.wipNome} | ${c.mundo} | ${n0(c.totalPecas)} | ${money(c.margem)} | ${c.cadeia.valida ? "0 viol." : c.cadeia.violacoes} | ${c.viol.total} | ${n0(c.entregue[conv])} | ${n0(c.entregue[aut])} | ${n0(c.entregue[cx])} | ${n0(c.entregue[pino])} | ${n0(c.entregue[plug])} |`));
 P(`\nObservação: o simulador de cadeia é OTIMISTA (sem refugo/parada, produtividade = meta ou histórico por posto, WIP inicial estimado); o WIP B é estimado (D, a contagem física final do dia, ainda não existe: \`D7/wip-D.json\`); meta × histórica podem divergir de sinal por produto (ver seção 1: curvas meta e histórica).`);
+
+// ---- recomendação ----
+{
+  const a = principais.MAX_PECAS_FINAIS, b = principais.MAX_RESULTADO_ECONOMICO, c = principais.EQUILIBRIO;
+  P(`\n## 9. Recomendação`);
+  P(`**Usar o plano ${recObj}** (candidato \`candidato-${recObj}.json\`) com 12 pessoas: ${n0(c.totalPecas)} peças finais (${n1((100 * c.totalPecas) / demTot)}% da demanda), margem R$ ${money(c.margem)}, receita R$ ${money(c.receita)}, 0 CADEIA_INVALIDA, 0 violações duras, pico ${Math.max(...c.pessoasPorPeriodo)} pessoas, todos os produtos com ≥ 50% da demanda. Alternativa econômica: MAX_RESULTADO_ECONOMICO rende R$ ${money(b.margem - c.margem)} a mais de margem (${n1((100 * (b.margem - c.margem)) / c.margem)}%) cortando ${n0(c.totalPecas - b.totalPecas)} peças a mais (Plug Macho a ${n0(b.entregue[plug] ?? 0)} de ${n0(demandaDe(baseDe("meta", WIPP.wip))[plug])}); a diferença é do tamanho do erro da busca heurística (ver abaixo), então a escolha entre os dois é decisão de negócio (compromisso com o cliente do Plug), não do motor. MAX_PECAS_FINAIS coincide com EQUILIBRIO nesta instância (o plano de máximo de peças já cobre todos os produtos com ≥ 50%: ${a.totalPecas === c.totalPecas ? "idênticos" : "difere"}).`);
+  P(`Incertezas que podem inverter detalhes (não a estrutura): (1) o otimizador é HEURÍSTICO (grade com poda + trocas; sem prova de otimalidade — a margem de planos forçados na seção 3 oscila ±5%); (2) simulador OTIMISTA (sem refugo/parada; produtividade = meta, ou histórica por posto); (3) WIP inicial B é ESTIMADO (A: ${n0(sens.find((x) => x.obj === "MAX_PECAS_FINAIS" && x.wipNome === "A")?.totalPecas ?? 0)} pç, C: ${n0(sens.find((x) => x.obj === "MAX_PECAS_FINAIS" && x.wipNome === "C")?.totalPecas ?? 0)} pç; D — contagem final do dia — não existe: rodar com \`WIP_JSON=D7/wip-D.json\`); (4) META × HISTÓRICA: o histórico dá mais Plug e menos Automática (a Máquina 8 rende ~10% abaixo da meta); (5) o custo/hora e as margens são snapshots de out/2026; (6) linhas de posto compartilhado (Etiquetadora 15/Embalagem 17: Conv + Autom no mesmo período) são gravadas com UM produto_id e a soma das peças — o produto de cada peça final é rastreado pelo plano físico, não pela linha.`);
+}
 
 // ---- hash ----
 const crypto = require("node:crypto") as typeof import("node:crypto");
