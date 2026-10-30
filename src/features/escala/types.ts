@@ -134,6 +134,9 @@ export interface EntradaEscala {
   // Ver docs/escala-revezamento-bloco.md.
   revezamentoEscopo?: "consecutivo" | "bloco";
   equivalenciaOperacoes?: Record<string, string[]>;
+  // PONTE M3 → T1 (flag `revezamento_ponte_m3_t1`, só com o escopo "bloco"): além do bloco, a pessoa não repete em T1 a operação (nem equivalente) que fez em M3 do mesmo dia.
+  // Só M3 → T1; T3 → M1 do dia seguinte segue livre. Ausente/false = regra de bloco inalterada (byte-idêntico).
+  revezamentoPonteM3T1?: boolean;
   exposicaoExecutada?: { data: string; periodoId: string; funcionarioId: string; operacoes: string[] }[];
   // MODO SOMBRA (Fase 4d): adicional/WIP por etapa que a Produção Real JÁ realizou antes de `aPartirDe` e que NÃO está em linhas congeladas
   // (o realizado vem agregado, não por posto). Consome o teto restante e conta no equilíbrio da cadeia e no limite de estoque, exatamente

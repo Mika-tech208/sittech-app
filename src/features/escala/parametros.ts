@@ -35,6 +35,8 @@ export interface ParametrosEscala {
   revezamentoEscopo?: EscopoRevezamentoParametro;
   /** `revezamento_equivalencias`: mapa opcional (vazio por padrão) operacao_id -> operações que executá-la também expõe. */
   revezamentoEquivalencias?: Record<string, string[]>;
+  /** `revezamento_ponte_m3_t1`: com o escopo "bloco", a mesma operação também é proibida de M3 para T1 do mesmo dia. Ausente/desconhecido = false. */
+  revezamentoPonteM3T1?: boolean;
   replanejamentoModo: ModoReplanejamento;
   /** Semanas (segunda-feira ISO) em que o modo `ativo_restrito` PODE escrever. Fora delas ele se comporta como sombra. */
   replanejamentoSemanasAtivas: string[];
@@ -50,6 +52,7 @@ export const CHAVE_ATINGIBILIDADE_MARGEM = "atingibilidade_margem";
 export const CHAVE_REVEZAMENTO_MODO = "revezamento_modo";
 export const CHAVE_REVEZAMENTO_ESCOPO = "revezamento_escopo";
 export const CHAVE_REVEZAMENTO_EQUIVALENCIAS = "revezamento_equivalencias";
+export const CHAVE_REVEZAMENTO_PONTE_M3_T1 = "revezamento_ponte_m3_t1";
 export const CHAVE_REPLANEJAMENTO_MODO = "replanejamento_modo";
 export const CHAVE_REPLANEJAMENTO_SEMANAS = "replanejamento_semanas_ativas";
 
@@ -103,6 +106,7 @@ export function lerParametros(linhas: { chave: string; valor: unknown }[] | null
     revezamentoModo: mapa.get(CHAVE_REVEZAMENTO_MODO) === "mole" ? "mole" : "duro", // ausente/desconhecido = duro (regra definitiva)
     revezamentoEscopo: mapa.get(CHAVE_REVEZAMENTO_ESCOPO) === "bloco" ? "bloco" : "consecutivo", // ausente/desconhecido = consecutivo
     revezamentoEquivalencias: lerEquivalencias(mapa.get(CHAVE_REVEZAMENTO_EQUIVALENCIAS)),
+    ...(mapa.get(CHAVE_REVEZAMENTO_PONTE_M3_T1) === true ? { revezamentoPonteM3T1: true } : {}), // ausente/desconhecido = desligada (chave omitida: saída idêntica à anterior)
     replanejamentoModo: ((v) => (v === "sombra" || v === "ativo" || v === "ativo_restrito" ? v : "desligado"))(mapa.get(CHAVE_REPLANEJAMENTO_MODO)), // ausente/desconhecido = desligado
     replanejamentoSemanasAtivas: lerSemanas(mapa.get(CHAVE_REPLANEJAMENTO_SEMANAS)),
     wipDiasLimitePorSemana: lerLimitesPorSemana(mapa.get(CHAVE_WIP_DIAS_LIMITE_SEMANAS)),

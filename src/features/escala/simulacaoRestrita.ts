@@ -58,8 +58,8 @@ export interface ResultadoSimulacao { planoFinal: AlocacaoEscala[]; cortes: Cort
 
 const wipPecas = (rows: AlocacaoEscala[]) => Math.round(rows.reduce((s, a) => s + (a.maquinaId ? a.pecasAdicional ?? 0 : 0), 0));
 
-export function contarRepeticoes(plano: AlocacaoEscala[], slots: SlotEscala[], escopo: "consecutivo" | "bloco" = "consecutivo", equivalencias?: Record<string, string[]>): number {
-  if (escopo === "bloco") return repeticoesPorBloco(plano, slots, equivalencias).reduce((s, r) => s + r.excesso, 0);
+export function contarRepeticoes(plano: AlocacaoEscala[], slots: SlotEscala[], escopo: "consecutivo" | "bloco" = "consecutivo", equivalencias?: Record<string, string[]>, ponteM3T1 = false): number {
+  if (escopo === "bloco") return repeticoesPorBloco(plano, slots, equivalencias, ponteM3T1).reduce((s, r) => s + r.excesso, 0);
   const idx = (a: AlocacaoEscala) => slots.find((s) => s.data === a.data && s.periodoId === a.periodoId)?.indice ?? -1;
   const por = new Map<string, Map<number, AlocacaoEscala>>();
   plano.forEach((a) => { if (!por.has(a.funcionarioId)) por.set(a.funcionarioId, new Map()); por.get(a.funcionarioId)!.set(idx(a), a); });

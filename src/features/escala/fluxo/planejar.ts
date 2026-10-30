@@ -154,7 +154,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     const linhasAntes = calcularChurn(ctx, linhas).linhasAlteradas;
     const info: EstabilizacaoPessoas = { aplicada: false, periodosAjustados: 0, linhasAntes, linhasDepois: linhasAntes, motivoDescarte: null };
     if (estabilizar && temVigente && linhas.length > 0) {
-      const est = estabilizarPessoas(linhas, vigFut, ent.congeladas, ent.slots, { escopo: ent.revezamentoDuro ? ent.revezamentoEscopo : undefined, equivalencias: ent.equivalenciaOperacoes, exposicaoExecutada: ent.exposicaoExecutada });
+      const est = estabilizarPessoas(linhas, vigFut, ent.congeladas, ent.slots, { escopo: ent.revezamentoDuro ? ent.revezamentoEscopo : undefined, equivalencias: ent.equivalenciaOperacoes, exposicaoExecutada: ent.exposicaoExecutada, ...(ent.revezamentoPonteM3T1 ? { ponteM3T1: true } : {}) });
       if (est.estabilizou) {
         const aval2 = avalia(est.linhas);
         const viol2 = verificarRestricoesDuras(ent, est.linhas);
@@ -204,7 +204,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     // REVEZAMENTO POR BLOCO: vigente inválido SÓ por repetir operação no bloco (manhã/tarde) ⇒ candidato "vigente com pessoas re-atribuídas": os MESMOS postos (mesma falta,
     // mesmo WIP), só QUEM os ocupa muda, até zerar as repetições. Sem solução ⇒ não é candidato (cai nos regenerados, que podem deixar posto vazio com diagnóstico).
     if (!vigente.valido && !incompleto && entrada.revezamentoDuro && entrada.revezamentoEscopo === "bloco" && violVig.length > 0 && violVig.every((v) => v.tipo === "revezamento")) {
-      const rea = reatribuirPessoasBloco(vigFut, entrada.congeladas, entrada.slots, { escopo: "bloco", equivalencias: entrada.equivalenciaOperacoes, exposicaoExecutada: entrada.exposicaoExecutada });
+      const rea = reatribuirPessoasBloco(vigFut, entrada.congeladas, entrada.slots, { escopo: "bloco", equivalencias: entrada.equivalenciaOperacoes, exposicaoExecutada: entrada.exposicaoExecutada, ...(entrada.revezamentoPonteM3T1 ? { ponteM3T1: true } : {}) });
       if (rea) {
         const linhasRea = marcarManuais(entrada, rea.linhas);
         const violRea = verificarRestricoesDuras(entrada, linhasRea);

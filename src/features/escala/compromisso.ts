@@ -20,7 +20,7 @@ import { ContadoresEquidade } from "./equidade";
 import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { sobrepoe } from "./tempo";
 import type { ExposicaoPessoa } from "./producaoReal";
-import { chaveBloco, expansaoOperacao } from "./exposicaoBloco";
+import { chaveBloco, ehPeriodoPonte, expansaoOperacao } from "./exposicaoBloco";
 import type { AlertaEscala, AlocacaoEscala, EntradaEscala, SlotEscala } from "./types";
 
 export type StatusCompromisso =
@@ -100,7 +100,9 @@ function operacoesProibidas(entrada: EntradaEscala, plano: AlocacaoEscala[], slo
   const incerta = new Set<string>();
   const ant = entrada.slots[slot.indice - 1];
   const bloco = entrada.revezamentoDuro === true && entrada.revezamentoEscopo === "bloco";
-  if (!ant || (bloco ? chaveBloco(ant) !== chaveBloco(slot) : ant.data !== slot.data)) return { mapa, incerta }; // novo dia (ou, no escopo bloco, novo bloco manhã/tarde) zera o revezamento
+  // PONTE M3 → T1 (flag): T1 logo após M3 do mesmo dia herda a exposição de M3 (e só dela)
+  const ponte = bloco && entrada.revezamentoPonteM3T1 === true && ehPeriodoPonte(entrada.slots, slot.indice);
+  if (!ant || (bloco ? chaveBloco(ant) !== chaveBloco(slot) : ant.data !== slot.data)) { if (!ponte) return { mapa, incerta }; } // novo dia (ou, no escopo bloco, novo bloco manhã/tarde) zera o revezamento
   const add = (f: string, ops: string[], inc: boolean) => {
     if (!mapa.has(f)) mapa.set(f, new Set());
     ops.forEach((o) => (bloco ? expansaoOperacao(o, entrada.equivalenciaOperacoes) : [o]).forEach((x) => mapa.get(f)!.add(x)));
@@ -108,7 +110,7 @@ function operacoesProibidas(entrada: EntradaEscala, plano: AlocacaoEscala[], slo
   };
   if (bloco) {
     // ESCOPO BLOCO: tudo o que a pessoa executou/estava alocada em M1..(slot-1) (ou T1..) do mesmo bloco — não só o período imediatamente anterior
-    for (let u = slot.indice - 1; u >= 0 && chaveBloco(entrada.slots[u]) === chaveBloco(slot); u--) {
+    for (let u = slot.indice - 1; u >= 0 && (chaveBloco(entrada.slots[u]) === chaveBloco(slot) || (ponte && u === slot.indice - 1)); u--) {
       const su = entrada.slots[u];
       if (exposicao) {
         exposicao.filter((e) => e.slot === su.indice).forEach((e) => add(e.funcionarioId, e.operacoes, e.incerta));

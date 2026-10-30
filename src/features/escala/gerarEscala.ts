@@ -24,7 +24,7 @@ import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { sobrepoe } from "./tempo";
 import { selecionarAdicionalWip } from "./adicionalWip";
 import { etapasPorProduto } from "./wip";
-import { chaveBloco, MemoriaBloco, registrarPassadoDoBloco } from "./exposicaoBloco";
+import { chaveBloco, MemoriaBloco, registrarPassadoDoBloco, registrarPonte } from "./exposicaoBloco";
 import {
   chavePool, MOTIVO_DEMANDA_ESGOTADA, MOTIVO_JA_COBERTA, MOTIVO_REVEZAMENTO, MOTIVO_POSTOS_OCUPADOS, MOTIVO_RECURSOS_INDISPONIVEIS,
   type AlertaEscala, type AlocacaoEscala, type EntradaEscala, type PoolEscala, type ResultadoEscala, type ResumoSlot, type SlotEscala,
@@ -96,6 +96,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
   const DURO = entrada.revezamentoDuro === true; // revezamento é RESTRIÇÃO do otimizador (Fase 4a)
   // REVEZAMENTO POR BLOCO: com o escopo "bloco" a exposição é por (pessoa, operação) dentro da MANHÃ/TARDE; sem ele, `proibidoOp` é exatamente `histOp.get(fid) === op`.
   const memBloco = DURO && entrada.revezamentoEscopo === "bloco" ? new MemoriaBloco(entrada.equivalenciaOperacoes) : null;
+  const ponteM3T1 = memBloco !== null && entrada.revezamentoPonteM3T1 === true; // PONTE M3 → T1 (flag; ausente = regra de bloco inalterada)
   let blocoRastreado: string | null = null;
   const vazio: ResultadoEscala = { alocacoes: [], alertas: [], resumoSlots: [], primeiraGeracaoComSemanaEmAndamento: false, pecasRestantes: {}, adicionalProduzido: {} };
   if (slots.length === 0 || aPartirDe >= slots.length) return vazio;
@@ -264,6 +265,11 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
         blocoRastreado = cb;
         // 1º slot mutável no MEIO do bloco: olha M1+M2 (T1+T2) inteiros — evidência real quando existe, senão a alocação congelada
         if (t === aPartirDe) registrarPassadoDoBloco(memBloco, slots, t, congeladas, entrada.exposicaoExecutada);
+      }
+      // PONTE M3 → T1: em T1 a pessoa também não repete o que fez em M3 (congelada ou já planejada neste cálculo); a ponte vale só neste slot
+      if (ponteM3T1) {
+        memBloco.limparPonte();
+        registrarPonte(memBloco, slots, t, [...congeladas, ...alocacoesSaida], entrada.exposicaoExecutada);
       }
     }
 
@@ -549,7 +555,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
         data: slot.data,
         periodoId: slot.periodoId,
         quantidade: cortadosPorRotacao.size,
-        motivo: `Não existe escala válida para preencher todos os postos neste período sem repetir ${memBloco ? "a operação no mesmo bloco (manhã/tarde)" : "operação consecutiva"} (${cortadosPorRotacao.size} posto(s) sem operador; operação: ${[...operacoesCortadas].map(nomeOp).join(", ")})`,
+        motivo: `Não existe escala válida para preencher todos os postos neste período sem repetir ${memBloco ? (ponteM3T1 ? "a operação no mesmo bloco (manhã/tarde) nem de M3 para T1" : "a operação no mesmo bloco (manhã/tarde)") : "operação consecutiva"} (${cortadosPorRotacao.size} posto(s) sem operador; operação: ${[...operacoesCortadas].map(nomeOp).join(", ")})`,
       });
     }
     // ---- exceções de rotação (Hall por operação) ----

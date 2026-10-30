@@ -7,7 +7,7 @@
 // O resultado produtivo (postos, máquinas, produtos, peças) NÃO muda — só quem ocupa. Sem solução em algum período => devolve a proposta original.
 
 import { atribuicaoMinima } from "./matching";
-import { chaveBloco, MemoriaBloco, registrarPassadoDoBloco, type EquivalenciaOperacoes, type ExposicaoExecutada } from "./exposicaoBloco";
+import { chaveBloco, ehPeriodoPonte, MemoriaBloco, registrarPassadoDoBloco, registrarPonte, type EquivalenciaOperacoes, type ExposicaoExecutada } from "./exposicaoBloco";
 import type { AlocacaoEscala, SlotEscala } from "./types";
 
 const PROIBIDO = 1_000_000;
@@ -19,7 +19,7 @@ export interface ResultadoEstabilidade { linhas: AlocacaoEscala[]; estabilizou: 
 // `proposta`: linhas da região (já com origem manual marcada). `oficial`: Escala vigente na região. `antes`: tudo que vem antes da região (executado + comprometido).
 /** Regras de revezamento da re-atribuição. Ausente/escopo consecutivo = a regra anterior (mesma operação do período imediatamente anterior). Escopo "bloco" = a pessoa
  *  não repete a operação (nem equivalente) dentro da manhã/tarde: memória do bloco = `antes` + períodos já estabilizados + evidência real. */
-export interface RegrasRevezamento { escopo?: "consecutivo" | "bloco"; equivalencias?: EquivalenciaOperacoes; exposicaoExecutada?: ExposicaoExecutada[] }
+export interface RegrasRevezamento { escopo?: "consecutivo" | "bloco"; equivalencias?: EquivalenciaOperacoes; exposicaoExecutada?: ExposicaoExecutada[]; /** ponte M3 → T1 (só com escopo "bloco") */ ponteM3T1?: boolean }
 
 export function estabilizarPessoas(proposta: AlocacaoEscala[], oficial: AlocacaoEscala[], antes: AlocacaoEscala[], slots: SlotEscala[], regras: RegrasRevezamento = {}): ResultadoEstabilidade {
   const porBloco = regras.escopo === "bloco";
@@ -36,7 +36,7 @@ export function estabilizarPessoas(proposta: AlocacaoEscala[], oficial: Alocacao
     const daRegiao = saida.filter((a) => idx(a) === i - 1);
     registrar(i > 0 && !slot.primeiroDoDia ? (daRegiao.length > 0 ? daRegiao : antes.filter((a) => idx(a) === i - 1)) : []);
     const memBloco = porBloco ? new MemoriaBloco(regras.equivalencias) : null;
-    if (memBloco) registrarPassadoDoBloco(memBloco, slots, i, [...antes, ...saida], regras.exposicaoExecutada);
+    if (memBloco) registrarPassadoDoBloco(memBloco, slots, i, [...antes, ...saida], regras.exposicaoExecutada, regras.ponteM3T1 === true);
     const pessoas = rows.map((r) => r.funcionarioId);
     const oficiais = new Map(oficial.filter((a) => idx(a) === i).map((a) => [a.funcionarioId, a]));
     const n = rows.length;
@@ -93,10 +93,12 @@ export function reatribuirPessoasBloco(linhas: AlocacaoEscala[], antes: Alocacao
   linhas.forEach((a) => porSlot.set(idx(a), [...(porSlot.get(idx(a)) ?? []), a]));
   const ordem = [...porSlot.keys()].sort((x, y) => x - y);
   // blocos contíguos da região
+  // (com a ponte M3 → T1 a cadeia da manhã e a da tarde do mesmo dia formam UM grupo: as escolhas de M3 limitam T1)
+  const ponte = regras.ponteM3T1 === true;
   const blocos: number[][] = [];
   ordem.forEach((i) => {
     const ult = blocos[blocos.length - 1];
-    if (ult && ult.length > 0 && chaveBlocoDe(slots[ult[ult.length - 1]]) === chaveBlocoDe(slots[i]) && ult[ult.length - 1] === i - 1) ult.push(i);
+    if (ult && ult.length > 0 && ult[ult.length - 1] === i - 1 && (chaveBlocoDe(slots[ult[ult.length - 1]]) === chaveBlocoDe(slots[i]) || (ponte && ehPeriodoPonte(slots, i)))) ult.push(i);
     else blocos.push([i]);
   });
   const saida: AlocacaoEscala[] = [];
@@ -108,12 +110,17 @@ export function reatribuirPessoasBloco(linhas: AlocacaoEscala[], antes: Alocacao
       const rnd = prng(t + 1);
       const jitter = t === 0 ? 0 : t < 100 ? 0.45 : 2.5;
       const mem = new MemoriaBloco(regras.equivalencias);
-      registrarPassadoDoBloco(mem, slots, bloco[0], antes, regras.exposicaoExecutada);
+      registrarPassadoDoBloco(mem, slots, bloco[0], antes, regras.exposicaoExecutada, ponte);
       const escolhido: AlocacaoEscala[] = [];
       let ok = true;
       let custoTotal = 0;
       for (let k = 0; k < bloco.length && ok; k++) {
         const rows = porSlot.get(bloco[k]) as AlocacaoEscala[];
+        if (k > 0 && ponte && ehPeriodoPonte(slots, bloco[k])) {
+          // virada manhã → tarde: a memória da manhã zera, MENOS o que cada pessoa fez em M3 (já escolhido), que vale só para T1
+          mem.limpar();
+          registrarPonte(mem, slots, bloco[k], escolhido, regras.exposicaoExecutada);
+        }
         const pessoas = rows.map((r) => r.funcionarioId);
         const original = new Map(rows.map((r) => [r.funcionarioId, r]));
         const custo = pessoas.map((p) => rows.map((tok) => {
@@ -127,11 +134,17 @@ export function reatribuirPessoasBloco(linhas: AlocacaoEscala[], antes: Alocacao
         const novo = rows.map((tok, j) => ({ ...tok, funcionarioId: pessoas[sol.indexOf(j)] }));
         custoTotal += novo.filter((n, j) => n.funcionarioId !== rows[j].funcionarioId).length;
         novo.forEach((n) => mem.registrar(n.funcionarioId, n.maquinaId ? n.operacaoId : null));
+        if (ponte && ehPeriodoPonte(slots, bloco[k])) mem.limparPonte(); // a ponte vale só para o T1
         escolhido.push(...novo);
         // lookahead: cada período seguinte do bloco ainda admite uma atribuição válida com a exposição atual?
         for (let k2 = k + 1; k2 < bloco.length && ok; k2++) {
+          // ponte: a exposição da manhã não vale na tarde, exceto M3 → T1 (só olhada quando k2 é o T1 logo após o M3 recém-escolhido)
+          if (ponte && chaveBlocoDe(slots[bloco[k2]]) !== chaveBlocoDe(slots[bloco[k]])) {
+            if (k2 !== k + 1 || !ehPeriodoPonte(slots, bloco[k2])) break;
+          }
           const r2 = porSlot.get(bloco[k2]) as AlocacaoEscala[];
-          const c2 = r2.map((r) => r2.map((tok) => (tok.origem === "manual" ? (tok.funcionarioId === r.funcionarioId ? 0 : PROIBIDO) : tok.maquinaId && tok.operacaoId && mem.proibido(r.funcionarioId, tok.operacaoId) ? PROIBIDO : 0)));
+          const memLook = ponte && chaveBlocoDe(slots[bloco[k2]]) !== chaveBlocoDe(slots[bloco[k]]) ? (() => { const m = new MemoriaBloco(regras.equivalencias); registrarPonte(m, slots, bloco[k2], escolhido, regras.exposicaoExecutada); return m; })() : mem;
+          const c2 = r2.map((r) => r2.map((tok) => (tok.origem === "manual" ? (tok.funcionarioId === r.funcionarioId ? 0 : PROIBIDO) : tok.maquinaId && tok.operacaoId && memLook.proibido(r.funcionarioId, tok.operacaoId) ? PROIBIDO : 0)));
           const s2 = atribuicaoMinima(c2);
           if (s2.some((j, pi) => c2[pi][j] >= PROIBIDO)) ok = false;
         }

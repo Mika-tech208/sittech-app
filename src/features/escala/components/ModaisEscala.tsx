@@ -27,7 +27,7 @@ export function TrocaModal({
             {opcoes.map((o) => <option key={o.id} value={o.id} disabled={Boolean(o.bloqueio)}>{o.rotulo}{o.bloqueio ? " — não permitido (repetiria a operação)" : ""}</option>)}
           </select>
         </div>
-        {opcoes.some((o) => o.bloqueio) && <p className="stx-esc-muted">Trocas que fariam alguém repetir a mesma operação (em períodos consecutivos ou, no revezamento por bloco, na mesma manhã/tarde) não são permitidas — não há exceção.</p>}
+        {opcoes.some((o) => o.bloqueio) && <p className="stx-esc-muted">Trocas que fariam alguém repetir a mesma operação (em períodos consecutivos ou, no revezamento por bloco, na mesma manhã/tarde — e, com a ponte ligada, de M3 para T1) não são permitidas — não há exceção.</p>}
         <div className="stx-esc-campo">
           <label htmlFor="esc-troca-motivo">Motivo da troca (obrigatório)</label>
           <input id="esc-troca-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: pedido do supervisor, treinamento…" maxLength={200} />

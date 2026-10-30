@@ -186,6 +186,8 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
       ...(estado.parametros?.revezamentoModo === "duro" && estado.parametros?.revezamentoEscopo === "bloco"
         ? { revezamentoEscopo: "bloco" as const, ...(Object.keys(estado.parametros.revezamentoEquivalencias ?? {}).length > 0 ? { equivalenciaOperacoes: estado.parametros.revezamentoEquivalencias } : {}) }
         : {}),
+      // PONTE M3 → T1: só com o revezamento duro E o escopo bloco (a flag isolada não tem efeito)
+      ...(estado.parametros?.revezamentoModo === "duro" && estado.parametros?.revezamentoEscopo === "bloco" && estado.parametros?.revezamentoPonteM3T1 === true ? { revezamentoPonteM3T1: true } : {}),
       ...(wipAtivo ? { wip: { limites: calcularLimitesWip([...pools.values()], slots, { wipDiasLimite: wipDiasLimiteDaSemana(estado.parametros, estado.semanaInicio) }, estado.proximaSemana ?? null), ...(Object.keys(saldo0).length > 0 ? { saldo0 } : {}), ...(Object.keys(estoqueConfirmado).length > 0 ? { estoqueConfirmado } : {}) } } : {}),
     },
     periodosPorDia,

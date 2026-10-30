@@ -163,7 +163,7 @@ export function construirProposta(par: ParametrosCorte, dec: DecisaoCorte): Prop
   const ordenar = (rows: AlocacaoEscala[]) => rows.sort((a, b) => idx(a) - idx(b) || (a.funcionarioId < b.funcionarioId ? -1 : 1));
   const marcado = ordenar(bruto.map((a) => (manuais.has(chaveTroca(a)) ? { ...a, origem: "manual" as const } : a)));
   const antes = [...hz.congeladas, ...(reparou ? [] : hz.comprometidas)].filter((a) => idx(a) < aPartirSlot);
-  const est = estabilizarPessoas(marcado, oficialRegiao, antes, slots, { escopo: par.base.revezamentoEscopo, equivalencias: par.base.equivalenciaOperacoes, exposicaoExecutada: par.base.exposicaoExecutada });
+  const est = estabilizarPessoas(marcado, oficialRegiao, antes, slots, { escopo: par.base.revezamentoEscopo, equivalencias: par.base.equivalenciaOperacoes, exposicaoExecutada: par.base.exposicaoExecutada, ...(par.base.revezamentoPonteM3T1 ? { ponteM3T1: true } : {}) });
   const montar = (linhas: AlocacaoEscala[]): PropostaRestrita => {
     const mudancas = diferencas(oficialRegiao, linhas);
     const cl = classificarMudancas(oficialRegiao, linhas, slots, mudancas.length);
@@ -263,7 +263,7 @@ export function validarProposta(par: ParametrosCorte, dec: DecisaoCorte, prop: P
   efetivo.forEach((a) => { const i = idx(a); if (!Number.isFinite(i)) return; if (!porPessoa.has(a.funcionarioId)) porPessoa.set(a.funcionarioId, new Map()); porPessoa.get(a.funcionarioId)!.set(i, a); });
   if (ent.revezamentoEscopo === "bloco") {
     // ESCOPO BLOCO: mais de uma execução da mesma operação (ou equivalente) na mesma manhã/tarde, contando o executado + o efetivo; só acusa a repetição cuja 2ª+ execução a PROPOSTA cria
-    repeticoesPorBloco(efetivo, slots, ent.equivalenciaOperacoes).forEach((r) => {
+    repeticoesPorBloco(efetivo, slots, ent.equivalenciaOperacoes, ent.revezamentoPonteM3T1 === true).forEach((r) => {
       const criadaPelaProposta = r.periodos.slice(1).some((pid) => idx({ data: r.data, periodoId: pid }) >= (prop.aPartirSlot as number));
       if (criadaPelaProposta) v.push(`repetição de operação no bloco (${r.funcionarioId.slice(0, 6)} ${r.data} ${r.bloco} ${r.periodos.join("/")})`);
     });

@@ -7,7 +7,7 @@
 
 import type { AlocacaoEscala, EntradaEscala } from "../types";
 import type { ViolacaoDura } from "./tipos";
-import { chaveBloco, MemoriaBloco } from "../exposicaoBloco";
+import { chaveBloco, ehPeriodoPonte, MemoriaBloco } from "../exposicaoBloco";
 
 const chaveSlot = (a: { data: string; periodoId: string }) => `${a.data}|${a.periodoId}`;
 
@@ -114,6 +114,20 @@ export function verificarRestricoesDuras(entrada: EntradaEscala, alocacoesTodas:
         opsConferir.forEach((o) => mem.registrar(fid, o));
       });
     });
+    // PONTE M3 → T1 (flag): linha NOVA em T1 que repete (ou equivale a) a operação que a MESMA pessoa fez em M3 do mesmo dia. M3 = congelada/plano (a evidência real, se houver, a substitui).
+    if (entrada.revezamentoPonteM3T1 === true) {
+      alocacoes.forEach((a) => {
+        const slot = slotPor.get(chaveSlot(a));
+        if (!slot || !a.maquinaId || !a.operacaoId || !ehPeriodoPonte(entrada.slots, slot.indice)) return;
+        const m3 = entrada.slots[slot.indice - 1];
+        const e = evi.get(`${chaveSlot(m3)}|${a.funcionarioId}`);
+        const ant = tudo.get(`${chaveSlot(m3)}|${a.funcionarioId}`);
+        const opsM3 = e ? e.operacoes : ant && ant.maquinaId && ant.operacaoId ? [ant.operacaoId] : [];
+        const mem = new MemoriaBloco(eq);
+        opsM3.forEach((o) => mem.registrar(a.funcionarioId, o));
+        if (mem.proibido(a.funcionarioId, a.operacaoId)) v.push({ tipo: "revezamento", ...base(a), detalhe: `${a.funcionarioId} repete a operação ${a.operacaoId} de ${m3.periodoId} em ${a.periodoId} (${a.data}): ponte M3 → T1` });
+      });
+    }
   } else alocacoes.forEach((a) => {
     const slot = slotPor.get(chaveSlot(a));
     if (!slot || !a.maquinaId || !a.operacaoId || slot.primeiroDoDia || slot.indice === 0) return;

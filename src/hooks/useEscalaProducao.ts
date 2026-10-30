@@ -51,7 +51,7 @@ export interface Nomes {
 
 export interface EstadoEscalaTela {
   /** Regras de revezamento vigentes (RPC escala_revezamento_regras); ausente = consecutivo. O servidor é quem decide: isto só antecipa o bloqueio na tela. */
-  regrasRevezamento?: { escopo: "consecutivo" | "bloco"; equivalencias: Record<string, string[]> };
+  regrasRevezamento?: { escopo: "consecutivo" | "bloco"; equivalencias: Record<string, string[]>; ponteM3T1?: boolean };
   previsaoId: string | null;
   dias: DiaEscala[];
   alocacoes: AlocacaoLinha[];
@@ -111,8 +111,8 @@ export function useEscalaProducao(pronto: boolean, semanaInicio: string) {
     let regrasRevezamento: EstadoEscalaTela["regrasRevezamento"];
     try {
       const rr = await supabase.rpc("escala_revezamento_regras");
-      const v = rr.data as { escopo?: string; equivalencias?: Record<string, string[]> } | null;
-      if (!rr.error && v) regrasRevezamento = { escopo: v.escopo === "bloco" ? "bloco" : "consecutivo", equivalencias: v.equivalencias && typeof v.equivalencias === "object" ? v.equivalencias : {} };
+      const v = rr.data as { escopo?: string; equivalencias?: Record<string, string[]>; ponte_m3_t1?: boolean } | null;
+      if (!rr.error && v) regrasRevezamento = { escopo: v.escopo === "bloco" ? "bloco" : "consecutivo", equivalencias: v.equivalencias && typeof v.equivalencias === "object" ? v.equivalencias : {}, ...(v.escopo === "bloco" && v.ponte_m3_t1 === true ? { ponteM3T1: true } : {}) };
     } catch { /* sem a RPC (ainda não migrada): regra anterior */ }
 
     if (!prev) {

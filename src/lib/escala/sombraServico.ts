@@ -206,7 +206,7 @@ export async function prepararDecisao(
     maquinasIndisponiveisPrevisao: ent.maquinasIndisponiveisPrevisao, maquinasInativas: ent.maquinasInativas ?? [], historicoEquidade: ent.historicoEquidade ?? [],
     apontamentos: visiveis.map(empacotarApontamento),
     planoOficial: [...estado.alocacoes].sort((x, y) => (x.data + x.periodoId + x.funcionarioId < y.data + y.periodoId + y.funcionarioId ? -1 : 1)).map(empacotarLinha), impossivelNaOrigem, modoHorizonte: "comprometido", ...(opcoes.restrito ? { restrito: true } : {}),
-    ...(ent.revezamentoDuro && ent.revezamentoEscopo === "bloco" ? { revezamentoEscopo: "bloco" as const, ...(ent.equivalenciaOperacoes ? { equivalenciaOperacoes: ent.equivalenciaOperacoes } : {}) } : {}),
+    ...(ent.revezamentoDuro && ent.revezamentoEscopo === "bloco" ? { revezamentoEscopo: "bloco" as const, ...(ent.equivalenciaOperacoes ? { equivalenciaOperacoes: ent.equivalenciaOperacoes } : {}), ...(ent.revezamentoPonteM3T1 ? { revezamentoPonteM3T1: true as const } : {}) } : {}),
   };
   const par = paraParametrosCorte(canonica);
   const decisao = executarCorteSombra(par);

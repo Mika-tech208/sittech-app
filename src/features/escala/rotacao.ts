@@ -9,8 +9,10 @@ import { blocoDoPeriodo, MemoriaBloco, type EquivalenciaOperacoes } from "./expo
 
 export const MENSAGEM_TROCA_BLOQUEADA = "Esta troca não pode ser realizada porque faria o funcionário repetir a mesma operação em períodos consecutivos.";
 export const MENSAGEM_TROCA_BLOQUEADA_BLOCO = "Esta troca não pode ser realizada porque faria o funcionário repetir a mesma operação na mesma manhã ou na mesma tarde.";
-export interface RegrasRotacao { escopo?: "consecutivo" | "bloco"; equivalencias?: EquivalenciaOperacoes }
-export const mensagemTrocaBloqueada = (r?: RegrasRotacao) => (r?.escopo === "bloco" ? MENSAGEM_TROCA_BLOQUEADA_BLOCO : MENSAGEM_TROCA_BLOQUEADA);
+export const MENSAGEM_TROCA_BLOQUEADA_PONTE = "Esta troca não pode ser realizada porque faria o funcionário repetir a mesma operação na mesma manhã, na mesma tarde ou do último período da manhã para o primeiro da tarde.";
+/** `ponteM3T1` (flag, só com escopo "bloco"): além do bloco, a mesma operação não se repete de M3 para T1 do mesmo dia. */
+export interface RegrasRotacao { escopo?: "consecutivo" | "bloco"; equivalencias?: EquivalenciaOperacoes; ponteM3T1?: boolean }
+export const mensagemTrocaBloqueada = (r?: RegrasRotacao) => (r?.escopo === "bloco" ? (r.ponteM3T1 ? MENSAGEM_TROCA_BLOQUEADA_PONTE : MENSAGEM_TROCA_BLOQUEADA_BLOCO) : MENSAGEM_TROCA_BLOQUEADA);
 
 export interface LinhaRotacao {
   periodoId: string;
@@ -34,6 +36,20 @@ export function repeticoesDaPessoa(linhas: LinhaRotacao[], funcionarioId: string
       if (!o) continue;
       if (mem[b].proibido(funcionarioId, o) && (blocoAlvo === null || b === blocoAlvo)) total++;
       mem[b].registrar(funcionarioId, o);
+    }
+    if (regras.ponteM3T1) {
+      // PONTE M3 → T1: último período da manhã × primeiro da tarde (adjacentes na ordem do dia); com `apenasAoRedorDe` só conta se o período alterado é um dos dois
+      for (let i = 1; i < ordemPeriodos.length; i++) {
+        const [pm, pt] = [ordemPeriodos[i - 1], ordemPeriodos[i]];
+        if (blocoDoPeriodo(pm) !== "manha" || blocoDoPeriodo(pt) !== "tarde") continue;
+        if (apenasAoRedorDe && apenasAoRedorDe !== pm && apenasAoRedorDe !== pt) continue;
+        const om = op.get(pm);
+        const ot = op.get(pt);
+        if (!om || !ot) continue;
+        const m = new MemoriaBloco(regras.equivalencias);
+        m.registrar(funcionarioId, om);
+        if (m.proibido(funcionarioId, ot)) total++;
+      }
     }
     return total;
   }
