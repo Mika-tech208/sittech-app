@@ -179,3 +179,22 @@ describe("TESTE FUNDAMENTAL — remover o upstream cedo quebra a cadeia; religar
     expect(soma(b.etapas[0].producaoObrigatoria)).toBeLessThan(soma(a.etapas[0].producaoObrigatoria));
   });
 });
+
+describe("planoReverso — limitado por pessoas", () => {
+  it("com poucas pessoas entrega o que cabe, nunca acima das pessoas, e a cadeia continua válida", () => {
+    const { prod, recs } = rota([1000, 1000, 1000, 1000], 8000, [0, 0, 0]);
+    const livre = rodar([prod], recs, { pessoas: new Array(H).fill(10) });
+    const lim = rodar([prod], recs, { pessoas: new Array(H).fill(2), limitarPorPessoas: true });
+    expect(livre.produtos[0].entregavel).toBe(8000);
+    expect(lim.produtos[0].entregavel).toBeGreaterThan(0);
+    expect(lim.produtos[0].entregavel).toBeLessThan(8000);
+    lim.headcount.forEach((h) => expect(h.postosObrigatorios).toBeLessThanOrEqual(2));
+    expect(validarPlanoCadeia(cadeiaDe(prod), lim.produtos[0].plano).valido).toBe(true);
+  });
+  it("sem restrição ativa o resultado é idêntico (mesmo plano)", () => {
+    const { prod, recs } = rota([1000, 1000, 1000], 4000, [0, 0]);
+    const a = rodar([prod], recs, { pessoas: new Array(H).fill(10) });
+    const b = rodar([prod], recs, { pessoas: new Array(H).fill(10), limitarPorPessoas: true });
+    expect(b.produtos[0].plano).toEqual(a.produtos[0].plano);
+  });
+});

@@ -104,11 +104,11 @@ const PRINCIPAL = cenarios.find((c) => c.principal) ?? cenarios.find((c) => c.no
 
 // ---------------- modos da Máquina 8 ----------------
 type Modo = "A_so_convencional" | "B_conv+M8" | "C_M8_prioridade";
-function rodarReverso(cen: CenWip, mundo: "meta" | "hist", modo: Modo, ext = EXT): { res: ResultadoReverso; prods: ProdutoRev[] } {
+function rodarReverso(cen: CenWip, mundo: "meta" | "hist", modo: Modo, ext = EXT, limitar = false): { res: ResultadoReverso; prods: ProdutoRev[] } {
   let prods = produtosRev(mundo, cen.wip);
   if (modo === "A_so_convencional") prods = prods.filter((p) => p.id !== aut);
   if (modo === "C_M8_prioridade") prods = [...prods.filter((p) => p.id === aut), ...prods.filter((p) => p.id !== aut)];
-  const res = planejarReverso({ periodos, recursos, produtos: prods, pessoas, extensaoPeriodos: ext, compartilhamento: modo === "C_M8_prioridade" ? "prioridade" : "proporcional" });
+  const res = planejarReverso({ periodos, recursos, produtos: prods, pessoas, extensaoPeriodos: ext, compartilhamento: modo === "C_M8_prioridade" ? "prioridade" : "proporcional", limitarPorPessoas: limitar });
   return { res, prods };
 }
 
@@ -142,7 +142,8 @@ interface Metr {
 }
 function validarNosNoMotor(ctx: CtxFluxo, nome: string, mundo: "meta" | "hist", cen: CenWip, producao: { prod: Record<string, number[]>; postos?: Record<string, number[]> } | AlocacaoEscala[], ref?: { prod: Record<string, number[]>; postos: Record<string, number[]> }): { m: Metr; nodeProd: Record<string, number[]>; nodePostos: Record<string, number[]> } {
   const alocs = Array.isArray(producao) ? producao : legado; // para plano reverso usamos só a estrutura
-  const { entrada: ef, mapa } = entradaForecastDoPlano(ctx, alocs, { ...(mundo === "hist" ? { estimador } : {}), mesmoPeriodo: false });
+  const rotuloNo = (k: string) => { const p = entrada.pools.find((x) => chavePool(x.produtoId, x.etapaId) === k); return p ? `${nomeO(p.operacaoId)} ${nomeP(p.produtoId).replace('Conector 3/4"', 'Con3/4').replace(' - Maquina Automatica', ' Autom')}` : k; };
+  const { entrada: ef, mapa } = entradaForecastDoPlano(ctx, alocs, { rotuloNo, ...(mundo === "hist" ? { estimador } : {}), mesmoPeriodo: false });
   const grafo = ctx.grafo;
   // WIP do cenário por ligação do grafo
   const wip = new Map<string, number>();
@@ -245,9 +246,10 @@ for (const cen of cenComp) for (const mundo of ["meta", "hist"] as const) {
   const ref = { prod: refProd, postos: refPostos };
   const L = validarNosNoMotor(ctx, "legado (gerarEscala)", mundo, cen, legado, ref).m;
   const F = validarNosNoMotor(ctx, "fluxo atual (planejarComFluxo)", mundo, cen, fluxoPorCen.get(cen.nome)!, ref).m;
-  const R = validarNosNoMotor(ctx, "plano reverso (necessidade + antecipação útil)", mundo, cen, reversoComoNos(res), ref).m;
-  const Ro = validarNosNoMotor(ctx, "plano reverso (só obrigatório)", mundo, cen, reversoObrigatorioComoNos(res), ref).m;
-  R.pessoasSemPosto = res.periodosComDeficit.length; // períodos com déficit de pessoas
+  const resL = rodarReverso(cen, mundo, "B_conv+M8", EXT, true).res;
+  const R = validarNosNoMotor(ctx, "REVERSO com 12 pessoas (obrigatório + antecipação que sobra)", mundo, cen, reversoComoNos(resL), ref).m;
+  const Ro = validarNosNoMotor(ctx, "reverso NECESSIDADE FÍSICA completa (exige mais de 12 pessoas)", mundo, cen, reversoObrigatorioComoNos(res), ref).m;
+  R.pessoasSemPosto = 0; Ro.pessoasSemPosto = res.periodosComDeficit.length; // Ro: períodos com déficit de pessoas
   out.comparacao.push({ cenario: cen.nome, mundo, planos: [L, F, R, Ro], headcountReverso: { minimo: res.headcountMinimo, pico: res.picoComAntecipacao, periodosComDeficit: res.periodosComDeficit.length } });
 }
 
@@ -352,6 +354,16 @@ for (const modo of MODOS) {
   if (m8id) P(`\nUtilização da M8 no modo C: ${n1(soma(res.usoPorRecurso[m8id].obrigatorio))} de ${soma(recursos.find((r) => r.id === m8id)!.unidades)} postos-período disponíveis (a Previsão já pede da M8 toda a capacidade dela para a Automática: não há "maior participação" a ganhar além do que já está em B).`);
 }
 
+P(`\n**Com as 12 pessoas (plano obrigatório limitado às pessoas, produtos por valor por posto-período)**`);
+P(`| Modo | Conv | Autom | Caixa Amarela | Pino | Plug | Σ peças finais | Receita (R$) | Falta total vs demanda |`);
+P(`|---|---:|---:|---:|---:|---:|---:|---:|---:|`);
+for (const modo of MODOS) {
+  const { res } = rodarReverso(PRINCIPAL, "meta", modo, EXT, true);
+  const g = (id: string) => res.produtos.find((p) => p.produtoId === id)?.entregavel ?? 0;
+  const pino = [...porProduto.keys()].find((i) => /^Pino/.test(nomeP(i)))!, plug = [...porProduto.keys()].find((i) => /^Plug/.test(nomeP(i)))!;
+  P(`| ${nomeModo[modo]} | ${n0(g(conv))} | ${n0(g(aut))} | ${n0(g(cx))} | ${n0(g(pino))} | ${n0(g(plug))} | ${n0(soma(res.produtos.map((p) => p.entregavel)))} | ${n0(soma(res.produtos.map((p) => p.receita)))} | ${n0(soma(res.produtos.map((p) => p.faltaFinal)))} |`);
+}
+
 // -------- headcount --------
 P(`\n## 4. Headcount por período (cenário ${PRINCIPAL.nome}, modo B, meta) — postos obrigatórios × pessoas disponíveis`);
 for (const mundo of ["meta", "hist"] as const) {
@@ -360,7 +372,7 @@ for (const mundo of ["meta", "hist"] as const) {
   if (mundo === "meta") {
     P(`| Período | Postos obrigatórios | Antecipação útil | Pessoas | Folga | Déficit | Etapa com mais postos |`);
     P(`|---|---:|---:|---:|---:|---:|---|`);
-    res.headcount.forEach((h) => P(`| ${h.rotulo} | ${h.postosObrigatorios} | ${h.postosAntecipacao} | ${h.pessoasDisponiveis} | ${h.folga} | ${h.deficit || "·"} | ${h.etapaMaisPostos ?? "—"} |`));
+    res.headcount.forEach((h) => P(`| ${h.rotulo} | ${h.postosObrigatorios} | ${h.postosAntecipacao} | ${h.pessoasDisponiveis} | ${h.folga} | ${h.deficit || "·"} | ${(h.etapaMaisPostos ?? "—").replace(" | ", " · ")} |`));
   }
 }
 
@@ -369,9 +381,9 @@ P(`\n## 5. Comparação LEGADO × FLUXO ATUAL × PLANO REVERSO (validação de c
 P(`Simulador otimista (mesma dinâmica que escolhe o plano). Cadeia validada no grafo do motor (Etiquetar/Embalar da convencional e da Automática fundidos: uma pilha, uma capacidade). "Upstream esquecido" = máx. déficit acumulado de produção upstream (Ros/Paf/M8) frente ao reverso obrigatório; "postos faltantes" = Σ postos-período que o reverso pede a mais em nós upstream.`);
 for (const c of out.comparacao) {
   P(`\n**Cenário ${c.cenario} · produtividade ${c.mundo === "meta" ? "META" : "HISTÓRICA"}** (headcount do reverso: mínimo ${c.headcountReverso.minimo}, pico ${c.headcountReverso.pico}, períodos com déficit ${c.headcountReverso.periodosComDeficit})`);
-  P(`| Plano | Cadeia | Peças finais | Receita (R$) | WIP final (Σ) | Estoque de saída útil | Falta de material (pç) | Postos-período sem material | Períodos com posto sem material | 1ª falta | Upstream esquecido (pç) | Postos upstream faltantes |`);
-  P(`|---|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|`);
-  (c.planos as Metr[]).forEach((m) => P(`| ${m.plano} | ${m.cadeiaValida ? "VÁLIDA" : "CADEIA_INVALIDA"} (${m.violacoes} viol.) | ${n0(m.pecasFinais)} | ${n0(m.receita)} | ${n0(m.wipFinal)} | ${n0(m.estoqueSaidaUtil)} | ${n0(m.faltaMaterialPecas)} | ${n1(m.postosSemMaterial)} | ${m.periodosComPostoSemMaterial} | ${m.primeiraFalta ?? "—"} | ${n0(m.upstreamEsquecidoPecas)} | ${n1(m.upstreamPostosFaltantes)} |`));
+  P(`| Plano | Cadeia | Peças finais | Receita (R$) | WIP final (Σ) | Estoque de saída útil | Falta de material (pç) | Postos-período sem material | Períodos com posto sem material | 1ª falta | Upstream esquecido (pç) | Postos upstream faltantes | Pessoas sem posto / períodos c/ déficit de pessoas |`);
+  P(`|---|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|`);
+  (c.planos as Metr[]).forEach((m) => P(`| ${m.plano} | ${m.cadeiaValida ? "VÁLIDA" : "CADEIA_INVALIDA"} (${m.violacoes} viol.) | ${n0(m.pecasFinais)} | ${n0(m.receita)} | ${n0(m.wipFinal)} | ${n0(m.estoqueSaidaUtil)} | ${n0(m.faltaMaterialPecas)} | ${n1(m.postosSemMaterial)} | ${m.periodosComPostoSemMaterial} | ${m.primeiraFalta ?? "—"} | ${n0(m.upstreamEsquecidoPecas)} | ${n1(m.upstreamPostosFaltantes)} | ${m.pessoasSemPosto} |`));
 }
 P(`\nLigações/períodos inválidos (primeiros) — LEGADO e FLUXO, cenário ${PRINCIPAL.nome}, meta:`);
 {
@@ -428,14 +440,13 @@ P(`\n## 8. O que precisa começar AGORA nas etapas anteriores (cenário ${PRINCI
 }
 P(`\n## 9. Recomendação`);
 {
-  const rec: string[] = [];
-  const principalMeta = rodarReverso(PRINCIPAL, "meta", modoMain).res, principalHist = rodarReverso(PRINCIPAL, "hist", modoMain).res;
-  [["meta", principalMeta], ["histórica", principalHist]].forEach(([nm, r]: any) => {
-    const falta = soma(r.produtos.map((p: ResultadoProdutoRev) => p.faltaFinal));
-    const v = r.periodosComDeficit.length === 0 ? (falta < 1 ? "CABE com 12 pessoas" : "CABE COM RESTRIÇÕES (pessoas bastam, mas há demanda física inatingível)") : falta < 1 ? "CABE COM RESTRIÇÕES (déficit de pessoas em alguns períodos)" : "NÃO CABE";
-    rec.push(`- Produtividade ${nm}: headcount mínimo obrigatório ${r.headcountMinimo} vs ${Math.max(...pessoas)} disponíveis; ${r.periodosComDeficit.length}/${H} períodos em déficit; falta física total ${n0(falta)} pç ⇒ **${v}**.`);
-  });
-  rec.forEach((r) => P(r));
+  for (const mundo of ["meta", "hist"] as const) {
+    const full = rodarReverso(PRINCIPAL, mundo, modoMain).res, lim = rodarReverso(PRINCIPAL, mundo, modoMain, EXT, true).res;
+    const dem = soma(full.produtos.map((p) => p.demandaFinal)), fisico = soma(full.produtos.map((p) => p.entregavel)), com12 = soma(lim.produtos.map((p) => p.entregavel));
+    const faltaFisica = dem - fisico;
+    const v = full.periodosComDeficit.length === 0 ? (faltaFisica < 1 ? "CABE com 12 pessoas" : "CABE COM RESTRIÇÕES (as pessoas bastam; a demanda física excede a capacidade das máquinas)") : com12 >= 0.9 * fisico ? "CABE COM RESTRIÇÕES" : "NÃO CABE";
+    P(`- Produtividade ${mundo === "meta" ? "meta" : "histórica"}: demanda total ${n0(dem)} pç; a capacidade física das máquinas/WIP entrega no máximo ${n0(fisico)} (falta física ${n0(faltaFisica)}); isso exige headcount mínimo de ${full.headcountMinimo} (déficit em ${full.periodosComDeficit.length}/${H} períodos contra ${Math.max(...pessoas)} pessoas); com 12 pessoas entrega ${n0(com12)} (${n1((100 * com12) / fisico)}% do fisicamente possível, ${n1((100 * com12) / dem)}% da demanda) ⇒ **${v}**.`);
+  }
 }
 out.principal = PRINCIPAL.nome;
 if (process.env.OUT) fs.writeFileSync(process.env.OUT, JSON.stringify(out, null, 1));

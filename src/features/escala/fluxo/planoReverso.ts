@@ -45,6 +45,8 @@ export interface EntradaReverso {
   extensaoPeriodos?: number;
   /** pessoas disponíveis por período (default: ilimitado) */
   pessoas?: number[];
+  /** true: o plano obrigatório respeita `pessoas` em cada período (entrega o que cabe, produtos em ordem de valor por posto-período); false (default): calcula a necessidade física e o déficit de pessoas é só reportado */
+  limitarPorPessoas?: boolean;
   /** perfil da etapa final: "alap" (mínimo necessário, o mais tarde possível; default) ou "asap" */
   perfilFinal?: "alap" | "asap";
 }
@@ -212,14 +214,18 @@ export function planejarReverso(e: EntradaReverso): ResultadoReverso {
   }
 
   // ---------- camada 1: OBRIGATÓRIO ----------
-  const obrig = new Map<string, { P: number[][]; inev: number[]; uso: Record<string, number[]>[]; entregavel: number; caps: number[][] }>();
-  for (const p of e.produtos) {
+  const pessoas = e.pessoas;
+  const pessoasUsadas = (t: number) => { let s = 0; ledger.uso.forEach((v) => (s += Math.ceil(v[t] - 1e-6))); return s; };
+  const snap = (lg: Pick<Ledger, "livre" | "uso">) => ({ livre: new Map([...lg.livre].map(([k, v]) => [k, v.slice()] as [string, number[]])), uso: new Map([...lg.uso].map(([k, v]) => [k, v.slice()] as [string, number[]])) });
+  type Obrig = { P: number[][]; inev: number[]; uso: Record<string, number[]>[]; entregavel: number; caps: number[][]; frac: number };
+  const obrig = new Map<string, Obrig>();
+  const passe = (p: ProdutoRev, frac: number): Obrig => {
     const s = sh(fracao.get(p.id)!);
     const n = p.etapas.length;
     const caps = p.etapas.map((et) => capacidadeEtapa(et, H, ledger, s));
     const M = maximoAsap(caps, p.wipInicial, H);
     const maxFinal = M[n - 1].reduce((a, b) => a + b, 0);
-    const alvo = Math.max(0, Math.min(p.demandaFinal, maxFinal));
+    const alvo = Math.max(0, Math.min(p.demandaFinal * frac, maxFinal));
     let finalProd: number[];
     if ((e.perfilFinal ?? "alap") === "asap") finalProd = M[n - 1].map((v, t) => { const ja = M[n - 1].slice(0, t).reduce((a, b) => a + b, 0); return Math.max(0, Math.min(v, alvo - ja)); });
     else {
@@ -238,18 +244,33 @@ export function planejarReverso(e: EntradaReverso): ResultadoReverso {
       if (novo === 0) break;
     }
     const uso = p.etapas.map((et, k) => alocarEtapa(et, P[k], ledger, s));
-    obrig.set(p.id, { P, inev, uso, entregavel: P[n - 1].reduce((a, b) => a + b, 0), caps });
+    return { P, inev, uso, entregavel: P[n - 1].reduce((a, b) => a + b, 0), caps, frac };
+  };
+  const excede = () => { if (!pessoas) return 0; let m = 0; for (let t = 0; t < H; t++) m = Math.max(m, pessoasUsadas(t) - (pessoas[t] ?? 0)); return m; };
+  const postosPorPeca = (p: ProdutoRev) => p.etapas.reduce((a, et) => a + 1 / Math.max(1, ...et.alternativas.map((x) => Math.max(...x.pecasPorPosto))), 0);
+  const ordem = e.limitarPorPessoas && pessoas ? [...e.produtos].sort((a, b) => (b.valorUnitario ?? 0) / postosPorPeca(b) - (a.valorUnitario ?? 0) / postosPorPeca(a)) : e.produtos;
+  for (const p of ordem) {
+    if (!(e.limitarPorPessoas && pessoas)) { obrig.set(p.id, passe(p, 1)); continue; }
+    // LIMITADO POR PESSOAS: maior fração da demanda cujo plano (somado aos produtos anteriores) cabe nas pessoas de cada período
+    const base0 = snap(ledger);
+    const restaura = () => { const c = snap(base0); ledger.livre = c.livre; ledger.uso = c.uso; };
+    const aplica = (f: number): Obrig | null => { restaura(); const r = passe(p, f); return excede() > 0 ? null : r; };
+    let melhor = aplica(1);
+    if (!melhor) {
+      let lo = 0, hi = 1;
+      for (let it = 0; it < 14; it++) { const mid = (lo + hi) / 2; if (aplica(mid)) lo = mid; else hi = mid; }
+      melhor = aplica(lo);
+      if (!melhor) { restaura(); melhor = passe(p, 0); }
+    }
+    obrig.set(p.id, melhor);
   }
   const usoObrig = new Map<string, number[]>();
   ledger.uso.forEach((v, k) => usoObrig.set(k, v.slice()));
-  const pessoas = e.pessoas;
-  const pessoasUsadas = (t: number) => { let s = 0; ledger.uso.forEach((v) => (s += Math.ceil(v[t] - 1e-6))); return s; };
   const postosObrigPorPeriodo = Array.from({ length: H }, (_, t) => pessoasUsadas(t));
 
   // ---------- camada 2: ANTECIPAÇÃO ÚTIL (estoque de saída limitado à demanda recorrente; só com capacidade E pessoas que sobram) ----------
   const K = e.extensaoPeriodos ?? 1;
   const antec = new Map<string, { P: number[][]; uso: Record<string, number[]>[]; frac: number }>();
-  const snap = (lg: Ledger) => ({ livre: new Map([...lg.livre].map(([k, v]) => [k, v.slice()] as [string, number[]])), uso: new Map([...lg.uso].map(([k, v]) => [k, v.slice()] as [string, number[]])) });
   for (const p of e.produtos) {
     const o = obrig.get(p.id)!;
     const n = p.etapas.length;
