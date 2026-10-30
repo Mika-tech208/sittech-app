@@ -152,6 +152,9 @@ export interface EntradaEscala {
   // `bonusContinuidade`: bônus (em peças finais equivalentes) somado ao valor marginal do posto (máquina, pool) que já está ocupado no plano
   // vigente (índice do slot -> "maquinaId|produto|etapa" -> bônus). Só tem efeito junto com `ordemPostos`.
   bonusContinuidade?: Record<string, Record<string, number>>;
+  // `reposicaoMinima` (protótipo FORECAST DE BUFFER, DESLIGADO por padrão): nº MÍNIMO de postos por pool ("produto|etapa") em cada slot (índice do slot -> chave -> mín.), para o upstream
+  // repor o buffer a tempo (fluxo/forecastBuffer.ts). Os postos pedidos são tentados ANTES dos demais (sujeitos a máquina livre, pessoa elegível e revezamento). Ausente ⇒ saída byte-idêntica.
+  reposicaoMinima?: Record<string, Record<string, number>>;
 }
 
 export type TipoAlerta =
