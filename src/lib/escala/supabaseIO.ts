@@ -159,7 +159,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
       let producaoReal: EstadoBruto["producaoReal"];
       if (modoFluxo === "sombra" || modoFluxo === "ativo") {
         try {
-          producaoReal = { modoEfetivo: modoFluxo, limiar: cfgFluxo.limiar, paresLegado: cfgFluxo.paresLegado, ...(cfgFluxo.contagensFisicas.length > 0 ? { contagensFisicas: cfgFluxo.contagensFisicas } : {}), ...(cfgFluxo.contagensFisicasDescartadas.length > 0 ? { contagensFisicasDescartadas: cfgFluxo.contagensFisicasDescartadas } : {}), apontamentos: await carregarApontamentosReais(admin, prev.semana_inicio) };
+          producaoReal = { modoEfetivo: modoFluxo, limiar: cfgFluxo.limiar, paresLegado: cfgFluxo.paresLegado, ...(cfgFluxo.contagensFisicas.length > 0 ? { contagensFisicas: cfgFluxo.contagensFisicas } : {}), ...(cfgFluxo.contagensFisicasDescartadas.length > 0 ? { contagensFisicasDescartadas: cfgFluxo.contagensFisicasDescartadas } : {}), ...(cfgFluxo.mesmoPeriodo === false ? { mesmoPeriodo: false } : {}), apontamentos: await carregarApontamentosReais(admin, prev.semana_inicio) };
         } catch (e) {
           console.error("escala/fluxo: apontamentos indisponíveis; a semana segue pelo motor oficial:", e instanceof Error ? e.message : e);
         }

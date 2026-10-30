@@ -107,6 +107,7 @@ export function insumosFluxo(estado: EstadoBruto, entrada: EntradaEscala, agoraM
     ...(pr && pr.paresLegado.length > 0 ? { paresLegado: pr.paresLegado } : {}),
     ...(pr && pr.limiar !== null ? { limiarEstabilidadePecas: pr.limiar } : {}),
     ...(Object.keys(fator).length > 0 ? { fatoresEmbutidos: fator } : {}),
+    ...(pr && pr.mesmoPeriodo === false ? { fluxoMesmoPeriodo: false } : {}), // regra conservadora de material (padrão: ausente = comportamento atual, byte-idêntico)
   };
   return { entrada: comF, opcoes };
 }

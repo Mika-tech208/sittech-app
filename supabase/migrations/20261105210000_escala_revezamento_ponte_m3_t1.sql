@@ -4,7 +4,7 @@
 -- pessoa NÃO executa em T1 (1º período da tarde) a operação (ou equivalente) que executou em M3 (último período da manhã) do MESMO dia. T2/T3 e o dia seguinte não olham para trás.
 -- Exposição só de alocação congelada / troca manual registrada (escala_producao_alocacoes). Nunca do apontamento.
 --
--- ADITIVA e INERTE: cria a chave `revezamento_ponte_m3_t1` = false (gatilhos desligados durante o INSERT: não dispara recálculo) e estende duas RPCs.
+-- ADITIVA e INERTE: cria as chaves `revezamento_ponte_m3_t1` = false e `producao_real_fluxo_mesmo_periodo` = true (padrão atual) (gatilhos desligados durante o INSERT: não dispara recálculo) e estende duas RPCs.
 -- Ordem: migration → código → UPDATE da flag para true (o gatilho de parâmetros recalcula o futuro).
 -- Reverter: UPDATE escala_parametros SET valor='false' WHERE chave='revezamento_ponte_m3_t1' (recalcula o futuro com a regra de bloco).
 -- Código antigo ignora a chave e a coluna `ponte_m3_t1` da RPC: degrada para a regra de bloco (seguro).
@@ -12,7 +12,8 @@
 alter table public.escala_parametros disable trigger trg_escala_parametros_evento;
 alter table public.escala_parametros disable trigger trg_escala_plano_versao;
 insert into public.escala_parametros (chave, valor, grupo, descricao) values
-  ('revezamento_ponte_m3_t1', 'false'::jsonb, 'operacional', 'Ponte M3→T1 (só com revezamento_escopo=bloco): a mesma pessoa não repete em T1 a operação que fez em M3 do mesmo dia. Mudar recalcula o futuro')
+  ('revezamento_ponte_m3_t1', 'false'::jsonb, 'operacional', 'Ponte M3→T1 (só com revezamento_escopo=bloco): a mesma pessoa não repete em T1 a operação que fez em M3 do mesmo dia. Mudar recalcula o futuro'),
+  ('producao_real_fluxo_mesmo_periodo', 'true'::jsonb, 'operacional', 'Fluxo: true (padrão) = o downstream de um período pode usar a produção da etapa anterior do MESMO período; false = REGRA CONSERVADORA (só o estoque do início do período). Mudar recalcula o futuro')
 on conflict (chave) do nothing;
 alter table public.escala_parametros enable trigger trg_escala_plano_versao;
 alter table public.escala_parametros enable trigger trg_escala_parametros_evento;
@@ -20,6 +21,9 @@ alter table public.escala_parametros enable trigger trg_escala_parametros_evento
 alter table public.escala_parametros drop constraint if exists escala_parametros_revezamento_ponte;
 alter table public.escala_parametros add constraint escala_parametros_revezamento_ponte
   check (chave <> 'revezamento_ponte_m3_t1' or jsonb_typeof(valor) = 'boolean');
+alter table public.escala_parametros drop constraint if exists escala_parametros_fluxo_mesmo_periodo;
+alter table public.escala_parametros add constraint escala_parametros_fluxo_mesmo_periodo
+  check (chave <> 'producao_real_fluxo_mesmo_periodo' or jsonb_typeof(valor) = 'boolean');
 
 create or replace function public.escala_ponte_m3_t1_ativa()
 returns boolean language sql stable security definer set search_path = public, pg_temp

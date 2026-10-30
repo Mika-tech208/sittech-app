@@ -9,6 +9,7 @@ export const CHAVE_PR_SEMANAS = "producao_real_semanas_ativas";
 export const CHAVE_PR_LIMIAR = "producao_real_limiar_estabilidade";
 export const CHAVE_PR_PARES = "producao_real_pares_legado";
 export const CHAVE_PR_CONTAGENS = "producao_real_contagens_fisicas";
+export const CHAVE_PR_MESMO_PERIODO = "producao_real_fluxo_mesmo_periodo";
 export const PRIMEIRA_SEMANA_FLUXO = "2026-10-26";
 
 export interface ConfigFluxo {
@@ -20,6 +21,9 @@ export interface ConfigFluxo {
   contagensFisicas: ContagemFisicaPar[];
   /** Itens malformados da chave: ignorados, com diagnóstico (nunca derrubam o recálculo). */
   contagensFisicasDescartadas: DiagnosticoItem[];
+  /** producao_real_fluxo_mesmo_periodo (boolean; padrão true = comportamento atual). false = REGRA CONSERVADORA: o downstream de um período só usa o estoque que existia no INÍCIO dele
+   *  (a produção da etapa anterior no próprio período só alimenta o downstream no período seguinte), porque o tempo físico de transferência entre operações ainda não é modelado. */
+  mesmoPeriodo?: boolean; // ausente = true
 }
 
 export const CONFIG_FLUXO_PADRAO: ConfigFluxo = { modo: "desligado", semanasAtivas: [], limiar: null, paresLegado: [], contagensFisicas: [], contagensFisicasDescartadas: [] };
@@ -103,6 +107,7 @@ export function lerConfigFluxo(linhas: { chave: string; valor: unknown }[] | nul
     paresLegado: lerParesLegado(mapa.get(CHAVE_PR_PARES)),
     contagensFisicas: contagens.itens,
     contagensFisicasDescartadas: contagens.descartes,
+    ...(mapa.get(CHAVE_PR_MESMO_PERIODO) === false ? { mesmoPeriodo: false } : {}), // só o JSON `false` liga a regra conservadora; ausente/outro valor = padrão (chave omitida)
   };
 }
 
