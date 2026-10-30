@@ -92,7 +92,7 @@ class Avaliador {
   }
   private rodar(gi: number, de: number, ate: number, st: EstadoSim) {
     return simularGrupo(this.ctx.grafo, this.ctx.grafo.grupos[gi], {
-      tIni: de, tFim: ate, cap: this.caps, B0: st.B, W0: st.W, L0: st.L, Q: this.Q, baseLeft0: st.baseLeft, mesmoPeriodo: this.ctx.opcoes.fluxoMesmoPeriodo !== false,
+      tIni: de, tFim: ate, cap: this.caps, B0: st.B, W0: st.W, L0: st.L, Q: this.Q, baseLeft0: st.baseLeft, mesmoPeriodo: this.ctx.opcoes.fluxoMesmoPeriodo !== false, mesmoPeriodoPorAresta: this.ctx.opcoes.fluxoMesmoPeriodoPorAresta,
     });
   }
   /** valor do grupo a partir do cursor (cenário pessimista): peças finais entregues até o fim da semana */

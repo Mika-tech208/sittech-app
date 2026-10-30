@@ -92,6 +92,8 @@ export interface OpcoesFluxo {
   ponderarPorValor?: boolean;
   /** Fluxo entre etapas no MESMO período (consumo ≤ WIP inicial + produção upstream do período). Default true (spec §3). */
   fluxoMesmoPeriodo?: boolean;
+  /** Por aresta (id do nó de ORIGEM = chave do pool origem): sobrepõe `fluxoMesmoPeriodo` (true = fluxo contínuo no mesmo período; false = só o estoque do início). Ausente = usa o global. */
+  fluxoMesmoPeriodoPorAresta?: Record<string, boolean>;
   /** Inclui na avaliação a trajetória de WIP por par/slot e os marginais (mais pesado no jsonb). Default true / false. */
   incluirTrajetoria?: boolean;
   incluirMarginais?: boolean;

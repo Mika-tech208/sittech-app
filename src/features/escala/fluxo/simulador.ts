@@ -31,6 +31,8 @@ export interface ParamsSim {
   Q: Record<string, number>; // quantidade prevista por nó
   limiteFut?: { desde: number; valor: Record<string, number> }; // limite da produção base a partir de `desde` (rem explícito do plano de fluxo)
   mesmoPeriodo: boolean;
+  /** Sobrepõe `mesmoPeriodo` por aresta (id da aresta = nó de origem). */
+  mesmoPeriodoPorAresta?: Record<string, boolean>;
   trajetoria?: boolean;
   /** Restante do previsto por nó JÁ em curso (continuação a partir de um estado salvo); tem precedência sobre limiteFut/Q−B0. */
   baseLeft0?: Record<string, number>;
@@ -78,7 +80,7 @@ export function simularGrupo(grafo: Grafo, g: GrupoFluxo, p: ParamsSim): Resulta
       const real = c?.real[t] ?? 0;
       const base = c?.base[t] ?? 0;
       const adic = c?.adic[t] ?? 0;
-      const disp = (e: string) => (p.mesmoPeriodo ? W[e] : Wini[e]);
+      const disp = (e: string) => ((p.mesmoPeriodoPorAresta?.[e] ?? p.mesmoPeriodo) ? W[e] : Wini[e]);
       const avail = ins.length === 0 ? Number.POSITIVE_INFINITY : ins.reduce((s, e) => s + disp(e), 0);
       const targetLeft = no.final || no.succ === null ? Math.max(0, (p.Q[n] ?? 0) - B[n]) : Number.POSITIVE_INFINITY;
 
