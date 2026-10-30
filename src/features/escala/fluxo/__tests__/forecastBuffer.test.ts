@@ -258,6 +258,27 @@ describe("fonte alternativa de reposição (relatório)", () => {
   });
 });
 
+describe("destino com 2 origens (ex.: cadeia convencional + Máquina 8)", () => {
+  const H = 4;
+  const e = () => cadeia(H, [no("P", H, 0, 3000), no("M8", H, 0, 1200), no("E", H, 3000)], [lig("P", "E", 5000, { peso: 0.75 }), lig("M8", "E", 1000, { peso: 0.25 })]);
+  it("cobertura e ruptura são do estoque TOTAL; as duas ligações são marcadas como compartilhadas", () => {
+    const r = forecastBuffer(e());
+    expect(r.ligacoes.every((l) => l.compartilhada)).toBe(true);
+    expect(r.ligacoes[0].coberturaSemReposicao.periodos).toBe(2); // (5.000 + 1.000) ÷ 3.000
+    expect(r.ligacoes[0].rupturaPrevista?.periodo).toBe(r.ligacoes[1].rupturaPrevista?.periodo);
+    expect(r.ligacoes[0].rupturaPrevista?.periodo).toBe(2);
+  });
+  it("a reposição extra é repartida pelo peso, limitada pela capacidade de cada origem, e a ação elimina a ruptura", () => {
+    const r = forecastBuffer(e());
+    const p = L(r, "PE").acao, m = L(r, "M8E").acao;
+    expect(soma(p.adicionar) + soma(m.adicionar)).toBeCloseTo(6000, 3); // 12.000 de consumo − 6.000 de estoque
+    expect(p.adicionar.every((v) => v <= 3000 + 1e-6)).toBe(true);
+    expect(m.adicionar.every((v) => v <= 1200 + 1e-6)).toBe(true);
+    expect(soma(p.adicionar)).toBeGreaterThan(soma(m.adicionar));
+    expect(r.ligacoes[0].rupturaComAcao).toBeNull();
+  });
+});
+
 describe("agendarMontante", () => {
   it("empurra para períodos anteriores o que excede a capacidade", () => {
     const a = agendarMontante([0, 3000, 6000, 9000], 0, [3000, 3000, 3000, 3000], [0, 0, 0, 0], false);

@@ -6,7 +6,7 @@ import { chavePool, type AlocacaoEscala, type PoolEscala } from "../types";
 import { capacidadeFuturaDoNo, type CtxFluxo } from "./estado";
 import { selecionarFuturas } from "./avaliar";
 import {
-  forecastBuffer, type ConfiancaForecast, type EntradaForecast, type FonteTaxa, type LigacaoForecast, type NoForecast, type OpcoesForecast, type ResultadoForecast,
+  forecastBuffer, type FonteReposicao, type EstagioFonte, type ConfiancaForecast, type EntradaForecast, type FonteTaxa, type LigacaoForecast, type NoForecast, type OpcoesForecast, type ResultadoForecast,
 } from "./forecastBuffer";
 import type { EstimadorTaxa } from "./produtividadePosto";
 
@@ -141,3 +141,26 @@ export function reposicaoMinimaDe(f: ForecastDoPlano): { reposicaoMinima: Record
 }
 
 export const piorConfianca = (a: ConfiancaForecast, b: ConfiancaForecast) => (PIOR[b] > PIOR[a] ? b : a);
+
+/** Fontes de reposição que alimentam o nó `destinoId` (uma por ligação de entrada), cada uma como cadeia de estágios (do que entrega ao buffer até a primeira etapa). */
+export function fontesDoNo(f: ForecastDoPlano, destinoId: string, restricoes: Record<string, string[]> = {}): FonteReposicao[] {
+  const nosPorId = new Map(f.entrada.nos.map((n) => [n.id, n]));
+  const entradas = (id: string) => f.entrada.ligacoes.filter((l) => l.destino === id);
+  return entradas(destinoId).map((l0) => {
+    const estagios: EstagioFonte[] = [];
+    let l: typeof l0 | undefined = l0;
+    const vistos = new Set<string>();
+    while (l && !vistos.has(l.origem)) {
+      vistos.add(l.origem);
+      const n = nosPorId.get(l.origem) as NonNullable<ReturnType<typeof nosPorId.get>>;
+      const ins = entradas(n.id);
+      const lin: typeof l0 | undefined = ins.length === 1 ? ins[0] : undefined;
+      estagios.push({
+        rotulo: n.rotulo, pecasPorPosto: n.pecasPorPosto ?? n.producaoPrevista.map(() => 0), capacidadeMaxima: n.capacidadeMaxima ?? n.producaoPrevista,
+        wipEntrada: lin ? lin.wipInicial : 0, materialExterno: ins.length === 0,
+      });
+      l = lin;
+    }
+    return { id: l0.id, rotulo: l0.rotulo ?? l0.id, estagios, restricoes: restricoes[l0.id] ?? [] };
+  });
+}

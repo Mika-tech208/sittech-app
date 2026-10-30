@@ -123,6 +123,8 @@ export interface DiagnosticoLigacao {
   destino: string;
   confianca: ConfiancaForecast;
   wipInicial: number;
+  /** o destino tem 2+ origens (ex.: Conector com a Máquina 8): cobertura, ruptura e ponto de pedido são do ESTOQUE TOTAL do destino */
+  compartilhada: boolean;
   /** consumo previsto do destino nesta ligação por período (peças da origem; = produção prevista do destino × rendimento × peso) */
   consumoPrevisto: number[];
   /** produção do nó de origem no plano por período (efetiva: limitada pelo próprio material dela) = reposição prevista */
@@ -131,6 +133,8 @@ export interface DiagnosticoLigacao {
   saldoProjetado: number[];
   /** idem sem nenhuma reposição */
   saldoSemReposicao: number[];
+  /** consumo que o destino PRECISA fazer nesta ligação segundo o alvo da cadeia (plano + ações do destino), em peças da origem */
+  consumoRequerido: number[];
   /** TIME_TO_STARVATION (sem reposição), com o ritmo previsto do destino */
   coberturaSemReposicao: Cobertura;
   /** ruptura prevista COM a reposição do plano (null = não rompe) */
@@ -396,137 +400,160 @@ export function forecastBuffer(entrada: EntradaForecast, op: OpcoesForecast = {}
   const mesmo = op.mesmoPeriodo === true;
   const margem = (c: ConfiancaForecast) => Math.max(0, op.margemPorConfianca?.[c] ?? 0);
   const { nos, topo, ligs, pesos } = normalizar(entrada, op);
+  nos.forEach((n) => {
+    if (n.saidas.length > 1) throw new Error(`forecastBuffer: o nó ${n.id} alimenta 2+ destinos (não suportado)`);
+  });
   const avisos: string[] = [];
   const wip0 = (l: LigacaoForecast) => l.wipInicial;
   const sim1 = simularAvante(nos, topo, ligs, pesos, H, mesmo, new Map(), wip0);
+  const rend = (l: LigacaoForecast) => l.rendimento ?? 1;
 
-  // ---- para trás (do destino final à origem): alvo de produção de cada nó = plano + extras ----
-  const alvo = new Map<string, number[]>(); // produção total alvo
+  // ---- para trás (do destino final às origens): alvo de produção de cada nó = plano + extras; cada destino define o que as suas origens precisam repor ----
+  // Destino com 2+ origens (ex.: Conector fundido com a Máquina 8): o estoque é fungível, então a necessidade é calculada sobre o ESTOQUE TOTAL e a reposição
+  // extra é repartida entre as origens pelo `peso`, respeitando a sobra de capacidade de cada uma.
+  const alvo = new Map<string, number[]>();
   const extra = new Map<string, number[]>();
-  const inev = new Map<string, { pecas: number; desde: number | null }>();
-  const reqDoDestino = new Map<string, number[]>(); // consumo requerido por ligação (peças da origem) por período
-  const pontoPedido = new Map<string, number[]>();
-  const removivel = new Map<string, number[]>();
+  const inevPorLigacao = new Map<string, number>();
+  const grupo = new Map<string, { consumo: number[]; pontoPedido: number[]; s0: number; removivel: number[] }>(); // por destino, em unidades do destino
   [...topo].reverse().forEach((id) => {
     const n = nos.get(id) as NoN;
     const x = sim1.x.get(id) as number[];
-    if (n.saidas.length === 0) {
-      // sorvedouro: o alvo é o desejado (previsto limitado pela demanda), não o que o material deixou passar
-      alvo.set(id, [...(sim1.desejado.get(id) as number[])]);
-      extra.set(id, zeros(H));
-      inev.set(id, { pecas: 0, desde: null });
-      removivel.set(id, zeros(H));
-      return;
-    }
-    // consumo acumulado requerido de n por todos os destinos
-    const consCum = zeros(H);
-    const ssTot = zeros(H);
-    let s0Tot = 0;
-    n.saidas.forEach((l) => {
-      const dest = l.destino;
-      const T = alvo.get(dest) as number[];
-      const rend = l.rendimento ?? 1;
-      const w = pesos.get(l.id) ?? 1;
-      const cons = T.map((v) => v * rend * w);
-      reqDoDestino.set(l.id, cons);
-      const cc = cumulativa(cons);
-      cc.forEach((v, k) => (consCum[k] += v));
-      cons.forEach((v, k) => (ssTot[k] += margem(l.confianca) * v));
-      s0Tot += Math.max(0, wip0(l));
-    });
-    const capN = n.cap;
-    // produção mínima ALAP para atender ao consumo (sem considerar o plano) — só informativa; a ação é a lacuna contra o plano
-    const Xcum = cumulativa(x);
-    // requisito acumulado (mesma regra de agendarMontante) para medir a lacuna do plano
+    if (n.saidas.length === 0) alvo.set(id, [...(sim1.desejado.get(id) as number[])]);
+    else alvo.set(id, x.map((v, k) => v + (extra.get(id)?.[k] ?? 0)));
+    if (n.entradas.length === 0) return;
+
+    const T = alvo.get(id) as number[]; // produção alvo do destino (unidades do destino)
+    const consCum = cumulativa(T);
+    const ins = n.entradas;
+    const s0 = ins.reduce((s, l) => s + Math.max(0, wip0(l)) / rend(l), 0);
+    const conf = ins.reduce<ConfiancaForecast>((w, l) => pior(w, l.confianca), "alta");
+    const ss = T.map((v) => margem(conf) * v);
     const req = zeros(H + 1);
     for (let k = 0; k < H; k++) {
       const t = mesmo ? k : k + 1;
-      req[k + 1] = t <= H - 1 ? Math.max(0, consCum[t] - s0Tot + ssTot[t]) : req[k];
+      req[k + 1] = t <= H - 1 ? Math.max(0, consCum[t] - s0 + ss[t]) : req[k];
     }
-    if (!mesmo) req[0] = Math.max(0, consCum[0] - s0Tot + ssTot[0]);
-    const Ecum = zeros(H + 1); // extra acumulada necessária (índice i=k+1)
-    Ecum[0] = Math.max(0, req[0] - 0);
+    if (!mesmo) req[0] = Math.max(0, consCum[0] - s0 + ss[0]);
+    const origens = ins.map((l) => nos.get(l.origem) as NoN);
+    const xTot = zeros(H);
+    const roomTot = zeros(H);
+    const capTot = zeros(H);
+    origens.forEach((o, i) => {
+      const xo = sim1.x.get(o.id) as number[];
+      for (let k = 0; k < H; k++) {
+        xTot[k] += xo[k] / rend(ins[i]);
+        roomTot[k] += Math.max(0, o.cap[k] - xo[k]) / rend(ins[i]);
+        capTot[k] += Math.max(0, o.cap[k]) / rend(ins[i]);
+      }
+    });
+    const Xcum = cumulativa(xTot);
+    const Ecum = zeros(H + 1);
+    Ecum[0] = req[0];
     for (let i = 1; i <= H; i++) Ecum[i] = Math.max(Ecum[i - 1], req[i] - Xcum[i - 1]);
     const A = zeros(H);
     for (let k = 0; k < H; k++) A[k] = Math.max(0, Ecum[k + 1] - Ecum[k]);
-    let pend0 = Ecum[0]; // antes do horizonte: só será "inevitável"
-    // empurra para trás o que excede a sobra de capacidade e a demanda
-    const room = capN.map((c, k) => Math.max(0, c - x[k]));
+    let pend0 = Ecum[0]; // consumo que teria de ser reposto ANTES do horizonte: inevitável
     for (let k = H - 1; k >= 0; k--) {
-      if (A[k] > room[k] + EPS_FB) {
-        const exc = A[k] - room[k];
-        A[k] = room[k];
+      if (A[k] > roomTot[k] + EPS_FB) {
+        const exc = A[k] - roomTot[k];
+        A[k] = roomTot[k];
         if (k > 0) A[k - 1] += exc;
         else pend0 += exc;
       }
     }
-    if (n.dem !== null) {
-      let livre = Math.max(0, n.dem - soma(x));
-      for (let k = 0; k < H; k++) {
-        const aloc = Math.min(A[k], livre);
-        livre -= aloc;
-        if (A[k] > aloc + EPS_FB) pend0 += A[k] - aloc;
-        A[k] = aloc;
+    // reparte entre as origens (peso, limitado pela sobra de cada uma; sobra de uma vai para as outras) e respeita a demanda restante de cada origem
+    const parte = origens.map(() => zeros(H));
+    const somaPeso = ins.reduce((s, l) => s + (pesos.get(l.id) ?? 0), 0);
+    for (let k = 0; k < H; k++) {
+      let falta = A[k];
+      const livre = origens.map((o, i) => Math.max(0, o.cap[k] - (sim1.x.get(o.id) as number[])[k]) / rend(ins[i]));
+      let ativos = origens.map((_, i) => i).filter((i) => livre[i] > EPS_FB);
+      for (let rodada = 0; rodada < origens.length && falta > EPS_FB && ativos.length > 0; rodada++) {
+        const pw = ativos.reduce((s, i) => s + (somaPeso > 0 ? (pesos.get(ins[i].id) ?? 0) : 1), 0) || 1;
+        let usado = 0;
+        ativos.forEach((i) => {
+          const w = somaPeso > 0 ? (pesos.get(ins[i].id) ?? 0) : 1;
+          const dar = Math.min(livre[i] - parte[i][k], (falta * w) / pw);
+          parte[i][k] += dar;
+          usado += dar;
+        });
+        falta -= usado;
+        ativos = ativos.filter((i) => livre[i] - parte[i][k] > EPS_FB);
       }
+      if (falta > EPS_FB) pend0 += falta;
     }
-    extra.set(id, A.map(r3));
-    alvo.set(id, x.map((v, k) => v + A[k]));
-    const primeiroInev = pend0 > EPS_FB ? 0 : null;
-    inev.set(id, { pecas: r3(pend0), desde: primeiroInev });
-
-    // ponto de pedido dinâmico por ligação de saída
-    n.saidas.forEach((l) => {
-      const cons = reqDoDestino.get(l.id) as number[];
-      const pp = zeros(H);
-      for (let k = 0; k < H; k++) {
-        let melhor = 0;
-        let somaC = 0;
-        let somaCap = 0;
-        for (let j = k; j < H; j++) {
-          somaC += cons[j] + margem(l.confianca) * cons[j];
-          // conservador: a produção do período j só chega depois de j (não conta p/ j); mesmoPeriodo conta
-          const capJ = Math.max(0, capN[j]);
-          const entrega = mesmo ? somaCap + capJ : somaCap;
-          melhor = Math.max(melhor, somaC - entrega);
-          somaCap += capJ;
+    origens.forEach((o, i) => {
+      const A_o = parte[i].map((v) => v * rend(ins[i]));
+      if (o.dem !== null) {
+        let restante = Math.max(0, o.dem - soma(sim1.x.get(o.id) as number[]));
+        for (let k = 0; k < H; k++) {
+          const aloc = Math.min(A_o[k], restante);
+          restante -= aloc;
+          if (A_o[k] > aloc + EPS_FB) pend0 += (A_o[k] - aloc) / rend(ins[i]);
+          A_o[k] = aloc;
         }
-        pp[k] = r3(Math.max(0, melhor));
       }
-      pontoPedido.set(l.id, pp);
+      extra.set(o.id, A_o.map(r3));
     });
+    ins.forEach((l) => inevPorLigacao.set(l.id, r3(pend0 * (somaPeso > 0 ? (pesos.get(l.id) ?? 0) / somaPeso : 1 / ins.length))));
 
-    // removível: produção do plano+ação acima do requisito, sem criar ruptura adiante (mínimo acumulado a partir do período)
-    const T = alvo.get(id) as number[];
-    const Tcum = cumulativa(T);
-    const sobra = Tcum.map((v, k) => v - req[k + 1]);
+    // ponto de pedido dinâmico do destino (estoque TOTAL necessário no início do período, ligando as origens à capacidade máxima desse período em diante)
+    const pp = zeros(H);
+    for (let k = 0; k < H; k++) {
+      let melhor = 0;
+      let somaC = 0;
+      let somaCap = 0;
+      for (let j = k; j < H; j++) {
+        somaC += T[j] * (1 + margem(conf));
+        const entrega = mesmo ? somaCap + capTot[j] : somaCap;
+        melhor = Math.max(melhor, somaC - entrega);
+        somaCap += capTot[j];
+      }
+      pp[k] = r3(Math.max(0, melhor));
+    }
+    // removível (unidades do destino): produção das origens (plano + ação) acima do requisito, sem criar ruptura adiante, sem somar entre períodos
+    const Tot = origens.map((_, i) => 0 + i).reduce<number[]>((acc, i) => acc.map((v, k) => v + (((sim1.x.get(origens[i].id) as number[])[k] + (extra.get(origens[i].id) as number[])[k]) / rend(ins[i]))), zeros(H));
+    const TotCum = cumulativa(Tot);
     const rem = zeros(H);
     let minSuf = Number.POSITIVE_INFINITY;
     for (let k = H - 1; k >= 0; k--) {
-      minSuf = Math.min(minSuf, sobra[k]);
-      rem[k] = Math.max(0, Math.min(minSuf, T[k]));
+      minSuf = Math.min(minSuf, TotCum[k] - req[k + 1]);
+      rem[k] = Math.max(0, Math.min(minSuf, Tot[k]));
     }
-    removivel.set(id, rem.map(r3));
+    grupo.set(id, { consumo: T, pontoPedido: pp, s0, removivel: rem });
   });
+  // origens sem extras definidas (sorvedouros ou nós sem destino): zero
+  nos.forEach((_, id) => { if (!extra.has(id)) extra.set(id, zeros(H)); });
 
   // ---- 2ª simulação com as ações aplicadas (auto-verificação) ----
   const sim2 = simularAvante(nos, topo, ligs, pesos, H, mesmo, extra, wip0);
 
   // ---- diagnósticos por nó ----
+  const wIniNo = (s: Sim, n: NoN) => zeros(H).map((_, t) => n.entradas.reduce((q, l) => q + (s.wIni.get(l.id) as number[])[t] / rend(l), 0));
+  const removivelDoNo = (n: NoN): number[] => {
+    if (n.saidas.length === 0) return zeros(H);
+    const l = n.saidas[0];
+    const g = grupo.get(l.destino);
+    if (!g) return zeros(H);
+    const irmaos = nos.get(l.destino)!.entradas;
+    const prodTot = zeros(H);
+    irmaos.forEach((q) => ((alvo.get(q.origem) as number[]).forEach((v, k) => (prodTot[k] += v / rend(q)))));
+    const meu = alvo.get(n.id) as number[];
+    return g.removivel.map((v, k) => (prodTot[k] > EPS_FB ? Math.min(meu[k], (v * (meu[k] / rend(l))) / prodTot[k] * rend(l)) : 0));
+  };
   const noDiag: DiagnosticoNo[] = [...nos.values()].map((n) => {
     const x = sim1.x.get(n.id) as number[];
     const des = sim1.desejado.get(n.id) as number[];
-    const wIniNo = n.entradas.length === 0 ? zeros(H) : zeros(H).map((_, t) => n.entradas.reduce((s, l) => s + (sim1.wIni.get(l.id) as number[])[t], 0));
+    const rem = removivelDoNo(n).map(r3);
     const pp = n.pecasPorPosto;
-    const rem = removivel.get(n.id) as number[];
     return {
       noId: n.id, rotulo: n.rotulo, producaoPlano: x.map(r3), producaoDesejada: des.map(r3),
-      rupturaPrevista: n.entradas.length === 0 ? null : ruptura(des, x, wIniNo, entrada.periodos),
+      rupturaPrevista: n.entradas.length === 0 ? null : ruptura(des, x, wIniNo(sim1, n), entrada.periodos),
       producaoAlvo: (alvo.get(n.id) as number[]).map(r3), removivel: rem,
       postosLivres: rem.map((v, k) => (pp[k] > EPS_FB ? Math.floor(v / pp[k] + 1e-9) : 0)),
       fonteTaxa: n.fonteTaxa,
     };
   });
-  const noPorId = new Map(noDiag.map((d) => [d.noId, d]));
 
   // ---- diagnósticos por ligação ----
   const durs = entrada.periodos.map((p) => p.duracaoMin);
@@ -534,42 +561,46 @@ export function forecastBuffer(entrada: EntradaForecast, op: OpcoesForecast = {}
     const dest = nos.get(l.destino) as NoN;
     const orig = nos.get(l.origem) as NoN;
     const w = pesos.get(l.id) ?? 1;
-    const rend = l.rendimento ?? 1;
-    // consumo PREVISTO do destino (sem material limitando): produção prevista do destino (limitada pela demanda) × rendimento × peso
-    const consumoPrev = (sim1.desejado.get(dest.id) as number[]).map((v) => r3(v * rend * w));
-    const cobertura = coberturaSemReposicao(Math.max(0, l.wipInicial), consumoPrev, durs);
+    const compartilhada = dest.entradas.length > 1;
+    const g = grupo.get(dest.id) as NonNullable<ReturnType<typeof grupo.get>>;
+    // consumo PREVISTO do destino (sem o material limitando): produção prevista do destino (limitada pela demanda) × rendimento × peso
+    const des = sim1.desejado.get(dest.id) as number[];
+    const consumoPrev = des.map((v) => r3(v * rend(l) * w));
+    // cobertura: com 2+ origens o destino consome de todas ao mesmo tempo, na proporção do estoque ⇒ o tempo de cobertura é o do estoque TOTAL
+    const cobertura = coberturaSemReposicao(g.s0, des, durs);
     const saldoSem: number[] = [];
     let s = Math.max(0, l.wipInicial);
-    consumoPrev.forEach((c) => { s = Math.max(0, s - c); saldoSem.push(r3(s)); });
+    const frac = g.s0 > EPS_FB ? Math.max(0, l.wipInicial) / rend(l) / g.s0 : 0;
+    if (compartilhada) { let tot = g.s0; des.forEach((c) => { tot = Math.max(0, tot - c); saldoSem.push(r3(tot * frac * rend(l))); }); }
+    else consumoPrev.forEach((c) => { s = Math.max(0, s - c); saldoSem.push(r3(s)); });
     const wIniL = sim1.wIni.get(l.id) as number[];
-    const rup = ruptura((sim1.want.get(l.id) as number[]).map((v, t) => v), sim1.take.get(l.id) as number[], wIniL, entrada.periodos);
-    const rup2 = ruptura((sim2.want.get(l.id) as number[]), sim2.take.get(l.id) as number[], sim2.wIni.get(l.id) as number[], entrada.periodos);
-    const pp = pontoPedido.get(l.id) as number[];
+    const wIniDest = wIniNo(sim1, dest);
+    const rup = ruptura(des, sim1.x.get(dest.id) as number[], wIniDest, entrada.periodos);
+    const rup2 = ruptura(sim2.desejado.get(dest.id) as number[], sim2.x.get(dest.id) as number[], wIniNo(sim2, dest), entrada.periodos);
     let gatilho: number | null = null;
     for (let t = 0; t < H; t++) {
-      if (wIniL[t] + 1e-4 < pp[t] && pp[t] > EPS_FB) { gatilho = t; break; }
+      if (wIniDest[t] + 1e-4 < g.pontoPedido[t] && g.pontoPedido[t] > EPS_FB) { gatilho = t; break; }
     }
     const A = extra.get(orig.id) as number[];
-    const iv = inev.get(orig.id) as { pecas: number; desde: number | null };
+    const inevitavel = inevPorLigacao.get(l.id) ?? 0;
     const primeira = A.findIndex((v) => v > EPS_FB);
-    const tipo: AcaoUpstream["tipo"] = iv.pecas > EPS_FB ? "sem_fonte" : primeira >= 0 ? "ligar_upstream" : "nenhuma";
+    const tipo: AcaoUpstream["tipo"] = inevitavel > EPS_FB ? "sem_fonte" : primeira >= 0 ? "ligar_upstream" : "nenhuma";
     const ppo = orig.pecasPorPosto;
     const saldoPlano = (sim1.wFim.get(l.id) as number[]).map(r3);
     const saldoAcao = (sim2.wFim.get(l.id) as number[]).map(r3);
     return {
-      ligacaoId: l.id, rotulo: l.rotulo ?? `${orig.rotulo}→${dest.rotulo}`, origem: l.origem, destino: l.destino, confianca: l.confianca, wipInicial: r3(l.wipInicial),
-      consumoPrevisto: consumoPrev, reposicaoPrevista: (sim1.x.get(orig.id) as number[]).map(r3), saldoProjetado: saldoPlano, saldoSemReposicao: saldoSem,
-      coberturaSemReposicao: cobertura, rupturaPrevista: rup, pontoDePedido: pp, gatilhoPontoDePedido: gatilho,
+      ligacaoId: l.id, rotulo: l.rotulo ?? `${orig.rotulo}→${dest.rotulo}`, origem: l.origem, destino: l.destino, confianca: l.confianca, wipInicial: r3(l.wipInicial), compartilhada,
+      consumoPrevisto: consumoPrev, consumoRequerido: g.consumo.map((v) => r3(v * rend(l) * w)), reposicaoPrevista: (sim1.x.get(orig.id) as number[]).map(r3), saldoProjetado: saldoPlano, saldoSemReposicao: saldoSem,
+      coberturaSemReposicao: cobertura, rupturaPrevista: rup, pontoDePedido: g.pontoPedido, gatilhoPontoDePedido: gatilho,
       acao: {
         tipo, ligarEm: primeira >= 0 ? primeira : null, ligarEmRotulo: primeira >= 0 ? entrada.periodos[primeira].rotulo : null, adicionar: A.map(r3),
-        postosAdicionais: A.map((v, k) => (ppo[k] > EPS_FB ? Math.ceil(v / ppo[k] - 1e-9) : v > EPS_FB ? 1 : 0)), inevitavel: r3(iv.pecas), inevitavelDesdePeriodo: iv.desde,
+        postosAdicionais: A.map((v, k) => (ppo[k] > EPS_FB ? Math.ceil(v / ppo[k] - 1e-9) : v > EPS_FB ? 1 : 0)), inevitavel, inevitavelDesdePeriodo: inevitavel > EPS_FB ? 0 : null,
       },
       saldoComAcao: saldoAcao, rupturaComAcao: rup2,
       excedeTeto: l.tetoWip !== undefined && Math.max(...saldoAcao, l.wipInicial) > l.tetoWip + EPS_FB,
       picoWipComAcao: r3(Math.max(l.wipInicial, ...saldoAcao)),
     };
   });
-  void noPorId;
 
   const todasTaxas = entrada.nos.flatMap((n) => n.fonteTaxa ?? []);
   const confTaxa: ConfiancaForecast = todasTaxas.length === 0 ? "baixa" : todasTaxas.every((f) => f !== "meta") ? "alta" : todasTaxas.some((f) => f !== "meta") ? "media" : "baixa";
