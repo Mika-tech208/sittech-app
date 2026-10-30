@@ -64,8 +64,9 @@ for (const modo of ["A", "B", "C"] as const) {
   const legado = gerarEscala(entrada).alocacoes;
   const fluxo = planejarComFluxo(entrada, dados, opcoes);
   const rem = fluxo.diagnostico.estado.remPorPool;
+  const demandaFluxo: Record<string, number> = Object.fromEntries(fluxo.diagnostico.estado.demanda.map((x) => [x.chave, x.demandaFluxo]));
   for (const [nomePlano, plano] of [["oficial (legado)", legado], ["fluxo (hipotético)", fluxo.resultado.alocacoes]] as [string, AlocacaoEscala[]][]) {
-    const f = forecastDoPlano(ctx, plano, { limites: rem, rotuloNo: rotulo, estimador, mesmoPeriodo: false });
+    const f = forecastDoPlano(ctx, plano, { limites: demandaFluxo, rotuloNo: rotulo, estimador, mesmoPeriodo: false });
     const r = f.resultado;
     const semMat = r.nos.reduce((q, n) => q + n.postosSemMaterial.reduce((s, v) => s + v, 0), 0);
     const pecasSem = r.nos.reduce((q, n) => q + n.pecasSemMaterial.reduce((s, v) => s + v, 0), 0);

@@ -31,6 +31,7 @@ const { ent, dados, opcoes, ap, ctx } = E;
 const vig = planoAtual.filter((a) => ix(a) >= ap);
 const r0 = planejarComFluxo(ent, dados, opcoes);
 const rem = r0.diagnostico.estado.remPorPool;
+const demandaFluxo: Record<string, number> = Object.fromEntries(r0.diagnostico.estado.demanda.map((x) => [x.chave, x.demandaFluxo]));
 const rotulo = (k: string) => { const [p, e] = k.split("|"); return `${nome(e)} ${nome(p).replace('Conector 3/4" - Maquina Automatica', "Con3/4 Autom").replace('Conector 3/4"', "Con3/4")}`; };
 const estimador = criarEstimadorPosto(todos, AGORA, { janelaDias: JANELA, nMin: NMIN });
 const postos = vig.filter((a) => a.maquinaId && a.produtoId && a.etapaId).map((a) => ({ produtoId: a.produtoId as string, operacaoId: ctx.poolsPorChave.get(chavePool(a.produtoId as string, a.etapaId as string))!.operacaoId, maquinaId: a.maquinaId as string }));
@@ -39,7 +40,7 @@ const md: string[] = [];
 const out: any = { aPartirDe: `${slots[ap].data} ${slots[ap].periodoId}`, horizonte: slots.length - ap, planoEscolhidoMotor: r0.diagnostico.planoEscolhido, fatorReposicaoMedido: fm, janela: JANELA, nMin: NMIN, cenarios: {} };
 
 function rodar(titulo: string, plano: AlocacaoEscala[], opts: any) {
-  const f = forecastDoPlano(ctx, plano.filter((a) => ix(a) >= ap), { limites: rem, rotuloNo: rotulo, mesmoPeriodo: false, ...opts });
+  const f = forecastDoPlano(ctx, plano.filter((a) => ix(a) >= ap), { limites: demandaFluxo, rotuloNo: rotulo, mesmoPeriodo: false, ...opts });
   const r = f.resultado;
   md.push(`\n### ${titulo}\n`);
   md.push(`Períodos: ${r.periodos.map((p) => p.rotulo).join(", ")} | confiança do forecast: ${r.confianca} | menor cobertura sem reposição: ${r.menorCobertura === null ? "cobre o horizonte" : r.menorCobertura.toFixed(2) + " períodos"}\n`);
