@@ -105,7 +105,7 @@ export function prepararCadeia(e: EntradaForecast, op: OpcoesCadeia = {}): Prep 
     const prod = ex(n.producaoPrevista.map((v, t) => Math.max(0, v) * fr[t] * esc), dprox);
     const capB = usarCap ? (n.capacidadeMaxima ?? n.producaoPrevista) : n.producaoPrevista;
     const cap = ex(capB.map((v, t) => Math.max(0, v) * fr[t] * esc), dprox).map((v, t) => Math.max(prod[t], v));
-    const real = ex((op.producaoReal?.[n.id] ?? zeros(Hb).map(() => null)) as (number | null)[], null as unknown as number) as (number | null)[];
+    const real: (number | null)[] = [...((op.producaoReal?.[n.id] ?? new Array<number | null>(Hb).fill(null)) as (number | null)[]), ...(ext ? [null] : [])];
     nos.set(n.id, {
       id: n.id, rotulo: n.rotulo, prod, cap, dem: n.demandaRestante === undefined ? null : n.demandaRestante, pp: ex(ppx.map((v, t) => Math.max(0, v) * fr[t] * esc)),
       postosPlano: ex(n.postosPrevistos ?? zeros(Hb)), fonteTaxa: n.fonteTaxa ?? new Array<FonteTaxa>(Hb).fill("meta"),
