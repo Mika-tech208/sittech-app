@@ -48,7 +48,7 @@ export interface EntradaReverso {
   /** true: o plano obrigatório respeita `pessoas` em cada período (entrega o que cabe, produtos em ordem de valor por posto-período); false (default): calcula a necessidade física e o déficit de pessoas é só reportado */
   limitarPorPessoas?: boolean;
   /** perfil da etapa final: "alap" (mínimo necessário, o mais tarde possível; default) ou "asap" */
-  perfilFinal?: "alap" | "asap";
+  perfilFinal?: "alap" | "asap" | "nivelado";
 }
 
 export interface LinhaLigacao {
@@ -228,7 +228,11 @@ export function planejarReverso(e: EntradaReverso): ResultadoReverso {
     const alvo = Math.max(0, Math.min(p.demandaFinal * frac, maxFinal));
     let finalProd: number[];
     if ((e.perfilFinal ?? "alap") === "asap") finalProd = M[n - 1].map((v, t) => { const ja = M[n - 1].slice(0, t).reduce((a, b) => a + b, 0); return Math.max(0, Math.min(v, alvo - ja)); });
-    else {
+    else if (e.perfilFinal === "nivelado") {
+      // NIVELADO: a etapa final produz em proporção à sua capacidade máxima de cada período (carga constante ⇒ menos pico de pessoas por período)
+      const capTot = M[n - 1].reduce((a, b) => a + b, 0);
+      finalProd = M[n - 1].map((v) => (capTot > 0 ? (alvo * v) / capTot : 0));
+    } else {
       const req = zeros(H); req[H - 1] = alvo;
       finalProd = alapCurva(req, M[n - 1]).producao;
     }
