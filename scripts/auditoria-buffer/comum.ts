@@ -71,13 +71,13 @@ export interface EstadoReplay {
 }
 
 /** Estado do motor "de hoje" (bloco + ponte M3→T1 + regra conservadora de material) no instante `agoraMs`, sobre o plano vigente `plano`. */
-export function estadoEm(a: Ambiente, agoraMs: number, plano: AlocacaoEscala[], op: { mesmoPeriodo?: boolean; ponte?: boolean; aps?: ApontamentoReal[]; apOverride?: number } = {}): EstadoReplay {
+export function estadoEm(a: Ambiente, agoraMs: number, plano: AlocacaoEscala[], op: { mesmoPeriodo?: boolean; ponte?: boolean; semNovas?: boolean; aps?: ApontamentoReal[]; apOverride?: number } = {}): EstadoReplay {
   const { d, slots, ix } = a;
   const ap = op.apOverride ?? (slots.find((s) => s.inicioMs > agoraMs)?.indice ?? slots.length);
   const aps = op.aps ?? d.apontamentos.filter((x) => x.lancadoEmMs <= agoraMs);
   const dec = { ...d.decisao, corteMs: agoraMs };
   const cen = montarCenario(dec, aps, { offset: ap - dec.entrada.c, planoVigente: plano, paresLegado: d.cfg.paresLegado, apontamentos: aps });
-  const contagens = [...d.cfg.contagensFisicas, ...NOVAS].filter((c) => c.contadoEmMs <= agoraMs);
+  const contagens = [...d.cfg.contagensFisicas, ...(op.semNovas ? [] : NOVAS)].filter((c) => c.contadoEmMs <= agoraMs);
   const dados: DadosProducaoReal = { apontamentos: aps, agoraMs, fechamentoMinutos: 10, planoVigente: plano, ...(contagens.length > 0 ? { contagensFisicas: contagens } : {}) };
   const opcoes: OpcoesFluxo = { ...cen.opcoes, ...(d.cfg.limiar !== null ? { limiarEstabilidadePecas: d.cfg.limiar } : {}), fluxoMesmoPeriodo: op.mesmoPeriodo === true };
   const ent: EntradaEscala = { ...cen.entrada, aPartirDe: ap, congeladas: plano.filter((x) => ix(x) < ap), revezamentoDuro: true, revezamentoEscopo: "bloco", ...(op.ponte === false ? {} : { revezamentoPonteM3T1: true }) };
