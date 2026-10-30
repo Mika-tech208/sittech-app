@@ -45,6 +45,48 @@ describe("teto de antecipação (sem estoque infinito)", () => {
   it("nunca negativo", () => { expect(tetoAntecipacao({ demandaFuturaNoPar: 0, wipDisponivel: 99, capacidadeDownstreamProx: 0 }).teto).toBe(0); });
 });
 
+describe("teto DINÂMICO: cada um dos fatores sendo o limitante", () => {
+  // base folgada em tudo; cada teste aperta UM fator
+  const folga = { demandaFuturaNoPar: 100000, wipDisponivel: 1000, capacidadeDownstreamProx: 100000, capacidadeGargaloProx: 100000, coberturaMaxDias: 10, diasProdutivosProx: 4, consumoProxSemana: 100000, pecasPorPeriodoOrigem: 1000, maxPeriodosAntecipados: 100 };
+  it("(a) demanda futura limita", () => {
+    const r = tetoAntecipacao({ ...folga, demandaFuturaNoPar: 6000 });
+    expect(r).toMatchObject({ tetoDinamico: 5000, limitadoPorDinamico: "demanda_futura" });
+    expect(r.periodosEquivalentes.dinamico).toBeCloseTo(5, 6);
+  });
+  it("(b) capacidade do downstream futura limita", () => {
+    expect(tetoAntecipacao({ ...folga, capacidadeDownstreamProx: 4000 })).toMatchObject({ tetoDinamico: 3000, limitadoPorDinamico: "capacidade_downstream" });
+  });
+  it("(c) necessidade/capacidade do gargalo futuro limita", () => {
+    expect(tetoAntecipacao({ ...folga, capacidadeGargaloProx: 2500 })).toMatchObject({ tetoDinamico: 1500, limitadoPorDinamico: "gargalo_proxima_semana" });
+  });
+  it("(d) WIP já existente (e o já antecipado) cobre o alvo ⇒ teto 0 'wip_ja_cobre'", () => {
+    expect(tetoAntecipacao({ ...folga, demandaFuturaNoPar: 3000, wipDisponivel: 3000 })).toMatchObject({ tetoDinamico: 0, limitadoPorDinamico: "wip_ja_cobre" });
+    expect(tetoAntecipacao({ ...folga, demandaFuturaNoPar: 3000, wipDisponivel: 1000, jaAntecipado: 2000 }).tetoDinamico).toBe(0);
+  });
+  it("(e) cobertura de estoque (dias de demanda, PROVISÓRIO) limita", () => {
+    // demanda 40000 em 4 dias = 10000/dia; cobertura 1 dia ⇒ alvo 10000; menos WIP 1000
+    const r = tetoAntecipacao({ ...folga, demandaFuturaNoPar: 40000, coberturaMaxDias: 1, diasProdutivosProx: 4 });
+    expect(r).toMatchObject({ tetoDinamico: 9000, limitadoPorDinamico: "cobertura_estoque" });
+    expect(r.fatores.cobertura).toBe(10000);
+  });
+  it("(f) capacidade realmente consumida na próxima semana limita", () => {
+    expect(tetoAntecipacao({ ...folga, consumoProxSemana: 3500 })).toMatchObject({ tetoDinamico: 2500, limitadoPorDinamico: "consumo_proxima_semana" });
+  });
+  it("teto provisório de períodos (segurança) é separado e o efetivo é o mínimo; dinâmico pode dar 2, 6 ou 10 períodos", () => {
+    const r2 = tetoAntecipacao({ ...folga, demandaFuturaNoPar: 3000, maxPeriodosAntecipados: 6 }); // alvo 3000-1000 = 2000 = 2 períodos
+    expect(r2.periodosEquivalentes.dinamico).toBeCloseTo(2, 6);
+    const r10 = tetoAntecipacao({ ...folga, demandaFuturaNoPar: 11000, maxPeriodosAntecipados: 6 }); // dinâmico 10 períodos, provisório 6
+    expect(r10.periodosEquivalentes.dinamico).toBeCloseTo(10, 6);
+    expect(r10.tetoProvisorio).toBe(6000);
+    expect(r10).toMatchObject({ teto: 6000, limitadoPor: "periodos_antecipados" });
+    const r6 = tetoAntecipacao({ ...folga, demandaFuturaNoPar: 7000, maxPeriodosAntecipados: 6 });
+    expect(r6.periodosEquivalentes.dinamico).toBeCloseTo(6, 6);
+  });
+  it("sem fatores opcionais (e, f) o dinâmico coincide com a fórmula antiga", () => {
+    expect(tetoAntecipacao({ demandaFuturaNoPar: 10000, wipDisponivel: 1000, capacidadeDownstreamProx: 8000 })).toMatchObject({ teto: 7000, tetoDinamico: 7000, tetoProvisorio: 7000 });
+  });
+});
+
 describe("função objetivo LEXICOGRÁFICA (atual > futuro > WIP > churn > estabilidade)", () => {
   const p = (o: Partial<PlanoMedido> & { id: string }): PlanoMedido => ({ valorAtual: 0, valorFuturo: 0, wipInutil: 0, churn: 0, ...o });
   it("atual materialmente melhor vence mesmo com futuro pior", () => {

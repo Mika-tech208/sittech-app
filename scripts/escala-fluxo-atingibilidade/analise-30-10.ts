@@ -97,10 +97,13 @@ const d: DadosCarregados = {
 };
 
 // ------------------------------------------------------------------------------------------------ escopo
-const alvo = arg("alvo") ?? (() => { for (let k = 1; k < 8; k++) { const dd = somaDias(hoje, k); if (slots.some((s) => s.data === dd)) return dd; } return somaDias(hoje, 1); })();
-const idxAlvo = slots.find((s) => s.data === alvo)?.indice;
-if (idxAlvo === undefined) throw new Error(`dia alvo ${alvo} sem períodos na semana`);
-const slotsAlvo = slots.filter((s) => s.data === alvo);
+const ultimoDiaSemana = slots[slots.length - 1].data;
+const alvo = arg("alvo") ?? (hoje >= ultimoDiaSemana ? ultimoDiaSemana : (() => { for (let k = 1; k < 8; k++) { const dd = somaDias(hoje, k); if (slots.some((s) => s.data === dd)) return dd; } return somaDias(hoje, 1); })());
+const slotsDia = slots.filter((s) => s.data === alvo); // dia-alvo inteiro (modelo de horários)
+// primeiro período do dia-alvo ainda NÃO iniciado (se o dia-alvo é hoje, os períodos já iniciados/fechados ficam congelados)
+const idxAlvo = slotsDia.find((s) => alvo !== hoje || s.inicioMs >= agoraMs)?.indice;
+if (idxAlvo === undefined) throw new Error(`dia alvo ${alvo} sem períodos a planejar na semana`);
+const slotsAlvo = slotsDia.filter((s) => s.indice >= idxAlvo);
 const ultimoSlot = slots.length - 1;
 const dia31 = somaDias(alvo, 1);
 const existe31 = slots.some((s) => s.data === dia31);
@@ -468,8 +471,11 @@ const demFut = demandaFutura({
   diasProdutivosProxima: diasAtivos.length, diasProdutivosTipicos: 5,
 });
 const demMap: Record<string, number> = Object.fromEntries(demFut.map((x) => [x.produtoId, x.quantidade]));
-const slotsNext = slotsProximaSemana(slotsAlvo, diasAtivos);
-function montarAntecipacao(E: Escopo, dem: Record<string, number>, cfg: { zerarWipNaoConfirmado?: boolean; rolagem?: boolean }) {
+const slotsNext = slotsProximaSemana(slotsDia, diasAtivos);
+const COBERTURA_MAX_DIAS_PROVISORIO = 3; // ⚠ PROVISÓRIO: cobertura máxima de estoque em dias de demanda (sem dado de negócio ainda)
+const MAX_PERIODOS_PROVISORIO = 6; // ⚠ PROVISÓRIO: teto de segurança em sombra (NÃO é regra de negócio)
+function montarAntecipacao(E: Escopo, dem: Record<string, number>, cfg: { zerarWipNaoConfirmado?: boolean; rolagem?: boolean; tetoModo?: "efetivo" | "dinamico" | "provisorio"; coberturaMaxDias?: number }) {
+  let consumoProx: Record<string, number> = {};
 const entNext = montarEntradaProximaSemana(E.estM.entrada, slotsNext, dem);
 const optPlan = E.ST(OPC_FIN).opcoes, optRec = E.ST(MEDIR_REC).opcoes, optLuc = E.ST(MEDIR).opcoes;
 const openMs = slotsNext[0].inicioMs - 3600_000, agoraNext = slotsNext[0].inicioMs - 60_000;
@@ -503,8 +509,18 @@ function antecipar(plano0: AlocacaoEscala[], livres: AlocacaoEscala[], wipBaseTe
   let plano = plano0.map((a) => ({ ...a }));
   const atribs: Atribuicao[] = [];
   const todas: OpcaoAvaliada[] = [];
-  const teto: Record<string, number> = {}; const limTeto: Record<string, string> = {};
-  arestas.forEach((ar) => { const t = tetoAntecipacao({ demandaFuturaNoPar: dem[ar.produtoId] ?? 0, wipDisponivel: wipBaseTeto[ar.chavePar] ?? 0, capacidadeDownstreamProx: capProxDestino(ar.destino), capacidadeGargaloProx: capGargalo(ar.produtoId), maxPeriodosAntecipados: 6, periodosAntecipados: 0, pecasPorPeriodoOrigem: 1e9 }); teto[ar.chavePar] = t.teto; limTeto[ar.chavePar] = t.limitadoPor; });
+  const teto: Record<string, number> = {}; const limTeto: Record<string, string> = {}; const tetoRes: Record<string, ReturnType<typeof tetoAntecipacao>> = {};
+  const modoTeto = cfg.tetoModo ?? "efetivo";
+  arestas.forEach((ar) => {
+    const poolO = E.estM.ctx.poolsPorChave.get(ar.chavePar)!;
+    const muO = slotsDia.reduce((q, sl) => q + (poolO.metas[sl.periodoId] ?? 0), 0) / Math.max(1, slotsDia.length);
+    const consumoPar = consumoProx[ar.chavePar];
+    const t = tetoAntecipacao({ demandaFuturaNoPar: dem[ar.produtoId] ?? 0, wipDisponivel: wipBaseTeto[ar.chavePar] ?? 0, capacidadeDownstreamProx: capProxDestino(ar.destino), capacidadeGargaloProx: capGargalo(ar.produtoId),
+      coberturaMaxDias: cfg.coberturaMaxDias ?? COBERTURA_MAX_DIAS_PROVISORIO, diasProdutivosProx: diasAtivos.length, consumoProxSemana: consumoPar, maxPeriodosAntecipados: MAX_PERIODOS_PROVISORIO, periodosAntecipados: 0, pecasPorPeriodoOrigem: muO });
+    tetoRes[ar.chavePar] = t;
+    teto[ar.chavePar] = modoTeto === "dinamico" ? t.tetoDinamico : modoTeto === "provisorio" ? t.tetoProvisorio : t.teto;
+    limTeto[ar.chavePar] = modoTeto === "dinamico" ? t.limitadoPorDinamico : modoTeto === "provisorio" ? (t.tetoProvisorio === t.teto ? t.limitadoPor : "teto_provisorio") : t.limitadoPor;
+  });
   for (const lv of [...livres].sort((x, y) => slotDe(x) - slotDe(y))) {
     const t = slotDe(lv);
     const iLinha = plano.findIndex((x) => x.funcionarioId === lv.funcionarioId && slotDe(x) === t);
@@ -554,7 +570,7 @@ function antecipar(plano0: AlocacaoEscala[], livres: AlocacaoEscala[], wipBaseTe
     }
     atribs.push({ slot: t, linhaIdx: iLinha, escolha, decisao: dec.descricao, opcoes, semOpcao: dec.decisao === "sem_posto_auditavel" ? dec.motivo : undefined });
   }
-  return { plano, atribs, todas, teto, limTeto };
+  return { plano, atribs, todas, teto, limTeto, tetoRes };
 }
 
 
@@ -572,6 +588,7 @@ function antecipar(plano0: AlocacaoEscala[], livres: AlocacaoEscala[], wipBaseTe
   const wipB = wipFim(base.av!), wipE = wipFim(enx.av!);
   const nextProp = proxima(wipB, "base");
   planoRefProx = nextProp.plano;
+  consumoProx = Object.fromEntries(arestas.map((ar) => [ar.chavePar, nextProp.producaoPorChavePool[`${ar.produtoId}|${ar.etapaSeguinteId}`] ?? nextProp.producaoPorChavePool[ar.destino] ?? 0]));
   const nextVig = proxima(wipFim(cVig.av!), "vigente");
   const nextEnx = proxima(wipE, "enxuto"), nextZero = proxima({}, "abertura zero");
   const livres = enx.futuras.filter((a) => !a.maquinaId && !/aus/i.test(String(a.motivoSemPosto ?? ""))).map((a) => ({ ...a, motivoSemPosto: "livre" } as AlocacaoEscala));
@@ -579,7 +596,7 @@ function antecipar(plano0: AlocacaoEscala[], livres: AlocacaoEscala[], wipBaseTe
   const final = mkC("ANTECIPAÇÃO ÚTIL (sombra)", "base+enxuto+antecipação", r.plano);
   const nextFinal = proxima(wipFim(final.av!), "final");
   let rolagem: null | { rm: Cand; ra: Cand; livres: number } = null;
-  if (cfg.rolagem) {
+  if (cfg.rolagem && idxAlvo + 3 <= ultimoSlot) {
     const desde = idxAlvo + 3;
     const replanLinhas = (prefix: AlocacaoEscala[], d0: number, extra: Partial<OpcoesFluxo>) => {
       const e = montarEstadoAting(d, agoraMs, E.planoCompleto(prefix), 100 + d0, extra, true);
@@ -606,13 +623,15 @@ const ajusteM8Pess = (pools: any[]) => pools.map((p) => (p.maquinasIds.includes(
 const ajusteSemM8 = (pools: any[]) => pools.map((p) => (p.maquinasIds.includes(m8Maq) ? { ...p, maquinasIds: p.maquinasIds.filter((m: string) => m !== m8Maq) } : p));
 const demRobusta: Record<string, number> = Object.fromEntries(demFut.map((x) => [x.produtoId, x.confianca === "baixa" ? 0 : x.quantidade]));
 const ANT = comAntecipacao ? montarAntecipacao(EA, demMap, { rolagem: true }) : null;
-let ER: Escopo | null = null, EC: Escopo | null = null, ANT_ROB: ResAnt | null = null, ANT_SEM8: ResAnt | null = null;
+let ER: Escopo | null = null, EC: Escopo | null = null, ANT_ROB: ResAnt | null = null, ANT_SEM8: ResAnt | null = null, ANT_DIN: ResAnt | null = null, ANT_PROV: ResAnt | null = null;
 if (ANT) {
   marca("antecipação (completo) pronta; cenários robusto e sem Máquina 8");
   ER = criarEscopo(idxAlvo, ajusteM8Pess); EC = criarEscopo(idxAlvo, ajusteSemM8);
   ANT_ROB = montarAntecipacao(ER, demRobusta, { zerarWipNaoConfirmado: true });
   ANT_SEM8 = montarAntecipacao(EC, demMap, {});
-  marca("cenários robusto e sem Máquina 8 prontos");
+  ANT_DIN = montarAntecipacao(EA, demMap, { tetoModo: "dinamico" });
+  ANT_PROV = montarAntecipacao(EA, demMap, { tetoModo: "provisorio" });
+  marca("cenários robusto, sem Máquina 8, teto dinâmico e teto provisório prontos");
 }
 const proxima = ANT?.proxima as ResAnt["proxima"], arestas = (ANT?.arestas ?? []) as ResAnt["arestas"], capProxDestino = ANT?.capProxDestino as ResAnt["capProxDestino"], wipFim = ANT?.wipFim as ResAnt["wipFim"];
 const entNext = ANT?.entNext as ResAnt["entNext"], optPlan = ANT?.optPlan as ResAnt["optPlan"], openMs = ANT?.openMs as number, agoraNext = ANT?.agoraNext as number;
@@ -1032,6 +1051,159 @@ if (ANT && ANT_ROB && ANT_SEM8 && ER && EC) {
   P();
 }
 
+
+// ================================================================================================ PARTE IV — RELATÓRIO DA RODADA (ordem dos 17 itens + checklist de piloto); impresso no TOPO do arquivo
+const L4: string[] = [];
+if (ANT && ANT_ROB && ANT_SEM8 && ER && EC && ANT_DIN && ANT_PROV) {
+  const P4 = (x = "") => L4.push(x);
+  const A = ANT, B = ANT_ROB, C = ANT_SEM8;
+  const nDia = slotsAlvo.length;
+  const limA4 = limiarEscopo(EA, A.cVig.av!, nDia), limB4 = limiarEscopo(ER, B.cVig.av!, nDia), limC4 = limiarEscopo(EC, C.cVig.av!, nDia);
+  const c1F4 = EC.avaliar(A.final.futuras), c1M4 = EC.avaliar(A.base.futuras);
+  const add = { A: A.final.av!.receita - A.base.av!.receita, B: B.final.av!.receita - B.base.av!.receita, C2: C.final.av!.receita - C.base.av!.receita, C1: c1F4.receita - c1M4.receita };
+  const vsVig = { A: A.final.av!.receita - A.cVig.av!.receita, B: B.final.av!.receita - B.cVig.av!.receita, C2: C.final.av!.receita - C.cVig.av!.receita };
+  const marg = (g: number, l: number) => (l > 0 ? g / l - 1 : NaN);
+  const pct = (x: number) => (Number.isFinite(x) ? (x * 100).toFixed(0) + "%" : "—");
+  const fut = { A: A.nextFinal.receita - A.nextProp.receita, B: B.nextFinal.receita - B.nextProp.receita, C: C.nextFinal.receita - C.nextProp.receita };
+  const semPosto = (c: Cand) => c.futuras.filter((a) => !a.maquinaId).length;
+  const ab4 = aberturaProximaSemana(diasAtivos, ultimoDiaSemana);
+  const planoTab = (rot: string, c: Cand, ref: Cand | null) => {
+    P4(`### ${rot}`);
+    P4(`| Funcionário | ${slotsAlvo.map((x) => x.periodoId.toUpperCase()).join(" | ")} |`);
+    P4(`|---|${slotsAlvo.map(() => "---").join("|")}|`);
+    [...new Set(c.futuras.map((a) => a.funcionarioId))].sort((x, y) => nome(x).localeCompare(nome(y))).forEach((f) => P4(`| ${nome(f)} | ${slotsAlvo.map((x) => { if (aus(f, x.indice)) return "AUSENTE"; const v = celula(c.futuras, f, x.indice); const r0 = ref ? celula(ref.futuras, f, x.indice) : v; return v === r0 ? v : `**${v}**`; }).join(" | ")} |`));
+    P4();
+  };
+  P4(`# RELATÓRIO DA RODADA — foto ${modo} ${hhmm(agoraMs)} (${hoje}); dia-alvo ${alvo} — SOMBRA, nada aplicado`);
+  P4(`**Métrica principal = GANHO ADICIONAL vs BASE DINÂMICO** (plano replanejado pelo motor ativo no estado atual). Ganho vs vigente gravado é só informativo (o motor ativo absorve parte sozinho). Sempre COM e SEM Máquina 8. Regras: posto antes da pessoa; só máquinas da Previsão; preços congelados; rotas/equivalências/estimador fora; revezamento por bloco HARD; VALOR_ATUAL e VALOR_FUTURO separados (nunca somados). Abertura da próxima semana: **${ab4 ? ab4.dia + " M1" : "—"}** (1º período produtivo ativo após ${ultimoDiaSemana}; derivada dos dias ativos da Previsão seguinte).`);
+  P4();
+  P4(`## 1) Plano vigente de ${alvo} (gravado em PROD)`); planoTab("Vigente", A.cVig, null);
+  P4(`## 2) Plano base replanejado (motor ativo, estado atual)`); planoTab("Base dinâmico (negrito = difere do vigente)", A.base, A.cVig);
+  P4(`## 3) Plano SOMBRA completo (negrito = difere do base)`); planoTab("Sombra COMPLETO (com Máquina 8, teto efetivo)", A.final, A.base);
+  P4(`## 4) Plano SOMBRA ROBUSTO (Máquina 8 pessimista, demanda de baixa confiança = 0, WIP não confirmado = 0)`); planoTab("Sombra ROBUSTO (negrito = difere do base robusto)", B.final, B.base);
+  P4(`## 5) Cenário SEM Máquina 8`); planoTab("Sombra SEM Máquina 8 (negrito = difere do base sem M8)", C.final, C.base);
+
+  P4(`## 6) Ganho ATUAL (receita final da semana, preço congelado)`);
+  P4(`| Cenário | **GANHO ADICIONAL vs base dinâmico (R$)** | informativo: vs vigente (R$) | lucro-tela adicional (R$) |`);
+  P4(`|---|---|---|---|`);
+  P4(`| A) COMPLETO (com M8) | **${sg(add.A)}** | ${sg(vsVig.A)} | ${sg(A.final.av!.lucro - A.base.av!.lucro)} |`);
+  P4(`| B) ROBUSTO | **${sg(add.B)}** | ${sg(vsVig.B)} | ${sg(B.final.av!.lucro - B.base.av!.lucro)} |`);
+  P4(`| C2) SEM M8 (replanejado sem a máquina) | **${sg(add.C2)}** | ${sg(vsVig.C2)} | ${sg(C.final.av!.lucro - C.base.av!.lucro)} |`);
+  P4(`| C1) SEM M8 (plano A com as linhas da M8 removidas) | **${sg(add.C1)}** | — | — |`);
+  P4();
+  P4(`## 7) Limiar de materialidade (1 erro-padrão do modelo: σ=${(sigma * 100).toFixed(1)}% × √${nDia} × R$ por período)`);
+  P4(`A: R$ ${brl(limA4.receita)} · B (M8 pessimista): R$ ${brl(limB4.receita)} · C (sem M8): R$ ${brl(limC4.receita)}.`);
+  P4();
+  P4(`## 8) Margem sobre o limiar (ganho adicional ÷ limiar − 1)`);
+  P4(`A ${pct(marg(add.A, limA4.receita))} · B ${pct(marg(add.B, limB4.receita))} · C2 ${pct(marg(add.C2, limC4.receita))} · C1 ${pct(marg(add.C1, limC4.receita))}. Regra: margem robusta ≥ 25% para piloto; 10–15% ⇒ MANTER EM SOMBRA.`);
+  P4();
+  P4(`## 9) Ganho FUTURO (próxima semana, SEPARADO do atual; ⚠ baixa confiança, ruído ±R$ 50–400)`);
+  P4(`A ${sg(fut.A)} · B ${sg(fut.B)} · C ${sg(fut.C)} (Δ receita esperada da próxima semana vs o mesmo cenário sem antecipação; demanda: histórico 6 semanas porque a Previsão ${proxSemana} ${previsaoProxExiste ? (itensProx.length ? "tem itens" : "é casca sem itens") : "não existe"}).`);
+  P4();
+  P4(`## 10) Pessoas paradas`);
+  P4(`A ${semPosto(A.final)} · B ${semPosto(B.final)} · C ${semPosto(C.final)}. Exceções auditáveis: ${[...A.r.atribs, ...B.r.atribs, ...C.r.atribs].filter((a) => a.semOpcao).map((a) => `${slotRot(a.slot)} ${a.semOpcao}`).join("; ") || "nenhuma"}.`);
+  P4();
+  P4(`## 11) Churn (linhas / pessoas / postos)`);
+  P4(`| Cenário | vs vigente | vs base |`);
+  P4(`|---|---|---|`);
+  const ch = (E0: Escopo, c: Cand, ref: Cand) => { const x = churnDe(E0, ref.futuras, c.futuras); return `${x.linhas} / ${x.pessoas} / ${x.postos}`; };
+  P4(`| A | ${ch(EA, A.final, A.cVig)} | ${ch(EA, A.final, A.base)} |`);
+  P4(`| B | ${ch(ER, B.final, B.cVig)} | ${ch(ER, B.final, B.base)} |`);
+  P4(`| C | ${ch(EC, C.final, C.cVig)} | ${ch(EC, C.final, C.base)} |`);
+  P4();
+  P4(`## 12) WIP final da sexta (${ultimoDiaSemana} T3, pç)`);
+  P4(`vigente ${n0(A.cVig.av!.L.totais.wipFinalLo)} · base ${n0(A.base.av!.L.totais.wipFinalLo)} · sombra A ${n0(A.final.av!.L.totais.wipFinalLo)} · robusto B ${n0(B.final.av!.L.totais.wipFinalLo)} · sem M8 C ${n0(C.final.av!.L.totais.wipFinalLo)}.`);
+  P4();
+  P4(`## 13) WIP de abertura de ${ab4 ? ab4.dia : "—"} (cenário A; origem, confiança, última confirmação, idade; CONTAGEM_RECOMENDADA nunca bloqueia produção)`);
+  const parEst4 = montarEstado(EA.estM.ctx).pares as any[];
+  const wipFin4 = A.wipFim(A.final.av!);
+  const itens4 = A.arestas.map((ar) => { const par = parEst4.find((q) => `${q.produtoId}|${q.etapaOrigemId}` === ar.chavePar); const destPool = EA.estM.ctx.poolsPorChave.get(EA.estM.ctx.grafo.nos[ar.destino].membros[0])!; return { chavePar: ar.chavePar, produtoId: ar.produtoId, etapaOrigemId: ar.etapaOrigemId, etapaSeguinteId: ar.etapaSeguinteId, saldo: Math.round(wipFin4[ar.chavePar] ?? 0), confirmadoFisico: false, ultimaConfirmacaoMs: par?.contagem?.contadoEm ? Date.parse(par.contagem.contadoEm) : null, confiancaBase: (par?.confianca ?? "baixa") as "alta" | "media" | "baixa", consumoPeriodoDestino: (destPool.metas[A.slotsNext[0].periodoId] ?? 0) * destPool.maquinasIds.length, demandaNoPar: demMap[ar.produtoId] ?? 0 }; });
+  const wipAb4 = carregarWipAbertura(itens4, A.slotsNext[0].inicioMs);
+  P4(`| Par | Quantidade (pç) | Origem | Confiança | Última confirmação | Idade (h) | Sinal |`);
+  P4(`|---|---|---|---|---|---|---|`);
+  wipAb4.forEach((w) => P4(`| ${nomeNo(w.chavePar)} | ${n0(w.saldo)} | ${w.origem} | ${w.confianca === "baixa" ? "⚠ baixa" : w.confianca} | ${w.ultimaConfirmacaoMs ? new Date(w.ultimaConfirmacaoMs - 3 * 3600_000).toISOString().slice(0, 16).replace("T", " ") + " SP" : "nunca"} | ${w.idadeHoras === null ? "—" : w.idadeHoras.toFixed(0)} | ${w.sinal ?? "—"}${w.motivoSinal.length ? " (" + w.motivoSinal.join("; ") + ")" : ""} |`));
+  P4(`Total A ${n0(wipAb4.reduce((q, w) => q + w.saldo, 0))} pç; B ${n0(B.final.av!.L.totais.wipFinalLo)} pç; C ${n0(C.final.av!.L.totais.wipFinalLo)} pç.`);
+  P4();
+  const muOrig = (ar: (typeof A.arestas)[number]) => { const po = EA.estM.ctx.poolsPorChave.get(ar.chavePar)!; return slotsDia.reduce((q, sl) => q + (po.metas[sl.periodoId] ?? 0), 0) / Math.max(1, slotsDia.length); };
+  const antec = (X: ResAnt, ar: (typeof A.arestas)[number]) => Math.max(0, (X.wipFim(X.final.av!)[ar.chavePar] ?? 0) - (X.wipB[ar.chavePar] ?? 0));
+  P4(`## 14) Antecipação por produto × ponto do fluxo (pç adicionais de WIP vs base; períodos equivalentes = pç ÷ produção de 1 posto-período do ORIGEM)`);
+  P4(`| Produto | Ponto do fluxo (par) | A (com M8) pç / períodos | B robusto pç | C sem M8 pç |`);
+  P4(`|---|---|---|---|---|`);
+  A.arestas.forEach((ar) => P4(`| ${nome(ar.produtoId)} | ${nomeNo(ar.chavePar)} → seguinte | ${n0(antec(A, ar))} / ${(antec(A, ar) / Math.max(1, muOrig(ar))).toFixed(2)} | ${n0(antec(B, ar))} | ${n0(antec(C, ar))} |`));
+  P4();
+  P4(`## 15) Teto DINÂMICO × teto PROVISÓRIO de ${MAX_PERIODOS_PROVISORIO} períodos — lado a lado`);
+  P4(`Dinâmico = MIN de (a) demanda futura válida, (b) capacidade downstream futura, (c) gargalo futuro, (e) cobertura de estoque ⚠ PROVISÓRIO (${COBERTURA_MAX_DIAS_PROVISORIO} dias de demanda), (f) capacidade realmente consumida na próxima semana, menos (d) WIP existente. Provisório = fórmula a,b,c,d limitada a ${MAX_PERIODOS_PROVISORIO} períodos (segurança em sombra, NÃO é regra de negócio). Efetivo em sombra = min dos dois.`);
+  P4(`| Par | (a) demanda | (b) downstream | (c) gargalo | (f) consumo | (e) cobertura ⚠ | (d) WIP base | **Dinâmico pç (períodos eq.)** | limita | **Provisório pç (períodos eq.)** | limita | Efetivo pç |`);
+  P4(`|---|---|---|---|---|---|---|---|---|---|---|---|`);
+  A.arestas.forEach((ar) => { const t = A.r.tetoRes[ar.chavePar]; const pe = (x: number | null) => (x === null ? "—" : x.toFixed(1)); P4(`| ${nomeNo(ar.chavePar)} | ${n0(t.fatores.demanda)} | ${n0(t.fatores.downstream)} | ${t.fatores.gargalo < 0 ? "∞" : n0(t.fatores.gargalo)} | ${t.fatores.consumo === null ? "∞" : n0(t.fatores.consumo)} | ${t.fatores.cobertura === null ? "∞" : n0(t.fatores.cobertura)} | ${n0(A.wipB[ar.chavePar] ?? 0)} | **${n0(t.tetoDinamico)}** (${pe(t.periodosEquivalentes.dinamico)}) | ${t.limitadoPorDinamico} | **${n0(t.tetoProvisorio)}** (${pe(t.periodosEquivalentes.provisorio)}) | ${t.tetoProvisorio === t.tetoDinamico ? t.limitadoPorDinamico : "periodos_antecipados/fórmula a-b-c"} | ${n0(t.teto)} |`); });
+  P4();
+  P4(`O que muda no plano/ganho conforme o teto usado (cenário A, com M8):`);
+  P4(`| Teto usado | Ganho atual adicional vs base (R$) | Ganho futuro (R$) | WIP final (pç) | pessoas sem posto | antecipado total (pç) | linhas diferentes do plano efetivo |`);
+  P4(`|---|---|---|---|---|---|---|`);
+  const totAnt = (X: ResAnt) => X.arestas.reduce((q, ar) => q + antec(X, ar), 0);
+  ([["DINÂMICO", ANT_DIN], ["PROVISÓRIO (6 períodos)", ANT_PROV], ["EFETIVO (min dos dois; usado nas seções acima)", A]] as [string, ResAnt][]).forEach(([rot, X]) => P4(`| ${rot} | ${sg(X.final.av!.receita - X.base.av!.receita)} | ${sg(X.nextFinal.receita - X.nextProp.receita)} | ${n0(X.final.av!.L.totais.wipFinalLo)} | ${semPosto(X.final)} | ${n0(totAnt(X))} | ${churnDe(EA, A.final.futuras, X.final.futuras).linhas} |`));
+  P4();
+  P4(`## 16) Restrições (hard constraints, revezamento, Previsão, congelamento)`);
+  P4(`| Plano | núcleo | independente | repetição no bloco | fora da Previsão |`);
+  P4(`|---|---|---|---|---|`);
+  ([["vigente", A.cVig], ["base", A.base], ["sombra A", A.final], ["robusto B", B.final], ["sem M8 C", C.final]] as [string, Cand][]).forEach(([rot, c]) => P4(`| ${rot} | ${c.val!.nucleo} | ${c.val!.indep} | ${c.val!.bloco} | ${c.val!.foraDaPrevisao} |`));
+  P4(`Passado e períodos já iniciados congelados (candidatos só alteram ${alvo} a partir de ${slotRot(idxAlvo)}); só máquinas da Previsão; exposição do revezamento = Escala registrada.`);
+  P4();
+  // fontes de baixa confiança (participação no ganho ATUAL dos postos escolhidos)
+  const escolhas = A.r.atribs.flatMap((a) => (a.escolha ? [a.escolha] : []));
+  const somaAt = escolhas.reduce((q, o) => q + Math.max(0, o.dAtual), 0), somaFv = escolhas.reduce((q, o) => q + Math.max(0, o.fv), 0);
+  const nPeq = (pid: string, poolKey: string) => { const op = EA.estM.ctx.poolsPorChave.get(poolKey)?.operacaoId; return d.apontamentos.filter((a) => a.produtoId === pid && a.operacaoId === op && a.status === "produzindo").length; };
+  const flag = {
+    m8: (o: OpcaoAvaliada) => !!o.baixaConf,
+    demBaixa: (o: OpcaoAvaliada) => demFut.find((x) => nome(x.produtoId) === o.produto)?.confianca === "baixa",
+    nPeq: (o: OpcaoAvaliada) => nPeq(o.pool.split("|")[0], o.pool) < 20,
+  };
+  const shareAt = (f: (o: OpcaoAvaliada) => boolean) => (somaAt > 0 ? escolhas.filter(f).reduce((q, o) => q + Math.max(0, o.dAtual), 0) / somaAt : 0);
+  const shareFv = (f: (o: OpcaoAvaliada) => boolean) => (somaFv > 0 ? escolhas.filter(f).reduce((q, o) => q + Math.max(0, o.fv), 0) / somaFv : 0);
+  const celTotal = estado.celulas.filter((c: any) => c.estado === "confirmado" || c.estado === "zero_confirmado" || c.estado === "nao_confirmado").length;
+  const shareNaoConf = celTotal > 0 ? naoConf.length / celTotal : 0;
+  const shareContagem = wipAb4.reduce((q, w) => q + w.saldo, 0) > 0 ? wipAb4.filter((w) => w.sinal).reduce((q, w) => q + w.saldo, 0) / wipAb4.reduce((q, w) => q + w.saldo, 0) : 0;
+  P4(`## 17) Confiança dos dados`);
+  P4(`- Máquina 8: **${m8Stat.confianca}** (n=${m8Stat.n}; mediana ${(m8Stat.mediana * 100).toFixed(0)}%; IC95% [${(m8Stat.ic95[0] * 100).toFixed(0)}%; ${(m8Stat.ic95[1] * 100).toFixed(0)}%]); participação no ganho ATUAL dos postos escolhidos ${pct(shareAt(flag.m8))}; no futuro ${pct(shareFv(flag.m8))}.`);
+  P4(`- Demanda futura: ${demFut.map((x) => `${nome(x.produtoId)} ${x.fonte}/${x.confianca}`).join("; ")} (Previsão ${proxSemana}: ${previsaoProxExiste ? (itensProx.length ? "com itens" : "casca sem itens") : "inexistente"}); participação de produtos com demanda de baixa confiança: atual ${pct(shareAt(flag.demBaixa))}, futuro ${pct(shareFv(flag.demBaixa))}.`);
+  P4(`- WIP: abertura simulada (não é contagem física); ${pct(shareContagem)} do WIP de abertura sob CONTAGEM_RECOMENDADA.`);
+  P4(`- Períodos/máquinas fechados sem apontamento ([0, planejado]): ${naoConf.length} de ${celTotal} células (${pct(shareNaoConf)}).`);
+  P4(`- Produtividade com n pequeno (<20 apontamentos produto×operação): participação no ganho atual ${pct(shareAt(flag.nPeq))}.`);
+  P4(`- ⚠ PROVISÓRIOS declarados: cobertura máxima de estoque ${COBERTURA_MAX_DIAS_PROVISORIO} dias de demanda; teto de ${MAX_PERIODOS_PROVISORIO} períodos; limite de dominância 30%; churn aceitável ≤ 15% das linhas com posto do dia; equipe e máquinas da próxima semana = as da semana atual.`);
+  P4();
+  // checklist
+  const linhasComPosto = A.base.futuras.filter((a) => a.maquinaId).length;
+  const churnBase = churnDe(EA, A.base.futuras, A.final.futuras);
+  const violTot = (c: Cand) => c.val!.nucleo + c.val!.indep + c.val!.bloco + c.val!.foraDaPrevisao;
+  const violações = violTot(A.final) + violTot(B.final) + violTot(C.final);
+  const acimaTeto = A.arestas.filter((ar) => antec(A, ar) > (A.r.tetoRes[ar.chavePar]?.tetoDinamico ?? 0) + 0.5);
+  const semLimite = A.arestas.filter((ar) => !A.r.tetoRes[ar.chavePar]);
+  const dom = Math.max(shareAt(flag.m8), shareAt(flag.demBaixa), shareAt(flag.nPeq));
+  const itensCk: [string, boolean, string][] = [
+    ["Ganho robusto (B) CLARAMENTE acima do limiar (margem ≥ 25%)", marg(add.B, limB4.receita) >= 0.25, `adicional ${sg(add.B)} vs limiar R$ ${brl(limB4.receita)} ⇒ margem ${pct(marg(add.B, limB4.receita))}`],
+    ["Não depende criticamente da M8 (ganho SEM M8 também passa com folga ≥ 25%)", Math.max(marg(add.C1, limC4.receita), marg(add.C2, limC4.receita)) >= 0.25, `sem M8: C1 ${sg(add.C1)} (${pct(marg(add.C1, limC4.receita))}), C2 ${sg(add.C2)} (${pct(marg(add.C2, limC4.receita))}) vs limiar R$ ${brl(limC4.receita)}`],
+    ["0 violações (núcleo, independente, bloco, Previsão) em A, B e C", violações === 0, `${violações} violação(ões)`],
+    ["0 pessoas paradas em A, B e C", semPosto(A.final) + semPosto(B.final) + semPosto(C.final) === 0, `A ${semPosto(A.final)}, B ${semPosto(B.final)}, C ${semPosto(C.final)}`],
+    ["Churn aceitável (≤ 15% das linhas com posto do dia vs base) ⚠ provisório", churnBase.linhas <= 0.15 * linhasComPosto, `${churnBase.linhas} linhas / ${churnBase.pessoas} pessoas / ${churnBase.postos} postos vs base (${linhasComPosto} linhas com posto); vs vigente ${churnDe(EA, A.cVig.futuras, A.final.futuras).linhas} linhas`],
+    ["WIP coerente (WIP final sombra ≤ base; antecipação ≤ teto dinâmico)", A.final.av!.L.totais.wipFinalLo <= A.base.av!.L.totais.wipFinalLo + 1 + totAnt(A) && acimaTeto.length === 0, `WIP final sombra ${n0(A.final.av!.L.totais.wipFinalLo)} vs base ${n0(A.base.av!.L.totais.wipFinalLo)}; pares acima do teto dinâmico: ${acimaTeto.length}`],
+    ["Vantagem ATUAL preservada (adicional ≥ 0 em A, B e C)", add.A >= -0.5 && add.B >= -0.5 && add.C2 >= -0.5, `A ${sg(add.A)}, B ${sg(add.B)}, C2 ${sg(add.C2)}`],
+    ["Antecipação futura explicável (cada par com fator limitante e dentro do teto)", semLimite.length === 0 && acimaTeto.length === 0, `${A.arestas.length} pares com fator limitante; ${acimaTeto.length} acima do teto`],
+    ["Nenhuma fonte de baixa confiança dominando o ganho atual (< 30% cada; WIP sob contagem < 50%; fechados sem apontamento < 20%)", dom < 0.3 && shareContagem < 0.5 && shareNaoConf < 0.2, `M8 ${pct(shareAt(flag.m8))}, demanda baixa ${pct(shareAt(flag.demBaixa))}, n pequeno ${pct(shareAt(flag.nPeq))}, WIP em CONTAGEM_RECOMENDADA ${pct(shareContagem)}, fechados sem apontamento ${pct(shareNaoConf)}`],
+  ];
+  P4(`## CHECKLIST DE PILOTO (todos precisam PASSAR)`);
+  P4(`| # | Critério | Resultado | Número |`);
+  P4(`|---|---|---|---|`);
+  itensCk.forEach(([t, ok, n], i) => P4(`| ${i + 1} | ${t} | **${ok ? "PASSA" : "FALHA"}** | ${n} |`));
+  const todos = itensCk.every(([, ok]) => ok);
+  P4();
+  P4(`# >>> RECOMENDAÇÃO FINAL (binária): **${todos ? "AVANÇAR PARA PILOTO CONTROLADO" : "MANTER EM SOMBRA"}** <<<`);
+  P4(todos ? `Todos os critérios passaram nesta foto; ainda assim a ativação exige decisão explícita do usuário (nada é ativado automaticamente).` : `Falharam: ${itensCk.map(([t, ok], i) => (ok ? "" : `#${i + 1}`)).filter(Boolean).join(", ")}. ${add.A >= limA4.receita && Math.max(add.C1, add.C2) < limC4.receita ? "O plano só passa o limiar por causa da Máquina 8 de baixa confiança ⇒ NÃO recomendar ativação. " : ""}Mesmo que o limiar seja ultrapassado, a ativação NÃO é automática: a rodada ${hhmm(agoraMs)} é a referência para a decisão do usuário.`);
+  P4();
+  P4(`---`);
+  P4(`# ANEXOS (análises detalhadas desta rodada: PARTES I–III)`);
+  P4();
+}
+
 P(`## (h) ⚠ Baixa confiança`);
 const conf = [...new Set(finP.flatMap((p) => confianca(p.produtoId, p.etapaFinalId).map((r) => `${nome(p.produtoId)}: ${r}`)))];
 conf.forEach((x) => P(`- ⚠ ${x}`));
@@ -1045,7 +1217,7 @@ const dirSaida = arg("saida-dir") ?? path.join(SCRATCH, "ating30");
 fs.mkdirSync(dirSaida, { recursive: true });
 const sufixo = `${modo}-${hhmm(agoraMs).replace(":", "")}${arg("sufixo") ? "-" + arg("sufixo") : ""}`;
 const mdPath = path.join(dirSaida, `analise-30-10-${sufixo}.md`);
-fs.writeFileSync(mdPath, L.join("\n"));
+fs.writeFileSync(mdPath, [...L4, ...L].join("\n"));
 const jsonPath = mdPath.replace(/\.md$/, ".json");
 fs.writeFileSync(jsonPath, JSON.stringify({
   foto: modo, instante: new Date(agoraMs).toISOString(), hoje, alvo, existe31, limiar: { sigma, receita: limA.receita, lucro: limA.lucro },
