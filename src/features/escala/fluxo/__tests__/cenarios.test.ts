@@ -207,6 +207,26 @@ describe("sem_producao / sem apontamento / atrasado / refugo", () => {
     expect(e.pares[0].wip.lo).toBe(250); // 400 boas − 150 boas (nunca 500 − 200)
     expect(e.produtos[0].demandaFinalRestante).toBe(6000 - 150); // o refugo (50) não reduz a meta final
   });
+  // A meta do período NÃO é produção: o WIP recebe o REAL (acima ou abaixo da meta), nunca a meta.
+  const wipComReal = (boasA: number, boasB: number) => {
+    const pools = dois(); // meta do posto a1 = 500/período, b1 = 200/período
+    const m0 = montar({ pools, funcionarios: equipe(4), c: 0, apontamentos: [] });
+    const zeros = apontarPlano(m0.planoCompleto, pools, 0, m0.entrada.slots, () => null).filter((a) => !(a.periodoId === "m1" && (a.maquinaId === "a1" || a.maquinaId === "b1")));
+    const mk = (maq: string, et: string, boas: number) => ({ ...ap({ data: "2026-10-26", periodoId: "m1", maquinaId: maq, produtoId: "P", etapaId: et, boas, refugo: 0 }), lancadoEmMs: 1 });
+    return estadoDaProducao(m0.entrada, { ...m0.dados, apontamentos: [...zeros.map((z) => ({ ...z, lancadoEmMs: 1 })), mk("a1", "P1", boasA), mk("b1", "P2", boasB)] });
+  };
+  it("real ACIMA da meta: o WIP recebe o real (ex.: meta 500, real 758), não é limitado à meta", () => {
+    const e = wipComReal(758, 150);
+    expect(e.etapas.find((x) => x.etapaId === "P1")!.boas.lo).toBe(758);
+    expect(e.pares[0].wip.lo).toBe(758 - 150);
+    expect(e.pares[0].wip.hi).toBe(758 - 150);
+  });
+  it("real ABAIXO da meta: o WIP recebe o real (ex.: meta 500, real 350); a diferença até a meta NÃO é inventada", () => {
+    const e = wipComReal(350, 150);
+    expect(e.etapas.find((x) => x.etapaId === "P1")!.boas.lo).toBe(350);
+    expect(e.pares[0].wip.lo).toBe(350 - 150);
+    expect(e.pares[0].wip.hi).toBe(350 - 150);
+  });
 });
 
 describe("máquina parada / ausência / retorno / revezamento / compartilhada", () => {
