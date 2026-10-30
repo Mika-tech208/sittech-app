@@ -480,6 +480,20 @@ describe("integração com o núcleo REAL", () => {
     expect(sem.opcoes.fatoresEmbutidos).toBeUndefined();
   });
 
+  it("regra conservadora de material: só producaoReal.mesmoPeriodo=false liga fluxoMesmoPeriodo=false; ausente/true = opções idênticas às de hoje", async () => {
+    const { m, apontamentos } = await comApontamentos(0.6);
+    const estado = { ...m.entradas, diasExistentes: [...m.dias].map(([data, d]) => ({ data, versao: d.versao, periodosSnapshot: d.snapshot })), alocacoes: m.alocacoes };
+    const nominal = montarEntradaEscala(estado, AGORA).entrada;
+    const pr = { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos } as const;
+    const padrao = insumosFluxo({ ...estado, producaoReal: pr } as never, nominal, AGORA).opcoes;
+    const ligadoTrue = insumosFluxo({ ...estado, producaoReal: { ...pr, mesmoPeriodo: true } } as never, nominal, AGORA).opcoes;
+    const conservador = insumosFluxo({ ...estado, producaoReal: { ...pr, mesmoPeriodo: false } } as never, nominal, AGORA).opcoes;
+    expect("fluxoMesmoPeriodo" in padrao).toBe(false);
+    expect(ligadoTrue).toEqual(padrao);
+    expect(conservador.fluxoMesmoPeriodo).toBe(false);
+    expect({ ...conservador, fluxoMesmoPeriodo: undefined }).toEqual({ ...padrao, fluxoMesmoPeriodo: undefined });
+  });
+
   it("ATIVO idempotente: repetir o recálculo com os mesmos dados é NO-OP (o plano vigente é candidato e volta idêntico — sem churn, sem nova versão)", async () => {
     const { m, apontamentos } = await comApontamentos(0.6);
     m.editar((e) => { e.producaoReal = { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos }; });
