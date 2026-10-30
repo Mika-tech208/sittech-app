@@ -13,7 +13,7 @@ const aps: ApontamentoReal[] = rd("apont_now.sql.out").map((a) => ({
   data: a.data, periodoId: a.periodo_id, funcionarioId: a.funcionario_id, maquinaId: a.maquina_id, produtoId: a.produto_id, etapaId: a.etapa_id, operacaoId: a.operacao_id,
   boas: Number(a.quantidade_produzida) - Number(a.quantidade_refugo), refugo: Number(a.quantidade_refugo), meta: Number(a.meta), status: a.status === "produzindo" ? "produzindo" : "sem_producao", motivo: a.motivo, lancadoEmMs: Math.round(Number(a.criado_ms)),
 }));
-const plano: AlocacaoEscala[] = rd("aloc_now.sql.out").map((a) => ({ data: a.data, periodoId: a.periodo_id, funcionarioId: a.funcionario_id, maquinaId: a.maquina_id, produtoId: a.produto_id, etapaId: a.etapa_id, operacaoId: a.operacao_id, pecas: Number(a.pecas), origem: "auto" }));
+const plano = rd("aloc_now.sql.out").map((a) => ({ data: a.data, periodoId: a.periodo_id, funcionarioId: a.funcionario_id, maquinaId: a.maquina_id, produtoId: a.produto_id, etapaId: a.etapa_id, operacaoId: a.operacao_id, pecas: Number(a.pecas), origem: "auto" })) as unknown as AlocacaoEscala[];
 const out: any = {};
 const t1 = A.slots.find((s) => s.data === "2026-10-30" && s.periodoId === "t1")!;
 out.t1 = { inicio: new Date(t1.inicioMs).toISOString(), fim: new Date(t1.fimMs).toISOString() };
