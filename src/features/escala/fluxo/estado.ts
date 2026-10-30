@@ -278,6 +278,14 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
       }
     }
     const negativo = bruto.hi < -EPS;
+    if (negativo && cont && opcoes.cadeia?.diagnostico) {
+      // consumo REAL da etapa seguinte maior que (contagem + produção upstream) mesmo no melhor caso: dado físico conflitante. NÃO se inventa estoque (piso 0, proteção conservadora).
+      diagnosticos.push({
+        codigo: "CONSUMO_REAL_MAIOR_QUE_DISPONIVEL", severidade: "aviso", produtoId: e.produtoId, etapaId: e.etapaOrigemId,
+        mensagem: `Consumo real (${Math.round(-bruto.hi)} peça(s) acima do disponível) maior que contagem + produção da etapa anterior no melhor caso: contagem desatualizada, mal classificada ou apontamento inconsistente; estoque NÃO inventado (WIP = 0)`,
+        detalhes: { excesso: r1(-bruto.hi), saldoContado: contagemInfo ? contagemInfo.saldo : null },
+      });
+    }
     if (negativo && !conf) {
       diagnosticos.push({
         codigo: "WIP_NEGATIVO_ESTIMADO", severidade: "aviso", produtoId: e.produtoId, etapaId: e.etapaOrigemId,
@@ -293,6 +301,9 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
     iniHi.W0[e.id] = wip.hi;
     iniHi.L0[e.id] = wip.hi;
   });
+  if (diagnosticos.some((d) => d.codigo === "CONSUMO_REAL_MAIOR_QUE_DISPONIVEL")) {
+    diagnosticos.push({ codigo: "ESTADO_FISICO_INCONSISTENTE", severidade: "aviso", mensagem: "Dados físicos conflitantes (consumo real maior que o disponível): recontar os estoques entre etapas; o plano segue com proteção conservadora (WIP = 0 nos pares afetados)" });
+  }
 
   // ---- projeção até aPartirDe (linhas congeladas + produção real dos períodos não fechados) ----
   const projetar = (ini: IniScenario) => {
@@ -348,6 +359,27 @@ export function capacidadeFuturaDoNo(ctx: CtxFluxo, noId: string): { total: numb
     tetoTodas = Math.max(tetoTodas, maquinas.length * mu);
   }
   return { total, tetoPeriodo: teto > 0 ? teto : tetoTodas };
+}
+
+/** Capacidade do nó no 1º período do PRÓXIMO dia produtivo (cadeia): máquinas ativas e dentro da Previsão × meta×f do período (default = 1º período da semana). 0 sem slots. */
+export function capacidadeProximoDiaDoNo(ctx: CtxFluxo, noId: string): number {
+  const periodoId = ctx.opcoes.cadeia?.proximoDiaPeriodoId ?? ctx.entrada.slots[0]?.periodoId;
+  if (!periodoId) return 0;
+  const no = ctx.grafo.nos[noId];
+  const pools = no.membros.map((m) => ctx.poolsPorChave.get(m) as PoolEscala);
+  const inativas = new Set(ctx.entrada.maquinasInativas ?? []);
+  const fora = new Set(ctx.entrada.maquinasIndisponiveisPrevisao);
+  const maquinas = [...new Set(pools.flatMap((p) => p.maquinasIds))].filter((m) => !inativas.has(m) && !fora.has(m));
+  const mu = Math.max(...pools.map((p) => (p.metas[periodoId] ?? 0) * (ctx.fator[chavePool(p.produtoId, p.etapaId)] ?? 1)), 0);
+  return maquinas.length * mu;
+}
+
+/** Demanda futura CONHECIDA (peças) do produto final do grupo no próximo dia produtivo: Previsão da próxima semana; sem Previsão (null) = recorrente (Q da semana); produto fora da Previsão = 0. */
+export function demandaFuturaConhecida(ctx: CtxFluxo, sinkId: string): number {
+  const sink = ctx.grafo.nos[sinkId];
+  const dfp = ctx.opcoes.cadeia?.demandaFuturaPorProduto;
+  if (!dfp) return sink.quantidade;
+  return sink.membros.reduce((s, m) => s + Math.max(0, dfp[(ctx.poolsPorChave.get(m) as PoolEscala).produtoId] ?? 0), 0);
 }
 
 export interface DemandaNo {

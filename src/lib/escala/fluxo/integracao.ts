@@ -108,6 +108,8 @@ export function insumosFluxo(estado: EstadoBruto, entrada: EntradaEscala, agoraM
     ...(pr && pr.limiar !== null ? { limiarEstabilidadePecas: pr.limiar } : {}),
     ...(Object.keys(fator).length > 0 ? { fatoresEmbutidos: fator } : {}),
     ...(pr && pr.mesmoPeriodo === false ? { fluxoMesmoPeriodo: false } : {}), // regra conservadora de material (padrão: ausente = comportamento atual, byte-idêntico)
+    // planejamento de cadeia (camadas independentes; ausente = byte-idêntico). Demanda futura conhecida = Previsão da próxima semana (null = recorrente).
+    ...(pr && pr.cadeia ? { cadeia: { ...pr.cadeia, demandaFuturaPorProduto: estado.proximaSemana ? estado.proximaSemana.quantidadePorProduto : null } } : {}),
   };
   return { entrada: comF, opcoes };
 }

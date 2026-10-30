@@ -92,6 +92,12 @@ export interface OpcoesFluxo {
   ponderarPorValor?: boolean;
   /** Fluxo entre etapas no MESMO período (consumo ≤ WIP inicial + produção upstream do período). Default true (spec §3). */
   fluxoMesmoPeriodo?: boolean;
+  /** PLANEJAMENTO DE CADEIA — 3 CAMADAS INDEPENDENTES (cada uma com a sua chave em escala_parametros; ausente ⇒ tudo desligado e a saída é byte-idêntica):
+   *   diagnostico: só diagnóstico (CADEIA_INVALIDA, CADEIA_COBERTURA, CONSUMO_REAL_MAIOR_QUE_DISPONIVEL…); NUNCA altera o plano.
+   *   allowed / saida: Allowed (estado.ts) estendido ao próximo dia produtivo / penalidade de cadeia (estoque de saída limitado) na tupla J.
+   *   reparo: candidatos reparados + realocação de postos sem material (fluxo/cadeiaReparo.ts).
+   *  proximoDiaPeriodoId: período do próximo dia produtivo (default = 1º período da semana). demandaFuturaPorProduto: Previsão da próxima semana (null = recorrente = Q da semana). */
+  cadeia?: { diagnostico?: boolean; allowed?: boolean; saida?: boolean; reparo?: boolean; proximoDiaPeriodoId?: string; demandaFuturaPorProduto?: Record<string, number> | null };
   /** Inclui na avaliação a trajetória de WIP por par/slot e os marginais (mais pesado no jsonb). Default true / false. */
   incluirTrajetoria?: boolean;
   incluirMarginais?: boolean;
@@ -135,7 +141,15 @@ export type CodigoDiagnosticoFluxo =
   | "SEM_PRODUCAO_SEM_PROGRAMACAO" // sem_producao com motivo sem_programacao (fora da spec original): zero confirmado, sem inferir material
   | "CONTAGEM_FISICA_USADA" // contagem física válida usada como saldo inicial CONFIRMADO do par
   | "CONTAGEM_FISICA_IGNORADA" // item de contagem física inválido/substituído: ignorado (nunca derruba o recálculo)
-  | "POOL_FUNDIDO"; // pools legados fundidos logicamente
+  | "POOL_FUNDIDO" // pools legados fundidos logicamente
+  | "CADEIA_INVALIDA" // (cadeia) nó × período do plano sem material: déficit e último período seguro para ligar o upstream
+  | "CADEIA_DIAGNOSTICO_FALHOU" // (cadeia) a validação lançou: ignorada, o plano segue
+  | "CADEIA_COBERTURA" // (cadeia) por ligação: estoque, cobertura em períodos, período da ruptura e último período seguro
+  | "CADEIA_REPARADA" // (cadeia, reparo) o plano escolhido é um candidato reparado
+  | "POSTO_SEM_MATERIAL_REALOCADO" // (cadeia, reparo) pessoa em posto sem material realocada para produção útil
+  | "POSTO_SEM_MATERIAL_SEM_DESTINO" // (cadeia, reparo) posto sem material e nenhum destino útil: mantido
+  | "ESTADO_FISICO_INCONSISTENTE" // (cadeia) dados físicos conflitantes: estoque NÃO é inventado
+  | "CONSUMO_REAL_MAIOR_QUE_DISPONIVEL"; // (cadeia) consumo real > saldo contado + produção upstream, mesmo no melhor caso
 
 export interface DiagnosticoItem {
   codigo: CodigoDiagnosticoFluxo;

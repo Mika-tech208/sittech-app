@@ -120,6 +120,7 @@ export interface EstadoProducaoReal {
   contagensFisicas?: ContagemFisicaPar[]; // producao_real_contagens_fisicas (itens bem formados; o núcleo revalida)
   contagensFisicasDescartadas?: DiagnosticoItem[]; // itens malformados dessa chave (ignorados, com diagnóstico)
   mesmoPeriodo?: boolean; // producao_real_fluxo_mesmo_periodo: ausente/true = padrão; false = regra conservadora de material (ver parametrosFluxo.ts)
+  cadeia?: { diagnostico?: true }; // camadas do planejamento de cadeia ligadas (producao_real_cadeia_*); ausente = nenhuma
   apontamentos: ApontamentoReal[]; // TODAS as linhas de apontamento da semana (produzindo e sem_producao, com motivo e carimbo)
 }
 
