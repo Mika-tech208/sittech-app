@@ -9,10 +9,10 @@ export const linha = (data: string, periodoId: string, f: string, p: ReturnType<
 });
 
 /** Cadeia de 4 etapas R→P→E→B (lote). Plano vigente: só E (mu 3000) e B (mu 2650) trabalham; R e P estão desligados. Contagens no início da semana. */
-export function cadeia4(opts: { estoque?: [number, number, number]; cadeia?: OpcoesFluxo["cadeia"]; dias?: string[]; c?: number } = {}) {
+export function cadeia4(opts: { estoque?: [number, number, number]; cadeia?: OpcoesFluxo["cadeia"]; dias?: string[]; c?: number; maqP?: 2 | 3 } = {}) {
   const [wRP, wPE, wEB] = opts.estoque ?? [6000, 6000, 3600];
   const R = pool({ produto: "P", etapa: "R", op: "opR", ordem: 1, q: 60000, maquinas: ["r1", "r2"], mu: 1450 });
-  const P = pool({ produto: "P", etapa: "Pa", op: "opP", ordem: 2, q: 60000, maquinas: ["p1", "p2"], mu: 1140 });
+  const P = pool({ produto: "P", etapa: "Pa", op: "opP", ordem: 2, q: 60000, maquinas: opts.maqP === 3 ? ["p1", "p2", "p3"] : ["p1", "p2"], mu: 1140 });
   const E = pool({ produto: "P", etapa: "E", op: "opE", ordem: 3, q: 60000, maquinas: ["e1"], mu: 3000 });
   const B = pool({ produto: "P", etapa: "B", op: "opB", ordem: 4, q: 60000, maquinas: ["b1"], mu: 2650 });
   const pools = [R, P, E, B];

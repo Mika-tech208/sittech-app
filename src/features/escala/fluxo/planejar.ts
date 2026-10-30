@@ -15,6 +15,7 @@ import { avaliarComCtx } from "./avaliar";
 import { contagensDoPlano, tabelaMarginal, varrerContagens } from "./otimizar";
 import { montarEstado, prepararFluxo, type CtxFluxo, type OpcoesInternas } from "./estado";
 import { diagnosticosDeCadeia, simularCadeia } from "./cadeia";
+import { numeroDeVariantes, ociosasEvitaveis, pedirReposicao, realocarPostosSemMaterial } from "./cadeiaReparo";
 import { explicarMudanca } from "./explicar";
 import { verificarRestricoesDuras } from "./restricoes";
 import {
@@ -34,6 +35,10 @@ interface Candidato {
   churn: ChurnFluxo;
   tupla: TuplaObjetivo;
   hash: string;
+  /** rem explícito com que o candidato foi gerado/avaliado (candidatos reparados somam a reposição pedida) */
+  limites?: Record<string, number>;
+  /** só candidatos da camada 3 (reparo) */
+  reparo?: { faltaLivre: number; variante: number; postosExtra: number; realocadas: number; semDestino: number; deficitAntes: number; deficitDepois: number; diag: DiagnosticoItem[] };
 }
 
 function futuras(ctx: CtxFluxo, l: AlocacaoEscala[]): AlocacaoEscala[] {
@@ -139,7 +144,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
   const theta = thetaPadrao(ctx);
   const estabilizar = opcoes.estabilizarPessoas !== false;
   // CADEIA camada 2: penalidade de cadeia (déficits de material, incluindo o estoque de saída limitado) como 1ª componente de J — para TODOS os candidatos, inclusive o vigente
-  const penalCadeia = (linhas: AlocacaoEscala[]): number | undefined => (opcoes.cadeia?.saida ? simularCadeia(ctx, linhas).deficit : undefined);
+  const penalCadeia = (linhas: AlocacaoEscala[]): number | undefined => (opcoes.cadeia?.saida || opcoes.cadeia?.reparo ? simularCadeia(ctx, linhas).deficit : undefined);
 
   // ---- plano em vigor (futuro) ----
   const vigFut = futuras(ctx, ctx.dados.planoVigente).map((a) => ({ ...a }));
@@ -178,7 +183,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     }
     estabInfo.set(indice, info);
     const churn = calcularChurn(ctx, linhas);
-    return { indice, entrada: ent, resultado: { ...res, alocacoes: linhas }, aval, violacoes, churn, tupla: tuplaObjetivo(aval, churn, ponderar, penalCadeia(linhas)), hash: hashAlocacoes(linhas) };
+    return { indice, entrada: ent, resultado: { ...res, alocacoes: linhas }, aval, violacoes, churn, tupla: tuplaObjetivo(aval, churn, ponderar, penalCadeia(linhas)), hash: hashAlocacoes(linhas), ...(limites ? { limites } : {}) };
   };
 
   const baseC = construir(-1, entrada, base);
@@ -242,7 +247,10 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
 
   // ---- escolha: menor J entre os ELEGÍVEIS. Elegível = 0 violação dura E falta final nunca pior que a do plano base NEM a do plano vigente VÁLIDO (mesmo simulador) ----
   const faltaRef = Math.min(baseC.aval.totais.faltaFinalLo, vigC ? vigC.aval.totais.faltaFinalLo : Number.POSITIVE_INFINITY, vigReC ? vigReC.aval.totais.faltaFinalLo : Number.POSITIVE_INFINITY);
-  const elegivel = (c: Candidato) => c.violacoes.length === 0 && c.aval.totais.faltaFinalLo <= faltaRef + EPS_FALTA;
+  // Reparado (camada 3): valor líquido pelo PRODUTO FINAL ≥ 0 na régua do plano base/vigente (falta sem limites de rem) e sem WIP novo além do plano de referência (nunca WIP infinito).
+  const wipRef = (): number => (escolhidoRef as Candidato | null)?.aval.totais.excessoWip ?? baseC.aval.totais.excessoWip;
+  let escolhidoRef: Candidato | null = null;
+  const elegivel = (c: Candidato) => c.violacoes.length === 0 && (c.reparo ? c.reparo.faltaLivre <= faltaRef + EPS_FALTA && c.aval.totais.excessoWip <= wipRef() + 1 : c.aval.totais.faltaFinalLo <= faltaRef + EPS_FALTA);
   candidatos.forEach((c) => {
     if (c.violacoes.length > 0) {
       diag.push({ codigo: "VIOLACAO_RESTRICAO_DURA", severidade: "erro", mensagem: `Candidato ${c.indice} descartado: ${c.violacoes.length} violação(ões) de restrição dura (${c.violacoes[0].tipo})`, detalhes: { iteracao: c.indice, violacoes: c.violacoes.length } });
@@ -251,9 +259,69 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
   // ordem de desempate (primeiro vence): vigente (zero churn) > base > fluxo — só se troca por candidato ESTRITAMENTE melhor pela tupla
   const ordem: Candidato[] = [...(vigC ? [vigC] : []), ...(vigReC ? [vigReC] : []), baseC, ...candidatos];
   let escolhido: Candidato | null = null;
-  ordem.filter(elegivel).forEach((c) => {
-    if (escolhido === null || compararTuplas(c.tupla, (escolhido as Candidato).tupla) < 0) escolhido = c;
-  });
+  const escolher = (lista: Candidato[]) => {
+    escolhido = null;
+    lista.filter(elegivel).forEach((c) => {
+      if (escolhido === null || compararTuplas(c.tupla, (escolhido as Candidato).tupla) < 0) escolhido = c;
+    });
+  };
+  escolher(ordem);
+  escolhidoRef = escolhido;
+  // ---- CADEIA camada 3 (reparo): o melhor candidato até aqui, se tiver déficit de material, gera candidatos REPARADOS (upstream religado no último período seguro, em cascata; depois pessoas em
+  // posto sem material realocadas). Entram na MESMA disputa pela tupla J (o vigente continua candidato) e só valem com 0 violação dura, falta final não pior e sem ociosas evitáveis a mais. ----
+  const reparados: Candidato[] = [];
+  if (opcoes.cadeia?.reparo) {
+    try {
+      const ref = (escolhido as Candidato | null) ?? baseC;
+      const defRef = simularCadeia(ctx, ref.resultado.alocacoes).deficit;
+      if (defRef > 1) {
+        const ociosasBase = ociosasEvitaveis(ctx, ref.resultado.alocacoes); // portão: o reparo nunca deixa MAIS pessoas sem posto evitável que o plano de que parte
+        for (let v = 0; v < numeroDeVariantes(ctx); v++) {
+          let atual = ref;
+          let minimos: Record<string, Record<string, number>> = {};
+          const remAug: Record<string, number> = { ...estado.remPorPool };
+          let postosExtra = 0;
+          for (let rodada = 0; rodada < 2; rodada++) {
+            const rep = pedirReposicao(ctx, atual.resultado.alocacoes, v, minimos);
+            if (rep.postosExtra === 0) break;
+            minimos = rep.minimos;
+            Object.entries(rep.remExtra).forEach(([k, q]) => (remAug[k] = (remAug[k] ?? 0) + q));
+            postosExtra += rep.postosExtra;
+            const baseEnt = ref.indice >= 0 ? ref.entrada : candidatos[0].entrada;
+            const ent: EntradaEscala = { ...baseEnt, remPorPool: remAug, reposicaoMinima: minimos };
+            const c = construir(100 + reparados.length, ent, gerarEscala(ent), remAug);
+            c.hash = hashAlocacoes(c.resultado.alocacoes);
+            atual = c;
+            if (simularCadeia(ctx, c.resultado.alocacoes, { semProximoDia: true }).deficit <= 1) break;
+          }
+          if (atual === ref) continue;
+          const rl = realocarPostosSemMaterial(ctx, atual.entrada, atual.resultado.alocacoes, remAug);
+          let linhas = atual.resultado.alocacoes;
+          let cand = atual;
+          if (rl.realocadas > 0) {
+            linhas = rl.linhas;
+            const aval = avaliarComCtx(ctx, linhas, { contribuicoes: false, trajetoria: false, limites: remAug });
+            const churn = calcularChurn(ctx, linhas);
+            cand = { ...atual, resultado: { ...atual.resultado, alocacoes: linhas }, aval, violacoes: verificarRestricoesDuras(atual.entrada, linhas), churn, tupla: tuplaObjetivo(aval, churn, ponderar, penalCadeia(linhas)), hash: hashAlocacoes(linhas) };
+          }
+          // RÉGUA ÚNICA: o candidato reparado é avaliado com `rem` ampliado (a reposição pedida), o que o favoreceria; a elegibilidade usa a MESMA régua do plano base/vigente (sem limites de rem)
+          const faltaLivre = avaliarComCtx(ctx, linhas, { contribuicoes: false, trajetoria: false }).totais.faltaFinalLo;
+          cand = { ...cand, indice: 100 + reparados.length, reparo: { faltaLivre, variante: v, postosExtra, realocadas: rl.realocadas, semDestino: rl.semDestino, deficitAntes: defRef, deficitDepois: simularCadeia(ctx, linhas).deficit, diag: rl.diagnosticos } };
+                    if (ociosasEvitaveis(ctx, linhas) > ociosasBase) diag.push({ codigo: "CADEIA_REPARADA", severidade: "aviso", mensagem: "Candidato reparado descartado: aumentaria pessoas sem posto evitáveis", detalhes: { variante: v } });
+          else if (!reparados.some((r) => r.hash === cand.hash)) reparados.push(cand);
+        }
+      }
+    } catch (e) {
+      diag.push({ codigo: "CADEIA_DIAGNOSTICO_FALHOU", severidade: "aviso", mensagem: `reparo de cadeia falhou (ignorado, segue o plano sem reparo): ${e instanceof Error ? e.message : String(e)}` });
+    }
+    reparados.forEach((c) => {
+      if (c.violacoes.length > 0) diag.push({ codigo: "VIOLACAO_RESTRICAO_DURA", severidade: "erro", mensagem: `Candidato reparado ${c.indice} descartado: ${c.violacoes.length} violação(ões) de restrição dura (${c.violacoes[0].tipo})`, detalhes: { iteracao: c.indice, violacoes: c.violacoes.length } });
+    });
+    escolher([...ordem, ...reparados]);
+    reparados.forEach((c) => {
+      diag.push({ codigo: "CADEIA_REPARO_AVALIADO", severidade: "info", mensagem: `Candidato reparado ${c.indice} (variante de fontes ${c.reparo?.variante}): falta final ${Math.round(c.aval.totais.faltaFinalLo)}, déficit de material ${Math.round(c.reparo?.deficitDepois ?? 0)} (antes ${Math.round(c.reparo?.deficitAntes ?? 0)}), +${c.reparo?.postosExtra} posto(s)-período, ${c.reparo?.realocadas} realocação(ões)${c.violacoes.length > 0 ? ", COM violação dura" : (c.reparo?.faltaLivre ?? 0) > faltaRef + EPS_FALTA ? ", falta final pior que a do plano de referência na régua única (inelegível)" : c.aval.totais.excessoWip > wipRef() + 1 ? ", WIP novo acima do plano de referência (inelegível)" : ""}`, detalhes: { iteracao: c.indice, faltaFinal: r3(c.reparo?.faltaLivre ?? c.aval.totais.faltaFinalLo), faltaRef: r3(faltaRef), deficitDepois: r3(c.reparo?.deficitDepois ?? 0) } });
+    });
+  }
   let final: Candidato = (escolhido as Candidato | null) ?? baseC; // sem elegível (base com violação e nada melhor): o base é o fallback histórico
   // Um candidato gerado cujas linhas são IDÊNTICAS às vigentes É o plano vigente (a avaliação com `rem` pode desempatá-lo por ruído numérico): devolve-se como vigente,
   // com os alertas desse "gêmeo" (assim a assinatura de alertas do recálculo anterior se repete e o NO-OP do processar funciona).
@@ -278,13 +346,17 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
 
   const entradaFluxo = final.entrada;
   const resultado: ResultadoEscala = final.indice === -2 && gemeo ? { ...gemeo.resultado, alocacoes: vigFut } : final.resultado;
-  const limitesFinal = usaFluxo ? estado.remPorPool : undefined;
+  const limitesFinal = usaFluxo ? final.limites ?? estado.remPorPool : undefined;
   const avFluxo = avaliarComCtx(ctx, resultado.alocacoes, { contribuicoes: true, trajetoria: opcoes.incluirTrajetoria !== false, limites: limitesFinal });
   const avBase = avaliarComCtx(ctx, base.alocacoes, { contribuicoes: true, trajetoria: opcoes.incluirTrajetoria !== false });
   const avVig = temVigente ? avaliarComCtx(ctx, vigFut, { contribuicoes: false, trajetoria: false }) : null;
   const churn = calcularChurn(ctx, resultado.alocacoes, retidas);
   // restrições duras sobre o plano DEVOLVIDO (já estabilizado): só as linhas novas importam (as congeladas foram gravadas sob outras condições)
   const violacoes = verificarRestricoesDuras(entradaFluxo, resultado.alocacoes, { somenteLinhasNovas: true });
+  if (final.reparo) {
+    diag.push({ codigo: "CADEIA_REPARADA", severidade: "info", mensagem: `Plano reparado escolhido: upstream religado no último período seguro (+${final.reparo.postosExtra} posto(s)-período; ${final.reparo.realocadas} pessoa(s) realocada(s) de posto sem material); déficit de material ${Math.round(final.reparo.deficitAntes)} → ${Math.round(final.reparo.deficitDepois)} peça(s)`, detalhes: { ...final.reparo, diag: undefined } as never });
+    diag.push(...final.reparo.diag);
+  }
   // CADEIA — camada 1 (diagnóstico): só descreve o plano FINAL; nunca o altera
   if (ctx.opcoes.cadeia?.diagnostico) {
     try {
@@ -308,6 +380,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     ...(vigC ? [{ indice: -2, tupla: vigC.tupla.map(r3), faltaFinalLo: vigC.aval.totais.faltaFinalLo, violacoes: 0, escolhida: final.indice === -2, hashPlano: vigC.hash }] : []),
     ...(vigReC ? [{ indice: -3, tupla: vigReC.tupla.map(r3), faltaFinalLo: vigReC.aval.totais.faltaFinalLo, violacoes: 0, escolhida: final.indice === -3, hashPlano: vigReC.hash }] : []),
     { indice: -1, tupla: baseC.tupla.map(r3), faltaFinalLo: baseC.aval.totais.faltaFinalLo, violacoes: baseC.violacoes.length, escolhida: final.indice === -1, hashPlano: baseC.hash },
+    ...reparados.map((c) => ({ indice: c.indice, tupla: c.tupla.map(r3), faltaFinalLo: c.aval.totais.faltaFinalLo, violacoes: c.violacoes.length, escolhida: final.indice === c.indice, hashPlano: c.hash })),
     ...candidatos.map((c) => ({ indice: c.indice, tupla: c.tupla.map(r3), faltaFinalLo: c.aval.totais.faltaFinalLo, violacoes: c.violacoes.length, escolhida: final.indice === c.indice, hashPlano: c.hash })),
   ];
 

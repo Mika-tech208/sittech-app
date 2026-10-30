@@ -145,6 +145,7 @@ export type CodigoDiagnosticoFluxo =
   | "CADEIA_INVALIDA" // (cadeia) nó × período do plano sem material: déficit e último período seguro para ligar o upstream
   | "CADEIA_DIAGNOSTICO_FALHOU" // (cadeia) a validação lançou: ignorada, o plano segue
   | "CADEIA_COBERTURA" // (cadeia) por ligação: estoque, cobertura em períodos, período da ruptura e último período seguro
+  | "CADEIA_REPARO_AVALIADO" // (cadeia, reparo) candidato reparado avaliado: falta final, penalidade e se foi escolhido
   | "CADEIA_REPARADA" // (cadeia, reparo) o plano escolhido é um candidato reparado
   | "POSTO_SEM_MATERIAL_REALOCADO" // (cadeia, reparo) pessoa em posto sem material realocada para produção útil
   | "POSTO_SEM_MATERIAL_SEM_DESTINO" // (cadeia, reparo) posto sem material e nenhum destino útil: mantido

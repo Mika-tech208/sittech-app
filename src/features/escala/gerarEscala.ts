@@ -356,6 +356,17 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
       comprometido.set(par.chave, (comprometido.get(par.chave) ?? 0) + g);
       return true;
     };
+    // HOOK (forecast de buffer): postos mínimos de reposição do upstream neste slot, tentados primeiro. Ausente no slot ⇒ nada acima muda.
+    const minimosDoSlot = entrada.reposicaoMinima?.[String(t)];
+    if (minimosDoSlot) {
+      Object.entries(minimosDoSlot).forEach(([chave, n]) => {
+        if (permitido.has(chave)) permitido.set(chave, Math.max(permitido.get(chave) as number, n));
+        for (const par of pares) {
+          if (aceitos.length >= disponiveis.length || (contagem.get(chave) ?? 0) >= n) break;
+          if (par.chave === chave) tentar(par);
+        }
+      });
+    }
     if (!marginaisDoSlot && !bonusDoSlot) {
       for (const par of pares) {
         if (aceitos.length >= disponiveis.length) break;
