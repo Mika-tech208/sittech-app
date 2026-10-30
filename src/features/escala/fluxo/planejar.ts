@@ -68,15 +68,18 @@ export function calcularChurn(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], retida
   return { linhasAlteradas: linhas, trocasDePosto: trocas, postosAlterados: postosAlt, alteradasNoPrimeiroPeriodo: primeiro, retidasPorEstabilidade: retidas };
 }
 
-export function tuplaObjetivo(aval: AvaliacaoPlano, churn: ChurnFluxo, ponderar: boolean): TuplaObjetivo {
+/** `penalidadeCadeia` (cadeia, camada 2+): déficits de material do plano (peças, incl. o estoque de saída limitado) como 1ª componente — plano com cadeia inválida perde de plano válido. Ausente ⇒ tupla de sempre. */
+export function tuplaObjetivo(aval: AvaliacaoPlano, churn: ChurnFluxo, ponderar: boolean, penalidadeCadeia?: number): TuplaObjetivo {
   const t = aval.totais;
-  return [ponderar ? t.faltaPonderada : t.faltaFinalLo, t.faltaFinalHi, -t.capacidadeGargalo, t.wipLegadoResidual, t.excessoWip, t.capacidadeDesperdicada, churn.linhasAlteradas];
+  return [...(penalidadeCadeia === undefined ? [] : [penalidadeCadeia]), ponderar ? t.faltaPonderada : t.faltaFinalLo, t.faltaFinalHi, -t.capacidadeGargalo, t.wipLegadoResidual, t.excessoWip, t.capacidadeDesperdicada, churn.linhasAlteradas];
 }
 
 // lexicográfica; componentes 0–1 com tolerância mínima, os demais com tolerância de 1 peça (ruído numérico não decide)
 export function compararTuplas(a: TuplaObjetivo, b: TuplaObjetivo): number {
+  const off = a.length === 8 ? 1 : 0; // com a penalidade de cadeia na frente: ela tem tolerância de 1 peça e o resto desloca
   for (let i = 0; i < a.length; i++) {
-    const tol = i <= 1 ? EPS_FALTA : i === a.length - 1 ? 0.5 : 1;
+    const j = i - off;
+    const tol = j < 0 ? 1 : j <= 1 ? EPS_FALTA : i === a.length - 1 ? 0.5 : 1;
     if (Math.abs(a[i] - b[i]) > tol) return a[i] < b[i] ? -1 : 1;
   }
   return 0;
@@ -135,6 +138,8 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
   const diag: DiagnosticoItem[] = [...estado.diagnosticos];
   const theta = thetaPadrao(ctx);
   const estabilizar = opcoes.estabilizarPessoas !== false;
+  // CADEIA camada 2: penalidade de cadeia (déficits de material, incluindo o estoque de saída limitado) como 1ª componente de J — para TODOS os candidatos, inclusive o vigente
+  const penalCadeia = (linhas: AlocacaoEscala[]): number | undefined => (opcoes.cadeia?.saida ? simularCadeia(ctx, linhas).deficit : undefined);
 
   // ---- plano em vigor (futuro) ----
   const vigFut = futuras(ctx, ctx.dados.planoVigente).map((a) => ({ ...a }));
@@ -173,7 +178,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     }
     estabInfo.set(indice, info);
     const churn = calcularChurn(ctx, linhas);
-    return { indice, entrada: ent, resultado: { ...res, alocacoes: linhas }, aval, violacoes, churn, tupla: tuplaObjetivo(aval, churn, ponderar), hash: hashAlocacoes(linhas) };
+    return { indice, entrada: ent, resultado: { ...res, alocacoes: linhas }, aval, violacoes, churn, tupla: tuplaObjetivo(aval, churn, ponderar, penalCadeia(linhas)), hash: hashAlocacoes(linhas) };
   };
 
   const baseC = construir(-1, entrada, base);
@@ -200,7 +205,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
     else {
       vigente.valido = true;
       const churn0 = calcularChurn(ctx, vigFut);
-      vigC = { indice: -2, entrada, resultado: { ...base, alocacoes: vigFut }, aval: avVigLeve, violacoes: [], churn: churn0, tupla: tuplaObjetivo(avVigLeve, churn0, ponderar), hash: hashAlocacoes(vigFut) };
+      vigC = { indice: -2, entrada, resultado: { ...base, alocacoes: vigFut }, aval: avVigLeve, violacoes: [], churn: churn0, tupla: tuplaObjetivo(avVigLeve, churn0, ponderar, penalCadeia(vigFut)), hash: hashAlocacoes(vigFut) };
     }
     // REVEZAMENTO POR BLOCO: vigente inválido SÓ por repetir operação no bloco (manhã/tarde) ⇒ candidato "vigente com pessoas re-atribuídas": os MESMOS postos (mesma falta,
     // mesmo WIP), só QUEM os ocupa muda, até zerar as repetições. Sem solução ⇒ não é candidato (cai nos regenerados, que podem deixar posto vazio com diagnóstico).
@@ -211,7 +216,7 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
         const violRea = verificarRestricoesDuras(entrada, linhasRea);
         if (violRea.length === 0) {
           const churnR = calcularChurn(ctx, linhasRea);
-          vigReC = { indice: -3, entrada, resultado: { ...base, alertas: base.alertas.filter((a) => a.tipo !== "rotacao_sem_solucao"), alocacoes: linhasRea }, aval: avVigLeve, violacoes: [], churn: churnR, tupla: tuplaObjetivo(avVigLeve, churnR, ponderar), hash: hashAlocacoes(linhasRea) };
+          vigReC = { indice: -3, entrada, resultado: { ...base, alertas: base.alertas.filter((a) => a.tipo !== "rotacao_sem_solucao"), alocacoes: linhasRea }, aval: avVigLeve, violacoes: [], churn: churnR, tupla: tuplaObjetivo(avVigLeve, churnR, ponderar, penalCadeia(linhasRea)), hash: hashAlocacoes(linhasRea) };
           vigenteReatribuidoPeriodos = rea.periodosAjustados;
         }
       }

@@ -397,6 +397,7 @@ export function calcularDemanda(ctx: CtxFluxo): Record<string, DemandaNo> {
   const { grafo } = ctx;
   const W = (e: string, cen: "lo" | "hi") => Math.max(0, ctx.iniAPartirDe[cen].W0[e] ?? 0);
   const out: Record<string, DemandaNo> = {};
+  const ativa = ctx.opcoes.cadeia?.allowed === true; // CADEIA camada 2 (producao_real_cadeia_allowed): Allowed estendido ao próximo dia produtivo
   const cap: Record<string, { total: number; tetoPeriodo: number }> = {};
   Object.keys(grafo.nos).forEach((n) => (cap[n] = capacidadeFuturaDoNo(ctx, n)));
   grafo.grupos.forEach((g) => {
@@ -405,6 +406,17 @@ export function calcularDemanda(ctx: CtxFluxo): Record<string, DemandaNo> {
     const pipeLo: Record<string, number> = {};
     const pipeHi: Record<string, number> = {};
     const capDown: Record<string, number | null> = {}; // capacidade (peças) das etapas seguintes, limitada pela mais lenta; ignora pessoas
+    // CADEIA ATIVA (camada 2) — a janela de consumo do downstream é estendida ao 1º período do PRÓXIMO dia produtivo (lead time de 1 período: o que o upstream repõe no último período da semana
+    // só é consumido ali). Para cada nó n com sucessor s:
+    //   capExt[n]  = min sobre as etapas seguintes de (capacidade da janela + capacidade do próximo dia)            [lag 1: a produção do último período serve ao próximo dia]
+    //   extra[n]   = min(max(0, capExt[n] − capDown[n]), demanda futura CONHECIDA do produto final)                 [Previsão da próxima semana / recorrente; nunca WIP infinito]
+    //   C          = capDown[n] + extra[n]
+    //   pipeEf[n]  = min(W_n→s(hi) + pipeEf[s], C)                    [o estoque à frente que a cadeia não consegue consumir no horizonte efetivo não "cobre" nada]
+    //   Allowed    = max(0, max(peso·C, C − reivindicado) + teto − pipeEf[n])
+    const capExt: Record<string, number | null> = {};
+    const extra: Record<string, number> = {};
+    const pipeEf: Record<string, number> = {};
+    const conhecida = ativa ? demandaFuturaConhecida(ctx, g.sink) : 0;
     const need: Record<string, number> = {};
     rev.forEach((n) => {
       const no = grafo.nos[n];
@@ -412,6 +424,9 @@ export function calcularDemanda(ctx: CtxFluxo): Record<string, DemandaNo> {
         pipeLo[n] = 0;
         pipeHi[n] = 0;
         capDown[n] = null;
+        capExt[n] = null;
+        extra[n] = 0;
+        pipeEf[n] = 0;
         need[n] = Math.max(0, no.quantidade - (ctx.iniAPartirDe.lo.B0[n] ?? 0));
         return;
       }
@@ -420,6 +435,12 @@ export function calcularDemanda(ctx: CtxFluxo): Record<string, DemandaNo> {
       pipeLo[n] = W(e.id, "lo") + e.peso * pipeLo[s]; // para a DEMANDA a parte do estoque à frente é repartida pelo peso do ramo
       pipeHi[n] = W(e.id, "hi") + pipeHi[s]; // para o TETO, o estoque à frente conta inteiro (conservador)
       capDown[n] = capDown[s] === null ? cap[s].total : Math.min(cap[s].total, capDown[s] as number);
+      if (ativa) {
+        const proprio = cap[s].total + capacidadeProximoDiaDoNo(ctx, s);
+        capExt[n] = capExt[s] === null ? proprio : Math.min(proprio, capExt[s] as number);
+        extra[n] = Math.min(Math.max(0, (capExt[n] as number) - (capDown[n] as number)), conhecida);
+        pipeEf[n] = Math.min(W(e.id, "hi") + pipeEf[s], (capDown[n] as number) + extra[n]);
+      }
       need[n] = Math.max(0, e.peso * need[s] - W(e.id, "lo"));
     });
     rev.forEach((n) => {
@@ -430,7 +451,7 @@ export function calcularDemanda(ctx: CtxFluxo): Record<string, DemandaNo> {
       }
       const e = grafo.arestas[n];
       const m = no.succ;
-      const C = capDown[n] as number;
+      const C = (capDown[n] as number) + (ativa ? extra[n] : 0);
       // ramos irmãos que também alimentam `m`: cada um reivindica o que consegue entregar (estoque + produção possível, limitada à sua demanda),
       // no máximo a sua parte proporcional da capacidade. O que sobra é utilizável por este ramo (nunca menos que a sua parte proporcional).
       let reivindicado = 0;
@@ -440,7 +461,7 @@ export function calcularDemanda(ctx: CtxFluxo): Record<string, DemandaNo> {
       });
       const consumo = Math.max(e.peso * C, C - reivindicado);
       const teto = cap[n].tetoPeriodo;
-      const allowed = Math.max(0, consumo + teto - pipeHi[n]);
+      const allowed = Math.max(0, consumo + teto - (ativa ? pipeEf[n] : pipeHi[n]));
       const rem = Math.min(need[n], allowed);
       out[n] = { need: need[n], allowed, consumoDownstream: consumo, teto, pipelineLo: pipeLo[n], pipelineHi: pipeHi[n], rem, limitadoPorUtilidade: allowed + 1e-9 < need[n] };
     });

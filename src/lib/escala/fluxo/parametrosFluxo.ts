@@ -11,6 +11,7 @@ export const CHAVE_PR_PARES = "producao_real_pares_legado";
 export const CHAVE_PR_CONTAGENS = "producao_real_contagens_fisicas";
 export const CHAVE_PR_MESMO_PERIODO = "producao_real_fluxo_mesmo_periodo";
 export const CHAVE_PR_CADEIA_DIAGNOSTICO = "producao_real_cadeia_diagnostico";
+export const CHAVE_PR_CADEIA_ALLOWED = "producao_real_cadeia_allowed";
 export const PRIMEIRA_SEMANA_FLUXO = "2026-10-26";
 
 export interface ConfigFluxo {
@@ -26,7 +27,7 @@ export interface ConfigFluxo {
    *  (a produção da etapa anterior no próprio período só alimenta o downstream no período seguinte), porque o tempo físico de transferência entre operações ainda não é modelado. */
   mesmoPeriodo?: boolean; // ausente = true
   /** Camadas do planejamento de cadeia (fluxo/cadeia.ts), cada uma ligada SÓ pelo JSON "ativo" na sua chave (producao_real_cadeia_diagnostico…); ausente/outro valor = desligada (chave omitida). */
-  cadeia?: { diagnostico?: true };
+  cadeia?: { diagnostico?: true; allowed?: true; saida?: true };
 }
 
 export const CONFIG_FLUXO_PADRAO: ConfigFluxo = { modo: "desligado", semanasAtivas: [], limiar: null, paresLegado: [], contagensFisicas: [], contagensFisicasDescartadas: [] };
@@ -111,7 +112,10 @@ export function lerConfigFluxo(linhas: { chave: string; valor: unknown }[] | nul
     contagensFisicas: contagens.itens,
     contagensFisicasDescartadas: contagens.descartes,
     ...(mapa.get(CHAVE_PR_MESMO_PERIODO) === false ? { mesmoPeriodo: false } : {}), // só o JSON `false` liga a regra conservadora; ausente/outro valor = padrão (chave omitida)
-    ...(mapa.get(CHAVE_PR_CADEIA_DIAGNOSTICO) === "ativo" ? { cadeia: { diagnostico: true as const } } : {}),
+    ...(() => {
+      const c = { ...(mapa.get(CHAVE_PR_CADEIA_DIAGNOSTICO) === "ativo" ? { diagnostico: true as const } : {}), ...(mapa.get(CHAVE_PR_CADEIA_ALLOWED) === "ativo" ? { allowed: true as const, saida: true as const } : {}) };
+      return Object.keys(c).length > 0 ? { cadeia: c } : {};
+    })(),
   };
 }
 
