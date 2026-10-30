@@ -108,6 +108,8 @@ export function insumosFluxo(estado: EstadoBruto, entrada: EntradaEscala, agoraM
     ...(pr && pr.limiar !== null ? { limiarEstabilidadePecas: pr.limiar } : {}),
     ...(Object.keys(fator).length > 0 ? { fatoresEmbutidos: fator } : {}),
     ...(pr && pr.mesmoPeriodo === false ? { fluxoMesmoPeriodo: false } : {}), // regra conservadora de material (padrão: ausente = comportamento atual, byte-idêntico)
+    // cadeia — DIAGNÓSTICO (só observa; ausente = byte-idêntico). NÃO entra em hashDaEntrada (ver abaixo).
+    ...(pr && pr.cadeia?.diagnostico ? { cadeia: { diagnostico: true } } : {}),
   };
   return { entrada: comF, opcoes };
 }
@@ -149,7 +151,10 @@ function corteDe(entrada: EntradaEscala, corte: ContextoFluxo["corte"]): Registr
 
 const resumoAvaliacao = (a: AvaliacaoPlano | null | undefined) => (a ? { versao: a.versao, totais: a.totais, produtos: a.produtos, diagnosticos: a.diagnosticos } : {});
 
-function hashDaEntrada(ctx: ContextoFluxo, dados: DadosProducaoReal, opcoes: OpcoesFluxo, ultimoFechado: number | null): string {
+function hashDaEntrada(ctx: ContextoFluxo, dados: DadosProducaoReal, opcoesBrutas: OpcoesFluxo, ultimoFechado: number | null): string {
+  // `cadeia` (diagnóstico) só OBSERVA: fica fora do hash — ligar/desligar a flag não muda hashEntrada, a idempotência do registro nem nada que decide plano/NO-OP.
+  const { cadeia: _cadeia, ...opcoes } = opcoesBrutas;
+  void _cadeia;
   return hashCanonico({
     entrada: ctx.entrada, apontamentos: dados.apontamentos, wipConfirmado: dados.wipConfirmado ?? [], ...(dados.contagensFisicas && dados.contagensFisicas.length > 0 ? { contagensFisicas: dados.contagensFisicas } : {}),
     opcoes, ultimoFechado, planoVigente: hashAlocacoes(dados.planoVigente), versao: VERSAO_MOTOR_FLUXO,

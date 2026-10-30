@@ -14,6 +14,7 @@ import { chavePool, type AlocacaoEscala, type EntradaEscala, type ResultadoEscal
 import { avaliarComCtx } from "./avaliar";
 import { contagensDoPlano, tabelaMarginal, varrerContagens } from "./otimizar";
 import { montarEstado, prepararFluxo, type CtxFluxo, type OpcoesInternas } from "./estado";
+import { diagnosticosDeCadeia, simularCadeia } from "./cadeia";
 import { explicarMudanca } from "./explicar";
 import { verificarRestricoesDuras } from "./restricoes";
 import {
@@ -279,6 +280,14 @@ export function planejarComFluxo(entrada: EntradaEscala, dados: DadosProducaoRea
   const churn = calcularChurn(ctx, resultado.alocacoes, retidas);
   // restrições duras sobre o plano DEVOLVIDO (já estabilizado): só as linhas novas importam (as congeladas foram gravadas sob outras condições)
   const violacoes = verificarRestricoesDuras(entradaFluxo, resultado.alocacoes, { somenteLinhasNovas: true });
+  // CADEIA — camada 1 (diagnóstico): só descreve o plano FINAL; nunca o altera
+  if (ctx.opcoes.cadeia?.diagnostico) {
+    try {
+      diag.push(...diagnosticosDeCadeia(ctx, simularCadeia(ctx, resultado.alocacoes), resultado.alocacoes));
+    } catch (e) {
+      diag.push({ codigo: "CADEIA_DIAGNOSTICO_FALHOU", severidade: "info", mensagem: `diagnóstico de cadeia falhou: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  }
   const faltaTxt = (a: AvaliacaoPlano) => Math.round(a.totais.faltaFinalLo);
   diag.push(
     planoEscolhido === "fluxo"

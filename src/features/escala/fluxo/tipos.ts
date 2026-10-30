@@ -92,6 +92,9 @@ export interface OpcoesFluxo {
   ponderarPorValor?: boolean;
   /** Fluxo entre etapas no MESMO período (consumo ≤ WIP inicial + produção upstream do período). Default true (spec §3). */
   fluxoMesmoPeriodo?: boolean;
+  /** CADEIA — DIAGNÓSTICO (producao_real_cadeia_diagnostico). Só OBSERVA: acrescenta diagnósticos (CADEIA_INVALIDA, CADEIA_COBERTURA, CONSUMO_REAL_MAIOR_QUE_DISPONIVEL…) e NUNCA altera o plano.
+   *  Não entra em nenhum hash (hashDaEntrada ignora esta chave): ligar/desligar não muda hash de entrada, hash de plano nem a detecção de NO-OP. Ausente ⇒ saída idêntica. */
+  cadeia?: { diagnostico?: boolean };
   /** Inclui na avaliação a trajetória de WIP por par/slot e os marginais (mais pesado no jsonb). Default true / false. */
   incluirTrajetoria?: boolean;
   incluirMarginais?: boolean;
@@ -135,7 +138,12 @@ export type CodigoDiagnosticoFluxo =
   | "SEM_PRODUCAO_SEM_PROGRAMACAO" // sem_producao com motivo sem_programacao (fora da spec original): zero confirmado, sem inferir material
   | "CONTAGEM_FISICA_USADA" // contagem física válida usada como saldo inicial CONFIRMADO do par
   | "CONTAGEM_FISICA_IGNORADA" // item de contagem física inválido/substituído: ignorado (nunca derruba o recálculo)
-  | "POOL_FUNDIDO"; // pools legados fundidos logicamente
+  | "POOL_FUNDIDO" // pools legados fundidos logicamente
+  | "CADEIA_INVALIDA" // (cadeia) nó × período do plano sem material: déficit e último período seguro para ligar o upstream
+  | "CADEIA_COBERTURA" // (cadeia) por ligação: estoque, cobertura em períodos, período da ruptura e último período seguro
+  | "CADEIA_DIAGNOSTICO_FALHOU" // (cadeia) a validação lançou: ignorada, o plano segue
+  | "ESTADO_FISICO_INCONSISTENTE" // (cadeia) dados físicos conflitantes: estoque NÃO é inventado nem alterado
+  | "CONSUMO_REAL_MAIOR_QUE_DISPONIVEL"; // (cadeia) consumo real > disponível (contagem + produção anterior): só registra
 
 export interface DiagnosticoItem {
   codigo: CodigoDiagnosticoFluxo;

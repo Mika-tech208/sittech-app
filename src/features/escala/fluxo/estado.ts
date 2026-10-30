@@ -284,6 +284,34 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
         mensagem: `WIP ${cont ? "pós-contagem" : "estimado"} negativo (${Math.round(bruto.hi)}) mesmo no melhor caso: piso 0. Causas possíveis: estoque inicial desconhecido, apontamento inconsistente ou lançamento atrasado`, detalhes: { brutoHi: r1(bruto.hi), brutoLo: r1(bruto.lo) },
       });
     }
+    if (cont && opcoes.cadeia?.diagnostico) try {
+      // CADEIA — diagnóstico (só observa; NUNCA cria estoque, reduz apontamento nem altera WIP/lo/hi): consumo REAL maior que o disponível.
+      //  (a) estimativa contínua: contagem + produção da origem − consumo da seguinte < 0 mesmo no melhor caso;
+      //  (b) sob LOTE (fluxoMesmoPeriodo=false): em um período FECHADO após a contagem, a etapa seguinte consumiu mais do que havia no INÍCIO dele (contagem + produção dos períodos anteriores − consumo anterior).
+      // Confiança explícita: "contagem_fisica" (todas as células posteriores à contagem confirmadas) × "estimada" (há células não confirmadas: o excesso pode ser só lançamento ausente).
+      const naoConfDiag = temNaoConfirmadoDesde(registrosFechados, entrada.slots, cont.instanteMs, [e.origem, e.destino]);
+      const confDiag = naoConfDiag ? "estimada" : "contagem_fisica";
+      // tolerância: contagens são arredondadas (centenas) — só excesso ≥ max(250 peças, 5% do saldo contado) vira diagnóstico (evita falso alarme de arredondamento)
+      const tol = Math.max(250, 0.05 * Math.max(0, cont.item.saldo));
+      const achados: { periodo: string | null; excesso: number }[] = [];
+      if (-bruto.hi >= tol) achados.push({ periodo: null, excesso: -bruto.hi });
+      if (opcoes.fluxoMesmoPeriodo === false && !naoConfDiag) {
+        const boasDe = (no: string, t: number) => registrosFechados.filter((r) => r.no === no && r.t === t && r.estado === "confirmado").reduce((q, r) => q + r.linhas.reduce((a, l) => a + l.boas, 0), 0);
+        let estoque = Math.max(0, cont.item.saldo);
+        entrada.slots.filter((x) => x.indice <= ultimoFechado && x.inicioMs >= cont.instanteMs).forEach((sl) => {
+          const dn = boasDe(e.destino, sl.indice);
+          if (dn - estoque >= tol) achados.push({ periodo: `${sl.data} ${sl.periodoId}`, excesso: dn - estoque });
+          estoque = Math.max(0, estoque - dn) + boasDe(e.origem, sl.indice);
+        });
+      }
+      achados.forEach((a) => diagnosticos.push({
+        codigo: "CONSUMO_REAL_MAIOR_QUE_DISPONIVEL", severidade: "aviso", produtoId: e.produtoId, etapaId: e.etapaSeguinteId,
+        mensagem: `Consumo real da etapa seguinte${a.periodo ? ` em ${a.periodo}` : ""} excede o disponível em ${Math.round(a.excesso)} peça(s) (contagem de ${Math.round(cont.item.saldo)} em ${contagemIso(cont.instanteMs)} + produção da etapa anterior): contagem desatualizada/mal classificada ou lançamento inconsistente. Estoque NÃO foi criado nem o WIP alterado; confiança do dado: ${confDiag}`,
+        detalhes: { excesso: r1(a.excesso), periodo: a.periodo, saldoContado: r1(cont.item.saldo), contadoEm: contagemIso(cont.instanteMs), confiancaDado: confDiag, confiancaWipPar: confianca, wipAlteradoPeloDiagnostico: false },
+      }));
+    } catch (err) {
+      diagnosticos.push({ codigo: "CADEIA_DIAGNOSTICO_FALHOU", severidade: "info", mensagem: `diagnóstico de consumo real falhou (ignorado, o estado segue): ${err instanceof Error ? err.message : String(err)}` });
+    }
     pares.push({
       produtoId: e.produtoId, etapaOrigemId: e.etapaOrigemId, etapaSeguinteId: e.etapaSeguinteId, origem, confianca, wip: { lo: r1(wip.lo), hi: r1(wip.hi) }, bruto: { lo: r1(bruto.lo), hi: r1(bruto.hi) }, negativo,
       ...(fonte ? { fonteConfirmacao: fonte } : {}), ...(contagemInfo ? { contagem: contagemInfo } : {}),
@@ -293,6 +321,9 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
     iniHi.W0[e.id] = wip.hi;
     iniHi.L0[e.id] = wip.hi;
   });
+  if (diagnosticos.some((d) => d.codigo === "CONSUMO_REAL_MAIOR_QUE_DISPONIVEL")) {
+    diagnosticos.push({ codigo: "ESTADO_FISICO_INCONSISTENTE", severidade: "aviso", mensagem: "Dados físicos conflitantes (consumo real maior que o disponível): recontar os estoques entre etapas. Este diagnóstico só registra: não cria estoque, não reduz apontamento e não altera o WIP nem o plano" });
+  }
 
   // ---- projeção até aPartirDe (linhas congeladas + produção real dos períodos não fechados) ----
   const projetar = (ini: IniScenario) => {

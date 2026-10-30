@@ -494,6 +494,57 @@ describe("integração com o núcleo REAL", () => {
     expect({ ...conservador, fluxoMesmoPeriodo: undefined }).toEqual({ ...padrao, fluxoMesmoPeriodo: undefined });
   });
 
+  it("cadeia (diagnóstico): sem producaoReal.cadeia as opções são as de hoje; com ela entra só { diagnostico: true } (sem demanda futura, sem outras camadas)", async () => {
+    const { m, apontamentos } = await comApontamentos(0.6);
+    const estado = { ...m.entradas, diasExistentes: [...m.dias].map(([data, d]) => ({ data, versao: d.versao, periodosSnapshot: d.snapshot })), alocacoes: m.alocacoes };
+    const nominal = montarEntradaEscala(estado, AGORA).entrada;
+    const pr = { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos } as const;
+    const padrao = insumosFluxo({ ...estado, producaoReal: pr } as never, nominal, AGORA).opcoes;
+    expect("cadeia" in padrao).toBe(false);
+    const ligado = insumosFluxo({ ...estado, proximaSemana: { quantidadePorProduto: { X: 5 } }, producaoReal: { ...pr, cadeia: { diagnostico: true } } } as never, nominal, AGORA).opcoes;
+    expect(ligado.cadeia).toEqual({ diagnostico: true });
+    expect({ ...ligado, cadeia: undefined }).toEqual({ ...padrao, cadeia: undefined });
+  });
+
+  // ---- CAMADA 1 (diagnóstico) ponta a ponta com o núcleo REAL: ligar a flag não muda NADA do que o fluxo decide, grava ou usa para detectar NO-OP ----
+  for (const modo of ["ativo", "sombra"] as const) {
+    it(`cadeia diagnóstico (${modo}): flag ON == flag OFF byte a byte (plano gravado, hashEntrada, hashPlanoFluxo, resumo/assinaturaAlertas/alertas do payload, NO-OP) e só entram diagnósticos novos`, async () => {
+      const rodarCom = async (cadeia: boolean) => {
+        const { m, apontamentos } = await comApontamentos(0.6);
+        m.editar((e) => { e.producaoReal = { modoEfetivo: modo, limiar: null, paresLegado: [], apontamentos, ...(cadeia ? { cadeia: { diagnostico: true as const } } : {}) }; });
+        const payloads: PayloadAplicacao[] = [];
+        const io = m.io(); const orig = io.aplicar;
+        io.aplicar = async (p) => { payloads.push(p); return orig(p); };
+        m.relogioMs = AGORA;
+        const r1 = await processarSemana(io, { agoraMs: AGORA, criarSeNaoExiste: false });
+        const reg = m.registrosFluxo.at(-1)!;
+        const aplicacoes = m.aplicacoes;
+        const r2 = await processarSemana(io, { agoraMs: AGORA, criarSeNaoExiste: false });
+        return { m, payloads, r1, r2, reg, noop: r2.status === "sem_alteracao" && m.aplicacoes === aplicacoes };
+      };
+      const off = await rodarCom(false);
+      const on = await rodarCom(true);
+      expect(Mundo.assinatura(on.m.alocacoes, true)).toBe(Mundo.assinatura(off.m.alocacoes, true));
+      expect(JSON.stringify(on.payloads.map((p) => p.alocacoes))).toBe(JSON.stringify(off.payloads.map((p) => p.alocacoes)));
+      expect(JSON.stringify(on.payloads.map((p) => p.resumo))).toBe(JSON.stringify(off.payloads.map((p) => p.resumo))); // inclui assinaturaAlertas, alertas, alertasDetalhe, fluxo.hashPlanoFluxo
+      expect(on.reg.hashEntrada).toBe(off.reg.hashEntrada);
+      expect(on.reg.hashPlanoFluxo).toBe(off.reg.hashPlanoFluxo);
+      expect(on.reg.hashPlanoOficial).toBe(off.reg.hashPlanoOficial);
+      expect(on.r1.status).toBe(off.r1.status);
+      expect(on.noop).toBe(off.noop); // recálculo repetido com os mesmos dados continua NO-OP
+      if (modo === "ativo") expect(on.noop).toBe(true);
+      // só diagnósticos NOVOS (os demais campos do registro são idênticos)
+      const novos = new Set(["CADEIA_INVALIDA", "CADEIA_COBERTURA", "CONSUMO_REAL_MAIOR_QUE_DISPONIVEL", "ESTADO_FISICO_INCONSISTENTE", "CADEIA_DIAGNOSTICO_FALHOU"]);
+      const dOff = off.reg.diagnosticos as { codigo: string }[];
+      const dOn = on.reg.diagnosticos as { codigo: string }[];
+      expect(dOn.filter((d) => !novos.has(d.codigo))).toEqual(dOff);
+      expect(dOff.some((d) => novos.has(d.codigo))).toBe(false);
+      expect({ ...on.reg, diagnosticos: dOff }).toEqual(off.reg);
+      // payload do diagnóstico limitado (jsonb): poucos KB a mais
+      expect(JSON.stringify(dOn).length - JSON.stringify(dOff).length).toBeLessThan(60_000);
+    });
+  }
+
   it("ATIVO idempotente: repetir o recálculo com os mesmos dados é NO-OP (o plano vigente é candidato e volta idêntico — sem churn, sem nova versão)", async () => {
     const { m, apontamentos } = await comApontamentos(0.6);
     m.editar((e) => { e.producaoReal = { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos }; });
