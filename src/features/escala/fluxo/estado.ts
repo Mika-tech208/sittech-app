@@ -297,7 +297,7 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
   // ---- projeção até aPartirDe (linhas congeladas + produção real dos períodos não fechados) ----
   const projetar = (ini: IniScenario) => {
     const params = (cap: Record<string, CapNo>) => ({
-      tIni: ultimoFechado + 1, tFim: aPartirDe, cap, B0: ini.B0, W0: ini.W0, L0: ini.L0, Q: Object.fromEntries(Object.values(grafo.nos).map((n) => [n.id, n.quantidade])), mesmoPeriodo: opcoes.fluxoMesmoPeriodo !== false,
+      tIni: ultimoFechado + 1, tFim: aPartirDe, cap, B0: ini.B0, W0: ini.W0, L0: ini.L0, Q: Object.fromEntries(Object.values(grafo.nos).map((n) => [n.id, n.quantidade])), mesmoPeriodo: opcoes.fluxoMesmoPeriodo !== false, ...(opcoes.transferenciaPorAresta ? { lagPorAresta: opcoes.transferenciaPorAresta } : {}),
     });
     const B: Record<string, number> = { ...ini.B0 };
     const W: Record<string, number> = { ...ini.W0 };

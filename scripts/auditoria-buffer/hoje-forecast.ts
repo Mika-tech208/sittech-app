@@ -3,10 +3,10 @@
 // Env: OUT=arquivo.json  MD=arquivo.md  JANELA=14  NMIN=3
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { abrir, estadoEm, receita } from "./comum";
+import { abrir, estadoEm, receita, modoLigacaoConector } from "./comum";
 import { CACHE } from "./carga";
 import { avaliarPlano, planejarComFluxo } from "@/features/escala/fluxo";
-import { forecastDoPlano, fontesDoNo, reposicaoMinimaDe } from "@/features/escala/fluxo/forecastBufferPlano";
+import { cenarioContinuo, forecastDoPlano, fontesDoNo, reposicaoMinimaDe, transferenciaPorArestaDe } from "@/features/escala/fluxo/forecastBufferPlano";
 import { agendarMontante, compararFontes, formatarDiagnosticoLigacao } from "@/features/escala/fluxo/forecastBuffer";
 import { criarEstimadorPosto, fatorReposicaoMedido } from "@/features/escala/fluxo/produtividadePosto";
 import { gerarEscala } from "@/features/escala/gerarEscala";
@@ -39,16 +39,26 @@ const fm = fatorReposicaoMedido(estimador, postos);
 const md: string[] = [];
 const out: any = { aPartirDe: `${slots[ap].data} ${slots[ap].periodoId}`, horizonte: slots.length - ap, planoEscolhidoMotor: r0.diagnostico.planoEscolhido, fatorReposicaoMedido: fm, janela: JANELA, nMin: NMIN, cenarios: {} };
 
+const n0 = (v: number) => Math.round(v).toLocaleString("pt-BR");
+function linhaFluxo(l: ReturnType<typeof forecastDoPlano>["resultado"]["ligacoes"][number], per: { rotulo: string }[]) {
+  const T = per.map((p, t) => `${p.rotulo}: ini ${n0(l.saldoInicial[t])} +ent ${n0(l.entradaNoPeriodo[t])} −sai ${n0(l.saidaNoPeriodo[t])} (líq ${l.taxaLiquida[t] >= 0 ? "+" : ""}${n0(l.taxaLiquida[t])}) = fim ${n0(l.saldoFinal[t])}`).join(" | ");
+  const rup = l.rupturaPrevista ? `RUPTURA ${l.rupturaPrevista.rotulo} (−${n0(l.rupturaPrevista.faltaPecas)} pç${l.rupturaPrevista.minuto !== null ? `, ~min ${Math.round(l.rupturaPrevista.minuto)}` : ""})` : "sem ruptura";
+  const acao = l.acao.tipo === "nenhuma" ? "nenhuma" : l.acao.tipo === "sem_fonte" ? `sem fonte (${n0(l.acao.inevitavel)} pç inevitáveis${l.acao.ligarEmRotulo ? `; ligar ${l.acao.ligarEmRotulo}` : ""})` : `ligar ${l.acao.ligarEmRotulo} (+${n0(l.acao.adicionar.reduce((q, v) => q + v, 0))} pç)`;
+  return `${l.rotulo} [${l.transferencia}${l.transferencia === "lote" ? ` ${l.atrasoPeriodos}p` : ""}] WIP ${n0(l.wipInicial)} | cobertura ${l.coberturaSemReposicao.periodos === null ? "cobre" : l.coberturaSemReposicao.periodos.toFixed(2) + " per."} | ${T} | ${rup} | REORDER_POINT ${l.pontoDePedido.map(n0).join("/")}${l.gatilhoPontoDePedido !== null ? ` (gatilho ${per[l.gatilhoPontoDePedido].rotulo})` : ""} | AÇÃO: ${acao}`;
+}
 function rodar(titulo: string, plano: AlocacaoEscala[], opts: any) {
-  const f = forecastDoPlano(ctx, plano.filter((a) => ix(a) >= ap), { limites: demandaFluxo, rotuloNo: rotulo, mesmoPeriodo: false, ...opts });
+  const f = forecastDoPlano(ctx, plano.filter((a) => ix(a) >= ap), { limites: demandaFluxo, rotuloNo: rotulo, mesmoPeriodo: false, modoLigacao: modoLigacaoConector(nome), ...opts });
   const r = f.resultado;
   md.push(`\n### ${titulo}\n`);
-  md.push(`Períodos: ${r.periodos.map((p) => p.rotulo).join(", ")} | confiança do forecast: ${r.confianca} | menor cobertura sem reposição: ${r.menorCobertura === null ? "cobre o horizonte" : r.menorCobertura.toFixed(2) + " períodos"}\n`);
-  r.ligacoes.forEach((l) => md.push("- " + formatarDiagnosticoLigacao(l, r.periodos) + (l.compartilhada ? " [estoque compartilhado: 2+ origens]" : "")));
+  md.push(`Períodos: ${r.periodos.map((p) => p.rotulo).join(", ")} | confiança do forecast: ${r.confianca}${r.alternativo ? " | ligações DESCONHECIDAS: principal = lote, alternativo = contínuo" : ""}\n`);
+  r.ligacoes.forEach((l, i) => {
+    md.push("- " + linhaFluxo(l, r.periodos));
+    if (l.incerta && r.alternativo) md.push(`    - cenário CONTÍNUO desta ligação: ${linhaFluxo(r.alternativo.ligacoes[i], r.periodos)}${l.divergeEntreCenarios ? "  ⚠ DIVERGE entre os cenários (incerteza)" : "  (mesmo resultado)"}`);
+  });
   return f;
 }
-const tab = (f: ReturnType<typeof rodar>) => f.resultado.ligacoes.map((l) => ({
-  ligacao: l.rotulo, wip: Math.round(l.wipInicial), confianca: l.confianca, compartilhada: l.compartilhada, consumoPrevisto: l.consumoPrevisto.map(Math.round), reposicaoPrevista: l.reposicaoPrevista.map(Math.round), saldoProjetado: l.saldoProjetado.map(Math.round),
+const tab = (f: ReturnType<typeof rodar>) => f.resultado.ligacoes.map((l, i) => ({
+  ligacao: l.rotulo, modo: l.transferencia, incerta: l.incerta, diverge: l.divergeEntreCenarios, saldoInicial: l.saldoInicial.map(Math.round), entrada: l.entradaNoPeriodo.map(Math.round), saida: l.saidaNoPeriodo.map(Math.round), taxaLiquida: l.taxaLiquida.map(Math.round), saldoFinal: l.saldoFinal.map(Math.round), alternativo: f.resultado.alternativo ? { ruptura: f.resultado.alternativo.ligacoes[i].rupturaPrevista, saldoFinal: f.resultado.alternativo.ligacoes[i].saldoFinal.map(Math.round), pontoDePedido: f.resultado.alternativo.ligacoes[i].pontoDePedido.map(Math.round), acao: f.resultado.alternativo.ligacoes[i].acao.tipo, ligarEm: f.resultado.alternativo.ligacoes[i].acao.ligarEmRotulo, adicionar: f.resultado.alternativo.ligacoes[i].acao.adicionar.map(Math.round) } : null, wip: Math.round(l.wipInicial), confianca: l.confianca, compartilhada: l.compartilhada, consumoPrevisto: l.consumoPrevisto.map(Math.round), reposicaoPrevista: l.reposicaoPrevista.map(Math.round), saldoProjetado: l.saldoProjetado.map(Math.round),
   saldoSemReposicao: l.saldoSemReposicao.map(Math.round), coberturaPeriodos: l.coberturaSemReposicao.periodos, ruptura: l.rupturaPrevista, pontoDePedido: l.pontoDePedido.map(Math.round), gatilho: l.gatilhoPontoDePedido,
   acao: { ...l.acao, adicionar: l.acao.adicionar.map(Math.round) }, saldoComAcao: l.saldoComAcao.map(Math.round), rupturaComAcao: l.rupturaComAcao, picoWipComAcao: Math.round(l.picoWipComAcao), excedeTeto: l.excedeTeto,
 }));
@@ -70,8 +80,22 @@ out.cenarios.motor_historico = tab(fOff);
 out.nosSemMaterial = fHist.resultado.nos.filter((n) => n.pecasSemMaterial.some((v) => v > 0)).map((n) => ({ no: n.rotulo, pecasSemMaterial: n.pecasSemMaterial.map(Math.round), postosSemMaterial: n.postosSemMaterial, desejado: n.producaoDesejada.map(Math.round), efetivo: n.producaoPlano.map(Math.round) }));
 md.push("\n### Postos que ficarão sem material (plano em vigor, histórico)\n");
 out.nosSemMaterial.forEach((n: any) => md.push(`- ${n.no}: desejado ${n.desejado.join("/")} | efetivo ${n.efetivo.join("/")} | peças sem material ${n.pecasSemMaterial.join("/")} | postos-equivalentes ${n.postosSemMaterial.join("/")}`));
+// ---- o motor de hoje (regra global) × o mesmo motor conhecendo o modo de cada aresta ----
+{
+  const fb = forecastDoPlano(ctx, vig, { limites: demandaFluxo, mesmoPeriodo: false, modoLigacao: modoLigacaoConector(nome), rotuloNo: rotulo });
+  const lags = { cons: transferenciaPorArestaDe(fb.entrada, "conservador"), cont: transferenciaPorArestaDe(fb.entrada, "continuo") };
+  const resumo = (pl: AlocacaoEscala[], c: "cons" | "cont") => { const av = avaliarPlano(ent, dados, [...ent.congeladas, ...pl], { ...opcoes, fluxoMesmoPeriodo: false, limitesRemPorPool: rem, transferenciaPorAresta: lags[c] }); return { finalLo: Math.round(av.totais.finalEntregueLo), receitaLo: receita(ent, av), wipFinalLo: Math.round(av.totais.wipFinalLo) }; };
+  out.motorPorAresta = {};
+  (["cons", "cont"] as const).forEach((c) => {
+    const rr = planejarComFluxo(ent, dados, { ...opcoes, transferenciaPorAresta: lags[c] });
+    const pl = rr.resultado.alocacoes.filter((a) => ix(a) >= ap);
+    out.motorPorAresta[c] = { escolhido: rr.diagnostico.planoEscolhido, planoEmVigorNesseMundo: resumo(vig, c), planoDeHojeNesseMundo: resumo(off, c), planoDoMotorComModos: resumo(pl, c), postosDoMotorComModos: resumoPostos(pl) };
+  });
+}
 // ---- pessoas × postos T1–T3 (plano em vigor) ----
-const resumoPostos = (pl: AlocacaoEscala[]) => ["t1", "t2", "t3"].map((p) => ({ periodo: p, postos: pl.filter((a) => a.data === "2026-10-30" && a.periodoId === p && a.maquinaId).map((a) => `${nome(a.maquinaId)} ${nome(a.etapaId)} ${nome(a.produtoId).replace('Conector 3/4" - Maquina Automatica', "Con3/4 Autom").replace('Conector 3/4"', "Con3/4")}`).sort() }));
+function resumoPostos(pl: AlocacaoEscala[]) {
+  return ["t1", "t2", "t3"].map((p) => ({ periodo: p, postos: pl.filter((a) => a.data === "2026-10-30" && a.periodoId === p && a.maquinaId).map((a) => `${nome(a.maquinaId)} ${nome(a.etapaId)} ${nome(a.produtoId).replace('Conector 3/4" - Maquina Automatica', "Con3/4 Autom").replace('Conector 3/4"', "Con3/4")}`).sort() }));
+}
 out.postosVigente = resumoPostos(vig);
 
 // ---- fonte alternativa: Máquina 8 × cadeia convencional, sobre o destino fundido (Etiquetar Conector 3/4) ----
@@ -104,14 +128,15 @@ if (destino) {
   const rot = new Map(fontes.map((x) => [x.id, x.rotulo]));
   md.push(`Ordem sugerida (informativa): ${comp.ordemSugerida.map((i) => rot.get(i)).join(" > ")} — ${comp.criterio}`);
   // estresse: se o destino precisasse de N peças entregues no período seguinte ao 1º (entrega em T2), como cada fonte responderia?
-  const estresse = [1500, 3000, 6000].map((N) => {
+  // Rosquear→Parafusar é DESCONHECIDO: o estresse é calculado nos dois cenários (entre estágios: lote × contínuo)
+  const estresse = [1500, 3000, 6000].flatMap((N) => ["lote", "continuo"].map((cen) => {
     const necessidade = [0, N, 0];
-    const c = compararFontes(necessidade, fontes, { mesmoPeriodo: false });
-    return { N, fontes: c.fontes.map((x) => ({ fonte: x.rotulo, cobre: x.cobre, deficit: Math.round(x.deficit), pessoasPeriodo: x.pessoasPeriodo, wipConsumido: Math.round(x.wipConsumido), porEstagio: x.porEstagio.map((e) => `${e.rotulo} ${e.producao.map(Math.round).join("/")} (${e.pessoasPeriodo})`) })) };
-  });
+    const c = compararFontes(necessidade, fontes, { mesmoPeriodo: cen === "continuo" });
+    return { N, cen, fontes: c.fontes.map((x) => ({ fonte: x.rotulo, cobre: x.cobre, deficit: Math.round(x.deficit), pessoasPeriodo: x.pessoasPeriodo, wipConsumido: Math.round(x.wipConsumido), porEstagio: x.porEstagio.map((e) => `${e.rotulo} ${e.producao.map(Math.round).join("/")} (${e.pessoasPeriodo})`) })) };
+  }));
   out.fonteAlternativa.estresse = estresse;
   md.push("\nEstresse (entrega de N peças em T2): ");
-  estresse.forEach((e) => md.push(`- N=${e.N}: ` + e.fontes.map((x) => `${x.fonte} → cobre=${x.cobre}${x.deficit ? ` déficit ${x.deficit}` : ""}, ${x.pessoasPeriodo} p-p, WIP consumido ${x.wipConsumido} [${x.porEstagio.join("; ")}]`).join(" | ")));
+  estresse.forEach((e) => md.push(`- N=${e.N} [${e.cen}]: ` + e.fontes.map((x) => `${x.fonte} → cobre=${x.cobre}${x.deficit ? ` déficit ${x.deficit}` : ""}, ${x.pessoasPeriodo} p-p, WIP consumido ${x.wipConsumido} [${x.porEstagio.join("; ")}]`).join(" | ")));
 }
 
 // ---- ON (simulação) para hoje: mínimo de reposição nos períodos indicados ----

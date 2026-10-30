@@ -31,6 +31,8 @@ export interface ParamsSim {
   Q: Record<string, number>; // quantidade prevista por nó
   limiteFut?: { desde: number; valor: Record<string, number> }; // limite da produção base a partir de `desde` (rem explícito do plano de fluxo)
   mesmoPeriodo: boolean;
+  /** Defasagem (em períodos) da transferência POR ARESTA (id da aresta = nó de origem): 0 = contínuo (o destino consome no próprio período o que a origem produz), 1 = só no período seguinte, ≥2 = atraso maior. Ausente ⇒ vale `mesmoPeriodo` para todas (byte-idêntico). */
+  lagPorAresta?: Record<string, number>;
   trajetoria?: boolean;
   /** Restante do previsto por nó JÁ em curso (continuação a partir de um estado salvo); tem precedência sobre limiteFut/Q−B0. */
   baseLeft0?: Record<string, number>;
@@ -62,6 +64,8 @@ export function simularGrupo(grafo: Grafo, g: GrupoFluxo, p: ParamsSim): Resulta
     W[e] = Math.max(0, p.W0[e] ?? 0);
     L[e] = Math.min(W[e], Math.max(0, p.L0[e] ?? 0));
   });
+  const lagDe = (e: string) => p.lagPorAresta?.[e] ?? (p.mesmoPeriodo ? 0 : 1);
+  const transito: Record<string, { de: number; chega: number; q: number }[]> = {}; // só arestas com defasagem ≥ 2: estoque em trânsito (em W, mas ainda indisponível)
   let bloq = 0;
   let desperdicio = 0;
   const x: Record<string, number[]> = {};
@@ -78,7 +82,7 @@ export function simularGrupo(grafo: Grafo, g: GrupoFluxo, p: ParamsSim): Resulta
       const real = c?.real[t] ?? 0;
       const base = c?.base[t] ?? 0;
       const adic = c?.adic[t] ?? 0;
-      const disp = (e: string) => (p.mesmoPeriodo ? W[e] : Wini[e]);
+      const disp = (e: string) => (lagDe(e) === 0 ? W[e] : lagDe(e) === 1 ? Wini[e] : Math.max(0, Wini[e] - (transito[e] ?? []).filter((x) => x.de < t && x.chega > t).reduce((s, x) => s + x.q, 0)));
       const avail = ins.length === 0 ? Number.POSITIVE_INFINITY : ins.reduce((s, e) => s + disp(e), 0);
       const targetLeft = no.final || no.succ === null ? Math.max(0, (p.Q[n] ?? 0) - B[n]) : Number.POSITIVE_INFINITY;
 
@@ -116,7 +120,10 @@ export function simularGrupo(grafo: Grafo, g: GrupoFluxo, p: ParamsSim): Resulta
           L[e] = Math.max(0, Math.min(W[e], L[e] - tira));
         });
       }
-      if (no.succ !== null) W[n] = (W[n] ?? 0) + total;
+      if (no.succ !== null) {
+        W[n] = (W[n] ?? 0) + total;
+        if (lagDe(n) >= 2 && total > 0) (transito[n] ??= []).push({ de: t, chega: t + lagDe(n), q: total });
+      }
     });
     if (p.trajetoria) g.arestas.forEach((e) => traj[e].push(W[e]));
   }

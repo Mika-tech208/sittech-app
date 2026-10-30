@@ -37,7 +37,7 @@ export function rodar(ctx: CtxFluxo, gi: number, caps: Record<string, CapNo>, ce
   const ini = ctx.iniAPartirDe[cen];
   return simularGrupo(ctx.grafo, g, {
     tIni: ctx.aPartirDe, tFim: ctx.entrada.slots.length, cap: caps, B0: ini.B0, W0: ini.W0, L0: ini.L0, Q: quantidades(ctx),
-    ...(limites ? { limiteFut: { desde: ctx.aPartirDe, valor: limites } } : {}), mesmoPeriodo: ctx.opcoes.fluxoMesmoPeriodo !== false, trajetoria,
+    ...(limites ? { limiteFut: { desde: ctx.aPartirDe, valor: limites } } : {}), mesmoPeriodo: ctx.opcoes.fluxoMesmoPeriodo !== false, ...(ctx.opcoes.transferenciaPorAresta ? { lagPorAresta: ctx.opcoes.transferenciaPorAresta } : {}), trajetoria,
   });
 }
 

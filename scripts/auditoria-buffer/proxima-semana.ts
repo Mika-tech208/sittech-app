@@ -5,7 +5,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { montarEstado as montarEstado1102 } from "./carga1102";
-import { abrir, estadoEm } from "./comum";
+import { abrir, estadoEm, modoLigacaoConector } from "./comum";
 import { CACHE } from "./carga";
 import { montarEntradaEscala } from "@/lib/escala/montarEntrada";
 import { gerarEscala } from "@/features/escala/gerarEscala";
@@ -66,14 +66,14 @@ for (const modo of ["A", "B", "C"] as const) {
   const rem = fluxo.diagnostico.estado.remPorPool;
   const demandaFluxo: Record<string, number> = Object.fromEntries(fluxo.diagnostico.estado.demanda.map((x) => [x.chave, x.demandaFluxo]));
   for (const [nomePlano, plano] of [["oficial (legado)", legado], ["fluxo (hipotético)", fluxo.resultado.alocacoes]] as [string, AlocacaoEscala[]][]) {
-    const f = forecastDoPlano(ctx, plano, { limites: demandaFluxo, rotuloNo: rotulo, estimador, mesmoPeriodo: false });
-    const r = f.resultado;
+    const f = forecastDoPlano(ctx, plano, { limites: demandaFluxo, rotuloNo: rotulo, estimador, mesmoPeriodo: false, modoLigacao: modoLigacaoConector(nome) });
+    for (const [cenNome, r] of [["desconhecidas=lote", f.resultado], ["desconhecidas=contínuo", f.resultado.alternativo ?? f.resultado]] as [string, typeof f.resultado][]) {
     const semMat = r.nos.reduce((q, n) => q + n.postosSemMaterial.reduce((s, v) => s + v, 0), 0);
     const pecasSem = r.nos.reduce((q, n) => q + n.pecasSemMaterial.reduce((s, v) => s + v, 0), 0);
     const cob = r.ligacoes.filter((l) => l.coberturaSemReposicao.periodos !== null).map((l) => l.coberturaSemReposicao.periodos as number);
     const conectores = r.ligacoes.filter((l) => /Con3\/4/.test(l.rotulo));
     const resumo = {
-      abertura: modo, plano: nomePlano, periodos: r.periodos.length, ligacoes: r.ligacoes.length, ligacoesComRuptura: r.ligacoes.filter((l) => l.rupturaPrevista).length,
+      abertura: modo, plano: nomePlano, cenario: cenNome, periodos: r.periodos.length, ligacoes: r.ligacoes.length, ligacoesComRuptura: r.ligacoes.filter((l) => l.rupturaPrevista).length,
       acoesLigar: r.ligacoes.filter((l) => l.acao.tipo === "ligar_upstream").length, semFonte: r.ligacoes.filter((l) => l.acao.tipo === "sem_fonte").length,
       pecasSemMaterialTotal: Math.round(pecasSem), postosPeriodoSemMaterial: Math.round(semMat * 10) / 10, menorCobertura: r.menorCobertura,
       coberturaMediana: cob.length ? [...cob].sort((a, b) => a - b)[Math.floor(cob.length / 2)] : null, confianca: r.confianca,
@@ -81,9 +81,10 @@ for (const modo of ["A", "B", "C"] as const) {
       noMaisSemMaterial: r.nos.map((n) => ({ no: n.rotulo, pecas: Math.round(n.pecasSemMaterial.reduce((s, v) => s + v, 0)), postos: Math.round(n.postosSemMaterial.reduce((s, v) => s + v, 0) * 10) / 10 })).sort((a, b) => b.pecas - a.pecas).slice(0, 5),
     };
     out.cenarios.push(resumo);
-    md.push(`\n#### Abertura ${modo} · plano ${nomePlano}\n`);
+    md.push(`\n#### Abertura ${modo} · plano ${nomePlano} · ${cenNome}\n`);
     md.push(`${resumo.ligacoesComRuptura}/${resumo.ligacoes} ligações com ruptura prevista; ${resumo.pecasSemMaterialTotal} pç e ${resumo.postosPeriodoSemMaterial} postos-período sem material; menor cobertura ${resumo.menorCobertura ?? "—"} períodos\n`);
     conectores.forEach((l) => md.push("- " + formatarDiagnosticoLigacao(l, r.periodos, 6)));
+    }
   }
 }
 fs.writeFileSync(process.env.OUT ?? "/dev/stdout", JSON.stringify(out, null, 1));

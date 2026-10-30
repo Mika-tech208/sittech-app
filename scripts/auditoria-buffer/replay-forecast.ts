@@ -4,10 +4,10 @@
 // (mínimo de reposição upstream imposto no período indicado + regeração pelo gerarEscala) — SIMULAÇÃO sobre o mesmo simulador (pode ser otimista).
 // Env: AGORAS=iso,iso  OUT=arquivo.json  JANELA=14  NMIN=3  FATOR=medido|1
 import * as fs from "node:fs";
-import { abrir, estadoEm, versaoEm, receita, SEMANA, type Ambiente, type EstadoReplay } from "./comum";
+import { abrir, estadoEm, versaoEm, receita, SEMANA, modoLigacaoConector, type EstadoReplay } from "./comum";
 import { avaliarPlano, planejarComFluxo, verificarRestricoesDuras } from "@/features/escala/fluxo";
 import { capsDoPlano } from "@/features/escala/fluxo/avaliar";
-import { forecastDoPlano, reposicaoMinimaDe, type ForecastDoPlano } from "@/features/escala/fluxo/forecastBufferPlano";
+import { cenarioContinuo, forecastDoPlano, reposicaoMinimaDe, transferenciaPorArestaDe, type ForecastDoPlano, type OpcoesForecastPlano } from "@/features/escala/fluxo/forecastBufferPlano";
 import { criarEstimadorPosto, fatorReposicaoMedido, type ConsultaPosto } from "@/features/escala/fluxo/produtividadePosto";
 import { gerarEscala } from "@/features/escala/gerarEscala";
 import { estabilizarPessoas } from "@/features/escala/estabilidade";
@@ -92,8 +92,9 @@ function verdade(): CelulaVerdade[] {
 // ---------------------------------------------------------------------------------------------------------------------------------
 const celulasVerdade = verdade();
 const saida: any = { parametros: { JANELA, NMIN, agoras: AGORAS.length, ufechFinal, slotFinal: `${slots[ufechFinal].data} ${slots[ufechFinal].periodoId}` }, verdadeCelulas: celulasVerdade, recalculos: [] as any[] };
-const previsoes: { agora: string; ap: number; slot: number; no: string; falta: number; desejado: number; rotulo: string; previsto: boolean }[] = [];
-const ligacaoTexto: Record<string, string[]> = {};
+type Cen = "cons" | "cont"; // cenário das ligações DESCONHECIDAS: cons = lote de 1 período (conservador), cont = contínuo
+const previsoes: { cen: Cen; agora: string; ap: number; slot: number; no: string; falta: number; desejado: number; rotulo: string; previsto: boolean }[] = [];
+const modoLigacao = modoLigacaoConector(nome);
 
 for (const iso of AGORAS) {
   const t0 = Date.now();
@@ -103,37 +104,40 @@ for (const iso of AGORAS) {
   const { ent, dados, opcoes, ap, ctx } = E;
   if (ap >= slots.length) continue;
   const vig = plano.filter((a) => ix(a) >= ap);
-  // estimador do posto (janela curta) e fator de reposição medido
   const estimador = criarEstimadorPosto(todosAps, agoraMs, { janelaDias: JANELA, nMin: NMIN });
-  const r0 = planejarComFluxo(ent, dados, opcoes);
+  const r0 = planejarComFluxo(ent, dados, opcoes); // OFF = motor de HOJE (regra global conservadora)
   const rem = r0.diagnostico.estado.remPorPool;
-  // teto de produção útil do nó p/ o forecast = demanda D_k do fluxo (o que falta ao nó seguinte além do WIP), NÃO o rem do motor (que já desconta o teto de utilidade e zeraria a reposição extra)
+  // teto de produção útil do nó p/ o forecast = demanda D_k do fluxo, NÃO o rem do motor (que já desconta o teto de utilidade e zeraria a reposição extra)
   const demandaFluxo: Record<string, number> = Object.fromEntries(r0.diagnostico.estado.demanda.map((x) => [x.chave, x.demandaFluxo]));
   const off = r0.resultado.alocacoes.filter((a) => ix(a) >= ap);
   const fatMed = fatorReposicaoMedido(estimador, postosDoPlano(off, ap, ctx));
   const fator = process.env.FATOR === "1" ? 1 : process.env.FATOR === "medido" ? fatMed.fator : 1;
   const rn = rotuloNo(null);
-  const fopt = { limites: demandaFluxo, estimador, rotuloNo: rn, fatorReposicao: fator, mesmoPeriodo: false };
+  const fopt: OpcoesForecastPlano = { limites: demandaFluxo, estimador, rotuloNo: rn, fatorReposicao: fator, mesmoPeriodo: false, modoLigacao };
 
-  // (1) forecast sobre o plano GRAVADO (o que a produção tinha na época)
+  // (1) forecast sobre o plano GRAVADO (antecipação × realidade), nos DOIS cenários das ligações desconhecidas
   const fRec = forecastDoPlano(ctx, vig, fopt);
-  fRec.resultado.nos.forEach((n) => n.producaoDesejada.forEach((des, i) => {
-    const falta = des - n.producaoPlano[i];
-    if (fRec.entrada.ligacoes.some((l) => l.destino === n.noId)) previsoes.push({ agora: iso, ap, slot: fRec.mapa.slotDoPeriodo[i], no: n.noId, falta: Math.max(0, falta), desejado: des, rotulo: n.rotulo, previsto: falta > 1e-3 });
-  }));
+  const lagsCen = { cons: transferenciaPorArestaDe(fRec.entrada, "conservador"), cont: transferenciaPorArestaDe(fRec.entrada, "continuo") };
+  (["cons", "cont"] as Cen[]).forEach((c) => {
+    const fr = c === "cons" ? fRec : cenarioContinuo(fRec);
+    fr.resultado.nos.forEach((n) => n.producaoDesejada.forEach((des, i) => {
+      const falta = des - n.producaoPlano[i];
+      if (fr.entrada.ligacoes.some((l) => l.destino === n.noId)) previsoes.push({ cen: c, agora: iso, ap, slot: fr.mapa.slotDoPeriodo[i], no: n.noId, falta: Math.max(0, falta), desejado: des, rotulo: n.rotulo, previsto: falta > 1e-3 });
+    }));
+  });
 
-  // (2) forecast sobre o plano do motor de hoje (OFF) e simulações ON (mínimo de reposição imposto + regeração)
+  // (2) forecast sobre o plano do motor de hoje (OFF) e simulações ON
   const fOff = forecastDoPlano(ctx, off, fopt);
-  // mesma estabilização de pessoas que o planejador aplica (mantém a pessoa no posto do plano vigente quando os postos são os mesmos)
+  const scen: Record<Cen, ForecastDoPlano> = { cons: fOff, cont: cenarioContinuo(fOff) };
   const estab = (linhas: AlocacaoEscala[]) => {
     const marc = linhas.filter((a) => ix(a) >= ap);
     if (vig.length === 0 || marc.length === 0) return marc;
     const e = estabilizarPessoas(marc, vig, ent.congeladas, ent.slots, { escopo: "bloco", equivalencias: ent.equivalenciaOperacoes, ...(ent.revezamentoPonteM3T1 ? { ponteM3T1: true } : {}) });
     return e.estabilizou ? e.linhas.filter((a) => ix(a) >= ap) : marc;
   };
-  const offRegen = estab(gerarEscala(r0.entradaFluxo).alocacoes);
+  void estab;
 
-  // mundo W2: produtividade do posto pelo HISTÓRICO real (em vez de meta × f do motor), aproximada por pool (média da razão das máquinas do pool)
+  // mundo W2: produtividade do posto pelo HISTÓRICO real (em vez de meta × f do motor), aproximada por pool
   const entW2 = { ...ent, pools: ent.pools.map((p) => {
     const k = chavePool(p.produtoId, p.etapaId);
     const f = (ctx.fator[k] ?? 1) || 1;
@@ -141,31 +145,19 @@ for (const iso of AGORAS) {
     const razao = rs.length > 0 ? rs.reduce((q, v) => q + v, 0) / rs.length : f;
     return { ...p, metas: Object.fromEntries(Object.entries(p.metas).map(([per, v]) => [per, (v / f) * razao])) };
   }) };
-
-  const avalia = (plan: AlocacaoEscala[], rm: Record<string, number>, mesmo: boolean, mundo: "W1" | "W2" = "W1") => {
-    const e2 = mundo === "W2" ? entW2 : ent;
-    const op = { ...opcoes, fluxoMesmoPeriodo: mesmo, limitesRemPorPool: rm };
+  /** mundo de avaliação: transferência (global conservadora | por aresta no cenário c) × produtividade (W1 meta×f | W2 histórico) */
+  type Mundo = { c?: Cen; w2?: boolean };
+  const avalia = (plan: AlocacaoEscala[], rm: Record<string, number>, m: Mundo = {}) => {
+    const e2 = m.w2 ? entW2 : ent;
+    const op = { ...opcoes, fluxoMesmoPeriodo: false, limitesRemPorPool: rm, ...(m.c ? { transferenciaPorAresta: lagsCen[m.c] } : {}) };
     const av = avaliarPlano(e2, dados, [...ent.congeladas, ...plan], op);
     const vio = verificarRestricoesDuras(ent, [...ent.congeladas, ...plan], { somenteLinhasNovas: true }).length;
-    return {
-      finalLo: Math.round(av.totais.finalEntregueLo), faltaLo: Math.round(av.totais.faltaFinalLo), receitaLo: receita(e2, av), wipFinalLo: Math.round(av.totais.wipFinalLo), excessoWip: Math.round(av.totais.excessoWip),
-      semPosto: plan.filter((a) => !a.maquinaId).length, comPosto: plan.filter((a) => a.maquinaId).length, violacoes: vio,
-    };
+    return { finalLo: Math.round(av.totais.finalEntregueLo), faltaLo: Math.round(av.totais.faltaFinalLo), receitaLo: receita(e2, av), wipFinalLo: Math.round(av.totais.wipFinalLo), excessoWip: Math.round(av.totais.excessoWip), semPosto: plan.filter((a) => !a.maquinaId).length, violacoes: vio };
   };
-  const construirON = (f: ForecastDoPlano, K: number) => {
-    const { reposicaoMinima, remExtra } = reposicaoMinimaDe(f, K);
-    const remON: Record<string, number> = { ...rem };
-    const remGer: Record<string, number> = { ...(r0.entradaFluxo.remPorPool ?? {}) };
-    Object.entries(remExtra).forEach(([k, v]) => { remON[k] = (remON[k] ?? 0) + v; remGer[k] = (remGer[k] ?? 0) + v; });
-    const plano = estab(gerarEscala({ ...r0.entradaFluxo, reposicaoMinima, remPorPool: remGer }).alocacoes);
-    return { plano, remON, postosPedidos: Object.values(reposicaoMinima).reduce((q, o) => q + Object.keys(o).length, 0) };
-  };
-  // ON por EDIÇÃO MÍNIMA do plano que o motor publicaria (OFF): para cada posto pedido, escolhe a melhor troca (pessoa → máquina livre do pool) segundo o MESMO simulador,
-  // respeitando as restrições duras. Evita o confundimento da regeração (quando o vigente vence, a regeração é pior que o vigente).
-  const aplicarMinimos = (basePlano: AlocacaoEscala[], minimos: Record<string, Record<string, number>>, remAv: Record<string, number>) => {
+  const aplicarMinimos = (basePlano: AlocacaoEscala[], minimos: Record<string, Record<string, number>>, remAv: Record<string, number>, m: Mundo) => {
     let plano = basePlano.map((a) => ({ ...a }));
     let trocas = 0, falhas = 0;
-    const fin = (pl: AlocacaoEscala[]) => { const av = avaliarPlano(ent, dados, [...ent.congeladas, ...pl], { ...opcoes, fluxoMesmoPeriodo: false, limitesRemPorPool: remAv }); return { f: av.totais.finalEntregueLo, w: av.totais.wipFinalLo }; };
+    const fin = (pl: AlocacaoEscala[]) => { const r = avalia(pl, remAv, m); return { f: r.finalLo, w: r.wipFinalLo }; };
     for (const sStr of Object.keys(minimos).sort((x, y) => Number(x) - Number(y))) {
       const sl = Number(sStr);
       for (const [chave, n] of Object.entries(minimos[sStr])) {
@@ -177,12 +169,12 @@ for (const iso of AGORAS) {
         let atual = plano.filter((a) => ix(a) === sl && doNo(a)).length;
         while (atual < n) {
           const usadas = new Set(plano.filter((a) => ix(a) === sl && a.maquinaId).map((a) => a.maquinaId));
-          const livres = pool.maquinasIds.filter((m) => !usadas.has(m) && maquinaDisponivelNoSlot(ent, m, ent.slots[sl]));
+          const livres = pool.maquinasIds.filter((mq) => !usadas.has(mq) && maquinaDisponivelNoSlot(ent, mq, ent.slots[sl]));
           const doadores = plano.filter((a) => ix(a) === sl && !doNo(a));
           let melhor: { pl: AlocacaoEscala[]; f: number; w: number } | null = null;
-          for (const m of livres) for (const dnr of doadores) {
+          for (const mq of livres) for (const dnr of doadores) {
             const mu = (pool.metas[ent.slots[sl].periodoId] ?? 0) * (ctx.fator[chave] ?? 1);
-            const novo = plano.map((a) => (a === dnr ? { ...a, maquinaId: m, produtoId: pool.produtoId, etapaId: pool.etapaId, operacaoId: pool.operacaoId, pecas: mu, pecasAdicional: 0, motivoSemPosto: null } : a));
+            const novo = plano.map((a) => (a === dnr ? { ...a, maquinaId: mq, produtoId: pool.produtoId, etapaId: pool.etapaId, operacaoId: pool.operacaoId, pecas: mu, pecasAdicional: 0, motivoSemPosto: null } : a));
             if (verificarRestricoesDuras(ent, [...ent.congeladas, ...novo.filter((a) => ix(a) >= ap)], { somenteLinhasNovas: true }).length > 0) continue;
             const r = fin(novo.filter((a) => ix(a) >= ap));
             if (!melhor || r.f > melhor.f + 1e-9 || (Math.abs(r.f - melhor.f) <= 1e-9 && r.w < melhor.w)) melhor = { pl: novo, f: r.f, w: r.w };
@@ -194,71 +186,69 @@ for (const iso of AGORAS) {
     }
     return { plano: plano.filter((a) => ix(a) >= ap), trocas, falhas };
   };
-  const variantes: Record<string, any> = {};
-  for (const [nomeV, K] of [["agora", 1], ["prox2", 2], ["horizonte", Number.POSITIVE_INFINITY]] as [string, number][]) {
-    const mm = reposicaoMinimaDe(fOff, K);
-    const remAv: Record<string, number> = { ...rem };
-    Object.entries(mm.remExtra).forEach(([k, v]) => (remAv[k] = (remAv[k] ?? 0) + v));
-    const ed = aplicarMinimos(off, mm.reposicaoMinima, remAv);
-    const fe = forecastDoPlano(ctx, ed.plano, fopt);
-    variantes["edit_" + nomeV] = {
-      W1: avalia(ed.plano, remAv, false), W2: avalia(ed.plano, remAv, false, "W2"), trocas: ed.trocas, falhas: ed.falhas,
-      diffVsOff: diff(off, ed.plano, ap), churnVsVigente: churnIndependente(ent, ed.plano, vig), rupturasRestantes: fe.resultado.ligacoes.filter((l) => l.rupturaPrevista).length,
-    };
-  }
-  for (const [nomeV, K] of [["agora", 1], ["prox2", 2], ["horizonte", Number.POSITIVE_INFINITY]] as [string, number][]) {
-    const v = construirON(fOff, K);
-    const fv = forecastDoPlano(ctx, v.plano, fopt);
-    variantes[nomeV] = {
-      W1: avalia(v.plano, v.remON, false), W2: avalia(v.plano, v.remON, false, "W2"), W1_mesmoTrue: avalia(v.plano, v.remON, true),
-      diffVsRegen: diff(offRegen, v.plano, ap), diffVsOff: diff(off, v.plano, ap), churnVsVigente: churnIndependente(ent, v.plano, vig),
-      rupturasRestantes: fv.resultado.ligacoes.filter((l) => l.rupturaPrevista).length, postosPedidos: v.postosPedidos,
-    };
-  }
-  const m = {
-    off: avalia(off, rem, false), offRegen: avalia(offRegen, rem, false),
-    off_W2: avalia(off, rem, false, "W2"), offRegen_W2: avalia(offRegen, rem, false, "W2"), offRegen_mesmoTrue: avalia(offRegen, rem, true),
-  };
-  const fOnRup = variantes.horizonte.rupturasRestantes as number;
-  const rupOff = fOff.resultado.ligacoes.filter((l) => l.rupturaPrevista).length;
-  const rupOn = fOnRup;
-  const individuais: any[] = [];
-  fOff.resultado.ligacoes.filter((l) => l.acao.tipo !== "nenhuma" && l.acao.ligarEm !== null && l.acao.ligarEm <= 1).forEach((l) => {
-    const fOne: ForecastDoPlano = { ...fOff, resultado: { ...fOff.resultado, ligacoes: [l] } };
-    const mm = reposicaoMinimaDe(fOne, 2);
-    const remI: Record<string, number> = { ...rem };
-    Object.entries(mm.remExtra).forEach(([k, v]) => (remI[k] = (remI[k] ?? 0) + v));
-    const ed = aplicarMinimos(off, mm.reposicaoMinima, remI);
-    const mi = avalia(ed.plano, remI, false);
-    const miW2 = avalia(ed.plano, remI, false, "W2");
-    individuais.push({ ligacao: l.rotulo, tipo: l.acao.tipo, faltaEvitada: Math.round(l.acao.faltaEvitada), postosPeriodo: l.acao.postosPeriodoAdicionais, ligarEm: l.acao.ligarEmRotulo, adicionar: Math.round(l.acao.adicionar.slice(0, 2).reduce((q, x) => q + x, 0)), trocas: ed.trocas, dFinal: mi.finalLo - m.off.finalLo, dFinalW2: miW2.finalLo - m.off_W2.finalLo, dReceita: mi.receitaLo - m.off.receitaLo, dWip: mi.wipFinalLo - m.off.wipFinalLo });
+
+  // motor de hoje com a regra global × o mesmo motor se conhecesse o modo de cada ligação (custo da regra global inadequada)
+  const motorPorAresta: Record<string, any> = {};
+  (["cons", "cont"] as Cen[]).forEach((c) => {
+    const rr = planejarComFluxo(ent, dados, { ...opcoes, transferenciaPorAresta: lagsCen[c] });
+    const pl = rr.resultado.alocacoes.filter((a) => ix(a) >= ap);
+    motorPorAresta[c] = { escolhido: rr.diagnostico.planoEscolhido, final: avalia(pl, rr.diagnostico.estado.remPorPool, { c }).finalLo, planoDeHojeNesseMundo: avalia(off, rem, { c }).finalLo, pessoasAlteradas: diff(off, pl, ap).pessoasAlteradas };
   });
-  const linhasDiag = fOff.resultado.ligacoes.filter((l) => l.rupturaPrevista || l.acao.tipo !== "nenhuma" || l.coberturaSemReposicao.periodos !== null).map((l) => ({
-    ligacao: l.rotulo, wip: Math.round(l.wipInicial), conf: l.confianca, coberturaPeriodos: l.coberturaSemReposicao.periodos, ruptura: l.rupturaPrevista ? { p: l.rupturaPrevista.rotulo, per: l.rupturaPrevista.periodo, falta: Math.round(l.rupturaPrevista.faltaPecas) } : null,
-    gatilho: l.gatilhoPontoDePedido, acao: l.acao.tipo, ligarEm: l.acao.ligarEmRotulo, ligarEmIdx: l.acao.ligarEm, adicionar: Math.round(l.acao.adicionar.reduce((q, x) => q + x, 0)), postosAdic: l.acao.postosAdicionais.reduce((q, x) => q + x, 0), inevitavel: Math.round(l.acao.inevitavel),
-    antecedencia: l.rupturaPrevista && l.acao.ligarEm !== null ? l.rupturaPrevista.periodo - l.acao.ligarEm : null, rupturaComAcao: !!l.rupturaComAcao,
-  }));
-  const capLivre = fOff.resultado.nos.map((n) => ({ no: n.rotulo, postosLivresMax: Math.max(0, ...n.postosLivres), periodosComLivre: n.postosLivres.filter((v) => v > 0).length, removivelTotalMax: Math.round(Math.max(0, ...n.removivel)) })).filter((x) => x.postosLivresMax > 0);
+
+  const porCenario: Record<string, any> = {};
+  for (const c of ["cons", "cont"] as Cen[]) {
+    const f = scen[c];
+    const variantes: Record<string, any> = {};
+    const base = { W1: avalia(off, rem, { c }), W1h: avalia(off, rem, { c, w2: true }) };
+    for (const [nomeV, K] of [["agora", 1], ["prox2", 2], ["horizonte", Number.POSITIVE_INFINITY]] as [string, number][]) {
+      const mm = reposicaoMinimaDe(f, K);
+      const remAv: Record<string, number> = { ...rem };
+      Object.entries(mm.remExtra).forEach(([k, v]) => (remAv[k] = (remAv[k] ?? 0) + v));
+      const ed = aplicarMinimos(off, mm.reposicaoMinima, remAv, { c });
+      const fe = forecastDoPlano(ctx, ed.plano, fopt);
+      const fec = c === "cons" ? fe : cenarioContinuo(fe);
+      variantes[nomeV] = {
+        M: avalia(ed.plano, remAv, { c }), Mh: avalia(ed.plano, remAv, { c, w2: true }), cruzado: avalia(ed.plano, remAv, { c: c === "cons" ? "cont" : "cons" }),
+        trocas: ed.trocas, falhas: ed.falhas, diffVsOff: diff(off, ed.plano, ap), churnVsVigente: churnIndependente(ent, ed.plano, vig),
+        rupturasRestantes: fec.resultado.ligacoes.filter((l) => l.rupturaPrevista).length,
+      };
+    }
+    const individuais: any[] = [];
+    f.resultado.ligacoes.filter((l) => l.acao.tipo !== "nenhuma" && l.acao.ligarEm !== null && l.acao.ligarEm <= 1).forEach((l) => {
+      const fOne: ForecastDoPlano = { ...f, resultado: { ...f.resultado, ligacoes: [l] } };
+      const mm = reposicaoMinimaDe(fOne, 2);
+      const remI: Record<string, number> = { ...rem };
+      Object.entries(mm.remExtra).forEach(([k, v]) => (remI[k] = (remI[k] ?? 0) + v));
+      const ed = aplicarMinimos(off, mm.reposicaoMinima, remI, { c });
+      const mi = avalia(ed.plano, remI, { c }), mh = avalia(ed.plano, remI, { c, w2: true });
+      individuais.push({ ligacao: l.rotulo, incerta: l.incerta, tipo: l.acao.tipo, faltaEvitada: Math.round(l.acao.faltaEvitada), postosPeriodo: l.acao.postosPeriodoAdicionais, ligarEm: l.acao.ligarEmRotulo, adicionar: Math.round(l.acao.adicionar.slice(0, 2).reduce((q, x) => q + x, 0)), trocas: ed.trocas, dFinal: mi.finalLo - base.W1.finalLo, dFinalW2: mh.finalLo - base.W1h.finalLo, dReceita: mi.receitaLo - base.W1.receitaLo, dWip: mi.wipFinalLo - base.W1.wipFinalLo });
+    });
+    const linhasDiag = f.resultado.ligacoes.map((l) => ({
+      ligacao: l.rotulo, modo: l.transferencia, incerta: l.incerta, diverge: l.divergeEntreCenarios, wip: Math.round(l.wipInicial), conf: l.confianca, coberturaPeriodos: l.coberturaSemReposicao.periodos,
+      ruptura: l.rupturaPrevista ? { p: l.rupturaPrevista.rotulo, per: l.rupturaPrevista.periodo, falta: Math.round(l.rupturaPrevista.faltaPecas) } : null,
+      gatilho: l.gatilhoPontoDePedido, acao: l.acao.tipo, ligarEm: l.acao.ligarEmRotulo, ligarEmIdx: l.acao.ligarEm, adicionar: Math.round(l.acao.adicionar.reduce((q, x) => q + x, 0)), postosAdic: l.acao.postosAdicionais.reduce((q, x) => q + x, 0), inevitavel: Math.round(l.acao.inevitavel),
+      antecedencia: l.rupturaPrevista && l.acao.ligarEm !== null ? l.rupturaPrevista.periodo - l.acao.ligarEm : null, rupturaComAcao: !!l.rupturaComAcao,
+    }));
+    porCenario[c] = { base, variantes, individuais, linhasDiag, rupturas: f.resultado.ligacoes.filter((l) => l.rupturaPrevista).length, acoesLigar: f.resultado.ligacoes.filter((l) => l.acao.tipo === "ligar_upstream").length, semFonte: f.resultado.ligacoes.filter((l) => l.acao.tipo === "sem_fonte").length,
+      postosSemMaterial: Math.round(f.resultado.nos.reduce((q, n) => q + n.postosSemMaterial.reduce((s, v) => s + v, 0), 0) * 10) / 10 };
+  }
+  const incertas = fOff.resultado.ligacoes.filter((l) => l.incerta);
   saida.recalculos.push({
     agora: iso, aPartirDe: `${slots[ap].data} ${slots[ap].periodoId}`, ap, horizonte: slots.length - ap, planoEscolhido: r0.diagnostico.planoEscolhido, segundos: (Date.now() - t0) / 1000,
-    fatorMedido: { ...fatMed }, fatorUsado: fator, confianca: fOff.resultado.confianca, menorCobertura: fOff.resultado.menorCobertura,
-    forecastGravado: { rupturas: fRec.resultado.ligacoes.filter((l) => l.rupturaPrevista).length, ligacoes: fRec.resultado.ligacoes.length },
-    forecastOff: { rupturas: rupOff, acoes: fOff.resultado.ligacoes.filter((l) => l.acao.tipo === "ligar_upstream").length, semFonte: fOff.resultado.ligacoes.filter((l) => l.acao.tipo === "sem_fonte").length },
-    forecastOnRupturas: rupOn, metricas: m, variantes, churnOff: churnIndependente(ent, off, vig), churnOffRegen: churnIndependente(ent, offRegen, vig),
-    individuais, linhasDiag, capLivre,
+    fatorMedido: { ...fatMed }, fatorUsado: fator, confianca: fOff.resultado.confianca,
+    ligacoes: fOff.resultado.ligacoes.length, ligacoesIncertas: incertas.length, ligacoesQueDivergem: incertas.filter((l) => l.divergeEntreCenarios).length,
+    motorPorAresta, porCenario,
   });
-  console.error("ok", iso, (Date.now() - t0) / 1000, "s", "rup OFF", rupOff, "acoes", fOff.resultado.ligacoes.filter((l) => l.acao.tipo !== "nenhuma").length, "dFinal agora/prox2/hor", variantes.agora.W1.finalLo - m.offRegen.finalLo, variantes.prox2.W1.finalLo - m.offRegen.finalLo, variantes.horizonte.W1.finalLo - m.offRegen.finalLo);
+  console.error("ok", iso, (Date.now() - t0) / 1000, "s", "incertas", incertas.length, "divergem", incertas.filter((l) => l.divergeEntreCenarios).length, "dFinal edit agora/hor cons", porCenario.cons.variantes.agora.M.finalLo - porCenario.cons.base.W1.finalLo, porCenario.cons.variantes.horizonte.M.finalLo - porCenario.cons.base.W1.finalLo, "cont", porCenario.cont.variantes.agora.M.finalLo - porCenario.cont.base.W1.finalLo, porCenario.cont.variantes.horizonte.M.finalLo - porCenario.cont.base.W1.finalLo);
 }
 
-// ---------------------------------------------------------------------------------------------------------------------------------
-// (a) antecipação: TODAS as avaliações (recálculo × nó × slot) do forecast sobre o plano gravado, com a verdade do slot (quando fechado)
-// ---------------------------------------------------------------------------------------------------------------------------------
+// (a) antecipação por cenário: TODAS as avaliações (recálculo × nó × slot) com a verdade do slot fechado
 const vd = new Map(celulasVerdade.map((c) => [`${c.slot}|${c.no}`, c]));
 saida.avaliacoes = previsoes.filter((p) => vd.has(`${p.slot}|${p.no}`)).map((p) => {
   const c = vd.get(`${p.slot}|${p.no}`) as CelulaVerdade;
   const quedaReal = c.real !== null && c.real < 0.85 * c.planejado;
   const estoqueInsuf = c.w0hi < c.planejado;
-  return { agora: p.agora, lead: p.slot - p.ap, slot: p.slot, no: p.no, rotulo: p.rotulo, previsto: p.previsto, falta: Math.round(p.falta), desejado: Math.round(p.desejado), confirmado: c.confirmado, apontado: c.apontado, planejado: Math.round(c.planejado), real: c.real, w0lo: Math.round(c.w0lo), w0hi: Math.round(c.w0hi), faltaMaterial: c.faltaMaterial, quedaReal, estoqueInsuf, verdadeMaterial: c.faltaMaterial || (estoqueInsuf && quedaReal) };
+  return { cen: p.cen, agora: p.agora, lead: p.slot - p.ap, slot: p.slot, no: p.no, rotulo: p.rotulo, previsto: p.previsto, falta: Math.round(p.falta), desejado: Math.round(p.desejado), confirmado: c.confirmado, apontado: c.apontado, planejado: Math.round(c.planejado), real: c.real, w0lo: Math.round(c.w0lo), w0hi: Math.round(c.w0hi), faltaMaterial: c.faltaMaterial, quedaReal, estoqueInsuf, verdadeMaterial: c.faltaMaterial || (estoqueInsuf && quedaReal) };
 });
 fs.writeFileSync(process.env.OUT ?? "/dev/stdout", JSON.stringify(saida, null, 1));
-void SEMANA; void ligacaoTexto;
+void SEMANA;

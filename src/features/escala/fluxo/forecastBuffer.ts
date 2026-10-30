@@ -48,6 +48,14 @@ export interface NoForecast {
   postosPrevistos?: number[];
 }
 
+/**
+ * Como o que a origem produz chega ao destino — POR LIGAÇÃO (não há regra global):
+ *  • continuo: o destino consome durante o período o que a origem produz nesse período (ex.: Etiquetadora 15 → Embalagem 17, confirmado em 30/10 T1);
+ *  • lote: só chega `atrasoPeriodos` períodos depois (default 1);
+ *  • desconhecido: NÃO se inventa uma regra — o forecast calcula os DOIS cenários (lote × contínuo) e sinaliza a incerteza.
+ */
+export type ModoTransferencia = "continuo" | "lote" | "desconhecido";
+
 export interface LigacaoForecast {
   id: string;
   rotulo?: string;
@@ -59,6 +67,10 @@ export interface LigacaoForecast {
   confianca: ConfiancaForecast;
   /** Peças da origem consumidas por peça produzida no destino (default 1). */
   rendimento?: number;
+  /** Modo de transferência desta ligação. Ausente ⇒ `OpcoesForecast.mesmoPeriodo` (true = contínuo; default = lote de 1 período). */
+  transferencia?: ModoTransferencia;
+  /** Atraso em períodos do modo `lote` (default 1; ≥ 1). */
+  atrasoPeriodos?: number;
   /** Fração da necessidade do destino atendida por esta origem quando há 2+ origens (default: 1 ÷ nº de origens). */
   peso?: number;
   /** Teto de WIP aceitável nesta ligação (peças); só para sinalizar `excedeTeto`. */
@@ -66,7 +78,7 @@ export interface LigacaoForecast {
 }
 
 export interface OpcoesForecast {
-  /** Default false (regra conservadora). */
+  /** Modo das ligações que NÃO declaram `transferencia`: true = contínuo, false/ausente = lote de 1 período (regra conservadora publicada). */
   mesmoPeriodo?: boolean;
   /** Estoque de segurança como fração do consumo do período, por confiança do WIP. Default 0 em todas: nenhum dado justifica um número (ver relatório). */
   margemPorConfianca?: Partial<Record<ConfiancaForecast, number>>;
@@ -122,6 +134,19 @@ export interface AcaoUpstream {
 
 export interface DiagnosticoLigacao {
   ligacaoId: string;
+  /** modo declarado da ligação e atraso usado no cenário principal (desconhecido ⇒ lote no cenário principal, contínuo no `alternativo`) */
+  transferencia: ModoTransferencia;
+  atrasoPeriodos: number;
+  /** a regra de transferência desta ligação é desconhecida: o resultado depende do cenário */
+  incerta: boolean;
+  /** só com `incerta`: o resultado muda entre os dois cenários (período da ruptura ou período em que ligar) */
+  divergeEntreCenarios: boolean;
+  /** FLUXO por período: estoque disponível no início, o que chega durante/ao início, o que sai, taxa líquida (entrada − saída), estoque no fim */
+  saldoInicial: number[];
+  entradaNoPeriodo: number[];
+  saidaNoPeriodo: number[];
+  taxaLiquida: number[];
+  saldoFinal: number[];
   rotulo: string;
   origem: string;
   destino: string;
@@ -185,6 +210,8 @@ export interface ResultadoForecast {
   menorCobertura: number | null;
   confianca: ConfiancaForecast;
   avisos: string[];
+  /** quando alguma ligação é `desconhecido`: o resultado completo no cenário CONTÍNUO (o principal usa lote de 1 período para elas); null caso contrário */
+  alternativo: ResultadoForecast | null;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -340,21 +367,28 @@ function normalizar(e: EntradaForecast, op: OpcoesForecast): { nos: Map<string, 
 interface Sim {
   x: Map<string, number[]>; // produção efetiva por nó
   desejado: Map<string, number[]>; // produção desejada (sem limite de material)
-  wIni: Map<string, number[]>; // estoque no início do período, por ligação
-  wFim: Map<string, number[]>;
+  wIni: Map<string, number[]>; // estoque DISPONÍVEL no início do período, por ligação
+  wFim: Map<string, number[]>; // estoque no fim (inclui o que está em trânsito)
   take: Map<string, number[]>; // consumo efetivo da ligação
   want: Map<string, number[]>; // consumo desejado atribuído à ligação (peso)
+  entrada: Map<string, number[]>; // o que chega à ligação no período (contínuo: produção da origem no período; lote: chegada do que foi produzido `lag` períodos antes)
 }
 
-function simularAvante(nos: Map<string, NoN>, topo: string[], ligs: LigacaoForecast[], pesos: Map<string, number>, H: number, mesmo: boolean, extra: Map<string, number[]>, wip0: (l: LigacaoForecast) => number): Sim {
+/** `lag` por ligação: 0 = contínuo (a produção da origem fica disponível no mesmo período); ≥1 = chega `lag` períodos depois. */
+function simularAvante(nos: Map<string, NoN>, topo: string[], ligs: LigacaoForecast[], pesos: Map<string, number>, H: number, lag: Map<string, number>, extra: Map<string, number[]>, wip0: (l: LigacaoForecast) => number): Sim {
   const W = new Map<string, number>(ligs.map((l) => [l.id, Math.max(0, wip0(l))]));
-  const sim: Sim = { x: new Map(), desejado: new Map(), wIni: new Map(), wFim: new Map(), take: new Map(), want: new Map() };
+  const sim: Sim = { x: new Map(), desejado: new Map(), wIni: new Map(), wFim: new Map(), take: new Map(), want: new Map(), entrada: new Map() };
   nos.forEach((_, id) => { sim.x.set(id, zeros(H)); sim.desejado.set(id, zeros(H)); });
-  ligs.forEach((l) => { sim.wIni.set(l.id, zeros(H)); sim.wFim.set(l.id, zeros(H)); sim.take.set(l.id, zeros(H)); sim.want.set(l.id, zeros(H)); });
+  ligs.forEach((l) => { sim.wIni.set(l.id, zeros(H)); sim.wFim.set(l.id, zeros(H)); sim.take.set(l.id, zeros(H)); sim.want.set(l.id, zeros(H)); sim.entrada.set(l.id, zeros(H)); });
+  const transito = new Map<string, { de: number; chega: number; q: number }[]>(); // só lag ≥ 2
   const cum = new Map<string, number>([...nos.keys()].map((k) => [k, 0])); // desejado acumulado (a demanda restante é consumida pelo que se QUIS produzir)
   for (let t = 0; t < H; t++) {
     const wIni = new Map(W);
-    ligs.forEach((l) => (sim.wIni.get(l.id) as number[])[t] = wIni.get(l.id) as number);
+    const lagDe = (l: LigacaoForecast) => lag.get(l.id) ?? 0;
+    const indisponivel = (l: LigacaoForecast) => (lagDe(l) >= 2 ? (transito.get(l.id) ?? []).filter((x) => x.de < t && x.chega > t).reduce((q, x) => q + x.q, 0) : 0);
+    // disponível ao longo do período: contínuo = estoque vivo (inclui o que a origem já produziu neste período); lote = estoque do início menos o que ainda está em trânsito
+    const disp = (l: LigacaoForecast) => (lagDe(l) === 0 ? (W.get(l.id) as number) : Math.max(0, (wIni.get(l.id) as number) - indisponivel(l)));
+    ligs.forEach((l) => (sim.wIni.get(l.id) as number[])[t] = lagDe(l) === 0 ? (wIni.get(l.id) as number) : disp(l));
     for (const id of topo) {
       const n = nos.get(id) as NoN;
       const des0 = n.prod[t] + (extra.get(id)?.[t] ?? 0);
@@ -362,7 +396,6 @@ function simularAvante(nos: Map<string, NoN>, topo: string[], ligs: LigacaoForec
       const des = Math.min(des0, rest);
       (sim.desejado.get(id) as number[])[t] = des;
       cum.set(id, (cum.get(id) as number) + des);
-      const disp = (l: LigacaoForecast) => (mesmo ? (W.get(l.id) as number) : (wIni.get(l.id) as number));
       let x = des;
       if (n.entradas.length > 0) {
         const avail = n.entradas.reduce((s, l) => s + disp(l) / (l.rendimento ?? 1), 0);
@@ -377,18 +410,35 @@ function simularAvante(nos: Map<string, NoN>, topo: string[], ligs: LigacaoForec
         });
       }
       (sim.x.get(id) as number[])[t] = x;
-      n.saidas.forEach((l) => W.set(l.id, (W.get(l.id) as number) + x));
+      n.saidas.forEach((l) => {
+        W.set(l.id, (W.get(l.id) as number) + x);
+        if (lagDe(l) >= 2 && x > 0) {
+          if (!transito.has(l.id)) transito.set(l.id, []);
+          (transito.get(l.id) as { de: number; chega: number; q: number }[]).push({ de: t, chega: t + lagDe(l), q: x });
+        }
+      });
     }
     ligs.forEach((l) => (sim.wFim.get(l.id) as number[])[t] = W.get(l.id) as number);
   }
+  ligs.forEach((l) => {
+    const xo = sim.x.get(l.origem) as number[];
+    const L = lag.get(l.id) ?? 0;
+    const ent = sim.entrada.get(l.id) as number[];
+    for (let t = 0; t < H; t++) ent[t] = t - L >= 0 ? xo[t - L] : 0;
+  });
   return sim;
 }
 
-function ruptura(des: number[], efet: number[], wIniNo: number[], periodos: PeriodoForecast[]): Ruptura | null {
+/**
+ * Ruptura = 1º período em que o destino não faz o que o plano quer por falta de material. O minuto assume consumo linear e, nas ligações CONTÍNUAS, entrada linear
+ * durante o período: estoque(τ) = S0 + (entrada − consumo)·τ ⇒ zera em τ = S0 ÷ (consumo − entrada). `entradaContinua` = o que chega durante o período por ligações contínuas.
+ */
+function ruptura(des: number[], efet: number[], wIniNo: number[], entradaContinua: number[], periodos: PeriodoForecast[]): Ruptura | null {
   for (let t = 0; t < des.length; t++) {
     if (efet[t] + 1e-4 < des[t]) {
       const falta = des[t] - efet[t];
-      return { periodo: t, rotulo: periodos[t].rotulo, faltaPecas: r3(falta), minuto: des[t] > EPS_FB && wIniNo[t] > EPS_FB ? r3((wIniNo[t] / des[t]) * periodos[t].duracaoMin) : null };
+      const liquido = des[t] - entradaContinua[t];
+      return { periodo: t, rotulo: periodos[t].rotulo, faltaPecas: r3(falta), minuto: des[t] > EPS_FB && wIniNo[t] > EPS_FB && liquido > EPS_FB ? r3(Math.min(1, wIniNo[t] / liquido) * periodos[t].duracaoMin) : null };
     }
   }
   return null;
@@ -398,9 +448,35 @@ function ruptura(des: number[], efet: number[], wIniNo: number[], periodos: Peri
 // Forecast
 // ---------------------------------------------------------------------------------------------------------------------------------
 
+/**
+ * Forecast. Se alguma ligação for `desconhecido`, o resultado PRINCIPAL assume lote (conservador) para elas e `alternativo` traz o cenário contínuo;
+ * cada ligação incerta indica se o resultado diverge entre os dois (`divergeEntreCenarios`). Sem ligações desconhecidas, `alternativo` = null.
+ */
 export function forecastBuffer(entrada: EntradaForecast, op: OpcoesForecast = {}): ResultadoForecast {
+  const principal = forecastUnico(entrada, op, "conservador");
+  if (!entrada.ligacoes.some((l) => l.transferencia === "desconhecido")) return principal;
+  const alt = forecastUnico(entrada, op, "continuo");
+  principal.ligacoes.forEach((l, i) => {
+    if (!l.incerta) return;
+    const a = alt.ligacoes[i];
+    l.divergeEntreCenarios = (l.rupturaPrevista?.periodo ?? null) !== (a.rupturaPrevista?.periodo ?? null) || l.acao.ligarEm !== a.acao.ligarEm || l.acao.tipo !== a.acao.tipo;
+    a.divergeEntreCenarios = l.divergeEntreCenarios;
+  });
+  if (principal.ligacoes.some((l) => l.divergeEntreCenarios)) principal.avisos.push("Há ligações com regra de transferência DESCONHECIDA cujo resultado muda entre lote e contínuo: não decidir sobre elas sem confirmar a regra.");
+  return { ...principal, alternativo: alt };
+}
+
+function forecastUnico(entrada: EntradaForecast, op: OpcoesForecast, cenarioDesconhecido: "conservador" | "continuo"): ResultadoForecast {
   const H = entrada.periodos.length;
-  const mesmo = op.mesmoPeriodo === true;
+  const padraoContinuo = op.mesmoPeriodo === true;
+  const modoDe = (l: LigacaoForecast): ModoTransferencia => l.transferencia ?? (padraoContinuo ? "continuo" : "lote");
+  const atrasoDe = (l: LigacaoForecast) => Math.max(1, Math.round(l.atrasoPeriodos ?? 1));
+  /** defasagem efetiva em períodos neste cenário */
+  const lagDe = (l: LigacaoForecast): number => {
+    const m = modoDe(l);
+    return m === "continuo" ? 0 : m === "lote" ? atrasoDe(l) : cenarioDesconhecido === "continuo" ? 0 : atrasoDe(l);
+  };
+  const mesmo = entrada.ligacoes.every((l) => lagDe(l) === 0);
   const margem = (c: ConfiancaForecast) => Math.max(0, op.margemPorConfianca?.[c] ?? 0);
   const { nos, topo, ligs, pesos } = normalizar(entrada, op);
   nos.forEach((n) => {
@@ -408,7 +484,8 @@ export function forecastBuffer(entrada: EntradaForecast, op: OpcoesForecast = {}
   });
   const avisos: string[] = [];
   const wip0 = (l: LigacaoForecast) => l.wipInicial;
-  const sim1 = simularAvante(nos, topo, ligs, pesos, H, mesmo, new Map(), wip0);
+  const lagMap = new Map<string, number>(ligs.map((l) => [l.id, lagDe(l)]));
+  const sim1 = simularAvante(nos, topo, ligs, pesos, H, lagMap, new Map(), wip0);
   const rend = (l: LigacaoForecast) => l.rendimento ?? 1;
 
   // ---- para trás (do destino final às origens): alvo de produção de cada nó = plano + extras; cada destino define o que as suas origens precisam repor ----
@@ -431,12 +508,15 @@ export function forecastBuffer(entrada: EntradaForecast, op: OpcoesForecast = {}
     const s0 = ins.reduce((s, l) => s + Math.max(0, wip0(l)) / rend(l), 0);
     const conf = ins.reduce<ConfiancaForecast>((w, l) => pior(w, l.confianca), "alta");
     const ss = T.map((v) => margem(conf) * v);
+    // defasagem do grupo = a MAIOR das ligações de entrada (estoque fungível; se os modos divergem vale o mais conservador)
+    const lagG = Math.max(...ins.map(lagDe));
+    if (new Set(ins.map(lagDe)).size > 1) avisos.push(`Destino ${n.rotulo}: ligações de entrada com modos de transferência diferentes; o requisito usa o mais conservador (${lagG} período(s)).`);
     const req = zeros(H + 1);
     for (let k = 0; k < H; k++) {
-      const t = mesmo ? k : k + 1;
+      const t = k + lagG;
       req[k + 1] = t <= H - 1 ? Math.max(0, consCum[t] - s0 + ss[t]) : req[k];
     }
-    if (!mesmo) req[0] = Math.max(0, consCum[0] - s0 + ss[0]);
+    if (lagG >= 1 && lagG - 1 <= H - 1) req[0] = Math.max(0, consCum[lagG - 1] - s0 + ss[lagG - 1]);
     const origens = ins.map((l) => nos.get(l.origem) as NoN);
     const xTot = zeros(H);
     const roomTot = zeros(H);
@@ -505,12 +585,12 @@ export function forecastBuffer(entrada: EntradaForecast, op: OpcoesForecast = {}
     for (let k = 0; k < H; k++) {
       let melhor = 0;
       let somaC = 0;
-      let somaCap = 0;
       for (let j = k; j < H; j++) {
         somaC += T[j] * (1 + margem(conf));
-        const entrega = mesmo ? somaCap + capTot[j] : somaCap;
+        // o que a produção de k..j-lagG já entregou até j
+        let entrega = 0;
+        for (let i = k; i <= j - lagG; i++) entrega += capTot[i];
         melhor = Math.max(melhor, somaC - entrega);
-        somaCap += capTot[j];
       }
       pp[k] = r3(Math.max(0, melhor));
     }
@@ -529,9 +609,10 @@ export function forecastBuffer(entrada: EntradaForecast, op: OpcoesForecast = {}
   nos.forEach((_, id) => { if (!extra.has(id)) extra.set(id, zeros(H)); });
 
   // ---- 2ª simulação com as ações aplicadas (auto-verificação) ----
-  const sim2 = simularAvante(nos, topo, ligs, pesos, H, mesmo, extra, wip0);
+  const sim2 = simularAvante(nos, topo, ligs, pesos, H, lagMap, extra, wip0);
 
   // ---- diagnósticos por nó ----
+  const entradaContinuaNo = (s: Sim, n: NoN) => zeros(H).map((_, t) => n.entradas.reduce((q, l) => q + (lagDe(l) === 0 ? (s.entrada.get(l.id) as number[])[t] / rend(l) : 0), 0));
   const wIniNo = (s: Sim, n: NoN) => zeros(H).map((_, t) => n.entradas.reduce((q, l) => q + (s.wIni.get(l.id) as number[])[t] / rend(l), 0));
   const removivelDoNo = (n: NoN): number[] => {
     if (n.saidas.length === 0) return zeros(H);
@@ -551,7 +632,7 @@ export function forecastBuffer(entrada: EntradaForecast, op: OpcoesForecast = {}
     const pp = n.pecasPorPosto;
     return {
       noId: n.id, rotulo: n.rotulo, producaoPlano: x.map(r3), producaoDesejada: des.map(r3),
-      rupturaPrevista: n.entradas.length === 0 ? null : ruptura(des, x, wIniNo(sim1, n), entrada.periodos),
+      rupturaPrevista: n.entradas.length === 0 ? null : ruptura(des, x, wIniNo(sim1, n), entradaContinuaNo(sim1, n), entrada.periodos),
       pecasSemMaterial: des.map((v, k) => r3(Math.max(0, v - x[k]))),
       postosSemMaterial: des.map((v, k) => (pp[k] > EPS_FB ? r3(Math.max(0, v - x[k]) / pp[k]) : 0)),
       producaoAlvo: (alvo.get(n.id) as number[]).map(r3), removivel: rem,
@@ -582,8 +663,8 @@ export function forecastBuffer(entrada: EntradaForecast, op: OpcoesForecast = {}
     else consumoPrev.forEach((c) => { s = Math.max(0, s - c); saldoSem.push(r3(s)); });
     const wIniL = sim1.wIni.get(l.id) as number[];
     const wIniDest = wIniNo(sim1, dest);
-    const rup = ruptura(des, sim1.x.get(dest.id) as number[], wIniDest, entrada.periodos);
-    const rup2 = ruptura(sim2.desejado.get(dest.id) as number[], sim2.x.get(dest.id) as number[], wIniNo(sim2, dest), entrada.periodos);
+    const rup = ruptura(des, sim1.x.get(dest.id) as number[], wIniDest, entradaContinuaNo(sim1, dest), entrada.periodos);
+    const rup2 = ruptura(sim2.desejado.get(dest.id) as number[], sim2.x.get(dest.id) as number[], wIniNo(sim2, dest), entradaContinuaNo(sim2, dest), entrada.periodos);
     let gatilho: number | null = null;
     for (let t = 0; t < H; t++) {
       if (wIniDest[t] + 1e-4 < g.pontoPedido[t] && g.pontoPedido[t] > EPS_FB) { gatilho = t; break; }
@@ -596,7 +677,10 @@ export function forecastBuffer(entrada: EntradaForecast, op: OpcoesForecast = {}
     const saldoPlano = (sim1.wFim.get(l.id) as number[]).map(r3);
     const saldoAcao = (sim2.wFim.get(l.id) as number[]).map(r3);
     return {
-      ligacaoId: l.id, rotulo: l.rotulo ?? `${orig.rotulo}→${dest.rotulo}`, origem: l.origem, destino: l.destino, confianca: l.confianca, wipInicial: r3(l.wipInicial), compartilhada,
+      ligacaoId: l.id, transferencia: modoDe(l), atrasoPeriodos: lagDe(l), incerta: modoDe(l) === "desconhecido", divergeEntreCenarios: false,
+      saldoInicial: (sim1.wIni.get(l.id) as number[]).map(r3), entradaNoPeriodo: (sim1.entrada.get(l.id) as number[]).map(r3), saidaNoPeriodo: (sim1.take.get(l.id) as number[]).map(r3),
+      taxaLiquida: (sim1.entrada.get(l.id) as number[]).map((v, t) => r3(v - (sim1.take.get(l.id) as number[])[t])), saldoFinal: saldoPlano,
+      rotulo: l.rotulo ?? `${orig.rotulo}→${dest.rotulo}`, origem: l.origem, destino: l.destino, confianca: l.confianca, wipInicial: r3(l.wipInicial), compartilhada,
       consumoPrevisto: consumoPrev, consumoRequerido: g.consumo.map((v) => r3(v * rend(l) * w)), reposicaoPrevista: (sim1.x.get(orig.id) as number[]).map(r3), saldoProjetado: saldoPlano, saldoSemReposicao: saldoSem,
       coberturaSemReposicao: cobertura, rupturaPrevista: rup, pontoDePedido: g.pontoPedido, gatilhoPontoDePedido: gatilho,
       acao: {
@@ -615,7 +699,7 @@ export function forecastBuffer(entrada: EntradaForecast, op: OpcoesForecast = {}
   const confWip = entrada.ligacoes.reduce<ConfiancaForecast>((w, l) => pior(w, l.confianca), "alta");
   const cobs = lig.map((l) => l.coberturaSemReposicao.periodos).filter((v): v is number => v !== null);
   if (lig.some((l) => l.acao.tipo === "sem_fonte")) avisos.push("Há ruptura inevitável: a capacidade da origem (ou o estoque a montante) não repõe a tempo.");
-  return { periodos: entrada.periodos, mesmoPeriodo: mesmo, ligacoes: lig, nos: noDiag, menorCobertura: cobs.length > 0 ? Math.min(...cobs) : null, confianca: pior(confWip, confTaxa), avisos };
+  return { periodos: entrada.periodos, mesmoPeriodo: mesmo, ligacoes: lig, nos: noDiag, menorCobertura: cobs.length > 0 ? Math.min(...cobs) : null, confianca: pior(confWip, confTaxa), avisos, alternativo: null };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------

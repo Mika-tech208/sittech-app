@@ -92,6 +92,8 @@ export interface OpcoesFluxo {
   ponderarPorValor?: boolean;
   /** Fluxo entre etapas no MESMO período (consumo ≤ WIP inicial + produção upstream do período). Default true (spec §3). */
   fluxoMesmoPeriodo?: boolean;
+  /** Defasagem da transferência POR ARESTA (id da aresta = chave do pool de origem): 0 contínuo, 1 período seguinte, ≥2 atraso maior. Ausente ⇒ vale `fluxoMesmoPeriodo` (byte-idêntico). */
+  transferenciaPorAresta?: Record<string, number>;
   /** Inclui na avaliação a trajetória de WIP por par/slot e os marginais (mais pesado no jsonb). Default true / false. */
   incluirTrajetoria?: boolean;
   incluirMarginais?: boolean;

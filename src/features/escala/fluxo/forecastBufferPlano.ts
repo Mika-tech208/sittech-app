@@ -6,7 +6,7 @@ import { chavePool, type AlocacaoEscala, type PoolEscala } from "../types";
 import { capacidadeFuturaDoNo, type CtxFluxo } from "./estado";
 import { selecionarFuturas } from "./avaliar";
 import {
-  forecastBuffer, type FonteReposicao, type EstagioFonte, type ConfiancaForecast, type EntradaForecast, type FonteTaxa, type LigacaoForecast, type NoForecast, type OpcoesForecast, type ResultadoForecast,
+  forecastBuffer, type FonteReposicao, type EstagioFonte, type ModoTransferencia, type ConfiancaForecast, type EntradaForecast, type FonteTaxa, type LigacaoForecast, type NoForecast, type OpcoesForecast, type ResultadoForecast,
 } from "./forecastBuffer";
 import type { EstimadorTaxa } from "./produtividadePosto";
 
@@ -20,6 +20,8 @@ export interface OpcoesForecastPlano extends OpcoesForecast {
   /** WIP do cenário: "lo" (default, pessimista) ou "hi" */
   cenarioWip?: "lo" | "hi";
   rotuloNo?: (chavePool: string) => string;
+  /** modo de transferência de CADA ligação (aresta). Ausente ⇒ vale `mesmoPeriodo` (default lote de 1 período). Devolver `desconhecido` quando não se sabe: o forecast calcula os dois cenários. */
+  modoLigacao?: (a: { arestaId: string; origemId: string; destinoId: string; produtoId: string; etapaOrigemId: string; etapaSeguinteId: string }) => { modo: ModoTransferencia; atrasoPeriodos?: number } | undefined;
 }
 
 export interface MapaForecast {
@@ -104,7 +106,9 @@ export function entradaForecastDoPlano(ctx: CtxFluxo, alocacoes: AlocacaoEscala[
   const ligacoes: LigacaoForecast[] = Object.values(grafo.arestas).map((e) => {
     const par = ctx.pares.find((p) => p.produtoId === e.produtoId && p.etapaOrigemId === e.etapaOrigemId && p.etapaSeguinteId === e.etapaSeguinteId);
     const w0hi = ctx.iniAPartirDe.hi.W0[e.id] ?? 0;
+    const md = op.modoLigacao?.({ arestaId: e.id, origemId: e.origem, destinoId: e.destino, produtoId: e.produtoId, etapaOrigemId: e.etapaOrigemId, etapaSeguinteId: e.etapaSeguinteId });
     return {
+      ...(md ? { transferencia: md.modo, ...(md.atrasoPeriodos !== undefined ? { atrasoPeriodos: md.atrasoPeriodos } : {}) } : {}),
       id: e.id, rotulo: `${rotulo(e.origem)}→${rotulo(e.destino)}`, origem: e.origem, destino: e.destino, wipInicial: ini.W0[e.id] ?? 0, wipInicialHi: w0hi,
       confianca: (par?.confianca ?? "baixa") as ConfiancaForecast, peso: e.peso, tetoWip: Math.max(w0hi, capacidadeFuturaDoNo(ctx, e.origem).tetoPeriodo),
     };
@@ -163,4 +167,20 @@ export function fontesDoNo(f: ForecastDoPlano, destinoId: string, restricoes: Re
     }
     return { id: l0.id, rotulo: l0.rotulo ?? l0.id, estagios, restricoes: restricoes[l0.id] ?? [] };
   });
+}
+
+/** Defasagem por aresta (id da aresta → períodos) de um cenário, para o SIMULADOR (`OpcoesFluxo.transferenciaPorAresta`). Ligação sem modo declarado fica de fora (vale o global). */
+export function transferenciaPorArestaDe(entrada: EntradaForecast, cenario: "conservador" | "continuo"): Record<string, number> {
+  const out: Record<string, number> = {};
+  entrada.ligacoes.forEach((l) => {
+    if (!l.transferencia) return;
+    const lote = Math.max(1, Math.round(l.atrasoPeriodos ?? 1));
+    out[l.id] = l.transferencia === "continuo" ? 0 : l.transferencia === "lote" ? lote : cenario === "continuo" ? 0 : lote;
+  });
+  return out;
+}
+
+/** O mesmo forecast, mas apontando para o cenário CONTÍNUO das ligações desconhecidas (para derivar ações/mínimos desse cenário). */
+export function cenarioContinuo(f: ForecastDoPlano): ForecastDoPlano {
+  return f.resultado.alternativo ? { ...f, resultado: f.resultado.alternativo } : f;
 }
