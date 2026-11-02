@@ -85,7 +85,21 @@ export function prepararDespacho(C: ConfigDespacho) {
   const feedersDe: number[][] = C.produtos.map(() => []);
   feed.forEach((f, pi) => { if (f) feedersDe[f.ti].push(pi); });
   const haFeeders = feed.some((f) => f !== null);
-  return { H, recIdx, pools, ops, opIdx, poolsDe, opsDoRec, blocoDe, prodIdx, capUp, alemK, feed, feedersDe, haFeeders };
+  // TETO DE ABSORÇÃO do estoque de entrada comum (backward simplificado): o que entra na ligação `lig` (da principal + alimentadoras) não passa de
+  // estoque inicial + o que a etapa seguinte consegue consumir até o fim do horizonte (Σ taxa × unidades de TODAS as suas máquinas, períodos t0+1…, lote de 1 período) + saída útil.
+  const tetoAbsorcao: (number | undefined)[][] = C.produtos.map(() => []);
+  C.produtos.forEach((p, pi) => {
+    if (feedersDe[pi].length === 0) return;
+    for (const f of feedersDe[pi]) {
+      const lig = (feed[f] as { lig: number }).lig;
+      if (tetoAbsorcao[pi][lig] !== undefined) continue;
+      const pl = pools.find((x) => x.pid === p.id && x.k === lig + 1);
+      let absorve = 0;
+      if (pl) pl.rate.forEach((taxa, r) => { for (let t = C.t0 + 1; t < H; t++) absorve += (taxa[t] ?? 0) * (C.recursos[r].unidades[t] ?? 0); });
+      tetoAbsorcao[pi][lig] = (p.wipInicial[lig] ?? 0) + absorve + (C.saidaTeto?.[p.id] ?? 0);
+    }
+  });
+  return { H, recIdx, pools, ops, opIdx, poolsDe, opsDoRec, blocoDe, prodIdx, capUp, alemK, feed, feedersDe, haFeeders, tetoAbsorcao };
 }
 export type PrepD = ReturnType<typeof prepararDespacho>;
 
@@ -111,11 +125,15 @@ export function despachar(C: ConfigDespacho, D: PrepD, occ: Uint8Array[], comple
       let entregue = 0;
       for (const f of D.feedersDe[fd.ti]) entregue += cum[f][C.produtos[f].etapas.length - 1];
       const nf = C.produtos[pi].etapas.length;
-      return D.capUp[fd.ti][fd.lig] - cum[fd.ti][fd.lig] - entregue - (D.alemK[pi][pl.k] + cum[pi][pl.k] - cum[pi][nf - 1]);
+      const pend = D.alemK[pi][pl.k] + cum[pi][pl.k] - cum[pi][nf - 1];
+      const absorcao = (D.tetoAbsorcao[fd.ti][fd.lig] ?? Number.POSITIVE_INFINITY) - cum[fd.ti][fd.lig] - entregue - pend;
+      return Math.min(D.capUp[fd.ti][fd.lig] - cum[fd.ti][fd.lig] - entregue - pend, absorcao);
     }
     if (pl.k === pl.n - 1) return (C.alvo[pl.pid] ?? 0) - fin[pi];
     let h = D.capUp[pi][pl.k] - cum[pi][pl.k];
     for (const f of D.feedersDe[pi]) if (pl.k <= (D.feed[f] as { lig: number }).lig) h -= D.alemK[f][0] + cum[f][0];
+    // etapa que escreve na ligação de entrega comum (Parafusar): também limitada pela absorção da etapa seguinte
+    for (const f of D.feedersDe[pi]) { const lg = (D.feed[f] as { lig: number }).lig; if (pl.k === lg && D.tetoAbsorcao[pi][lg] !== undefined) { let ent = 0; for (const g of D.feedersDe[pi]) ent += cum[g][C.produtos[g].etapas.length - 1]; h = Math.min(h, (D.tetoAbsorcao[pi][lg] as number) - cum[pi][lg] - ent); break; } }
     return h;
   };
   for (let t = C.t0; t < H; t++) {
