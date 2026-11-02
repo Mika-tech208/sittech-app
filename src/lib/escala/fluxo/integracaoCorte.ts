@@ -45,13 +45,25 @@ function churnContra(vigente: AlocacaoEscala[], novo: AlocacaoEscala[]): { linha
 
 export function tentarPlanoCorte(ctx: ContextoFluxo, pc: NonNullable<EstadoBruto["planejadorCorte"]>, planejar: PlanejarCorte = planejarSemanaComCorte): TentativaPlanoCorte {
   const mantido = (motivo: string) => mantidoDoPlano(ctx.estado, ctx.entrada.aPartirDe, ctx.entrada.slots, motivo);
-  const dados = dadosProducaoReal(ctx.estado, ctx.agoraMs);
-  const { entrada: entradaF, opcoes } = insumosFluxo(ctx.estado, ctx.entrada, ctx.agoraMs);
-  const base = registroBase(ctx, "ativo", dados, opcoes);
-  const vigenteRegiao = regiaoRecalculavel(ctx.entrada, ctx.estado.alocacoes);
+  // TUDO que pode lançar fica dentro de try: exceção na preparação do estado real ⇒ plano vigente MANTIDO + alerta `planejador_corte_falhou` (nunca evento em erro silencioso, nunca legado)
+  let dados: ReturnType<typeof dadosProducaoReal>;
+  let entradaF: ReturnType<typeof insumosFluxo>["entrada"];
+  let opcoes: ReturnType<typeof insumosFluxo>["opcoes"];
+  let base: RegistroFluxo | null = null;
+  let vigenteRegiao: AlocacaoEscala[] = [];
+  const falha0 = (motivo: string): TentativaPlanoCorte => ({ ok: false, motivo, registro: null, mantido: mantido(motivo) });
+  try {
+    dados = dadosProducaoReal(ctx.estado, ctx.agoraMs);
+    ({ entrada: entradaF, opcoes } = insumosFluxo(ctx.estado, ctx.entrada, ctx.agoraMs));
+    base = registroBase(ctx, "ativo", dados, opcoes);
+    vigenteRegiao = regiaoRecalculavel(ctx.entrada, ctx.estado.alocacoes);
+  } catch (e) {
+    return falha0(`preparação do estado real falhou: ${e instanceof Error ? e.message : String(e)}`);
+  }
   const falha = (motivo: string, corte: ResultadoCorte | null): TentativaPlanoCorte => {
     let registro: RegistroFluxo | null = null;
     try {
+      if (!base) throw new Error("sem base");
       registro = jsonPuro({
         ...base, resultado: "fallback" as const, erro: motivo, hashPlanoOficial: hashAlocacoes(vigenteRegiao), hashPlanoFluxo: hashAlocacoes(vigenteRegiao),
         avaliacaoFluxo: { motor: VERSAO_PLANEJADOR_CORTE, usado: false, tentativas: corte?.tentativas ?? [], checagens: corte?.checagens ?? null },

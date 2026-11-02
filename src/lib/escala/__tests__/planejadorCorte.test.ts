@@ -259,6 +259,21 @@ describe("A2 — orçamento de tempo: estourou ⇒ plano vigente mantido + alert
   });
 });
 
+describe("A4 — exceção na preparação do estado real", () => {
+  it("dadosProducaoReal lançando ⇒ plano vigente mantido + alerta planejador_corte_falhou (não evento em erro silencioso)", async () => {
+    const m = mundo();
+    await m.recalcular(GERA, true);
+    const futuroAntes = JSON.stringify(auditar(m, T1_DIA3).futuras);
+    // wipControle malformado: saldosWipConfirmados lança (TypeError) dentro de dadosProducaoReal
+    m.editar((e) => { (e as unknown as { wipControle: unknown }).wipControle = { controles: null }; e.ausencias.push({ funcionarioId: "f06", data: "2026-11-05", horarioInicio: null, horarioFim: null }); });
+    const r = await m.recalcular(T1_DIA3);
+    expect(r.status).toBe("processado");
+    expect(JSON.stringify(auditar(m, T1_DIA3).futuras)).toBe(futuroAntes);
+    const alerta = r.alertas.find((a) => (a as { tipo?: string }).tipo === "planejador_corte_falhou") as { motivo?: string } | undefined;
+    expect(alerta?.motivo).toMatch(/prepara[cç][aã]o do estado real falhou/i);
+  });
+});
+
 describe("outros eventos e estabilidade", () => {
   it("parada de máquina no futuro: o planejador recalcula e nenhuma linha usa a máquina parada", async () => {
     const m = mundo();
