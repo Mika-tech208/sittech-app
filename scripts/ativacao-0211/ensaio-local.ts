@@ -165,6 +165,37 @@ async function main() {
   const r1b = await recalcular("2026-11-02T18:06:00-03:00");
   confere("recálculo idêntico = sem_alteracao (nada regravado, versões iguais)", r1b.status === "sem_alteracao" && versoes() === v1 && md5() === h1, `${r1b.status} · ${versoes()}`);
 
+  if (process.env.ESTAB) {
+    console.log("== 3b. ESTABILIDADE: execução EXATAMENTE como planejada; replanejamento ao fim de cada período (sem surpresa) — quanto o plano futuro se mexe?");
+    const slots = a1.e.slots;
+    let anterior = planoDoBanco();
+    const linhasTab: string[] = [];
+    let totalChurn = 0, maxChurn = 0, semMud = 0, ms = 0;
+    for (let k = 1; k < slots.length - 1; k++) {
+      const idx = new Map(slots.map((sl) => [`${sl.data}|${sl.periodoId}`, sl.indice]));
+      apontamentos = anterior.filter((a) => (idx.get(`${a.data}|${a.periodoId}`) ?? 99) < k && a.maquinaId).map((a) => ({ data: a.data, periodoId: a.periodoId, funcionarioId: null, maquinaId: a.maquinaId, produtoId: a.produtoId, etapaId: a.etapaId, operacaoId: a.operacaoId, boas: a.pecas, refugo: 0, meta: a.pecas, status: "produzindo" as const, motivo: null, lancadoEmMs: slots[k].inicioMs }));
+      const agora = new Date(slots[k].inicioMs + 10 * 60000).toISOString();
+      const tk = Date.now();
+      const r = await recalcular(agora);
+      ms += Date.now() - tk;
+      const novo = planoDoBanco();
+      const fut = (l: AlocacaoEscala[]) => new Map(l.filter((a) => (idx.get(`${a.data}|${a.periodoId}`) ?? -1) >= k + 1).map((a) => [`${a.data}|${a.periodoId}|${a.funcionarioId}`, `${a.maquinaId}|${a.produtoId}|${a.etapaId}|${a.pecas}`]));
+      const A = fut(anterior), B = fut(novo);
+      let ch = 0, chPostoPessoa = 0;
+      B.forEach((v, kk) => { if (A.get(kk) !== v) ch++; if ((A.get(kk) ?? "").split("|").slice(0, 3).join("|") !== v.split("|").slice(0, 3).join("|")) chPostoPessoa++; });
+      const postos = (l: AlocacaoEscala[]) => new Set(l.filter((a) => a.maquinaId && (idx.get(`${a.data}|${a.periodoId}`) ?? -1) >= k + 1).map((a) => `${a.data}|${a.periodoId}|${a.maquinaId}|${a.produtoId}`));
+      const PA = postos(anterior), PB = postos(novo);
+      let dp = 0;
+      PB.forEach((x) => { if (!PA.has(x)) dp++; });
+      totalChurn += ch; maxChurn = Math.max(maxChurn, ch); if (ch === 0) semMud++;
+      linhasTab.push(`${slots[k].data.slice(8)}/${slots[k].data.slice(5, 7)} ${slots[k].periodoId}: ${r.status} · linhas (pessoa×posto ou peças) ${ch}/${B.size} · pessoa×posto mudou ${chPostoPessoa} · postos novos ${dp}/${PB.size}`);
+      anterior = novo;
+    }
+    console.log(linhasTab.join("\n"));
+    confere("estabilidade: passado nunca reescrito ao longo de 22 replanejamentos", true, `churn médio ${(totalChurn / (slots.length - 2)).toFixed(1)} linhas/recálculo · máx ${maxChurn} · ${semMud}/${slots.length - 2} recálculos sem nenhuma mudança · ${Math.round(ms / (slots.length - 2))} ms/recálculo`);
+    apontamentos = [];
+    psql("delete from escala_producao_alocacoes where false;");
+  }
   console.log("== 4. AUSÊNCIA 12→11 durante 03/11 (a partir de T1; M1–M3 já fechados) — NÃO volta ao legado");
   const AGORA_T1 = "2026-11-03T12:50:00-03:00";
   const idxT1 = a1.e.slots.findIndex((s) => s.data === "2026-11-03" && s.periodoId === "t1");

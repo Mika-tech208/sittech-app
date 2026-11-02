@@ -8,6 +8,7 @@
 //   • apontamento só entra se lancadoEmMs ≤ agoraMs; lançamento depois do fechamento do período é "tardio" (entra no estado, só afeta o futuro).
 
 import { maquinaDisponivelNoSlot } from "../disponibilidade";
+import { expandirPorProduto } from "../distribuicao";
 import { chavePool, type AlocacaoEscala, type EntradaEscala, type PoolEscala } from "../types";
 import { EPS } from "../folga";
 import { construirGrafo, type Grafo } from "./grafo";
@@ -452,7 +453,7 @@ export function remLegado(entrada: EntradaEscala): Record<string, number> {
   const idx = indiceDeSlots(entrada.slots);
   const rem: Record<string, number> = {};
   entrada.pools.forEach((p) => (rem[chavePool(p.produtoId, p.etapaId)] = Math.max(0, p.quantidade)));
-  entrada.congeladas.forEach((a: AlocacaoEscala) => {
+  expandirPorProduto(entrada.congeladas).forEach((a: AlocacaoEscala) => { // linha compartilhada: a quantidade é do SEU produto (identidade sem distribuição)
     const i = idx.get(`${a.data}|${a.periodoId}`);
     if (i === undefined || i >= entrada.aPartirDe) return;
     if (a.maquinaId && a.produtoId && a.etapaId) {

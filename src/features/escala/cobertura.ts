@@ -23,6 +23,7 @@
 //                             anterior: o posto fica sem operador. É a causa da pessoa sem posto, e vem ANTES das demais.
 
 import { maquinaDisponivelNoSlot } from "./disponibilidade";
+import { expandirPorProduto } from "./distribuicao";
 import { gerarEscala } from "./gerarEscala";
 import { EPS, metaNoSlot } from "./folga";
 import { etapasPorProduto } from "./wip";
@@ -94,7 +95,7 @@ export function analisarCobertura(
     adic.set(chavePool(p.produtoId, p.etapaId), Math.max(0, p.adicionalMax ?? 0));
   });
   const indice = new Map(entrada.slots.map((s) => [`${s.data}|${s.periodoId}`, s.indice]));
-  entrada.congeladas.forEach((a) => {
+  expandirPorProduto(entrada.congeladas).forEach((a) => { // linha compartilhada: a quantidade é do SEU produto (identidade sem distribuição)
     const i = indice.get(`${a.data}|${a.periodoId}`);
     if (i === undefined || i >= entrada.aPartirDe || !a.maquinaId || !a.produtoId || !a.etapaId) return;
     const k = chavePool(a.produtoId, a.etapaId);

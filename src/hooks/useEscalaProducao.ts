@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import { dispararProcessamentoEscala, gerarEscalaNoServidor, reprocessarEventosEsgotados } from "@/lib/escala/disparar";
 import type { AlertaEscala, PeriodoEscala } from "@/features/escala/types";
+import { lerDistribuicao } from "@/features/escala/distribuicao";
 
 export interface DiaEscala {
   data: string;
@@ -30,6 +31,8 @@ export interface AlocacaoLinha {
   excecaoRevezamento: boolean;
   motivoExcecao: string | null;
   motivoSemPosto: string | null;
+  // Linha compartilhada entre produtos (Etiquetadora/Embalagem do Conector 3/4): quantidade por produto da MESMA máquina/pessoa. Ausente = um só produto (produtoId/pecas).
+  distribuicao?: { produtoId: string; etapaId: string; pecas: number }[];
 }
 
 export interface RecursoIndisponivel {
@@ -141,6 +144,7 @@ export function useEscalaProducao(pronto: boolean, semanaInicio: string) {
         maquinaId: (r.maquina_id as string | null) ?? null, produtoId: (r.produto_id as string | null) ?? null, etapaId: (r.etapa_id as string | null) ?? null,
         operacaoId: (r.operacao_id as string | null) ?? null, pecas: Number(r.pecas ?? 0), origem: (r.origem as "auto" | "manual") ?? "auto",
         excecaoRevezamento: Boolean(r.excecao_revezamento), motivoExcecao: (r.motivo_excecao as string | null) ?? null, motivoSemPosto: (r.motivo_sem_posto as string | null) ?? null,
+        ...(lerDistribuicao(r.distribuicao) ? { distribuicao: lerDistribuicao(r.distribuicao) } : {}),
       }));
     }
 

@@ -24,6 +24,7 @@
 // As provas são LIMITES (otimistas): "impossível" nunca é afirmado sem prova.
 
 import { maquinaDisponivelNoSlot } from "./disponibilidade";
+import { expandirPorProduto } from "./distribuicao";
 import { EPS, metaNoSlot } from "./folga";
 import { chavePool, MOTIVO_REVEZAMENTO, type EntradaEscala, type PoolEscala, type ResultadoEscala } from "./types";
 
@@ -120,7 +121,7 @@ export function analisarAtingibilidade(entrada: EntradaEscala, resultado: Result
   // necessidade no início do primeiro período mutável (previsto menos o que o passado congelado já produziu)
   const indice = new Map(entrada.slots.map((s) => [`${s.data}|${s.periodoId}`, s.indice]));
   const need0 = new Map<string, number>(todos.map((p) => [chave(p), Math.max(0, p.quantidade)]));
-  entrada.congeladas.forEach((a) => {
+  expandirPorProduto(entrada.congeladas).forEach((a) => { // linha compartilhada: a quantidade é do SEU produto (identidade sem distribuição)
     const i = indice.get(`${a.data}|${a.periodoId}`);
     if (i === undefined || i >= entrada.aPartirDe || !a.maquinaId || !a.produtoId || !a.etapaId) return;
     const k = chavePool(a.produtoId, a.etapaId);

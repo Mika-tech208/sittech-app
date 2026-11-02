@@ -18,6 +18,7 @@
 // primeiro slot de cada dia zera o histórico (T3 -> M1 reseta).
 
 import { atribuicaoMinima } from "./matching";
+import { expandirPorProduto } from "./distribuicao";
 import { calcularFolgas, EPS, metaNoSlot, type FolgaPool } from "./folga";
 import { ContadoresEquidade } from "./equidade";
 import { maquinaDisponivelNoSlot } from "./disponibilidade";
@@ -113,7 +114,7 @@ export function gerarEscala(entrada: EntradaEscala): ResultadoEscala {
     const i = indicePorSlot.get(chaveSlot(a));
     return i !== undefined && i < aPartirDe;
   });
-  congeladas.forEach((a) => {
+  expandirPorProduto(congeladas).forEach((a) => { // linha compartilhada entre produtos: a quantidade abate a demanda do SEU produto (identidade quando não há distribuição)
     if (a.maquinaId && a.produtoId && a.etapaId) {
       const k = chavePool(a.produtoId, a.etapaId);
       if (rem.has(k)) rem.set(k, Math.max(0, (rem.get(k) as number) - a.pecas));

@@ -62,7 +62,12 @@ export default function GradeEscala({ dia, alocacoes, funcionarios, nomes, agora
                       {a.maquinaId ? (
                         <>
                           <div className="maq">{nomes.maquinas.get(a.maquinaId) || "Máquina"}</div>
-                          <div className="det">{nomes.produtos.get(a.produtoId || "") || "Produto"} · {nomes.operacoes.get(a.operacaoId || "") || "Operação"}</div>
+                          <div className="det">
+                            {a.distribuicao && a.distribuicao.length >= 2
+                              ? a.distribuicao.map((d) => `${nomes.produtos.get(d.produtoId) || "Produto"} ${Math.round(d.pecas).toLocaleString("pt-BR")}`).join(" + ")
+                              : nomes.produtos.get(a.produtoId || "") || "Produto"}
+                            {" · "}{nomes.operacoes.get(a.operacaoId || "") || "Operação"}
+                          </div>
                           <div>
                             {a.excecaoRevezamento && <span className="stx-esc-badge exc" title={a.motivoExcecao || "Repete a operação do período anterior"}>⚠ repete operação</span>}
                             {a.origem === "manual" && <span className="stx-esc-badge man">manual</span>}

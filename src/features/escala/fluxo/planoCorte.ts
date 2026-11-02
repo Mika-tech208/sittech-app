@@ -37,6 +37,8 @@ export interface ConfigPlanejadorCorte {
   partirDoVigente?: boolean;
   /** hash da entrada do planejador no último recálculo gravado: entrada idêntica + vigente válido ⇒ plano MANTIDO sem replanejar (determinismo; nenhum churn por evento irrelevante) */
   hashEntradaAnterior?: string | null;
+  /** θ: ganho relativo mínimo do objetivo para trocar os POSTOS do plano vigente (default 0,01 = 1%) */
+  ganhoMinimoRel?: number;
 }
 
 export interface TentativaCorte { rotulo: string; ok: boolean; motivo: string | null; ms?: number }
@@ -159,6 +161,8 @@ export function montarProblemaCorte(entrada: EntradaEscala, dados: DadosProducao
     slots: entrada.slots, aPartirDe: entrada.aPartirDe, recursos, produtos, equipe: entrada.funcionarios.map((f) => ({ id: f.id })), ausentes,
     linhasCongeladas: entrada.congeladas, producaoCongelada: {}, wipNoInicioDeAPartirDe: wipInicio,
     objetivo: cfg.objetivo ?? "EQUILIBRIO", ...(cfg.margemPorPeca ? { margemPorPeca: cfg.margemPorPeca } : {}), ...(cfg.coberturaMinima !== undefined ? { coberturaMinima: cfg.coberturaMinima } : {}),
+    // EQUILIBRIO: piso de cobertura em termos ABSOLUTOS da semana (cobertura × demanda total − o já entregue), não do restante — senão o piso afrouxa a cada período e o mix de produtos muda sozinho
+    ...((cfg.objetivo ?? "EQUILIBRIO") === "EQUILIBRIO" ? { pisoPorProduto: Object.fromEntries(produtos.map((p) => { const total = (porProduto.get(p.id) as PoolEscala[]).slice(-1)[0].quantidade; return [p.id, Math.max(0, (cfg.coberturaMinima ?? 0.45) * total - (total - p.demandaFinal))]; })) } : {}),
     ...(cfg.prioridade ? { prioridade: cfg.prioridade } : {}), operacaoDe, ...(linhasIniciais && linhasIniciais.length > 0 ? { linhasIniciais } : {}),
     revezamento: { ponteM3T1: entrada.revezamentoPonteM3T1 === true, ...(entrada.equivalenciaOperacoes ? { equivalencias: entrada.equivalenciaOperacoes } : {}) },
     busca: linhasIniciais && linhasIniciais.length > 0 ? cfg.buscaComVigente ?? cfg.busca : cfg.busca,
@@ -305,7 +309,17 @@ export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProdu
   ];
   for (const g of degraus) {
     try {
-      const saida = planejarFuturo({ ...m.entradaPlanejador, ...g.ajuste });
+      let saida = planejarFuturo({ ...m.entradaPlanejador, ...g.ajuste });
+      // ESTABILIDADE POR GANHO MÍNIMO (θ): a busca parte do vigente e nunca fica pior que ele; só TROCA de postos se o ganho do objetivo passa de θ (relativo). Senão mantém os MESMOS postos
+      // do vigente (as peças são refeitas com o estado novo) — o supervisor não vê o futuro mexer por micro-ganho de uma heurística.
+      if (g.rotulo === degraus[0].rotulo && cfg.partirDoVigente && m.entradaPlanejador.linhasIniciais && m.entradaPlanejador.linhasIniciais.length > 0) {
+        const sv = planejarFuturo({ ...m.entradaPlanejador, busca: { iter: 0, reinicios: 1, semente: 1 } });
+        const theta = cfg.ganhoMinimoRel ?? 0.01;
+        if (sv.validacao.cadeiaValida && sv.validacao.semMaterial === 0 && sv.objetivoValor * (1 + theta) >= saida.objetivoValor) {
+          diagnosticos.push({ codigo: "ESTABILIDADE_RETEVE_ALOCACAO", severidade: "info", mensagem: `Postos do plano vigente mantidos: o ganho da nova busca (${Math.round(sv.objetivoValor)} → ${Math.round(saida.objetivoValor)}) ficou abaixo de θ = ${(theta * 100).toFixed(1)}%` });
+          saida = sv;
+        }
+      }
       let linhas = linhasGravaveis(saida);
       let chk = checarPlanoCorte(entrada, linhas, saida, m.poolPor, m.ctx);
       const ok = checagensOk(chk.checagens);

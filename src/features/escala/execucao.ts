@@ -13,13 +13,14 @@
 // Nunca mexe no comprometido (já reparado) só para ganhar produção.
 
 import { chavePool, MOTIVO_REVEZAMENTO, type AlocacaoEscala, type PoolEscala, type SlotEscala } from "./types";
+import { expandirPorProduto } from "./distribuicao";
 
 export type Situacao = "OK" | "A" | "B→C" | "B→D";
 
 // Σ peças por pool × f (linhas com posto)
 export function projetarProducao(rows: AlocacaoEscala[], fator: Record<string, number> | null): Record<string, number> {
   const r: Record<string, number> = {};
-  rows.forEach((a) => {
+  expandirPorProduto(rows).forEach((a) => { // linha compartilhada: cada produto recebe a SUA quantidade (identidade sem distribuição)
     if (!a.maquinaId || !a.produtoId || !a.etapaId) return;
     const k = chavePool(a.produtoId, a.etapaId);
     r[k] = (r[k] ?? 0) + (a.pecas ?? 0) * (fator ? fator[k] ?? 1 : 1);

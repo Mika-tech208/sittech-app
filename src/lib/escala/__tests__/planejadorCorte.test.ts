@@ -220,6 +220,45 @@ describe("PLANEJADOR DE CORTE: a semana ativada é gerada e recalculada SEM o mo
   });
 });
 
+describe("outros eventos e estabilidade", () => {
+  it("parada de máquina no futuro: o planejador recalcula e nenhuma linha usa a máquina parada", async () => {
+    const m = mundo();
+    await m.recalcular(GERA, true);
+    const usada = m.alocacoes.find((a) => a.data === "2026-11-05" && a.maquinaId)!.maquinaId!;
+    m.editar((e) => { e.indisponibilidades.push({ maquinaId: usada, desde: epochMsNoFuso("2026-11-02", "19:00") ? new Date("2026-11-02T22:00:00Z").toISOString() : "", liberadaEm: null }); });
+    await m.recalcular(epochMsNoFuso("2026-11-02", "19:30"));
+    expect(m.alocacoes.some((a) => a.maquinaId === usada)).toBe(false);
+    expect(auditar(m, epochMsNoFuso("2026-11-02", "19:30")).duras).toBe(0);
+    expect(ultimoPlanejador(m).avaliacaoFluxo).toMatchObject({ motor: "corte-v1", usado: true });
+  });
+
+  it("contagem física nova muda o WIP inicial do planejador (e o plano), sem tocar no passado", () => {
+    const m = mundo();
+    const { montada } = estadoAtual(m, T1_DIA3);
+    const e = montada.entrada;
+    const par = (saldo: number) => ({ produtoId: "pA", etapaOrigemId: "eA1", etapaSeguinteId: "eA2", saldo, contadoEmMs: T1_DIA3 - 3600_000 });
+    const wip = (saldo: number) => montarProblemaCorte(e, { apontamentos: [], agoraMs: T1_DIA3, planoVigente: [], contagensFisicas: [par(saldo)] }, { fluxoMesmoPeriodo: false }, CFG, []).entradaPlanejador.produtos.find((p) => p.id === "pA")!.wipInicial[0];
+    expect(wip(1500)).toBe(1500);
+    expect(wip(300)).toBe(300);
+  });
+
+  it("execução EXATAMENTE como planejada ⇒ o replanejamento do período seguinte mexe pouco no futuro (estabilidade por hash/θ/pessoas)", async () => {
+    const m = mundo();
+    await m.recalcular(GERA, true);
+    const antes = auditar(m, T1_DIA3).futuras.filter((a) => a.data > "2026-11-03");
+    // lança, como real, tudo que foi planejado em M1–M3 de 03/11
+    const exec = m.alocacoes.filter((a) => a.data === "2026-11-03" && ["m1", "m2", "m3"].includes(a.periodoId) && a.maquinaId);
+    m.editar((e) => { exec.forEach((a) => e.producaoReal!.apontamentos.push({ data: a.data, periodoId: a.periodoId, funcionarioId: null, maquinaId: a.maquinaId, produtoId: a.produtoId, etapaId: a.etapaId, operacaoId: a.operacaoId, boas: a.pecas, refugo: 0, meta: a.pecas, status: "produzindo", motivo: null, lancadoEmMs: epochMsNoFuso("2026-11-03", "12:00") })); });
+    await m.recalcular(T1_DIA3);
+    const depois = auditar(m, T1_DIA3).futuras.filter((a) => a.data > "2026-11-03");
+    const k = (a: AlocacaoEscala) => `${a.data}|${a.periodoId}|${a.funcionarioId}`;
+    const A = new Map(antes.map((a) => [k(a), `${a.maquinaId}|${a.produtoId}`]));
+    const mudou = depois.filter((a) => A.get(k(a)) !== `${a.maquinaId}|${a.produtoId}`).length;
+    expect(mudou / depois.length).toBeLessThan(0.15); // < 15% das linhas futuras trocam de posto/produto sem nenhuma surpresa
+    expect(auditar(m, T1_DIA3).duras).toBe(0);
+  });
+});
+
 describe("LINHAS COMPARTILHADAS: ALOCACAO_FISICA × DISTRIBUICAO_DA_QUANTIDADE_POR_PRODUTO", () => {
   it("máquina compartilhada entre produtos da mesma operação ⇒ uma linha física com distribuição que soma a peça da linha; produto da linha = dominante", async () => {
     const m = mundo();
