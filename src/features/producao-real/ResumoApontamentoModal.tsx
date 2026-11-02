@@ -81,7 +81,8 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
   const [motivoAlteracao, setMotivoAlteracao] = useState("");
 
   const { produtos, loading: produtosCarregando } = useProdutosElegiveisPorMaquina(
-    modo === "editando" && mostrandoFormularioProducao ? apontamento.maquinaId : null
+    modo === "editando" && mostrandoFormularioProducao ? apontamento.maquinaId : null,
+    apontamento.data
   );
   const { motivos: motivosParada } = useMotivosParada(mostrandoFormularioProducao);
 

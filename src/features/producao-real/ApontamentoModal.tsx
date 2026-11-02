@@ -57,7 +57,7 @@ export default function ApontamentoModal({
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [etapa, setEtapa] = useState<Etapa>("preenchendo");
 
-  const { produtos, loading: produtosCarregando } = useProdutosElegiveisPorMaquina(maquinaId);
+  const { produtos, loading: produtosCarregando } = useProdutosElegiveisPorMaquina(maquinaId, modoRetroativo?.data ?? null);
   const { motivos: motivosParada } = useMotivosParada(true);
 
   const [produtoId, setProdutoId] = useState("");
