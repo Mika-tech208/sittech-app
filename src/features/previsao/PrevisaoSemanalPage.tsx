@@ -9,6 +9,7 @@ import { useFuncionariosElegibilidade } from "@/hooks/useFuncionariosElegibilida
 import { useOperacoesComId } from "@/hooks/useOperacoesComId";
 import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
+import { useModelosCanonicos } from "@/hooks/useModelosCanonicos";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useSidebarState } from "@/hooks/useSidebarState";
@@ -86,6 +87,7 @@ export default function PrevisaoSemanalPage() {
   const { maquinas } = maquinasHook;
   const produtosHook = useProdutos(auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading);
   const { produtos } = produtosHook;
+  const modelosCanonicos = useModelosCanonicos(!!auth.autenticado && !produtosHook.loading); // [] antes do cutover/backfill: nada muda
   const previsoesHook = usePrevisoes(
     auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading && !produtosHook.loading
   );
@@ -633,6 +635,7 @@ export default function PrevisaoSemanalPage() {
                   valorPrevistoSemana={resumoSemana.valorPrevisto}
                   equipeProdutivaCount={equipeProdutivaCount}
                   formatBRL={formatBRL}
+                  modelosCanonicos={modelosCanonicos}
                 />
 
                 {metodologia === "apontado_real" ? (

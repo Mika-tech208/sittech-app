@@ -1,9 +1,11 @@
 "use client";
 
 import {
-  calcularViabilidadeItem, calcularFuncionariosTotalSemana, calcularMaquinasDaEtapa, encontrarSelecoesInvalidas,
+  calcularFuncionariosTotalSemana, calcularMaquinasDaEtapa, encontrarSelecoesInvalidas,
 } from "@/features/capacidade/calculations";
 import { toNumber } from "@/lib/format";
+import { viabilidadeItemComRotas } from "@/features/produto-canonico/capacidadeRotas";
+import type { ModeloCanonico } from "@/features/produto-canonico/tipos";
 import type { Produto, Maquina, Previsao, PrevisaoItem, PeriodoComDuracao } from "@/types/domain";
 import type { AnaliseCapacidadeSemanal } from "@/features/capacidade/types";
 
@@ -37,6 +39,8 @@ export interface ItensPrevistosProps {
   // funcionários marcados como produtivos NESTA semana (não o total de ativos)
   equipeProdutivaCount: number;
   formatBRL: (v: number) => string;
+  /** produtos únicos com rotas (vazio/ausente = comportamento anterior, idêntico) */
+  modelosCanonicos?: ModeloCanonico[];
 }
 
 // "Itens previstos" — formulário (com viabilidade ao vivo, seleção de
@@ -44,15 +48,15 @@ export interface ItensPrevistosProps {
 export default function ItensPrevistos({
   loading, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, semana,
   showForm, setShowForm, editingId, form, onSelecionarProduto, onQuantidadeChange, onToggleMaquina,
-  onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, equipeProdutivaCount, formatBRL,
+  onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, equipeProdutivaCount, formatBRL, modelosCanonicos = [],
 }: ItensPrevistosProps) {
   const produtoSel = produtos.find((p) => p.id === form.produtoId) || null;
   const roteiroSel = produtoSel?.roteiro || [];
 
   const viabAoVivo = form.produtoId && produtoSel && roteiroSel.length > 0
-    ? calcularViabilidadeItem(
+    ? viabilidadeItemComRotas(
         { produtoId: form.produtoId, quantidade: toNumber(form.quantidade), maquinasPorEtapa: form.maquinasPorEtapa },
-        produtos, periodosComDuracao, horasPorMaquinaSemana
+        produtos, periodosComDuracao, horasPorMaquinaSemana, modelosCanonicos
       )
     : null;
 
@@ -178,7 +182,7 @@ export default function ItensPrevistos({
         <div className="stx-empty">Nenhum item lançado nessa semana ainda.</div>
       ) : (
         semana.itens.map((it) => {
-          const viab = calcularViabilidadeItem(it, produtos, periodosComDuracao, horasPorMaquinaSemana);
+          const viab = viabilidadeItemComRotas(it, produtos, periodosComDuracao, horasPorMaquinaSemana, modelosCanonicos);
           const maquinasDoItem = new Set(Object.values(it.maquinasPorEtapa || {}).flat());
           const gargalosQueAfetam = analise.gargalos.filter((g) => maquinasDoItem.has(g.maquinaId));
           const produtoDoItem = produtos.find((p) => p.id === it.produtoId);
