@@ -65,6 +65,21 @@ export function entregaAlimentadoras(prods: ProdutoRev[], producao: Record<strin
   return v;
 }
 
+/** Validação de cadeia (lote de 1 período) da cadeia principal com alimentadoras: consumo da etapa k+1 no período t ≤ estoque do INÍCIO de t da ligação k (inicial + entradas dos períodos < t − consumos < t). */
+export function validarCadeiaComRotas(prods: ProdutoRev[], p: ProdutoRev, producao: Record<string, Record<string, number[]>>): { violacoes: number; semMaterial: number } {
+  let violacoes = 0, semMaterial = 0;
+  const H = producao[p.id]?.[p.etapas[0].id]?.length ?? 0;
+  for (let k = 0; k + 1 < p.etapas.length; k++) {
+    let est = p.wipInicial[k] ?? 0;
+    for (let t = 0; t < H; t++) {
+      const sai = producao[p.id][p.etapas[k + 1].id][t] ?? 0;
+      if (sai > est + 1e-6) { violacoes++; semMaterial += sai - est; }
+      est = Math.max(0, est - sai) + (producao[p.id][p.etapas[k].id][t] ?? 0) + entregaAlimentadoras(prods, producao, p.id, k, t);
+    }
+  }
+  return { violacoes, semMaterial };
+}
+
 export function simularCongelado(prods: ProdutoRev[], producao: Record<string, Record<string, number[]>>, ate: number): Record<string, number[][]> {
   const out: Record<string, number[][]> = {};
   prods.forEach((p) => {
@@ -177,10 +192,13 @@ function montar(e: EntradaPlanejador, cfg: ConfigDespacho, r: ReturnType<typeof 
   // validação de cadeia da semana inteira
   let violCadeia = 0, semMat = 0;
   e.produtos.forEach((p) => {
-    // cadeia principal com rotas: a produção da etapa que escreve na ligação de entrega é a dela + a entregue pelas alimentadoras (o estoque é um só)
-    const planoVal: Record<string, number[]> = { ...producao[p.id] };
-    p.etapas.forEach((et, k) => { if (k < p.etapas.length - 1 && e.produtos.some((f) => f.alimenta?.produtoId === p.id && f.alimenta.ligacao === k)) planoVal[et.id] = planoVal[et.id].map((v, t) => v + entregaAlimentadoras(e.produtos, producao, p.id, k, t)); });
-    const sim = validarPlanoCadeia({ etapas: p.etapas.map((x) => ({ id: x.id, rotulo: x.rotulo })), wipInicial: p.wipInicial, periodos: e.slots.map((s) => ({ rotulo: `${s.data} ${s.periodoId}`, duracaoMin: s.fimMin - s.inicioMin })) }, planoVal);
+    if (e.produtos.some((f) => f.alimenta?.produtoId === p.id)) {
+      // cadeia principal com ROTAS: o estoque da ligação de entrega recebe a produção da etapa anterior + a entregue pelas alimentadoras (lote de 1 período); o validador linear não representa isso
+      const r = validarCadeiaComRotas(e.produtos, p, producao);
+      violCadeia += r.violacoes; semMat += r.semMaterial;
+      return;
+    }
+    const sim = validarPlanoCadeia({ etapas: p.etapas.map((x) => ({ id: x.id, rotulo: x.rotulo })), wipInicial: p.wipInicial, periodos: e.slots.map((s) => ({ rotulo: `${s.data} ${s.periodoId}`, duracaoMin: s.fimMin - s.inicioMin })) }, producao[p.id]);
     violCadeia += sim.violacoes.length;
     sim.nos.forEach((n) => (semMat += soma(n.semMaterial)));
   });
