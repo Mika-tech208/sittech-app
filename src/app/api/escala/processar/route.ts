@@ -21,6 +21,7 @@ import { processarSombraDoServidor } from "@/lib/escala/sombraSupabase";
 import { revalidarDisponibilidade } from "@/lib/escala/revalidarDisponibilidade";
 
 export const runtime = "nodejs";
+export const maxDuration = 60; // recálculo da semana (planejador de corte ~3–6 s + consultas); sem isto a rota herdaria o teto curto do plano
 
 export async function POST(request: Request) {
   const auth = await autenticarRequisicaoIntelligence(request);

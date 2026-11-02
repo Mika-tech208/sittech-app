@@ -119,6 +119,8 @@ export function lerConfigPlanejador(v: unknown): ConfigPlanejadorCorte {
   }
   const cob = numOu(o.coberturaMinima, 0, 1);
   if (cob !== undefined) cfg.coberturaMinima = cob;
+  const orc = numOu(o.orcamentoMs, 1000, 55_000);
+  if (orc !== undefined) cfg.orcamentoMs = orc;
   const gm = numOu(o.ganhoMinimoRel, 0, 0.5);
   if (gm !== undefined) cfg.ganhoMinimoRel = gm;
   if (Array.isArray(o.prioridade) && o.prioridade.every((x) => typeof x === "string")) cfg.prioridade = o.prioridade as string[];

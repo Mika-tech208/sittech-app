@@ -39,6 +39,8 @@ export interface EntradaPlanejador {
   /** verificador independente (ex.: verificarRestricoesDuras da entrada real) — devolve nº de violações duras do conjunto congelado + futuro */
   verificarDuras?: (linhas: AlocacaoEscala[]) => number;
   busca?: { iter?: number; reinicios?: number; semente?: number };
+  /** ORÇAMENTO DE TEMPO (injetado; o planejador não lê relógio): verdadeiro ⇒ aborta com Error("ORCAMENTO_DE_TEMPO_ESTOURADO") — nunca devolve plano parcial */
+  parar?: () => boolean;
 }
 
 export interface SaidaPlanejador {
@@ -52,6 +54,7 @@ export interface SaidaPlanejador {
   objetivoValor: number;
 }
 
+export const ERRO_ORCAMENTO = "ORCAMENTO_DE_TEMPO_ESTOURADO";
 const soma = (v: number[]) => v.reduce((a, b) => a + b, 0);
 
 /** Estoque por ligação no início de cada slot, simulando a produção efetiva congelada (consumo = produção da etapa seguinte; lote de 1 período). */
@@ -101,8 +104,10 @@ export function planejarFuturo(e: EntradaPlanejador): SaidaPlanejador {
   let limiteOp = Math.max(...pessoas);
   let resultado: ReturnType<typeof montar> | null = null;
   for (let tent = 0; tent < 5 && !resultado; tent++, limiteOp--) {
+    if (e.parar?.()) throw new Error(ERRO_ORCAMENTO);
     const cfg: ConfigDespacho = { ...cfgBase, limiteOp };
-    const r = buscaLocal(cfg, iniciais, { iter: e.busca?.iter ?? 400000, reinicios: e.busca?.reinicios ?? 2, semente: e.busca?.semente ?? 1 });
+    const r = buscaLocal(cfg, iniciais, { iter: e.busca?.iter ?? 400000, reinicios: e.busca?.reinicios ?? 2, semente: e.busca?.semente ?? 1, ...(e.parar ? { parar: e.parar } : {}) });
+    if (r.interrompida || e.parar?.()) throw new Error(ERRO_ORCAMENTO);
     const m = montar(e, cfg, r, prodsFuturo, congel, alvo, finaisCongelados, avisos);
     if (m.atribuicaoOk) resultado = m; else { avisos.push(`atribuição de pessoas falhou com limite ${limiteOp} linhas/operação/bloco; apertando para ${limiteOp - 1}`); iniciais = r.linhas; }
   }

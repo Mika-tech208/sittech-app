@@ -17,7 +17,7 @@ import type { ApontamentoReal } from "../producaoReal";
 import { MOTIVO_DEMANDA_ESGOTADA, chavePool, type AlertaEscala, type AlocacaoEscala, type EntradaEscala, type PoolEscala, type ResultadoEscala } from "../types";
 import { simularCadeia } from "./cadeia";
 import { montarEstado, prepararFluxo, type CtxFluxo } from "./estado";
-import { planejarFuturo, type EntradaPlanejador, type ObjetivoPlanejador, type SaidaPlanejador } from "./planejadorFuturo";
+import { ERRO_ORCAMENTO, planejarFuturo, type EntradaPlanejador, type ObjetivoPlanejador, type SaidaPlanejador } from "./planejadorFuturo";
 import type { ProdutoRev, RecursoRev } from "./planoReverso";
 import { verificarRestricoesDuras } from "./restricoes";
 import type { DadosProducaoReal, DiagnosticoItem, EstadoFluxo, OpcoesFluxo, ViolacaoDura } from "./tipos";
@@ -39,6 +39,10 @@ export interface ConfigPlanejadorCorte {
   hashEntradaAnterior?: string | null;
   /** θ: ganho relativo mínimo do objetivo para trocar os POSTOS do plano vigente (default 0,01 = 1%) */
   ganhoMinimoRel?: number;
+  /** ORÇAMENTO DE TEMPO (ms) de UM planejamento (default 20.000): estourado ⇒ `ok:false` (plano vigente mantido + alerta); nunca grava resultado parcial. Negativo = força o estouro (testes). */
+  orcamentoMs?: number;
+  /** relógio injetável (ms); default Date.now. O planejador puro nunca lê relógio. */
+  relogio?: () => number;
 }
 
 export interface TentativaCorte { rotulo: string; ok: boolean; motivo: string | null; ms?: number }
@@ -266,7 +270,12 @@ function resultadoDe(entrada: EntradaEscala, linhas: AlocacaoEscala[], produtos:
 export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProducaoReal, opcoes: OpcoesFluxo, cfg: ConfigPlanejadorCorte, planoVigenteBruto: AlocacaoEscala[] = dados.planoVigente): ResultadoCorte {
   const tentativas: TentativaCorte[] = [];
   const diagnosticos: DiagnosticoItem[] = [];
+  const relogio = cfg.relogio ?? Date.now;
+  const tIni = relogio();
+  const orcamento = cfg.orcamentoMs ?? 20_000;
+  const parar = () => relogio() - tIni > orcamento;
   const m = montarProblemaCorte(entrada, dados, opcoes, cfg, planoVigenteBruto);
+  m.entradaPlanejador.parar = parar;
   const hashEntrada = hashEntradaPlanejador(m.entradaPlanejador);
   if (m.repartidos > 0) diagnosticos.push({ codigo: "APONTAMENTO_LINHA_COMPARTILHADO_REPARTIDO", severidade: "info", mensagem: `${m.repartidos} apontamento(s) de linha compartilhada repartido(s) entre os produtos pela distribuição planejada do período (um apontamento por máquina×período)` });
   const idxSlot = new Map(entrada.slots.map((s) => [chaveSlot(s), s.indice]));
@@ -308,6 +317,7 @@ export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProdu
     { rotulo: "piso de cobertura 0 e outra semente", ajuste: { coberturaMinima: 0, pisoPorProduto: undefined, busca: { ...(m.entradaPlanejador.busca ?? {}), semente: (m.entradaPlanejador.busca?.semente ?? 1) + 6 }, linhasIniciais: undefined } },
   ];
   for (const g of degraus) {
+    const tg = relogio();
     try {
       let saida = planejarFuturo({ ...m.entradaPlanejador, ...g.ajuste });
       // ESTABILIDADE POR GANHO MÍNIMO (θ): a busca parte do vigente e nunca fica pior que ele; só TROCA de postos se o ganho do objetivo passa de θ (relativo). Senão mantém os MESMOS postos
@@ -334,10 +344,12 @@ export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProdu
           } else diagnosticos.push({ codigo: "ESTABILIZACAO_DESCARTADA", severidade: "aviso", mensagem: "Re-atribuição de pessoas descartada: introduziria violação" });
         }
       }
-      tentativas.push({ rotulo: g.rotulo, ok, motivo: ok ? null : `checagens: ${JSON.stringify(chk.checagens)}` });
+      tentativas.push({ rotulo: g.rotulo, ok, motivo: ok ? null : `checagens: ${JSON.stringify(chk.checagens)}`, ms: relogio() - tg });
       if (ok) return { ...base, ok: true, motivo: null, resultado: resultadoDe(entrada, linhas, m.produtos), saida, violacoes: chk.violacoes, checagens: chk.checagens, tentativas, diagnosticos: [...diagnosticos, ...saida.avisos.map((a) => ({ codigo: "PLANEJADOR_AVISO" as const, severidade: "info" as const, mensagem: a }))] };
     } catch (e) {
-      tentativas.push({ rotulo: g.rotulo, ok: false, motivo: e instanceof Error ? e.message : String(e) });
+      const msg = e instanceof Error ? e.message : String(e);
+      tentativas.push({ rotulo: g.rotulo, ok: false, motivo: msg, ms: relogio() - tg });
+      if (msg === ERRO_ORCAMENTO) return falha(`orçamento de tempo estourado (${orcamento} ms): nada foi gravado, plano vigente mantido`); // sem mais degraus: o tempo acabou
     }
   }
   return falha(`nenhuma tentativa do planejador passou nas checagens independentes (${tentativas.map((t) => `${t.rotulo}: ${t.motivo}`).join(" | ")})`);

@@ -127,6 +127,8 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
         resultado = mantidoDoPlano(estado, entrada.aPartirDe, entrada.slots, corteMotivoFalha);
         console.error(`escala/corte: plano vigente MANTIDO (${estado.semanaInicio}): ${corteMotivoFalha}`);
       }
+      // planejador indisponível e a semana NÃO tem plano nenhum: não existe "plano vigente" a manter — gravar linhas vazias seria pior; falha o evento (retentável), nunca o legado
+      if (corteMotivoFalha && estado.diasExistentes.length === 0) throw new Error(`planejador de corte indisponível e a semana ${estado.semanaInicio} não tem plano: nada foi gravado (${corteMotivoFalha})`);
     } else if (pr && ctxFluxo && pr.modoEfetivo === "ativo") {
       const t = tentarPlanoFluxo(ctxFluxo);
       registroAtivo = t.registro;

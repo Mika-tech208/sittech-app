@@ -158,8 +158,8 @@ export function occParaLinhas(C: ConfigDespacho, D: PrepD, occ: Uint8Array[]): L
   return out;
 }
 
-export interface OpcoesBusca { iter?: number; semente?: number; temp0?: number; tempFim?: number; reinicios?: number }
-export interface ResultadoBusca { linhas: LinhaPostoD[]; desp: ResultadoDespacho; objInicial: number; iter: number; aceitas: number; melhorias: number }
+export interface OpcoesBusca { iter?: number; semente?: number; temp0?: number; tempFim?: number; reinicios?: number; /** orçamento de tempo: verificado a cada 1024 iterações; verdadeiro ⇒ interrompe a busca (quem chama decide descartar) */ parar?: () => boolean }
+export interface ResultadoBusca { linhas: LinhaPostoD[]; desp: ResultadoDespacho; objInicial: number; iter: number; aceitas: number; melhorias: number; interrompida?: boolean }
 
 /** Recozimento simulado sobre as linhas de posto. Sempre devolve o melhor plano visto (nunca pior que o inicial). Restrições duras mantidas em cada passo. */
 export function buscaLocal(C: ConfigDespacho, inicial: LinhaPostoD[], op: OpcoesBusca = {}): ResultadoBusca {
@@ -172,6 +172,7 @@ export function buscaLocal(C: ConfigDespacho, inicial: LinhaPostoD[], op: Opcoes
   const total = op.iter ?? 200000;
   let aceitas = 0, melhorias = 0, it = 0;
   const reinicios = op.reinicios ?? 2;
+  let interrompida = false;
   for (let rr = 0; rr < reinicios; rr++) {
     const rnd = prng((op.semente ?? 1) + rr * 7919);
     const occ = melhorOcc.map((r) => r.slice());
@@ -179,6 +180,7 @@ export function buscaLocal(C: ConfigDespacho, inicial: LinhaPostoD[], op: Opcoes
     const T0 = op.temp0 ?? Math.max(5, Math.abs(cur) * 0.002), T1 = op.tempFim ?? 0.05;
     const n = Math.floor(total / reinicios);
     for (let i = 0; i < n; i++, it++) {
+      if ((i & 1023) === 0 && op.parar?.()) { interrompida = true; break; }
       const T = T0 * Math.pow(T1 / T0, i / n);
       // move: sorteia
       const u = rnd();
@@ -232,6 +234,7 @@ export function buscaLocal(C: ConfigDespacho, inicial: LinhaPostoD[], op: Opcoes
       }
       for (let k = undo.length - 1; k >= 0; k--) occ[undo[k].t][undo[k].r] = undo[k].v;
     }
+    if (interrompida) break;
   }
   // PODA: linha cuja remoção não reduz o objetivo não tem destino útil (peça que não chega a produto final nem a estoque de saída útil) ⇒ pessoa fica SEM posto (explicada), não em posto inútil
   for (let t = H - 1; t >= C.t0; t--) for (let r = 0; r < R; r++) {
@@ -244,7 +247,7 @@ export function buscaLocal(C: ConfigDespacho, inicial: LinhaPostoD[], op: Opcoes
   let desp = despachar(C, D, melhorOcc, true);
   const dropar = desp.linhasOciosas;
   if (dropar.length) { dropar.forEach((l) => (melhorOcc[l.t][D.recIdx.get(l.recursoId) as number] = 0)); desp = despachar(C, D, melhorOcc, true); }
-  return { linhas: occParaLinhas(C, D, melhorOcc), desp, objInicial: ini.obj, iter: it, aceitas, melhorias };
+  return { linhas: occParaLinhas(C, D, melhorOcc), desp, objInicial: ini.obj, iter: it, aceitas, melhorias, interrompida };
 }
 
 /** Detalhes alinhados às linhas devolvidas por `buscaLocal` (ordem: t, depois índice do recurso). */

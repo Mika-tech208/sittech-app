@@ -220,6 +220,45 @@ describe("PLANEJADOR DE CORTE: a semana ativada é gerada e recalculada SEM o mo
   });
 });
 
+describe("A2 — orçamento de tempo: estourou ⇒ plano vigente mantido + alerta; nunca grava parcial", () => {
+  it("orçamento forçado ao mínimo num recálculo: plano idêntico, alerta explícito, motor legado nunca chamado", async () => {
+    const m = mundo();
+    await m.recalcular(GERA, true);
+    const futuroAntes = JSON.stringify(auditar(m, T1_DIA3).futuras);
+    m.editar((e) => { e.planejadorCorte = { ...e.planejadorCorte!, config: { ...CFG, orcamentoMs: -1 } }; e.ausencias.push({ funcionarioId: "f04", data: "2026-11-04", horarioInicio: null, horarioFim: null }); });
+    const r = await m.recalcular(T1_DIA3);
+    expect(JSON.stringify(auditar(m, T1_DIA3).futuras)).toBe(futuroAntes);
+    const alerta = r.alertas.find((a) => (a as { tipo?: string }).tipo === "planejador_corte_falhou") as { motivo?: string } | undefined;
+    expect(alerta?.motivo).toMatch(/or[cç]amento de tempo estourado/i);
+    expect(ultimoPlanejador(m).avaliacaoFluxo).toMatchObject({ usado: false });
+  });
+
+  it("relógio injetado: o orçamento é medido e cada tentativa registra `ms`; estourado ⇒ ok:false, sem resultado", async () => {
+    const m = mundo();
+    const { montada } = estadoAtual(m, GERA);
+    const e = montada.entrada;
+    let agora = 0;
+    const { planejarSemanaComCorte } = await import("@/features/escala/fluxo/planoCorte");
+    const dados = { apontamentos: [], agoraMs: GERA, planoVigente: [] as AlocacaoEscala[] };
+    const lento = planejarSemanaComCorte(e, dados, { fluxoMesmoPeriodo: false }, { ...CFG, orcamentoMs: 50, relogio: () => (agora += 100) }, []);
+    expect(lento.ok).toBe(false);
+    expect(lento.resultado).toBeNull();
+    expect(lento.motivo).toMatch(/or[cç]amento/i);
+    expect(lento.tentativas.every((t) => typeof t.ms === "number")).toBe(true);
+    agora = 0;
+    const folgado = planejarSemanaComCorte(e, dados, { fluxoMesmoPeriodo: false }, { ...CFG, orcamentoMs: 1e12, relogio: () => (agora += 1) }, []);
+    expect(folgado.ok).toBe(true);
+    expect(folgado.tentativas[0].ms).toBeGreaterThan(0);
+  });
+
+  it("geração da semana com o planejador indisponível e SEM plano vigente: não grava linhas vazias nem usa o legado — falha o evento", async () => {
+    const m = mundo();
+    m.editar((e) => { e.planejadorCorte = { ...e.planejadorCorte!, config: { ...CFG, orcamentoMs: -1 } }; });
+    await expect(m.recalcular(GERA, true)).rejects.toThrow(/planejador de corte indispon/i);
+    expect(m.alocacoes.length).toBe(0);
+  });
+});
+
 describe("outros eventos e estabilidade", () => {
   it("parada de máquina no futuro: o planejador recalcula e nenhuma linha usa a máquina parada", async () => {
     const m = mundo();
