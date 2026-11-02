@@ -232,6 +232,38 @@ describe("outros eventos e estabilidade", () => {
     expect(ultimoPlanejador(m).avaliacaoFluxo).toMatchObject({ motor: "corte-v1", usado: true });
   });
 
+  it("evento COM período em andamento (M2 de 03/11 rodando): corte no próximo período não iniciado; M1–M2 congelados; checagens do planejador todas zeradas", async () => {
+    const m = mundo();
+    await m.recalcular(GERA, true);
+    const meio = epochMsNoFuso("2026-11-03", "09:30"); // M2 em andamento (08:48–10:24); M3 é o primeiro livre
+    const antes = passado(m, meio);
+    m.editar((e) => { e.ausencias.push({ funcionarioId: "f02", data: "2026-11-03", horarioInicio: "10:24:00", horarioFim: null }); }); // some a partir de M3
+    const r = await m.recalcular(meio);
+    expect(r.status).toBe("processado");
+    expect(passado(m, meio)).toBe(antes);
+    const ck = (ultimoPlanejador(m).avaliacaoFluxo as { checagens: Record<string, number> }).checagens;
+    expect(ck).toMatchObject({ cadeiaInvalida: 0, semMaterial: 0, violacoesDuras: 0, maquinaForaDaPrevisao: 0, distribuicaoInvalida: 0, excedePessoas: 0, passadoAlterado: 0, duplicidade: 0 });
+    expect(pessoasNoSlot(m, "2026-11-03", "m3").some((x) => x.funcionarioId === "f02")).toBe(false);
+    expect(pessoasNoSlot(m, "2026-11-03", "m2").some((x) => x.funcionarioId === "f02")).toBe(true); // período em andamento: intocado
+    expect(auditar(m, meio).duras).toBe(0);
+  });
+
+  it("ausência PESADA (7 de 10 pessoas na tarde de 03/11): ou replaneja válido (cadeia/material/revezamento) ou MANTÉM o plano e avisa — nunca grava plano inválido nem usa o legado", async () => {
+    const m = mundo();
+    await m.recalcular(GERA, true);
+    m.editar((e) => { ["f01", "f02", "f03", "f04", "f05", "f06", "f07"].forEach((f) => e.ausencias.push({ funcionarioId: f, data: "2026-11-03", horarioInicio: "13:00:00", horarioFim: null })); });
+    const r = await m.recalcular(T1_DIA3);
+    const reg = ultimoPlanejador(m);
+    if ((reg.avaliacaoFluxo as { usado?: boolean }).usado) {
+      expect(pessoasNoSlot(m, "2026-11-03", "t1").length).toBe(3);
+      const a = auditar(m, T1_DIA3);
+      expect(a.duras).toBe(0);
+      expect(a.semMaterial).toBe(0);
+    } else {
+      expect(r.alertas.some((a) => (a as { tipo?: string }).tipo === "planejador_corte_falhou")).toBe(true); // plano mantido + alerta
+    }
+  });
+
   it("contagem física nova muda o WIP inicial do planejador (e o plano), sem tocar no passado", () => {
     const m = mundo();
     const { montada } = estadoAtual(m, T1_DIA3);
