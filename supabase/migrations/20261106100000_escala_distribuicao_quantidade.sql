@@ -14,7 +14,8 @@
 --   • escala_alocacoes_por_produto(previsão): visão POR PRODUTO (linha compartilhada expandida) para consultas/relatórios;
 --   • chaves producao_real_planejador_semanas ([]) e producao_real_planejador_config ({}) — inseridas com os gatilhos desligados (não disparam recálculo).
 -- Ordem de uso: migration → código (flags OFF = comportamento idêntico) → configuração da semana.
--- Reversão: 20261106100100_rollback_distribuicao (arquivo guardado em docs/; restaura as 3 definições e remove coluna/chaves se nenhuma linha usa distribuição).
+-- Reversão: supabase/rollbacks/20261106100000_rollback_distribuicao.sql (NÃO é migration: executar à mão; restaura as 3 definições e remove coluna/chaves se nenhuma linha usa distribuição).
+-- Cache de esquema do PostgREST: o `notify pgrst, 'reload schema'` ao fim desta migration recarrega o cache no commit (a coluna nova passa a aparecer na API).
 
 -- =========================================================================
 -- 1) Coluna + validação (mesmas regras de src/features/escala/distribuicao.ts#validarDistribuicao)
@@ -494,3 +495,6 @@ begin
   return v_id;
 end;
 $$;
+
+-- 5) recarrega o cache de esquema do PostgREST (entregue no COMMIT): a coluna `distribuicao` passa a ser visível na API REST
+notify pgrst, 'reload schema';
