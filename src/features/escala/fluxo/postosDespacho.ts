@@ -34,6 +34,9 @@ export interface ConfigDespacho {
   /** linhas da MESMA operação já usadas no bloco pelo passado congelado: abatem do limite */
   abatimentoOp?: (bloco: number, operacaoId: string) => number;
   penalPiso?: number;
+  /** ESTOQUE DE SAÍDA útil (para a semana seguinte): por produto, teto de peças em cada ligação no fim do horizonte que ainda têm valor; `saidaPeso` × margem × (fração do roteiro já feita) por peça. Sem isto, produção sem destino dentro do horizonte seria indiferente. */
+  saidaTeto?: Record<string, number>;
+  saidaPeso?: number;
 }
 export interface ResultadoDespacho {
   finais: Record<string, number>;
@@ -70,7 +73,7 @@ export function prepararDespacho(C: ConfigDespacho) {
     if (k === p.etapas.length - 1) return C.alvo[p.id] ?? 0;
     let alem = 0;
     for (let j = k; j < p.wipInicial.length; j++) alem += p.wipInicial[j];
-    return Math.max(0, (C.alvo[p.id] ?? 0) - alem);
+    return Math.max(0, (C.alvo[p.id] ?? 0) + (C.saidaTeto?.[p.id] ?? 0) - alem);
   }));
   return { H, recIdx, pools, ops, opIdx, poolsDe, opsDoRec, blocoDe, prodIdx, capUp };
 }
@@ -121,11 +124,12 @@ export function despachar(C: ConfigDespacho, D: PrepD, occ: Uint8Array[], comple
   const finais: Record<string, number> = {};
   C.produtos.forEach((p, i) => { finais[p.id] = fin[i]; obj += (C.margem[p.id] ?? 0) * fin[i]; falta += Math.max(0, (C.piso?.[p.id] ?? 0) - fin[i]); });
   obj -= (C.penalPiso ?? 1) * falta;
+  if (C.saidaTeto) C.produtos.forEach((p, i) => stock[i].forEach((v, j) => { obj += (C.saidaPeso ?? 0.25) * (C.margem[p.id] ?? 0) * ((j + 1) / p.etapas.length) * Math.min(v, C.saidaTeto?.[p.id] ?? 0); }));
   return { finais, obj, detalhes, wip, producao, linhasOciosas: ociosas };
 }
 
 /** Quantas linhas por período e por (bloco, operação) — para as restrições duras da busca. */
-function restricoesOk(C: ConfigDespacho, D: PrepD, occ: Uint8Array[], t: number): boolean {
+export function restricoesOk(C: ConfigDespacho, D: PrepD, occ: Uint8Array[], t: number): boolean {
   let n = 0;
   const row = occ[t];
   for (let r = 0; r < row.length; r++) if (row[r]) n++;
@@ -228,6 +232,13 @@ export function buscaLocal(C: ConfigDespacho, inicial: LinhaPostoD[], op: Opcoes
       }
       for (let k = undo.length - 1; k >= 0; k--) occ[undo[k].t][undo[k].r] = undo[k].v;
     }
+  }
+  // PODA: linha cuja remoção não reduz o objetivo não tem destino útil (peça que não chega a produto final nem a estoque de saída útil) ⇒ pessoa fica SEM posto (explicada), não em posto inútil
+  for (let t = H - 1; t >= C.t0; t--) for (let r = 0; r < R; r++) {
+    if (!melhorOcc[t][r]) continue;
+    const ob = despachar(C, D, melhorOcc).obj, v = melhorOcc[t][r];
+    melhorOcc[t][r] = 0;
+    if (despachar(C, D, melhorOcc).obj < ob - 1e-9) melhorOcc[t][r] = v;
   }
   // remove linhas sem produção (pessoa em posto sem material = proibido) e fixa o resultado completo
   let desp = despachar(C, D, melhorOcc, true);

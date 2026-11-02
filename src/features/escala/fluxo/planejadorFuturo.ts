@@ -90,7 +90,7 @@ export function planejarFuturo(e: EntradaPlanejador): SaidaPlanejador {
   const blocoDe = new Array(H).fill(-1); blocos.forEach((b, i) => b.forEach((t) => (blocoDe[t] = i)));
   e.linhasCongeladas.forEach((a) => { const t = slotIdx.get(`${a.data}|${a.periodoId}`); if (t === undefined || t >= t0 || !a.maquinaId || !a.operacaoId) return; const k = `${blocoDe[t]}|${a.operacaoId}`; opDoBloco.set(k, (opDoBloco.get(k) ?? 0) + 1); });
   const prioridade = e.prioridade ?? e.produtos.map((p) => p.id);
-  const cfgBase: Omit<ConfigDespacho, "limiteOp"> = { t0, produtos: prodsFuturo, recursos: e.recursos, pessoas, operacaoDe: e.operacaoDe, alvo, piso, margem, prioridade, blocos, penalPiso: 1, abatimentoOp: (b, op) => opDoBloco.get(`${b}|${op}`) ?? 0 };
+  const cfgBase: Omit<ConfigDespacho, "limiteOp"> = { t0, produtos: prodsFuturo, recursos: e.recursos, pessoas, operacaoDe: e.operacaoDe, alvo, piso, margem, prioridade, blocos, penalPiso: 1, saidaTeto: Object.fromEntries(e.produtos.map((p) => [p.id, p.recorrentePorPeriodo ?? p.demandaFinal / H])), saidaPeso: 0.25, abatimentoOp: (b, op) => opDoBloco.get(`${b}|${op}`) ?? 0 };
   const ehLivre = (l: LinhaPostoD) => l.t >= t0;
   let iniciais = (e.linhasIniciais ?? []).filter(ehLivre);
   // descarta linhas além das pessoas disponíveis (ausência) — as de menor produção saem primeiro na própria busca; aqui só corta o excesso
