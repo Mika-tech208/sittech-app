@@ -9,7 +9,7 @@
 import { gerarEscala } from "@/features/escala/gerarEscala";
 import { AVISO_PRIMEIRA_GERACAO, type AlertaEscala, type EntradaEscala, type PeriodoEscala, type ResultadoEscala } from "@/features/escala/types";
 import { epochMsNoFuso } from "@/features/escala/tempo";
-import { montarEntradaEscala } from "./montarEntrada";
+import { alertasRotaIndisponivel, montarEntradaEscala } from "./montarEntrada";
 import { assinaturaAlertas, planosIguais } from "./planoIgual";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento, type SnapshotWipParaGravar } from "./estado";
 import { mantidoDoPlano, tentarPlanoCorte, VERSAO_PLANEJADOR_CORTE, type PlanejarCorte } from "./fluxo/integracaoCorte";
@@ -178,7 +178,8 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
 
     // NO-OP do recálculo oficial: o plano resultante é semanticamente IDÊNTICO ao gravado na região afetada, não há dia novo/removido e os alertas do recálculo não mudaram =>
     // nada é regravado, nenhuma `versao` sobe, nenhum evento 'recalculo' é gravado (o chamador dá os eventos como processados). Primeira geração e qualquer dia novo nunca são no-op.
-    const assinatura = assinaturaAlertas([...invalidas, ...resultado.alertas]);
+    const indisponiveis = alertasRotaIndisponivel(entrada, montada.avisos); // rota sem origem (ex.: M8 desmarcada): demanda NÃO atendida registrada; vazio no caso normal
+    const assinatura = assinaturaAlertas([...invalidas, ...indisponiveis, ...resultado.alertas]);
     if (montada.removerDias.length === 0 && estado.diasExistentes.length > 0 && diasAplicar.every((d) => d.versao_base !== null) && estado.ultimaAssinaturaAlertas === assinatura) {
       const indice = new Map(entrada.slots.map((s) => [`${s.data}|${s.periodoId}`, s.indice]));
       const atualNaRegiao = estado.alocacoes.filter((a) => (indice.get(`${a.data}|${a.periodoId}`) ?? -1) >= entrada.aPartirDe);
@@ -201,8 +202,8 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
         alocacoes: resultado.alocacoes.length,
         semPosto: resultado.alocacoes.filter((a) => !a.maquinaId).length,
         excecoesRevezamento: resultado.alocacoes.filter((a) => a.excecaoRevezamento).length,
-        alertas: resultado.alertas.length + invalidas.length,
-        alertasDetalhe: [...invalidas, ...resultado.alertas].slice(0, 300),
+        alertas: resultado.alertas.length + invalidas.length + indisponiveis.length,
+        alertasDetalhe: [...invalidas, ...indisponiveis, ...resultado.alertas].slice(0, 300),
         selecoesInvalidas: invalidas.length, // histórico do módulo: a tela mostra os alertas do último recálculo
         assinaturaAlertas: assinatura, // base do NO-OP do próximo recálculo
         primeiraGeracaoComSemanaEmAndamento: resultado.primeiraGeracaoComSemanaEmAndamento,

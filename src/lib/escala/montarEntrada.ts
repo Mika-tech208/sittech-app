@@ -13,7 +13,7 @@
 
 import { construirSlotsDeDias, epochMsNoFuso, primeiroSlotFuturo } from "@/features/escala/tempo";
 import { fimDaJornadaMin, janelaDaAusencia } from "./ausenciaAberta";
-import type { EntradaEscala, PeriodoEscala, PoolEscala } from "@/features/escala/types";
+import type { AlertaEscala, EntradaEscala, PeriodoEscala, PoolEscala } from "@/features/escala/types";
 import { wipDiasLimiteDaSemana } from "@/features/escala/parametros";
 import { calcularLimitesWip } from "@/features/escala/wip";
 import { dataNoFusoSP, planejamentoDaSemana, type PlanejamentoWip } from "@/features/escala/wipSaldo";
@@ -26,6 +26,17 @@ export interface EntradaMontada {
   removerDias: string[];
   avisos: AvisoMontagem[];
   snapshotsWip: SnapshotWipParaGravar[]; // fotos de abertura a gravar (semana já aberta, ainda sem foto)
+}
+
+/** Alertas PERSISTIDOS das rotas indisponíveis (etapa sem origem): a demanda do produto não é programada e fica registrada como NÃO atendida (nunca silenciosa). */
+export function alertasRotaIndisponivel(entrada: EntradaEscala, avisos: AvisoMontagem[]): AlertaEscala[] {
+  const produtos = [...new Set(avisos.filter((a) => a.tipo === "etapa_sem_origem" && a.produtoId).map((a) => a.produtoId as string))].sort();
+  return produtos.map((pid) => {
+    const ps = (entrada.poolsSemMaquina ?? []).filter((p) => p.produtoId === pid).sort((a, b) => a.ordemEtapa - b.ordemEtapa);
+    const final = ps[ps.length - 1];
+    const falta = avisos.find((a) => a.tipo === "etapa_sem_maquina" && a.produtoId === pid);
+    return { tipo: "demanda_nao_atendida" as const, produtoId: pid, etapaId: final.etapaId, pecas: final.quantidade, motivo: `Rota indisponível: etapa ${falta?.etapaId ?? "?"} sem máquina selecionada na Previsão — nenhuma etapa a jusante é programada (sem origem); a demanda desta rota não é atendida` };
+  });
 }
 
 export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): EntradaMontada {
@@ -115,6 +126,21 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
         }
       });
     });
+  // ETAPA SEM ORIGEM (correção da Máquina 8 desmarcada): etapa A JUSANTE de uma etapa sem máquina selecionada não tem de onde receber peça. Deixá-la no plano faria a cadeia COMEÇAR
+  // nela com material infinito (produção "do nada": a demanda inteira da rota saía como atendida e nenhuma checagem pegava). Ela sai do plano junto com a etapa sem máquina — a rota fica
+  // indisponível (produção zero; a demanda é devolvida em `poolsSemMaquina` e registrada como não atendida pelo processamento). Etapas ANTES da etapa sem máquina seguem como antes.
+  // Sem etapa sem máquina (caso normal) nada disto roda: comportamento idêntico.
+  const primeiraSemMaquina = new Map<string, number>(); // produtoId → menor ordem de etapa sem máquina
+  semMaquina.forEach((p, k) => { if (!pools.has(k)) primeiraSemMaquina.set(p.produtoId, Math.min(primeiraSemMaquina.get(p.produtoId) ?? Number.POSITIVE_INFINITY, p.ordemEtapa)); });
+  if (primeiraSemMaquina.size > 0) {
+    [...pools.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).forEach(([k, p]) => {
+      const o = primeiraSemMaquina.get(p.produtoId);
+      if (o === undefined || p.ordemEtapa <= o) return;
+      pools.delete(k);
+      semMaquina.set(k, { ...p, maquinasIds: [] });
+      avisos.push({ tipo: "etapa_sem_origem", produtoId: p.produtoId, etapaId: p.etapaId });
+    });
+  }
   if (pools.size === 0) avisos.push({ tipo: "sem_pools" });
 
   // ---- estoque intermediário CONFIRMADO (Fase 3): reduz o que a etapa ORIGEM precisa produzir; o previsto salvo não muda ----

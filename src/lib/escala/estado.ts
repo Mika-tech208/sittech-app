@@ -10,7 +10,7 @@ import type { ApontamentoReal } from "@/features/escala/producaoReal";
 import type { ConfigPlanejadorCorte } from "@/features/escala/fluxo/planoCorte";
 
 export interface AvisoMontagem {
-  tipo: "etapa_sem_maquina" | "sem_pools" | "sem_funcionarios_produtivos" | "selecao_maquina_invalida";
+  tipo: "etapa_sem_maquina" | "etapa_sem_origem" | "sem_pools" | "sem_funcionarios_produtivos" | "selecao_maquina_invalida";
   produtoId?: string;
   etapaId?: string;
   operacaoId?: string; // selecao_maquina_invalida: operação da etapa no roteiro atual
