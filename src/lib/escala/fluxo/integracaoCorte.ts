@@ -14,7 +14,7 @@ export const VERSAO_PLANEJADOR_CORTE = "corte-v1";
 export type PlanejarCorte = typeof planejarSemanaComCorte;
 
 export type TentativaPlanoCorte =
-  | { ok: true; resultado: ResultadoEscala; registro: RegistroFluxo; corte: ResultadoCorte }
+  | { ok: true; resultado: ResultadoEscala; registro: RegistroFluxo; corte: ResultadoCorte; hashEntrada: string | null }
   | { ok: false; motivo: string; registro: RegistroFluxo | null; mantido: ResultadoEscala };
 
 const chaveSlot = (a: { data: string; periodoId: string }) => `${a.data}|${a.periodoId}`;
@@ -65,13 +65,16 @@ export function tentarPlanoCorte(ctx: ContextoFluxo, pc: NonNullable<EstadoBruto
   if (!pc.distribuicaoSuportada) return falha("coluna `distribuicao` indisponível no banco", null);
   let corte: ResultadoCorte;
   try {
-    corte = planejar(entradaF, dados, opcoes, { ...pc.config, partirDoVigente: pc.vigenteDoPlanejador } as ConfigPlanejadorCorte, ctx.estado.alocacoes);
+    corte = planejar(entradaF, dados, opcoes, { ...pc.config, partirDoVigente: pc.vigenteDoPlanejador, hashEntradaAnterior: pc.hashEntradaAnterior ?? null } as ConfigPlanejadorCorte, ctx.estado.alocacoes);
   } catch (e) {
     return falha(`planejador de corte lançou: ${e instanceof Error ? e.message : String(e)}`, null);
   }
   if (!corte.ok || !corte.resultado) return falha(corte.motivo ?? "planejador sem resultado", corte);
   const linhas = corte.resultado.alocacoes;
   const ch = churnContra(vigenteRegiao, linhas);
+  // contagem marcada como ESTIMADA (cenário B etc.): o plano é válido, mas o WIP inicial NÃO é físico — fica explícito no registro (decisão 10 de 02/11)
+  const estimadas = (ctx.estado.producaoReal?.contagensFisicas ?? []).filter((c) => /estimad/i.test(`${c.informadoPor ?? ""} ${c.observacao ?? ""}`));
+  const diagEstimado = estimadas.length > 0 ? [{ codigo: "WIP_INICIAL_ESTIMADO" as const, severidade: "aviso" as const, mensagem: `${estimadas.length} contagem(ns) física(s) marcada(s) como ESTIMADA usada(s) como WIP inicial; recalcular na primeira contagem/apontamento confiável` }] : [];
   let registro: RegistroFluxo;
   try {
     registro = jsonPuro({
@@ -85,10 +88,10 @@ export function tentarPlanoCorte(ctx: ContextoFluxo, pc: NonNullable<EstadoBruto
       },
       diff: { referencia: "vigente", linhasAlteradas: ch.linhasAlteradas, postosAlterados: ch.postosAlterados },
       churn: { linhasAlteradas: ch.linhasAlteradas, postosAlterados: ch.postosAlterados },
-      diagnosticos: [...corte.estado.diagnosticos, ...corte.diagnosticos, { codigo: "PLANEJADOR_CORTE_USADO", severidade: "info", mensagem: `Plano do planejador de corte (${VERSAO_PLANEJADOR_CORTE}) gravado; ${corte.tentativas.length} tentativa(s)` }],
+      diagnosticos: [...corte.estado.diagnosticos, ...corte.diagnosticos, ...diagEstimado, { codigo: "PLANEJADOR_CORTE_USADO", severidade: "info", mensagem: `Plano do planejador de corte (${VERSAO_PLANEJADOR_CORTE}) gravado; ${corte.tentativas.length} tentativa(s)` }],
     });
   } catch (e) {
     return falha(`registro do planejador inválido: ${e instanceof Error ? e.message : String(e)}`, corte);
   }
-  return { ok: true, resultado: corte.resultado, registro, corte };
+  return { ok: true, resultado: corte.resultado, registro, corte, hashEntrada: corte.hashEntrada };
 }

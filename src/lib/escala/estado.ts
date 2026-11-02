@@ -114,7 +114,7 @@ export interface EstadoBruto {
   producaoReal?: EstadoProducaoReal;
   // PLANEJADOR DE CORTE: presente SOMENTE quando a semana está em producao_real_planejador_semanas (com o modo efetivo "ativo"). Nesta semana o motor legado NUNCA recalcula.
   // `indisponivel` = pré-condição que falhou (Produção Real ilegível, coluna `distribuicao` ausente): o processador mantém o plano vigente e registra o motivo.
-  planejadorCorte?: { config: ConfigPlanejadorCorte; vigenteDoPlanejador: boolean; distribuicaoSuportada: boolean; indisponivel?: string };
+  planejadorCorte?: { config: ConfigPlanejadorCorte; vigenteDoPlanejador: boolean; distribuicaoSuportada: boolean; hashEntradaAnterior?: string | null; indisponivel?: string };
 }
 
 export interface EstadoProducaoReal {

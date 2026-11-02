@@ -107,6 +107,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
     const pcorte = estado.planejadorCorte;
     let corteUsado = false;
     let corteMotivoFalha: string | null = null;
+    let corteHashEntrada: string | null = null;
     if (pcorte) {
       if (pr && ctxFluxo && pr.modoEfetivo === "ativo") {
         const t = tentarPlanoCorte(ctxFluxo, pcorte, opcoes.planejadorCorte);
@@ -115,6 +116,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
           resultado = { ...t.resultado, alocacoes: [...t.resultado.alocacoes] };
           fluxoUsado = true;
           corteUsado = true;
+          corteHashEntrada = t.hashEntrada;
         } else {
           resultado = t.mantido;
           corteMotivoFalha = t.motivo;
@@ -205,7 +207,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
         ...(registroAtivo ? { fluxo: { modo: "ativo", resultado: registroAtivo.resultado, usado: fluxoUsado, versaoMotor: registroAtivo.versaoMotor, hashPlanoFluxo: registroAtivo.hashPlanoFluxo } } : {}),
         // marca do planejador de corte: "corte-v1" enquanto o plano vigente É do planejador (base para partir do vigente e para auditar); falha mantém a marca anterior
         ...(corteUsado || (pcorte && pcorte.vigenteDoPlanejador) ? { planejador: VERSAO_PLANEJADOR_CORTE } : {}),
-        ...(pcorte ? { planejadorCorte: { usado: corteUsado, motivoFalha: corteMotivoFalha } } : {}),
+        ...(pcorte ? { planejadorCorte: { usado: corteUsado, motivoFalha: corteMotivoFalha, hashEntrada: corteHashEntrada } } : {}),
       },
     };
 

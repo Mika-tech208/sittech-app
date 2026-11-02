@@ -111,6 +111,11 @@ export class Mundo {
         p.alocacoes.forEach((a) => this.alocacoes.push({ ...a, origem: (a as AlocacaoComOrigem).origem ?? "auto" }));
         this.aplicacoes++;
         this.entradas.ultimaAssinaturaAlertas = (p.resumo as { assinaturaAlertas?: string }).assinaturaAlertas ?? null; // como o loader lê do último 'recalculo'
+        // planejador de corte: o loader real lê do último 'recalculo' se o plano vigente é do planejador e o hash da entrada que o gerou
+        if (this.entradas.planejadorCorte) {
+          const rs = p.resumo as { planejador?: string; planejadorCorte?: { hashEntrada?: string | null } };
+          this.entradas.planejadorCorte = { ...this.entradas.planejadorCorte, vigenteDoPlanejador: rs.planejador === "corte-v1", hashEntradaAnterior: rs.planejadorCorte?.hashEntrada ?? null };
+        }
         const versoes: Record<string, number> = {};
         p.dias.forEach((d) => {
           const dia = this.dias.get(d.data)!;

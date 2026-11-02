@@ -147,7 +147,8 @@ export type CodigoDiagnosticoFluxo =
   | "APONTAMENTO_LINHA_COMPARTILHADO_REPARTIDO" // (planejador de corte) apontamento de linha compartilhada repartido entre os produtos pela distribuição planejada
   | "PLANEJADOR_AVISO" // (planejador de corte) aviso do planejador puro
   | "PLANEJADOR_CORTE_FALHOU" // (planejador de corte) nenhuma tentativa passou nas checagens independentes: plano vigente MANTIDO (nunca o motor legado)
-  | "PLANEJADOR_CORTE_USADO"; // (planejador de corte) o plano gravado foi o do planejador de corte
+  | "PLANEJADOR_CORTE_USADO" // (planejador de corte) o plano gravado foi o do planejador de corte
+  | "WIP_INICIAL_ESTIMADO"; // (planejador de corte) contagem física marcada como ESTIMADA (cenário) foi usada como WIP inicial: recalcular na primeira contagem/apontamento confiável
 
 export interface DiagnosticoItem {
   codigo: CodigoDiagnosticoFluxo;

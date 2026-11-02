@@ -138,7 +138,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
       const historicoEquidade = await carregarHistoricoEquidade(admin, prev.semana_inicio, periodosAtuais, agoraMs);
       // assinatura dos alertas do último recálculo gravado (base do NO-OP; ausente = recálculo anterior ao recurso => nunca no-op uma vez)
       const ultimoRecalculo = await admin.from("escala_producao_eventos").select("payload").eq("previsao_id", previsaoId).eq("tipo", "recalculo").order("criado_em", { ascending: false }).limit(1);
-      const ultimoResumo = (ok(ultimoRecalculo, "escala_producao_eventos (último recálculo)") as { payload: { resumo?: { assinaturaAlertas?: string; planejador?: string } } | null }[])[0]?.payload?.resumo;
+      const ultimoResumo = (ok(ultimoRecalculo, "escala_producao_eventos (último recálculo)") as { payload: { resumo?: { assinaturaAlertas?: string; planejador?: string; planejadorCorte?: { hashEntrada?: string | null } } } | null }[])[0]?.payload?.resumo;
       const ultimaAssinaturaAlertas = ultimoResumo?.assinaturaAlertas ?? null;
       const ultimoPlanejador = ultimoResumo?.planejador ?? null; // "corte-v1" quando o último recálculo gravado foi do planejador de corte
 
@@ -177,6 +177,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         planejadorCorte = {
           config: cfgFluxo.planejador!.config,
           vigenteDoPlanejador: ultimoPlanejador === "corte-v1",
+          hashEntradaAnterior: ultimoResumo?.planejadorCorte?.hashEntrada ?? null,
           distribuicaoSuportada: !probe.error,
           ...(erroProducaoReal ? { indisponivel: `Produção Real indisponível: ${erroProducaoReal}` } : probe.error ? { indisponivel: `coluna distribuicao ausente (migration não aplicada): ${probe.error.message}` } : {}),
         };
