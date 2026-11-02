@@ -34,6 +34,12 @@ export interface ProdutoRev {
   /** demanda recorrente conhecida por período (peças da etapa final) — limita o estoque de saída; 0 = sem antecipação */
   recorrentePorPeriodo?: number;
   valorUnitario?: number;
+  /**
+   * PRODUTO ÚNICO COM ROTAS (opcional; ausente = comportamento anterior, idêntico): esta cadeia é uma ROTA ALTERNATIVA que, na última etapa, ENTREGA no estoque da ligação `ligacao`
+   * (etapa `ligacao` → `ligacao`+1) da cadeia principal `produtoId`, em vez de produzir peça final. Ex.: Máquina 8 (Rosquear+Parafusar) alimenta o mesmo estoque "parafusado → etiquetar"
+   * da rota convencional. A cadeia alimentadora não tem demanda final própria: a demanda e o produto final são só os da cadeia principal.
+   */
+  alimenta?: { produtoId: string; ligacao: number };
 }
 export interface EntradaReverso {
   periodos: PeriodoRev[];
