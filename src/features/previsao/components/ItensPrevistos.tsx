@@ -6,6 +6,8 @@ import {
 import { toNumber } from "@/lib/format";
 import { viabilidadeItemComRotas } from "@/features/produto-canonico/capacidadeRotas";
 import type { ModeloCanonico } from "@/features/produto-canonico/tipos";
+import type { GuardaProdutos } from "@/features/produto-canonico/guardaDb";
+import { produtosSelecionaveis } from "@/features/produto-canonico/guard";
 import type { Produto, Maquina, Previsao, PrevisaoItem, PeriodoComDuracao } from "@/types/domain";
 import type { AnaliseCapacidadeSemanal } from "@/features/capacidade/types";
 
@@ -41,6 +43,8 @@ export interface ItensPrevistosProps {
   formatBRL: (v: number) => string;
   /** produtos únicos com rotas (vazio/ausente = comportamento anterior, idêntico) */
   modelosCanonicos?: ModeloCanonico[];
+  /** canônicos/legados/cutover: o seletor de produto da semana mostra só o espaço certo (semana >= cutover: o canônico; antes: os legados). Ausente = lista de hoje */
+  guardaProdutos?: GuardaProdutos;
 }
 
 // "Itens previstos" — formulário (com viabilidade ao vivo, seleção de
@@ -48,8 +52,11 @@ export interface ItensPrevistosProps {
 export default function ItensPrevistos({
   loading, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, semana,
   showForm, setShowForm, editingId, form, onSelecionarProduto, onQuantidadeChange, onToggleMaquina,
-  onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, equipeProdutivaCount, formatBRL, modelosCanonicos = [],
+  onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, equipeProdutivaCount, formatBRL, modelosCanonicos = [], guardaProdutos,
 }: ItensPrevistosProps) {
+  const produtosAtivos = guardaProdutos && guardaProdutos.canonicos.size > 0
+    ? produtosSelecionaveis(produtos.filter((p) => p.ativo), guardaProdutos.canonicos, guardaProdutos.legados, semana.semanaInicio, guardaProdutos.cutover)
+    : produtos.filter((p) => p.ativo);
   const produtoSel = produtos.find((p) => p.id === form.produtoId) || null;
   const roteiroSel = produtoSel?.roteiro || [];
 
@@ -71,7 +78,7 @@ export default function ItensPrevistos({
       </div>
       <p className="stx-panel-sub">Produto e quantidade que a supervisora passou pra essa semana. Ao escolher o produto, marca quais máquinas de verdade vão rodar essa semana pra ele.</p>
 
-      {produtos.filter((p) => p.ativo).length === 0 ? (
+      {produtosAtivos.length === 0 ? (
         <p className="stx-panel-sub">Cadastre produtos na aba &quot;Produtos&quot; antes de lançar itens aqui.</p>
       ) : (
         <>
@@ -84,7 +91,7 @@ export default function ItensPrevistos({
                 <label className="stx-label">Produto</label>
                 <select className="stx-select" value={form.produtoId} onChange={(e) => onSelecionarProduto(e.target.value)}>
                   <option value="">Selecione um produto…</option>
-                  {produtos.filter((p) => p.ativo).map((p) => (
+                  {produtosAtivos.map((p) => (
                     <option key={p.id} value={p.id}>{p.nome} ({formatBRL(p.valorUnitario)})</option>
                   ))}
                 </select>
