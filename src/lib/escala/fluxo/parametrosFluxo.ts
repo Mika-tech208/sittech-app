@@ -2,6 +2,7 @@
 // O portão canônico é o do banco (constraints + escala_producao_real_modo_semana); aqui o código repete a regra (defesa em profundidade):
 // valor desconhecido/ausente = desligado; semana anterior a 2026-10-26 nunca vale.
 
+import type { ConfigPlanejadorCorte } from "@/features/escala/fluxo/planoCorte";
 import type { ContagemFisicaPar, DiagnosticoItem, ModoProducaoReal, ParEtapaComum, ParLegado } from "@/features/escala/fluxo/tipos";
 
 export const CHAVE_PR_MODO = "producao_real_modo";
@@ -11,6 +12,8 @@ export const CHAVE_PR_PARES = "producao_real_pares_legado";
 export const CHAVE_PR_CONTAGENS = "producao_real_contagens_fisicas";
 export const CHAVE_PR_MESMO_PERIODO = "producao_real_fluxo_mesmo_periodo";
 export const CHAVE_PR_CADEIA_DIAGNOSTICO = "producao_real_cadeia_diagnostico";
+export const CHAVE_PR_PLANEJADOR_SEMANAS = "producao_real_planejador_semanas";
+export const CHAVE_PR_PLANEJADOR_CONFIG = "producao_real_planejador_config";
 export const PRIMEIRA_SEMANA_FLUXO = "2026-10-26";
 
 export interface ConfigFluxo {
@@ -27,6 +30,9 @@ export interface ConfigFluxo {
   mesmoPeriodo?: boolean; // ausente = true
   /** Camadas do planejamento de cadeia (fluxo/cadeia.ts), cada uma ligada SÓ pelo JSON "ativo" na sua chave (producao_real_cadeia_diagnostico…); ausente/outro valor = desligada (chave omitida). */
   cadeia?: { diagnostico?: true };
+  /** PLANEJADOR DE CORTE (ativação 02/11): semanas (dentro de semanasAtivas, com modo "ativo") cujo recálculo usa o planejador de corte em vez do fluxo/motor legado, e a sua configuração
+   *  (objetivo, margens congeladas, piso, orçamento de busca). Ausente/[] = nenhuma semana (comportamento anterior, byte-idêntico). */
+  planejador?: { semanas: string[]; config: ConfigPlanejadorCorte };
 }
 
 export const CONFIG_FLUXO_PADRAO: ConfigFluxo = { modo: "desligado", semanasAtivas: [], limiar: null, paresLegado: [], contagensFisicas: [], contagensFisicasDescartadas: [] };
@@ -98,6 +104,34 @@ export function lerContagensFisicas(v: unknown): { itens: ContagemFisicaPar[]; d
   return { itens, descartes };
 }
 
+const numOu = (v: unknown, min: number, max: number): number | undefined => (typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : undefined);
+
+/** Lê `producao_real_planejador_config` (jsonb objeto). Campo inválido é IGNORADO (nunca lança). Margens: só números finitos. */
+export function lerConfigPlanejador(v: unknown): ConfigPlanejadorCorte {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  const o = v as Record<string, unknown>;
+  const cfg: ConfigPlanejadorCorte = {};
+  if (o.objetivo === "EQUILIBRIO" || o.objetivo === "MAX_PECAS_FINAIS" || o.objetivo === "MAX_RESULTADO_ECONOMICO") cfg.objetivo = o.objetivo;
+  if (o.margemPorPeca && typeof o.margemPorPeca === "object" && !Array.isArray(o.margemPorPeca)) {
+    const m: Record<string, number> = {};
+    Object.entries(o.margemPorPeca as Record<string, unknown>).forEach(([k, x]) => { if (typeof x === "number" && Number.isFinite(x)) m[k] = x; });
+    if (Object.keys(m).length > 0) cfg.margemPorPeca = m;
+  }
+  const cob = numOu(o.coberturaMinima, 0, 1);
+  if (cob !== undefined) cfg.coberturaMinima = cob;
+  if (Array.isArray(o.prioridade) && o.prioridade.every((x) => typeof x === "string")) cfg.prioridade = o.prioridade as string[];
+  const busca = (b: unknown) => {
+    if (!b || typeof b !== "object") return undefined;
+    const x = b as Record<string, unknown>;
+    const r = { ...(numOu(x.iter, 1000, 2_000_000) !== undefined ? { iter: x.iter as number } : {}), ...(numOu(x.reinicios, 1, 6) !== undefined ? { reinicios: x.reinicios as number } : {}), ...(numOu(x.semente, 0, 1_000_000) !== undefined ? { semente: x.semente as number } : {}) };
+    return Object.keys(r).length > 0 ? r : undefined;
+  };
+  const b1 = busca(o.busca), b2 = busca(o.buscaComVigente);
+  if (b1) cfg.busca = b1;
+  if (b2) cfg.buscaComVigente = b2;
+  return cfg;
+}
+
 export function lerConfigFluxo(linhas: { chave: string; valor: unknown }[] | null | undefined): ConfigFluxo {
   const mapa = new Map((linhas ?? []).map((l) => [l.chave, l.valor]));
   const modo = mapa.get(CHAVE_PR_MODO);
@@ -112,6 +146,7 @@ export function lerConfigFluxo(linhas: { chave: string; valor: unknown }[] | nul
     contagensFisicasDescartadas: contagens.descartes,
     ...(mapa.get(CHAVE_PR_MESMO_PERIODO) === false ? { mesmoPeriodo: false } : {}), // só o JSON `false` liga a regra conservadora; ausente/outro valor = padrão (chave omitida)
     ...(mapa.get(CHAVE_PR_CADEIA_DIAGNOSTICO) === "ativo" ? { cadeia: { diagnostico: true as const } } : {}),
+    ...(lerSemanas(mapa.get(CHAVE_PR_PLANEJADOR_SEMANAS)).length > 0 ? { planejador: { semanas: lerSemanas(mapa.get(CHAVE_PR_PLANEJADOR_SEMANAS)), config: lerConfigPlanejador(mapa.get(CHAVE_PR_PLANEJADOR_CONFIG)) } } : {}),
   };
 }
 
@@ -120,6 +155,9 @@ export function modoEfetivoFluxo(cfg: ConfigFluxo, semanaInicio: string): ModoPr
   if (cfg.modo === "desligado") return "desligado";
   return cfg.semanasAtivas.includes(semanaInicio) ? cfg.modo : "desligado";
 }
+
+/** A semana usa o PLANEJADOR DE CORTE? Exige o modo efetivo "ativo" da semana (producao_real_modo + semanas_ativas) E a semana em producao_real_planejador_semanas. */
+export const planejadorCorteNaSemana = (cfg: ConfigFluxo, semanaInicio: string): boolean => modoEfetivoFluxo(cfg, semanaInicio) === "ativo" && (cfg.planejador?.semanas ?? []).includes(semanaInicio);
 
 /** Semanas em que o modo ATIVO do fluxo vale (para o interlock com o replanejamento restrito). */
 export const semanasComFluxoAtivo = (cfg: ConfigFluxo): string[] => (cfg.modo === "ativo" ? cfg.semanasAtivas : []);

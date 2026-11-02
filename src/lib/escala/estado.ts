@@ -7,6 +7,7 @@ import type { ProximaSemana } from "@/features/escala/wip";
 import type { EntradaWip } from "@/features/escala/wipSaldo";
 import type { ContagemFisicaPar, DiagnosticoItem, ParLegado } from "@/features/escala/fluxo/tipos";
 import type { ApontamentoReal } from "@/features/escala/producaoReal";
+import type { ConfigPlanejadorCorte } from "@/features/escala/fluxo/planoCorte";
 
 export interface AvisoMontagem {
   tipo: "etapa_sem_maquina" | "sem_pools" | "sem_funcionarios_produtivos" | "selecao_maquina_invalida";
@@ -111,6 +112,9 @@ export interface EstadoBruto {
   // ESCALA INTELIGENTE (fluxo): presente SOMENTE quando o modo EFETIVO da semana é sombra/ativo (producao_real_modo + producao_real_semanas_ativas).
   // Ausente = desligado: o caminho atual roda sem nenhuma diferença (nem o núcleo do fluxo é chamado).
   producaoReal?: EstadoProducaoReal;
+  // PLANEJADOR DE CORTE: presente SOMENTE quando a semana está em producao_real_planejador_semanas (com o modo efetivo "ativo"). Nesta semana o motor legado NUNCA recalcula.
+  // `indisponivel` = pré-condição que falhou (Produção Real ilegível, coluna `distribuicao` ausente): o processador mantém o plano vigente e registra o motivo.
+  planejadorCorte?: { config: ConfigPlanejadorCorte; vigenteDoPlanejador: boolean; distribuicaoSuportada: boolean; indisponivel?: string };
 }
 
 export interface EstadoProducaoReal {

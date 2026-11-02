@@ -5,12 +5,13 @@
 // NÃO entram: timestamps técnicos (criado_em/atualizado_em), versao do dia, ids. Funções puras (sem IO).
 
 import type { AlertaEscala, AlocacaoEscala } from "@/features/escala/types";
+import { chaveDistribuicao } from "@/features/escala/distribuicao";
 
 const EPS_PECAS = 1e-6;
 const nulo = (v: string | null | undefined) => v ?? null;
 const num = (v: number | undefined) => Number(v ?? 0);
 
-type LinhaComparavel = Pick<AlocacaoEscala, "data" | "periodoId" | "funcionarioId" | "maquinaId" | "produtoId" | "etapaId" | "operacaoId" | "pecas" | "pecasAdicional" | "tipoAdicional" | "motivoSemPosto" | "excecaoRevezamento" | "motivoExcecao"> & { origem?: "auto" | "manual" };
+type LinhaComparavel = Pick<AlocacaoEscala, "data" | "periodoId" | "funcionarioId" | "maquinaId" | "produtoId" | "etapaId" | "operacaoId" | "pecas" | "pecasAdicional" | "tipoAdicional" | "motivoSemPosto" | "excecaoRevezamento" | "motivoExcecao"> & { distribuicao?: AlocacaoEscala["distribuicao"]; origem?: "auto" | "manual" };
 
 const chave = (a: LinhaComparavel) => `${a.data}|${a.periodoId}|${a.funcionarioId}`;
 
@@ -20,7 +21,9 @@ export function linhasIguais(a: LinhaComparavel, b: LinhaComparavel): boolean {
     Math.abs(num(a.pecas) - num(b.pecas)) <= EPS_PECAS && Math.abs(num(a.pecasAdicional) - num(b.pecasAdicional)) <= EPS_PECAS &&
     (num(a.pecasAdicional) > 0 ? nulo(a.tipoAdicional) === nulo(b.tipoAdicional) : true) &&
     nulo(a.motivoSemPosto) === nulo(b.motivoSemPosto) && Boolean(a.excecaoRevezamento) === Boolean(b.excecaoRevezamento) && nulo(a.motivoExcecao) === nulo(b.motivoExcecao) &&
-    (a.origem ?? "auto") === (b.origem ?? "auto")
+    (a.origem ?? "auto") === (b.origem ?? "auto") &&
+    // linha compartilhada: a repartição entre produtos também faz parte do plano (ausente nos dois = "" = comportamento anterior)
+    chaveDistribuicao(a) === chaveDistribuicao(b)
   );
 }
 

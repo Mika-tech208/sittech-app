@@ -59,6 +59,15 @@ export interface IndisponibilidadeRecursoEscala {
   liberadaEmMs: number | null;
 }
 
+// DISTRIBUICAO_DA_QUANTIDADE_POR_PRODUTO (item 7, 02/11): uma ALOCACAO FISICA (pessoa + máquina única no período) pode produzir peças de MAIS DE UM produto
+// (Etiquetadora 15 / Embalagem 17 com Conector 3/4 Convencional + Automática). A máquina e a pessoa NUNCA são duplicadas; a quantidade é repartida aqui.
+// Soma de `pecas` = `pecas` da linha; `produtoId/etapaId` da linha = o item de MAIOR quantidade (compatibilidade com tudo que só lê a linha). Ausente/null = linha de um só produto.
+export interface DistribuicaoQuantidade {
+  produtoId: string;
+  etapaId: string;
+  pecas: number;
+}
+
 export interface AlocacaoEscala {
   data: string;
   periodoId: string;
@@ -78,6 +87,8 @@ export interface AlocacaoEscala {
   // Só com o adicional por etapa (WIP) ativo e pecasAdicional > 0: "acabado" = última etapa do roteiro;
   // "intermediario" = etapa anterior (alimenta o acabado ou fica como estoque intermediário).
   tipoAdicional?: "acabado" | "intermediario";
+  // Linha compartilhada entre produtos (ver DistribuicaoQuantidade). Só o planejador de corte (semanas ativadas) grava; ausente = comportamento anterior, byte-idêntico.
+  distribuicao?: DistribuicaoQuantidade[];
 }
 
 // Histórico agregado (janela recente) a partir da escala REALMENTE gravada
@@ -168,7 +179,8 @@ export type TipoAlerta =
   | "compromisso_inviavel_nao_reparavel"
   | "contingencia_possivel"
   | "selecao_maquina_invalida" // Previsão com máquina que o roteiro ATUAL não torna elegível para a etapa (ignorada pelo motor; a Previsão NÃO é corrigida em silêncio)
-  | "sem_funcionarios";
+  | "sem_funcionarios"
+  | "planejador_corte_falhou"; // semana ATIVADA no planejador de corte: o replanejamento não passou nas checagens e o plano vigente foi MANTIDO (nunca o motor legado)
 
 export interface AlertaEscala {
   tipo: TipoAlerta;

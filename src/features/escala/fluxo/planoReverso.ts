@@ -49,6 +49,8 @@ export interface EntradaReverso {
   limitarPorPessoas?: boolean;
   /** perfil da etapa final: "alap" (mínimo necessário, o mais tarde possível; default) ou "asap" */
   perfilFinal?: "alap" | "asap" | "nivelado";
+  /** 0..1: quanto do upstream é ANTECIPADO (pré-produção em períodos com pessoa/máquina livre) entre o ALAP (0, mais tarde) e o ASAP limitado pela capacidade (1). Mantém o total produzido e a cadeia válida; só desloca a produção para antes. */
+  upstreamCedo?: number;
 }
 
 export interface LinhaLigacao {
@@ -176,7 +178,7 @@ function wipProjetado(P: number[][], wip: number[], H: number): number[][] {
 }
 
 /** Retropropagação de UM produto: devolve produção por etapa (obrigatória) e inevitável por ligação. */
-function retropropagar(finalProd: number[], caps: number[][], wip: number[], lag = 1): { P: number[][]; inev: number[] } {
+function retropropagar(finalProd: number[], caps: number[][], wip: number[], lag = 1, cedo = 0): { P: number[][]; inev: number[] } {
   const n = caps.length, H = finalProd.length;
   const P = caps.map(() => zeros(H));
   P[n - 1] = finalProd.slice();
@@ -185,6 +187,17 @@ function retropropagar(finalProd: number[], caps: number[][], wip: number[], lag
     const req = requisitoAcumulado(P[s], wip[s - 1], lag, zeros(H));
     const a = alapCurva(req, caps[s - 1]);
     P[s - 1] = a.producao;
+    if (cedo > 0 && a.inevitavel <= 1e-3) {
+      // ANTECIPAÇÃO: cumulativo = ALAP + θ·(ASAP limitado pela capacidade − ALAP). Mesmo total; nunca depois do ALAP ⇒ a cadeia continua válida.
+      const total = a.producao.reduce((x, y) => x + y, 0);
+      let cAlap = 0, cCap = 0, prev = 0;
+      P[s - 1] = a.producao.map((_, t) => {
+        cAlap += a.producao[t]; cCap += caps[s - 1][t];
+        const asap = Math.min(total, cCap);
+        const cum = cAlap + cedo * Math.max(0, asap - cAlap);
+        const v = Math.max(0, cum - prev); prev = cum; return v;
+      });
+    }
     inev[s - 1] = a.inevitavel;
   }
   return { P, inev };
@@ -236,7 +249,8 @@ export function planejarReverso(e: EntradaReverso): ResultadoReverso {
       const req = zeros(H); req[H - 1] = alvo;
       finalProd = alapCurva(req, M[n - 1]).producao;
     }
-    let { P, inev } = retropropagar(finalProd, caps, p.wipInicial);
+    const cedo = e.upstreamCedo ?? 0;
+    let { P, inev } = retropropagar(finalProd, caps, p.wipInicial, 1, cedo);
     // se a capacidade compartilhada não deixa produzir tudo a tempo, reduz o final até a cadeia fechar (iteração curta)
     let guarda = 0;
     while (inev.some((v) => v > 1e-3) && guarda++ < 40) {
@@ -244,7 +258,7 @@ export function planejarReverso(e: EntradaReverso): ResultadoReverso {
       const tot = P[n - 1].reduce((a, b) => a + b, 0);
       const novo = Math.max(0, tot - falta);
       const req = zeros(H); req[H - 1] = novo;
-      ({ P, inev } = retropropagar(alapCurva(req, M[n - 1]).producao, caps, p.wipInicial));
+      ({ P, inev } = retropropagar(alapCurva(req, M[n - 1]).producao, caps, p.wipInicial, 1, cedo));
       if (novo === 0) break;
     }
     const uso = p.etapas.map((et, k) => alocarEtapa(et, P[k], ledger, s));

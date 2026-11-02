@@ -143,7 +143,11 @@ export type CodigoDiagnosticoFluxo =
   | "CADEIA_COBERTURA" // (cadeia) por ligação: estoque, cobertura em períodos, período da ruptura e último período seguro
   | "CADEIA_DIAGNOSTICO_FALHOU" // (cadeia) a validação lançou: ignorada, o plano segue
   | "ESTADO_FISICO_INCONSISTENTE" // (cadeia) dados físicos conflitantes: estoque NÃO é inventado nem alterado
-  | "CONSUMO_REAL_MAIOR_QUE_DISPONIVEL"; // (cadeia) consumo real > disponível (contagem + produção anterior): só registra
+  | "CONSUMO_REAL_MAIOR_QUE_DISPONIVEL" // (cadeia) consumo real > disponível (contagem + produção anterior): só registra
+  | "APONTAMENTO_LINHA_COMPARTILHADO_REPARTIDO" // (planejador de corte) apontamento de linha compartilhada repartido entre os produtos pela distribuição planejada
+  | "PLANEJADOR_AVISO" // (planejador de corte) aviso do planejador puro
+  | "PLANEJADOR_CORTE_FALHOU" // (planejador de corte) nenhuma tentativa passou nas checagens independentes: plano vigente MANTIDO (nunca o motor legado)
+  | "PLANEJADOR_CORTE_USADO"; // (planejador de corte) o plano gravado foi o do planejador de corte
 
 export interface DiagnosticoItem {
   codigo: CodigoDiagnosticoFluxo;

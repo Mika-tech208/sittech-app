@@ -12,6 +12,7 @@ import { epochMsNoFuso } from "@/features/escala/tempo";
 import { montarEntradaEscala } from "./montarEntrada";
 import { assinaturaAlertas, planosIguais } from "./planoIgual";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento, type SnapshotWipParaGravar } from "./estado";
+import { mantidoDoPlano, tentarPlanoCorte, VERSAO_PLANEJADOR_CORTE, type PlanejarCorte } from "./fluxo/integracaoCorte";
 import { avaliarFluxoSombra, nucleoFluxo, tentarPlanoFluxo, type GatilhoFluxo, type NucleoFluxo, type RegistroFluxo } from "./fluxo/integracao";
 
 export const MOTIVO_ESCALA_JA_EXISTE = "Escala da semana já existe";
@@ -62,6 +63,7 @@ export interface OpcoesProcessamento {
   nucleoFluxo?: NucleoFluxo; // injeção (testes); padrão = núcleo real
   gatilhoFluxo?: GatilhoFluxo; // padrão: 'manual' (geração manual) ou 'evento'
   corteFluxo?: { data: string; periodoId: string } | null; // período fechado que originou o recálculo (gatilho 'fechamento')
+  planejadorCorte?: PlanejarCorte; // injeção (testes); padrão = planejarSemanaComCorte
 }
 
 export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento): Promise<ResultadoProcessamento> {
@@ -101,7 +103,29 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
     let resultado: ResultadoEscala | undefined;
     let registroAtivo: RegistroFluxo | null = null;
     let fluxoUsado = false;
-    if (pr && ctxFluxo && pr.modoEfetivo === "ativo") {
+    // PLANEJADOR DE CORTE (semana ativada): o motor LEGADO nunca recalcula. Falha ⇒ plano vigente mantido + alerta (o chamador grava o mesmo plano com o motivo, ou NO-OP se já era assim).
+    const pcorte = estado.planejadorCorte;
+    let corteUsado = false;
+    let corteMotivoFalha: string | null = null;
+    if (pcorte) {
+      if (pr && ctxFluxo && pr.modoEfetivo === "ativo") {
+        const t = tentarPlanoCorte(ctxFluxo, pcorte, opcoes.planejadorCorte);
+        registroAtivo = t.registro;
+        if (t.ok) {
+          resultado = { ...t.resultado, alocacoes: [...t.resultado.alocacoes] };
+          fluxoUsado = true;
+          corteUsado = true;
+        } else {
+          resultado = t.mantido;
+          corteMotivoFalha = t.motivo;
+          console.error(`escala/corte: plano vigente MANTIDO (${estado.semanaInicio}): ${t.motivo}`);
+        }
+      } else {
+        corteMotivoFalha = pcorte.indisponivel ?? "Produção Real indisponível";
+        resultado = mantidoDoPlano(estado, entrada.aPartirDe, entrada.slots, corteMotivoFalha);
+        console.error(`escala/corte: plano vigente MANTIDO (${estado.semanaInicio}): ${corteMotivoFalha}`);
+      }
+    } else if (pr && ctxFluxo && pr.modoEfetivo === "ativo") {
       const t = tentarPlanoFluxo(ctxFluxo);
       registroAtivo = t.registro;
       if (t.ok) {
@@ -136,6 +160,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
     //  - sombra: avalia o plano oficial que ficou vigente × o plano de fluxo; não altera nada.
     const registrarFluxo = async (aplicou: boolean): Promise<ResultadoProcessamento["fluxo"] | undefined> => {
       if (!pr || !ctxFluxo) return undefined;
+      if (pr.modoEfetivo === "ativo" && !registroAtivo) return undefined; // planejador de corte sem registro (pré-condição falhou): nada a registrar
       try {
         const registro: RegistroFluxo = pr.modoEfetivo === "ativo" ? { ...(registroAtivo as RegistroFluxo), aplicado: aplicou && fluxoUsado } : avaliarFluxoSombra(ctxFluxo, resultado!.alocacoes);
         if (pr.modoEfetivo === "ativo" && !aplicou && fluxoUsado) registro.replanejamento = { ...registro.replanejamento, aplicacao: "noop" };
@@ -178,6 +203,9 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
         assinaturaAlertas: assinatura, // base do NO-OP do próximo recálculo
         primeiraGeracaoComSemanaEmAndamento: resultado.primeiraGeracaoComSemanaEmAndamento,
         ...(registroAtivo ? { fluxo: { modo: "ativo", resultado: registroAtivo.resultado, usado: fluxoUsado, versaoMotor: registroAtivo.versaoMotor, hashPlanoFluxo: registroAtivo.hashPlanoFluxo } } : {}),
+        // marca do planejador de corte: "corte-v1" enquanto o plano vigente É do planejador (base para partir do vigente e para auditar); falha mantém a marca anterior
+        ...(corteUsado || (pcorte && pcorte.vigenteDoPlanejador) ? { planejador: VERSAO_PLANEJADOR_CORTE } : {}),
+        ...(pcorte ? { planejadorCorte: { usado: corteUsado, motivoFalha: corteMotivoFalha } } : {}),
       },
     };
 

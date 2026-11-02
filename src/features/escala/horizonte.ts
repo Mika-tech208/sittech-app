@@ -18,6 +18,7 @@
 
 import { gerarEscala } from "./gerarEscala";
 import { hashCanonico } from "./hashCanonico";
+import { chaveDistribuicao } from "./distribuicao";
 import { maquinaDisponivelNoSlot } from "./disponibilidade";
 import { sobrepoe } from "./tempo";
 import { avaliarCompromisso, type AvaliacaoCompromisso, type StatusCompromisso } from "./compromisso";
@@ -69,7 +70,11 @@ export const rotuloPeriodo = (slots: SlotEscala[], i: number | null): string => 
 export function hashAlocacoes(linhas: AlocacaoEscala[]): string {
   const canonico = [...linhas]
     .sort((a, b) => (a.data + a.periodoId + a.funcionarioId < b.data + b.periodoId + b.funcionarioId ? -1 : 1))
-    .map((a) => [a.data, a.periodoId, a.funcionarioId, a.maquinaId, a.produtoId, a.etapaId, a.operacaoId, a.pecas, a.pecasAdicional ?? 0, a.origem ?? "auto"]);
+    .map((a) => {
+      const base = [a.data, a.periodoId, a.funcionarioId, a.maquinaId, a.produtoId, a.etapaId, a.operacaoId, a.pecas, a.pecasAdicional ?? 0, a.origem ?? "auto"];
+      const dist = chaveDistribuicao(a); // linha compartilhada entre produtos: a repartição entra no hash; sem ela o hash é byte-idêntico ao anterior
+      return dist ? [...base, dist] : base;
+    });
   return hashCanonico(canonico);
 }
 

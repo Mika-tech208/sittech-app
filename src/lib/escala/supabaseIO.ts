@@ -6,13 +6,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { agregarHistoricoEquidade, JANELA_EQUIDADE_DIAS } from "@/features/escala/equidade";
 import { lerParametros } from "@/features/escala/parametros";
 import type { AlocacaoEscala, PeriodoEscala } from "@/features/escala/types";
+import { distribuicaoEfetiva, lerDistribuicao } from "@/features/escala/distribuicao";
 import { linhasConsolidadas, type LinhaHistoricoBruta } from "./historicoConsolidado";
 import { historicoDaAusencia } from "./ausenciaAberta";
 import { historicoDeSituacao } from "./situacaoFuncionario";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "./estado";
 import { processarSemana, type EscalaIO, type OpcoesProcessamento } from "./processar";
 import { carregarWipControle, gravarSnapshotsWip } from "./wipIO";
-import { lerConfigFluxo, modoEfetivoFluxo } from "./fluxo/parametrosFluxo";
+import { lerConfigFluxo, modoEfetivoFluxo, planejadorCorteNaSemana } from "./fluxo/parametrosFluxo";
 import { carregarApontamentosReais, registrarDiagnosticoFluxo } from "./fluxo/supabaseFluxo";
 import { classificarGeracao, gerarEscalaSemanal, type DepsGeracaoSemanal, type OpcoesGeracaoSemanal, type ResultadoGeracaoSemanal } from "./geracaoSemanal";
 import type { ResultadoProcessamento } from "./estado";
@@ -137,7 +138,9 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
       const historicoEquidade = await carregarHistoricoEquidade(admin, prev.semana_inicio, periodosAtuais, agoraMs);
       // assinatura dos alertas do último recálculo gravado (base do NO-OP; ausente = recálculo anterior ao recurso => nunca no-op uma vez)
       const ultimoRecalculo = await admin.from("escala_producao_eventos").select("payload").eq("previsao_id", previsaoId).eq("tipo", "recalculo").order("criado_em", { ascending: false }).limit(1);
-      const ultimaAssinaturaAlertas = ((ok(ultimoRecalculo, "escala_producao_eventos (último recálculo)") as { payload: { resumo?: { assinaturaAlertas?: string } } | null }[])[0]?.payload?.resumo?.assinaturaAlertas) ?? null;
+      const ultimoResumo = (ok(ultimoRecalculo, "escala_producao_eventos (último recálculo)") as { payload: { resumo?: { assinaturaAlertas?: string; planejador?: string } } | null }[])[0]?.payload?.resumo;
+      const ultimaAssinaturaAlertas = ultimoResumo?.assinaturaAlertas ?? null;
+      const ultimoPlanejador = ultimoResumo?.planejador ?? null; // "corte-v1" quando o último recálculo gravado foi do planejador de corte
 
       const itensBrutos = itensRows.map((i) => {
         const porEtapa: Record<string, string[]> = {};
@@ -157,12 +160,26 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
       const cfgFluxo = lerConfigFluxo(parametrosRows);
       const modoFluxo = modoEfetivoFluxo(cfgFluxo, prev.semana_inicio);
       let producaoReal: EstadoBruto["producaoReal"];
+      let erroProducaoReal: string | null = null;
       if (modoFluxo === "sombra" || modoFluxo === "ativo") {
         try {
           producaoReal = { modoEfetivo: modoFluxo, limiar: cfgFluxo.limiar, paresLegado: cfgFluxo.paresLegado, ...(cfgFluxo.contagensFisicas.length > 0 ? { contagensFisicas: cfgFluxo.contagensFisicas } : {}), ...(cfgFluxo.contagensFisicasDescartadas.length > 0 ? { contagensFisicasDescartadas: cfgFluxo.contagensFisicasDescartadas } : {}), ...(cfgFluxo.mesmoPeriodo === false ? { mesmoPeriodo: false } : {}), ...(cfgFluxo.cadeia ? { cadeia: cfgFluxo.cadeia } : {}), apontamentos: await carregarApontamentosReais(admin, prev.semana_inicio) };
         } catch (e) {
           console.error("escala/fluxo: apontamentos indisponíveis; a semana segue pelo motor oficial:", e instanceof Error ? e.message : e);
+          erroProducaoReal = e instanceof Error ? e.message : String(e);
         }
+      }
+      // PLANEJADOR DE CORTE (ativação controlada): semana configurada em producao_real_planejador_semanas (com o modo efetivo "ativo"). Nesta semana o motor LEGADO nunca recalcula:
+      // se a Produção Real ou a coluna `distribuicao` estiverem indisponíveis, o processador mantém o plano vigente e registra o motivo (ver processar.ts).
+      let planejadorCorte: EstadoBruto["planejadorCorte"];
+      if (planejadorCorteNaSemana(cfgFluxo, prev.semana_inicio)) {
+        const probe = await admin.from("escala_producao_alocacoes").select("distribuicao").limit(1);
+        planejadorCorte = {
+          config: cfgFluxo.planejador!.config,
+          vigenteDoPlanejador: ultimoPlanejador === "corte-v1",
+          distribuicaoSuportada: !probe.error,
+          ...(erroProducaoReal ? { indisponivel: `Produção Real indisponível: ${erroProducaoReal}` } : probe.error ? { indisponivel: `coluna distribuicao ausente (migration não aplicada): ${probe.error.message}` } : {}),
+        };
       }
       // estoque intermediário (Fase 3): só é lido com o WIP ativo; sem controles = undefined (comportamento anterior)
       const wipControle = parametros.wipModo === "ativo" ? await carregarWipControle(admin, prev.semana_inicio) : undefined;
@@ -203,6 +220,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
           operacaoId: (r.operacao_id as string | null) ?? null, pecas: Number(r.pecas ?? 0), ...(Number(r.pecas_adicional ?? 0) > 0 ? { pecasAdicional: Number(r.pecas_adicional) } : {}), ...(r.tipo_adicional === "acabado" || r.tipo_adicional === "intermediario" ? { tipoAdicional: r.tipo_adicional as "acabado" | "intermediario" } : {}), motivoSemPosto: (r.motivo_sem_posto as string | null) ?? null,
           excecaoRevezamento: Boolean(r.excecao_revezamento), motivoExcecao: (r.motivo_excecao as string | null) ?? null,
           origem: r.origem === "manual" ? "manual" : "auto",
+          ...(lerDistribuicao(r.distribuicao) ? { distribuicao: lerDistribuicao(r.distribuicao) } : {}), // linha compartilhada entre produtos (coluna distribuicao; ausente/null = um só produto)
         })) as AlocacaoEscala[],
         nomesOperacao: Object.fromEntries((ok(operacoes, "operacoes") as { id: string; nome: string }[]).map((o) => [o.id, o.nome])),
         nomesMaquinas: Object.fromEntries((ok(maquinasNomes, "maquinas (nomes)") as { id: string; nome: string }[]).map((m) => [m.id, m.nome])),
@@ -213,6 +231,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         parametros,
         ...(wipControle ? { wipControle } : {}),
         ...(producaoReal ? { producaoReal } : {}),
+        ...(planejadorCorte ? { planejadorCorte } : {}),
         proximaSemana: proximaSemanaDe(ok(proxima, "previsoes (próxima semana)") as { previsao_itens: { produto_id: string; quantidade: number; tipo: string }[] | null } | null),
       };
     },
@@ -235,6 +254,8 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
           data: a.data, periodo_id: a.periodoId, funcionario_id: a.funcionarioId, maquina_id: a.maquinaId, produto_id: a.produtoId,
           etapa_id: a.etapaId, operacao_id: a.operacaoId, pecas: a.pecas, pecas_adicional: a.pecasAdicional ?? 0, tipo_adicional: a.tipoAdicional ?? null, origem: a.origem ?? "auto",
           excecao_revezamento: a.excecaoRevezamento, motivo_excecao: a.motivoExcecao, motivo_sem_posto: a.motivoSemPosto,
+          // só a linha compartilhada entre ≥ 2 produtos leva a chave (o RPC antigo a ignoraria; o novo grava na coluna `distribuicao`)
+          ...(distribuicaoEfetiva(a) ? { distribuicao: distribuicaoEfetiva(a)!.map((d) => ({ produto_id: d.produtoId, etapa_id: d.etapaId, pecas: d.pecas })) } : {}),
         })),
         p_usuario_id: p.usuarioId,
         p_evento_ids: p.eventoIds,

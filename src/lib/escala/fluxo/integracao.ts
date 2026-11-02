@@ -151,7 +151,7 @@ function corteDe(entrada: EntradaEscala, corte: ContextoFluxo["corte"]): Registr
 
 const resumoAvaliacao = (a: AvaliacaoPlano | null | undefined) => (a ? { versao: a.versao, totais: a.totais, produtos: a.produtos, diagnosticos: a.diagnosticos } : {});
 
-function hashDaEntrada(ctx: ContextoFluxo, dados: DadosProducaoReal, opcoesBrutas: OpcoesFluxo, ultimoFechado: number | null): string {
+export function hashDaEntrada(ctx: ContextoFluxo, dados: DadosProducaoReal, opcoesBrutas: OpcoesFluxo, ultimoFechado: number | null): string {
   // `cadeia` (diagnóstico) só OBSERVA: fica fora do hash — ligar/desligar a flag não muda hashEntrada, a idempotência do registro nem nada que decide plano/NO-OP.
   const { cadeia: _cadeia, ...opcoes } = opcoesBrutas;
   void _cadeia;
@@ -161,7 +161,7 @@ function hashDaEntrada(ctx: ContextoFluxo, dados: DadosProducaoReal, opcoesBruta
   });
 }
 
-function registroBase(ctx: ContextoFluxo, modo: "sombra" | "ativo", dados: DadosProducaoReal, opcoes: OpcoesFluxo): RegistroFluxo {
+export function registroBase(ctx: ContextoFluxo, modo: "sombra" | "ativo", dados: DadosProducaoReal, opcoes: OpcoesFluxo): RegistroFluxo {
   return {
     previsaoId: ctx.estado.previsaoId, semanaInicio: ctx.estado.semanaInicio, gatilho: ctx.gatilho, modo, resultado: "ok", corte: corteDe(ctx.entrada, ctx.corte), versaoMotor: VERSAO_MOTOR_FLUXO,
     hashEntrada: hashDaEntrada(ctx, dados, opcoes, null), hashPlanoOficial: "", hashPlanoFluxo: "",
@@ -206,7 +206,7 @@ function preencher(reg: RegistroFluxo, d: DiagnosticoFluxo, avaliacaoOficial: Av
 const descartesContagem = (ctx: ContextoFluxo): unknown[] => ctx.estado.producaoReal?.contagensFisicasDescartadas ?? [];
 
 /** Resumo de erro: o fluxo não produziu diagnóstico (exceção). Fica registrado para auditoria. */
-function registroDeErro(reg: RegistroFluxo, erro: string, resultado: "erro" | "fallback", oficial: AlocacaoEscala[]): RegistroFluxo {
+export function registroDeErro(reg: RegistroFluxo, erro: string, resultado: "erro" | "fallback", oficial: AlocacaoEscala[]): RegistroFluxo {
   return jsonPuro({ ...reg, resultado, erro, hashPlanoOficial: hashAlocacoes(oficial), diagnosticos: [{ codigo: "ERRO_FLUXO", severidade: "erro", mensagem: erro }] });
 }
 
