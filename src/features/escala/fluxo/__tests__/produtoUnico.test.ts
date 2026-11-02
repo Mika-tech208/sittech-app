@@ -163,6 +163,28 @@ describe("produto único com rotas — invariantes do plano", () => {
     expect(r.unico!.resumo!.finalPlanejado).toBe(somaMaq(r, "b1"));
   });
 
+  it("recálculo no meio da semana, com produção real já apontada em Conv e Auto: passado intacto, demanda restante soma as duas rotas, plano válido", () => {
+    const { r: r0 } = rodar();
+    expect(r0.ok).toBe(true);
+    const plano = r0.resultado!.alocacoes;
+    const agora = epochMsNoFuso("2026-11-03", "12:50"); // M1–M3 fechados; T1 é o 1º livre
+    const st = estado();
+    st.alocacoes = plano.map((a) => ({ ...a }));
+    const e = montarEntradaEscala(st, agora).entrada;
+    expect(e.aPartirDe).toBe(3);
+    const ap = (produtoId: string, etapaId: string, op: string, maq: string, periodoId: string, boas: number): ApontamentoReal => ({ data: "2026-11-03", periodoId, funcionarioId: "f01", maquinaId: maq, produtoId, etapaId, operacaoId: op, boas, refugo: 0, meta: boas, status: "produzindo", motivo: null, lancadoEmMs: epochMsNoFuso("2026-11-03", "12:40") });
+    const dados = dadosVazios(agora, { planoVigente: plano, apontamentos: [ap("pC", "c4", "opB", "b1", "m2", 700), ap("pA", "a3", "opB", "b1", "m3", 300), ap("pC", "c1", "opR", "r1", "m1", 600), ap("pA", "a1", "opM", "m8", "m1", 400)] });
+    const r = planejarSemanaComCorte(e, dados, { fluxoMesmoPeriodo: false, paresLegado: [PAR] }, { ...CFG, produtoUnico: true });
+    expect(r.ok).toBe(true);
+    expect(r.checagens.passadoAlterado).toBe(0);
+    expect(r.checagens.cadeiaInvalida).toBe(0);
+    expect(r.checagens.violacoesDuras).toBe(0);
+    expect(r.unico!.info.finalBoaAteAgora).toBe(1000); // Embalagem 17 boa das DUAS rotas (700 + 300), contada uma vez
+    expect(r.unico!.info.restante).toBe(9000);
+    expect(r.unico!.resumo!.finalPlanejado).toBeLessThanOrEqual(9000);
+    expect((r.resultado!.alocacoes).filter((l) => distribuicaoEfetiva(l)).length).toBe(0);
+  });
+
   it("DESLIGADO por padrão: sem `produtoUnico` o resultado não traz `unico` (modo antigo intacto)", () => {
     const { r } = rodar({}, false);
     expect(r.ok).toBe(true);
