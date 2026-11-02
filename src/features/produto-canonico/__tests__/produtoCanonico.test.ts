@@ -114,11 +114,11 @@ describe("E/10/11. produção final só na Embalagem; demanda restante única", 
     expect(demandaRestante(93300, producaoFinalBoa(ap, m))).toBe(88800);
     expect(demandaRestante(100, 4500)).toBe(0);
   });
-  it("histórico real: somar o 'último apontado' dos dois legados contaria a rota automática 2x; a visão canônica não", () => {
+  it("histórico real (semana 26/10): toda a Embalagem está no Conv e a Auto só tem M8; a visão canônica conta o final UMA vez (Embalagem) e M8 nunca entra como final", () => {
     const embalarConv = 82450, m8Auto = 21822; // semana 26/10 de PROD
-    const ingenuo = embalarConv + m8Auto;
+    const somaSeM8Entrasse = embalarConv + m8Auto; // erro que uma visão "soma tudo / última etapa com dado" cometeria
     const canonico = producaoFinalBoa([{ etapaId: L.emb, quantidadeBoa: embalarConv }, { etapaId: L.m8, quantidadeBoa: m8Auto }], m);
-    expect(ingenuo).toBe(104272);
+    expect(somaSeM8Entrasse).toBe(104272);
     expect(canonico).toBe(82450);
   });
 });
