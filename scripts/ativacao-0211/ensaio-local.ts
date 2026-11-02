@@ -75,7 +75,7 @@ function io(): EscalaIO {
         ...(distribuicaoEfetiva(a) ? { distribuicao: distribuicaoEfetiva(a)!.map((d) => ({ produto_id: d.produtoId, etapa_id: d.etapaId, pecas: d.pecas })) } : {}),
       }));
       const q = (v: unknown) => `$j$${JSON.stringify(v)}$j$`;
-      const out = psql(`select public.escala_aplicar_recalculo('${p.previsaoId}'::uuid, ${q(p.dias)}::jsonb, '${p.aPartirDeData}'::date, '${p.aPartirDePeriodo}', ${q(al)}::jsonb, null, '{}'::uuid[], ${q(p.resumo)}::jsonb, '{}'::date[]);`);
+      const out = psql(`select public.escala_aplicar_recalculo('${p.previsaoId}'::uuid, ${q(p.dias)}::jsonb, '${p.aPartirDeData}'::date, '${p.aPartirDePeriodo}', ${q(al)}::jsonb, null, '{${p.eventoIds.join(",")}}'::uuid[], ${q(p.resumo)}::jsonb, '{}'::date[]);`);
       return { versoes: JSON.parse(out).versoes };
     },
     async registrarFluxo(r) { registros.push(JSON.parse(JSON.stringify(r))); },
@@ -232,6 +232,7 @@ async function main() {
   confere("falha: plano vigente idêntico (nada reescrito pelo legado)", planoAposFalha === hAntesFalha, `${rF.status} · alerta ${(rF.alertas as any[]).some((a) => a.tipo === "planejador_corte_falhou")}`);
   confere("falha: alerta planejador_corte_falhou registrado", (rF.alertas as any[]).some((a) => a.tipo === "planejador_corte_falhou"), "no resultado do processamento");
 
+  if (process.env.SEM_ROLLBACK) { console.log("(SEM_ROLLBACK: parando antes do rollback; banco local fica no estado pós-ativação)"); process.exit(resultados.some((r) => !r.ok) ? 1 : 0); }
   console.log("== 7. ROLLBACK (arquivo de produção: ativacao/90-rollback.sql)");
   apontamentos = []; ausenciasExtras = [];
   psql(fs.readFileSync(`${D10}/ativacao/90-rollback.sql`, "utf8"));

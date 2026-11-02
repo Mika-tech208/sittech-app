@@ -1,0 +1,14 @@
+{
+  "objetivo": "EQUILIBRIO",
+  "margemPorPeca": {
+    "238ca607-2111-4aff-9a19-a9ae6f20da7e": 0.1282,
+    "27c229d7-f192-41eb-aad1-0c69ece53eba": 0.1007,
+    "a027ac97-ffd1-4834-8ed0-d3a94aac4aee": 0.1205,
+    "cace499f-2c0d-4cc5-b8e0-53f692ddbe92": 0.0448,
+    "fa08e7c6-1a44-4625-a9e4-9b9cebf1031e": 0.0581
+  },
+  "coberturaMinima": 0.45,
+  "ganhoMinimoRel": 0.01,
+  "busca": { "iter": 400000, "reinicios": 2, "semente": 1 },
+  "buscaComVigente": { "iter": 150000, "reinicios": 1, "semente": 1 }
+}
