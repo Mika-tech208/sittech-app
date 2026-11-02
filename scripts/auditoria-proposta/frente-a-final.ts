@@ -74,7 +74,7 @@ P();
 P(`## 0. Resumo`);
 P(`- **O plano EQUILIBRIO anterior (hash e7207165…) tinha 15 pessoa-períodos sem posto por uma LIMITAÇÃO DO OTIMIZADOR, não por física**: em cada um dos 6 períodos havia adição concreta com ganho positivo (seção 1). O planejador foi refeito (busca local de postos + despacho forward, \`postosDespacho.ts\`) e o novo plano tem **${semPosto} sem posto**, ${n0(pecas)} peças finais (${n1((100 * pecas) / dem)}% da demanda; antes 215.101), margem R$ ${n0(margem)} (antes 17.391), receita R$ ${n0(receita)}.`);
 P(`- Novo hash do candidato: \`${hash}\` (fórmula D8). Arquivos: \`candidato-final.json\`, \`candidato-final.distribuicao.json\`, \`publicar-candidato-final.sql\` (gerado, NÃO executado). Gerador: ${genOut.replace(/\n/g, " ")}`);
-P(`- API pura estável: commit \`cb5c099\` (+ ajustes posteriores listados no commit final); assinatura em \`D10/API-planejador.md\`.`);
+P(`- API pura estável: commit \`b670452\` (API estável; \`cb5c099\` foi a 1ª versão); assinatura em \`D10/API-planejador.md\`.`);
 P();
 P(`## 7. TESTES FINAIS do plano final (plano B·meta)`);
 P(`| Critério | Resultado | OK |`); P(`|---|---|---|`);
