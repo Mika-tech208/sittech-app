@@ -92,7 +92,7 @@ function cenario(desmarcar: boolean, modo = "desmarcar") {
       console.log(`  saida.porProduto Auto: ${JSON.stringify(r.saida!.porProduto.filter((p) => p.produtoId === AUTO).map((p) => ({ demanda: Math.round(p.demanda), programado: Math.round(p.programado), cortado: Math.round(p.cortado) })))} · alertas do resultado: ${JSON.stringify(r.resultado.alertas.map((a) => a.tipo))}`);
       console.log(`  validador INDEPENDENTE com a cadeia COMPLETA (M8→Etiquetar→Embalar, WIP Auto inicial 0): ${cadeiaCompleta(entrada, r.resultado.alocacoes, AUTO)}`);
       const wipAuto = r.saida!.wip[AUTO];
-      console.log(`  WIP Auto por ligação (início dos 8 primeiros períodos): ${wipAuto ? wipAuto.map((l) => l.slice(0, 8).map(Math.round).join(",") + "…").join(" | ") : "—"} · cadeia do Auto no planejador: ${r.entradaPlanejador!.produtos.find((p) => p.id === AUTO)!.etapas.map((e) => ROT[AUTO + "|" + e.id] ?? e.id).join(" → ")}`);
+      console.log(`  WIP Auto por ligação (início dos 8 primeiros períodos): ${wipAuto ? wipAuto.map((l) => l.slice(0, 8).map(Math.round).join(",") + "…").join(" | ") : "—"} · cadeia do Auto no planejador: ${r.entradaPlanejador!.produtos.find((p) => p.id === AUTO)?.etapas.map((e) => ROT[AUTO + "|" + e.id] ?? e.id).join(" → ") ?? "(produto Auto fora do plano)"}`);
     }
   }
   if (!so || so === "legado") {
