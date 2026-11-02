@@ -73,7 +73,7 @@ export function expandirPorProduto(linhas: AlocacaoEscala[]): AlocacaoEscala[] {
     algum = true;
     const { distribuicao: _d, ...resto } = a;
     void _d;
-    d.forEach((x, i) => out.push({ ...resto, produtoId: x.produtoId, etapaId: x.etapaId, pecas: x.pecas, ...(i === 0 ? {} : { pecasAdicional: 0 }) }));
+    d.forEach((x, i) => out.push({ ...resto, produtoId: x.produtoId, etapaId: x.etapaId, pecas: x.pecas, limiteCapacidade: x.pecas, ...(i === 0 ? {} : { pecasAdicional: 0 }) }));
   }
   return algum ? out : linhas;
 }

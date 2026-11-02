@@ -59,7 +59,7 @@ export function capacidadeDaLinha(ctx: CtxFluxo, a: AlocacaoEscala): { no: strin
   const mu = (pool.metas[a.periodoId] ?? 0) * (ctx.fator[k] ?? 1);
   if (mu <= 0) return null;
   if ((a.pecasAdicional ?? 0) > 0 && !((a.pecas ?? 0) > 0)) return { no, t, tipo: "adic", valor: Math.min(mu, a.pecasAdicional as number) };
-  return { no, t, tipo: "base", valor: mu };
+  return { no, t, tipo: "base", valor: a.limiteCapacidade !== undefined ? Math.min(mu, a.limiteCapacidade) : mu };
 }
 
 export function selecionarFuturas(ctx: CtxFluxo, alocacoes: AlocacaoEscala[]): AlocacaoEscala[] {
@@ -163,7 +163,7 @@ export function avaliarComCtx(ctx: CtxFluxo, alocacoes: AlocacaoEscala[], op: Op
         if (mu <= 0) return;
         const c2 = copiarCaps(caps);
         if ((a.pecasAdicional ?? 0) > 0 && !((a.pecas ?? 0) > 0)) c2[n].adic[t] = Math.max(0, c2[n].adic[t] - Math.min(mu, a.pecasAdicional as number));
-        else c2[n].base[t] = Math.max(0, c2[n].base[t] - mu);
+        else c2[n].base[t] = Math.max(0, c2[n].base[t] - (a.limiteCapacidade !== undefined ? Math.min(mu, a.limiteCapacidade) : mu));
         const sem = rodar(ctx, gi, c2, "lo", op.limites, false);
         const v = Math.min(Q, lo.B[g.sink]) - Math.min(Q, sem.B[g.sink]);
         if (v > 1e-6) postos.push({ slot: t, data: a.data, periodoId: a.periodoId, maquinaId: a.maquinaId, funcionarioId: a.funcionarioId, produtoId: a.produtoId, etapaId: a.etapaId, pecasFinais: r3(v) });

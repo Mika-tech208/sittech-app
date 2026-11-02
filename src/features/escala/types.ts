@@ -89,6 +89,9 @@ export interface AlocacaoEscala {
   tipoAdicional?: "acabado" | "intermediario";
   // Linha compartilhada entre produtos (ver DistribuicaoQuantidade). Só o planejador de corte (semanas ativadas) grava; ausente = comportamento anterior, byte-idêntico.
   distribuicao?: DistribuicaoQuantidade[];
+  // SÓ em linhas da VISÃO POR PRODUTO (`expandirPorProduto`, nunca persistida): teto da capacidade que esta fatia credita à máquina física compartilhada (= a quantidade do produto na linha).
+  // Evita contar a meta cheia do pool uma vez por produto. Ausente em toda linha gravada/legada ⇒ comportamento anterior, idêntico.
+  limiteCapacidade?: number;
 }
 
 // Histórico agregado (janela recente) a partir da escala REALMENTE gravada

@@ -152,7 +152,7 @@ export function somarCapacidadeDeLinhas(
     const mu = (pool.metas[a.periodoId] ?? 0) * (fator[k] ?? 1);
     if (mu <= 0) return;
     if ((a.pecasAdicional ?? 0) > 0 && !((a.pecas ?? 0) > 0)) caps[no].adic[t] += Math.min(mu, a.pecasAdicional as number);
-    else caps[no].base[t] += mu;
+    else caps[no].base[t] += a.limiteCapacidade !== undefined ? Math.min(mu, a.limiteCapacidade) : mu; // fatia de linha compartilhada: não conta a máquina inteira por produto
   });
 }
 
