@@ -16,6 +16,7 @@ import { chavePool, type AlocacaoEscala } from "@/features/escala/types";
 import type { ApontamentoReal } from "@/features/escala/producaoReal";
 import type { EstadoBruto, PayloadAplicacao } from "@/lib/escala/estado";
 import type { RegistroFluxo } from "@/lib/escala/fluxo/integracao";
+import { linhaDiagnostico } from "@/lib/escala/fluxo/supabaseFluxo";
 
 const FB = "/private/tmp/claude-501/-Users-mikaellonghi-Documents/46f8091f-a2ac-4875-a213-e5a3b744b594/scratchpad/fb";
 const D10 = "/private/tmp/claude-501/-Users-mikaellonghi-Documents/46f8091f-a2ac-4875-a213-e5a3b744b594/scratchpad/auditoria-1030/D10";
@@ -37,6 +38,7 @@ const base = carregar().estado;
 let ausenciasExtras: EstadoBruto["ausencias"] = [];
 let apontamentos: ApontamentoReal[] = [];
 const registros: RegistroFluxo[] = [];
+const registrosBanco: any[] = [];
 const nomeP = (id: string) => (base.nomesProdutos?.[id] ?? id).trim();
 
 function io(): EscalaIO {
@@ -78,7 +80,12 @@ function io(): EscalaIO {
       const out = psql(`select public.escala_aplicar_recalculo('${p.previsaoId}'::uuid, ${q(p.dias)}::jsonb, '${p.aPartirDeData}'::date, '${p.aPartirDePeriodo}', ${q(al)}::jsonb, null, '{${p.eventoIds.join(",")}}'::uuid[], ${q(p.resumo)}::jsonb, '{}'::date[]);`);
       return { versoes: JSON.parse(out).versoes };
     },
-    async registrarFluxo(r) { registros.push(JSON.parse(JSON.stringify(r))); },
+    async registrarFluxo(r) {
+      registros.push(JSON.parse(JSON.stringify(r)));
+      // grava de verdade pela RPC do banco (a mesma do supabaseFluxo.registrarDiagnosticoFluxo): valida o contrato jsonb do registro do planejador
+      const out = JSON.parse(psql(`select public.escala_fluxo_registrar($j$${JSON.stringify(linhaDiagnostico(r))}$j$::jsonb);`));
+      registrosBanco.push(out);
+    },
   };
 }
 
@@ -150,6 +157,7 @@ async function main() {
   confere("escala_plano_versoes registra a mudança (config da ativação + novo plano: +2, append-only)", nPlanoVersoes() === pv0 + 2, `${pv0} → ${nPlanoVersoes()}`);
   const regUlt = registros[registros.length - 1];
   confere("registro do fluxo: motor corte-v1, resultado ok, aplicado", (regUlt?.avaliacaoFluxo as any)?.motor === "corte-v1" && regUlt.resultado === "ok" && regUlt.aplicado === true, `${(regUlt?.avaliacaoFluxo as any)?.motor} ${regUlt?.resultado} aplicado=${regUlt?.aplicado}`);
+  confere("escala_fluxo_registrar (RPC real do banco) aceitou o registro do planejador", registrosBanco.length > 0 && registrosBanco.every((x) => x.inserido === true || x.id), JSON.stringify(registrosBanco[registrosBanco.length - 1] ?? null));
   const resumo1 = jq<any>("select payload->'resumo' r from escala_producao_eventos where tipo='recalculo' order by criado_em desc limit 1")[0].r;
   confere("evento recalculo marca planejador=corte-v1", resumo1.planejador === "corte-v1" && resumo1.planejadorCorte?.usado === true, JSON.stringify({ planejador: resumo1.planejador, corte: resumo1.planejadorCorte }));
   const a1 = await auditoria("2026-11-02T18:05:00-03:00", "após ativação");
