@@ -57,22 +57,26 @@ function tabelaConector(titulo: string, linhas: AlocacaoEscala[], wip: Record<st
   const sim = simular(entrada, linhas, wip);
   const sc = sim.find((s) => s.produtoId === conv)!, sa = sim.find((s) => s.produtoId === aut)!;
   P(`### ${titulo}`);
-  P("| Período | Ros (plan) | Paf (plan) | M8 | Etiq15 Conv plan→efet | Etiq15 Autom | Emb17 Conv plan→efet | Emb17 Autom | saldo Ros→Paf | saldo Paf→Etiq | saldo M8→Etiq | saldo Etiq→Emb (Conv/Autom) | ruptura |");
-  P("|---|---:|---:|---:|---|---:|---|---:|---:|---:|---:|---|---|");
+  P("| Período | Ros | Paf | M8 | Etiq15 Conv: plano→efetivo (pode consumir) | Etiq15 Autom (pode) | Emb17 Conv: plano→efetivo (pode) | Emb17 Autom (pode) | saldo Ros→Paf | saldo Paf→Etiq | saldo M8→Etiq | saldo Etiq→Emb (Conv / Autom) | ruptura |");
+  P("|---|---:|---:|---:|---|---|---|---|---:|---:|---:|---|---|");
   for (let t = 0; t < H; t++) {
-    const rup = [sc.ruptura[2][t] > 0.5 ? `Etiq −${n0(sc.ruptura[2][t])}` : "", sc.ruptura[3][t] > 0.5 ? `Emb −${n0(sc.ruptura[3][t])}` : "", sc.ruptura[1][t] > 0.5 ? `Paf −${n0(sc.ruptura[1][t])}` : "", sa.ruptura[1][t] > 0.5 ? `AutEtiq −${n0(sa.ruptura[1][t])}` : "", sa.ruptura[2][t] > 0.5 ? `AutEmb −${n0(sa.ruptura[2][t])}` : ""].filter(Boolean).join(" ");
-    P(`| ${rotuloSlot(entrada, t)} | ${n0(sc.planejado[0][t])} | ${n0(sc.planejado[1][t])} | ${n0(sa.planejado[0][t])} | ${n0(sc.planejado[2][t])}→${n0(sc.efetivo[2][t])} | ${n0(sa.planejado[1][t])} | ${n0(sc.planejado[3][t])}→${n0(sc.efetivo[3][t])} | ${n0(sa.planejado[2][t])} | ${n0(sc.saldo[0][t + 1])} | ${n0(sc.saldo[1][t + 1])} | ${n0(sa.saldo[0][t + 1])} | ${n0(sc.saldo[2][t + 1])} / ${n0(sa.saldo[1][t + 1])} | ${rup || "—"} |`);
+    const rup = [sc.ruptura[1][t] > 0.5 ? `Paf −${n0(sc.ruptura[1][t])}` : "", sc.ruptura[2][t] > 0.5 ? `Etiq −${n0(sc.ruptura[2][t])}` : "", sc.ruptura[3][t] > 0.5 ? `Emb −${n0(sc.ruptura[3][t])}` : "", sa.ruptura[1][t] > 0.5 ? `AutEtiq −${n0(sa.ruptura[1][t])}` : "", sa.ruptura[2][t] > 0.5 ? `AutEmb −${n0(sa.ruptura[2][t])}` : ""].filter(Boolean).join(" ");
+    P(`| ${rotuloSlot(entrada, t)} | ${n0(sc.planejado[0][t])} | ${n0(sc.planejado[1][t])} | ${n0(sa.planejado[0][t])} | ${n0(sc.planejado[2][t])}→${n0(sc.efetivo[2][t])} (${n0(sc.consumoMax[1][t])}) | ${n0(sa.planejado[1][t])} (${n0(sa.consumoMax[0][t])}) | ${n0(sc.planejado[3][t])}→${n0(sc.efetivo[3][t])} (${n0(sc.consumoMax[2][t])}) | ${n0(sa.planejado[2][t])} (${n0(sa.consumoMax[1][t])}) | ${n0(sc.saldo[0][t + 1])} | ${n0(sc.saldo[1][t + 1])} | ${n0(sa.saldo[0][t + 1])} | ${n0(sc.saldo[2][t + 1])} / ${n0(sa.saldo[1][t + 1])} | ${rup || "—"} |`);
   }
-  // quando acabam os estoques iniciais (sem reposição) e "último período seguro" do upstream — pelo consumo PLANEJADO de cada etapa
-  const cumprim = (v: number[], lim: number) => { let s = 0; for (let t = 0; t < H; t++) { s += v[t]; if (s > lim) return t; } return -1; };
   const w = wip[conv];
-  const tPaf = cumprim(sc.planejado[2], w[1]), tRos = cumprim(sc.planejado[1], w[0]), tEmb = cumprim(sc.planejado[3], w[2]);
+  const cum = (v: number[], lim: number) => { let s = 0; for (let t = 0; t < H; t++) { s += v[t]; if (s >= lim - 1e-9 && lim > 0) return t; } return -1; };
+  const rot = (t: number) => (t >= 0 ? rotuloSlot(entrada, t) : "nunca na semana");
+  const minimo = (v: number[]) => { let m = Infinity, tm = 0; v.slice(1).forEach((x, i) => { if (x < m) { m = x; tm = i; } }); return `${n0(m)} em ${rotuloSlot(entrada, tm)}`; };
+  const cumEst = (v: number[], lim: number) => { let s = 0; for (let t = 0; t < H; t++) { s += v[t]; if (s > lim + 1e-9) return t; } return -1; }; // 1º período em que o consumo ultrapassa o estoque inicial ⇒ a reposição precisa ter chegado (produzida até t−1)
+  const tPaf = cum(sc.planejado[2], w[1]), tRos = cum(sc.planejado[1], w[0]), tEmb = cum(sc.planejado[3], w[2]);
+  const tPafEst = cumEst(sc.planejado[2], w[1]), tRosEst = cumEst(sc.planejado[1], w[0]);
+  const lig = (t: number) => (t < 0 ? "não precisa na semana" : t === 0 ? "IMPOSSÍVEL (já falta em M1: lote de 1 período)" : `${rotuloSlot(entrada, t - 1)} ou antes`);
   P();
-  P(`- Consumo planejado cumulativo da **Etiquetadora 15 (Conv)** passa das ${n0(w[1])} parafusadas em **${tPaf >= 0 ? rotuloSlot(entrada, tPaf) : "nunca"}** ⇒ a Parafusar precisa ter produzido o excedente até o fim de **${tPaf > 0 ? rotuloSlot(entrada, tPaf - 1) : "—"}** (lote de 1 período) — i.e. **ligada em ${tPaf > 0 ? rotuloSlot(entrada, tPaf - 1) : "—"} ou antes**.`);
-  P(`- Consumo planejado cumulativo da **Parafusar** passa das ${n0(w[0])} rosqueadas em **${tRos >= 0 ? rotuloSlot(entrada, tRos) : "nunca"}** ⇒ a Rosquear precisa estar **ligada em ${tRos > 0 ? rotuloSlot(entrada, tRos - 1) : "—"} ou antes**.`);
-  P(`- Consumo planejado cumulativo da **Embalagem 17 (Conv)** passa das ${n0(w[2])} etiquetadas em **${tEmb >= 0 ? rotuloSlot(entrada, tEmb) : "nunca"}** ⇒ a Etiquetadora precisa ter entregue o excedente até o fim de ${tEmb > 0 ? rotuloSlot(entrada, tEmb - 1) : "—"}.`);
-  const mu8 = sa.planejado[0].reduce((a, b) => a + b, 0);
-  P(`- Máquina 8 no plano: ${n0(mu8)} pç na semana (Autom: M8→Etiq→Emb); no Convencional a M8 não entra (cadeias separadas).`);
+  P(`- (c) as **${n0(w[1])} parafusadas** acabam (consumo planejado cumulativo da Etiquetadora 15 ≥ estoque inicial) em **${rot(tPaf)}**; (d) a **Parafusar** precisa ter produzido o que a Etiquetadora consome DEPOIS disso até o fim do período anterior (lote de 1 período): a reposição passa a ser necessária em ${rot(tPafEst)} ⇒ **Parafusar ligada em ${lig(tPafEst)}** (plano: Paf M1 ${n0(sc.planejado[1][0])}).`);
+  P(`- (e) as **${n0(w[0])} rosqueadas** acabam (consumo planejado cumulativo da Parafusar) em **${rot(tRos)}**; (f) a reposição passa a ser necessária em ${rot(tRosEst)} ⇒ **Rosquear ligada em ${lig(tRosEst)}** (plano: Ros M1 ${n0(sc.planejado[0][0])}).`);
+  P(`- Embalagem 17 (Conv): as **${n0(w[2])} etiquetadas** acabam em **${rot(tEmb)}**; a Etiquetadora precisa ter entregue o excedente até o período anterior.`);
+  P(`- (g) Máquina 8 (cadeia Automática, separada do Convencional): ${n0(sa.planejado[0].reduce((a, b) => a + b, 0))} pç na semana; a M8 só alimenta a Etiquetadora 15 para a Automática — consumo planejado da Etiquetadora para a Automática começa em ${rot(sa.planejado[1].findIndex((x) => x > 0))} com estoque M8→Etiq inicial ${n0(wip[aut]?.[0] ?? 0)}.`);
+  P(`- (h) menor saldo ao fim de um período — Ros→Paf: ${minimo(sc.saldo[0])} · Paf→Etiq: ${minimo(sc.saldo[1])} · Etiq→Emb Conv: ${minimo(sc.saldo[2])} · M8→Etiq: ${minimo(sa.saldo[0])} · Etiq→Emb Autom: ${minimo(sa.saldo[1])}.`);
   P();
 }
 P("## T3 — Conector 3/4, período a período (4.000 rosqueadas / 2.400 parafusadas / 3.600 etiquetadas)");
