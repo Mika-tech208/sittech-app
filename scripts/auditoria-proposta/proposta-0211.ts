@@ -401,11 +401,12 @@ fs.writeFileSync(path.join(SCRATCH, "conector-curva.json"), JSON.stringify(curva
 if (etapaSo === "conector") { fs.writeFileSync(process.env.MD ?? "/dev/stdout", md.join("\n") + "\n"); process.exit(0); }
 
 // -------- cenários --------
-const OBJS: Obj[] = ["MAX_PECAS_FINAIS", "MAX_RESULTADO_ECONOMICO", "EQUILIBRIO"];
+const OBJS: Obj[] = etapaSo === "equil" ? ["EQUILIBRIO"] : ["MAX_PECAS_FINAIS", "MAX_RESULTADO_ECONOMICO", "EQUILIBRIO"];
 const principais: Record<Obj, Cenario> = {} as any;
 const t0 = Date.now();
 for (const o of OBJS) { principais[o] = rodar(o, WIPP, "meta"); console.error(`[${o}] ${Math.round((Date.now() - t0) / 1000)}s pecas=${n0(principais[o].totalPecas)} margem=${n0(principais[o].margem)} viol=${principais[o].viol.total} cadeia=${principais[o].cadeia.violacoes}`); }
 const sens: Cenario[] = [];
+if (etapaSo === "equil") { const c = principais.EQUILIBRIO; const sem = c.pessoasPlano.linhas.filter((a) => !a.maquinaId); console.log(JSON.stringify({ pecas: c.totalPecas, margem: c.margem, entregue: Object.fromEntries(Object.entries(c.entregue).map(([k, v]) => [nomeCurto(k), Math.round(v)])), semPosto: sem.length, porPeriodo: c.pessoasPorPeriodo, ajustes: c.ajustes, viol: c.viol.total, cadeia: c.cadeia.violacoes })); process.exit(0); }
 for (const [w, m] of [[wipA, "meta"], [wipC, "meta"], [WIPP, "hist"]] as [D.CenWip, "meta" | "hist"][]) {
   if (w.nome === WIPP.nome && m === "meta") continue;
   for (const o of ["MAX_PECAS_FINAIS", "MAX_RESULTADO_ECONOMICO"] as Obj[]) { try { sens.push(rodar(o, w, m)); console.error(`[sens ${o}|${w.nome}|${m}] ok`); } catch (e: any) { console.error("sens falhou", e.message.slice(0, 120)); } }

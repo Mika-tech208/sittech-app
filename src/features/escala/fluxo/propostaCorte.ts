@@ -31,7 +31,7 @@ export interface LimiteOperacaoBloco {
   operacaoDe: (produtoId: string, etapaId: string) => string;
   limite: number;
 }
-export interface OpcoesAvaliacao { tolRel?: number; perfilFinal?: "alap" | "asap" | "nivelado"; extensaoPeriodos?: number; semAntecipacao?: boolean; limiteOpBloco?: LimiteOperacaoBloco }
+export interface OpcoesAvaliacao { tolRel?: number; perfilFinal?: "alap" | "asap" | "nivelado"; extensaoPeriodos?: number; semAntecipacao?: boolean; limiteOpBloco?: LimiteOperacaoBloco; upstreamCedo?: number; /** perfis a tentar (default: todos) */ combos?: [("alap" | "asap" | "nivelado"), number][] }
 
 /** Σ de excesso (postos da operação no bloco − limite). Conta o uso total (obrigatório + antecipação) com teto por recurso/período (conservador para recurso compartilhado). */
 export function excessoOperacaoBloco(res: ResultadoReverso, L: LimiteOperacaoBloco): number {
@@ -50,10 +50,11 @@ export function excessoOperacaoBloco(res: ResultadoReverso, L: LimiteOperacaoBlo
 /** Roda o plano reverso com alvos de peças finais por produto (demandaFinal := alvo) e prioridade de recurso na ordem dada. */
 export function avaliarAlvos(base: EntradaReverso, alvo: Record<string, number>, ordem: string[], op: OpcoesAvaliacao = {}): AvaliacaoAlvos {
   if (!op.perfilFinal && !base.perfilFinal) {
-    // tenta os perfis de tempo da etapa final: ALAP (mais tarde), NIVELADO (carga constante) e ASAP (mais cedo); fica com o primeiro viável
+    // tenta combinações (perfil de tempo da etapa final × antecipação do upstream θ); fica com a primeira viável. θ>0 só ajuda onde há pessoa/máquina livre cedo.
+    const combos = op.combos ?? ([["nivelado", 0], ["alap", 0], ["asap", 0], ["nivelado", 0.5], ["nivelado", 1], ["alap", 0.5], ["alap", 1], ["asap", 1]] as [("alap" | "asap" | "nivelado"), number][]);
     let melhor: AvaliacaoAlvos | null = null;
-    for (const perfil of ["nivelado", "alap", "asap"] as const) {
-      const a = avaliarUm(base, alvo, ordem, { ...op, perfilFinal: perfil });
+    for (const [perfil, cedo] of combos) {
+      const a = avaliarUm(base, alvo, ordem, { ...op, perfilFinal: perfil, upstreamCedo: cedo });
       if (a.viavel) return a;
       if (!melhor || (a.fisicoOk && !melhor.fisicoOk) || (a.fisicoOk === melhor.fisicoOk && a.deficitPessoas < melhor.deficitPessoas)) melhor = a;
     }
@@ -66,7 +67,7 @@ function avaliarUm(base: EntradaReverso, alvo: Record<string, number>, ordem: st
   const por = new Map(base.produtos.map((p) => [p.id, p]));
   const produtos: ProdutoRev[] = ordem.filter((id) => por.has(id)).map((id) => ({ ...(por.get(id) as ProdutoRev), demandaFinal: Math.max(0, alvo[id] ?? 0) }));
   const res = planejarReverso({
-    ...base, produtos, compartilhamento: "prioridade", perfilFinal: op.perfilFinal ?? base.perfilFinal,
+    ...base, produtos, compartilhamento: "prioridade", perfilFinal: op.perfilFinal ?? base.perfilFinal, upstreamCedo: op.upstreamCedo ?? base.upstreamCedo,
     extensaoPeriodos: op.semAntecipacao ? 0 : op.extensaoPeriodos ?? base.extensaoPeriodos, limitarPorPessoas: false,
   });
   const entregue: Record<string, number> = {};
