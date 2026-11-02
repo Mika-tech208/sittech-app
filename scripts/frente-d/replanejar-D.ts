@@ -27,6 +27,7 @@ const CEN: Record<string, { wip: Record<string, number[]>; contadoEm: string }> 
   "D(i)": { wip: { [conv]: [4000, 2400, 3600], [aut]: [0, 0], [cx]: [2500] }, contadoEm: "2026-11-02T20:20:00-03:00" },
   "D(ii)": { wip: { [conv]: [4000, 2400, 3600], [aut]: [2400, 0], [cx]: [2500] }, contadoEm: "2026-11-02T20:20:00-03:00" },
   "D(iii)": { wip: { [conv]: [4000, 0, 3600], [aut]: [2400, 0], [cx]: [2500] }, contadoEm: "2026-11-02T20:20:00-03:00" },
+  "D(iv)": { wip: { [conv]: [4000, 0, 3600], [aut]: [0, 0], [cx]: [2500] }, contadoEm: "2026-11-02T20:20:00-03:00" }, // conservador: nem as 2.400 são do Conv nem há pilha da M8
 };
 const CONFIG = lerConfigPlanejador(JSON.parse(fs.readFileSync("scripts/ativacao-0211/config-planejador.json", "utf8")));
 const ativo = carregarPlanoAtivo(process.env.SQL_DIR!);
@@ -101,11 +102,12 @@ for (const cen of Object.keys(CEN)) {
 rodar("B-limpo-s1", "B", "limpo", 1);
 rodar("B-motor-s1", "B", "motor", 1);
 for (const s of sementes) rodar(`D(i)-limpo-s${s}`, "D(i)", "limpo", s);
-rodar("D(i)-motor-s1", "D(i)", "motor", 1);
+for (const s of sementes) rodar(`D(i)-motor-s${s}`, "D(i)", "motor", s);
 rodar("D(ii)-limpo-s1", "D(ii)", "limpo", 1);
 rodar("D(ii)-motor-s1", "D(ii)", "motor", 1);
 rodar("D(iii)-limpo-s1", "D(iii)", "limpo", 1);
 rodar("D(iii)-motor-s1", "D(iii)", "motor", 1);
+rodar("D(iv)-motor-s1", "D(iv)", "motor", 1);
 fs.writeFileSync(`${D12}/resultados-replanejamento.json`, JSON.stringify({ resultados }, null, 1));
 fs.mkdirSync(`${D12}/planos`, { recursive: true });
 Object.entries(planos).forEach(([k, v]) => fs.writeFileSync(`${D12}/planos/${k.replace(/[()]/g, "")}.json`, JSON.stringify(v)));

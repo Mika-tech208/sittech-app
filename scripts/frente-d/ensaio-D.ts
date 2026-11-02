@@ -148,8 +148,8 @@ async function mainD() {
   confere("jsonb das contagens local == PROD (md5 do V0)", contMd5() === "95146b6b60a4fe67b77cd94e8413d126", contMd5());
   const hAtivo = hashPlano();
   confere("hash do plano do planejador do ativo (5cf2045a…) reproduzido", hAtivo === "5cf2045a7e6e5edc", hAtivo);
-  const alvo: Record<string, string> = { i: "d1d45ac75a4a4dc5", ii: "a603478f2671cbf0", iii: "f9d02791fc501e3e" };
-  for (const v of ["i", "ii", "iii"]) {
+  const alvo: Record<string, string> = { i: "d1d45ac75a4a4dc5", ii: "a603478f2671cbf0", iii: "f9d02791fc501e3e", iv: "48229f966b15edb5" };
+  for (const v of ["i", "ii", "iii", "iv"]) {
     console.log(`== variante D(${v})`);
     psql(arq(`${D12DIR}/04-registrar-contagens-D-${v}.sql`));
     const itensD = Number(psql("select count(*) from escala_parametros p, jsonb_array_elements(p.valor) x where p.chave = 'producao_real_contagens_fisicas' and x->>'informadoPor' like 'Mikael (contagem física D%'"));
