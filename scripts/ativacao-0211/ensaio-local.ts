@@ -247,6 +247,12 @@ async function main() {
   if (process.env.SEM_ROLLBACK) { console.log("(SEM_ROLLBACK: parando antes do rollback; banco local fica no estado pós-ativação)"); process.exit(resultados.some((r) => !r.ok) ? 1 : 0); }
   console.log("== 7. ROLLBACK (arquivo de produção: ativacao/90-rollback.sql)");
   apontamentos = []; ausenciasExtras = [];
+  // A3: uma AUSÊNCIA chega depois da ativação e ainda está pendente quando o rollback roda — ela NÃO pode ser descartada
+  const pessoaAus = jq<any>("select funcionario_id from escala_producao_alocacoes where data = '2026-11-04' and periodo_id = 'm1' and maquina_id is not null order by 1 limit 1")[0].funcionario_id;
+  ausenciasExtras = [{ funcionarioId: pessoaAus, data: "2026-11-04", horarioInicio: null, horarioFim: null }];
+  const evAus = psql(`select public.escala_registrar_evento('ausencia', '${PREV}', '{}'::jsonb, null);`);
+  const evParam = psql(`select public.escala_registrar_evento('previsao', '${PREV}', '{"tabela":"escala_parametros","chave":"producao_real_planejador_config"}'::jsonb, null);`); // pedido de recálculo de parâmetro da ativação — obsoleto com o rollback
+  const pendParametro = 1;
   psql(fs.readFileSync(`${D10}/ativacao/90-rollback.sql`, "utf8"));
   const hR = md5();
   confere("rollback: plano = legado 828baf25… (288 linhas)", hR === "828baf25fc29ae34c00ff35b5ff4e588", hR);
@@ -254,6 +260,17 @@ async function main() {
   confere("rollback: parâmetros voltaram ao estado de antes", JSON.stringify(paramsR) === JSON.stringify([{ chave: "producao_real_contagens_fisicas", valor: contAntes }, { chave: "producao_real_planejador_config", valor: {} }, { chave: "producao_real_planejador_semanas", valor: [] }, { chave: "producao_real_semanas_ativas", valor: ["2026-10-26"] }]), JSON.stringify(paramsR).slice(0, 300));
   const rr = jq<any>("select payload->'resumo'->>'origem' o, payload->'resumo'->>'assinaturaAlertas' a from escala_producao_eventos where tipo='recalculo' order by criado_em desc limit 1")[0];
   confere("rollback: último evento recalculo = rollback (assinatura de alertas do legado)", rr.o === "rollback_ativacao_0211", JSON.stringify(rr));
+  const stAus = psql(`select status from escala_producao_eventos where id = '${evAus}'`);
+  confere("A3 rollback: a ausência pendente NÃO foi descartada (segue 'pendente')", stAus === "pendente", `status ${stAus} (eventos de parâmetro obsoletos pendentes antes: ${pendParametro})`);
+  const stParam = psql(`select status from escala_producao_eventos where id = '${evParam}'`);
+  confere("A3 rollback: o pedido de recálculo gerado pelas chaves da ativação foi marcado 'ignorado' (obsoleto)", stParam === "ignorado", `status ${stParam}`);
+  const pendDepois = jq<any>("select id, tipo from escala_producao_eventos where status = 'pendente'");
+  const nRegAntes = registros.length;
+  const rLeg = await recalcular("2026-11-02T20:00:00-03:00", pendDepois.map((x: any) => x.id));
+  const aposAus = jq<any>(`select count(*) n from escala_producao_alocacoes where data = '2026-11-04' and funcionario_id = '${pessoaAus}'`)[0].n;
+  const ultResumo = jq<any>("select payload->'resumo' r from escala_producao_eventos where tipo = 'recalculo' order by criado_em desc limit 1")[0].r;
+  confere("A3 rollback: o MOTOR LEGADO processa a ausência e o plano a reflete (ausente sem linha em 04/11)", rLeg.status === "processado" && Number(aposAus) === 0 && ultResumo.planejador === undefined && registros.length === nRegAntes, `${rLeg.status} · linhas da ausente em 04/11: ${aposAus} · marca planejador: ${ultResumo.planejador ?? "(nenhuma)"}`);
+  confere("A3 rollback: fila vazia depois do recálculo legado", jq<any>("select id from escala_producao_eventos where status in ('pendente','processando')").length === 0, "0 pendentes");
   console.log("ev recalculo:", ev0, "→", nEventosRecalculo(), "· plano_versoes:", pv0, "→", nPlanoVersoes(), "· versões:", versoes());
 
   const falhas = resultados.filter((r) => !r.ok);

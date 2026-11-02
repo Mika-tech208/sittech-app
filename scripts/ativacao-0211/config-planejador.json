@@ -9,6 +9,15 @@
   },
   "coberturaMinima": 0.45,
   "ganhoMinimoRel": 0.01,
-  "busca": { "iter": 400000, "reinicios": 2, "semente": 1 },
-  "buscaComVigente": { "iter": 150000, "reinicios": 1, "semente": 1 }
+  "busca": {
+    "iter": 400000,
+    "reinicios": 2,
+    "semente": 1
+  },
+  "buscaComVigente": {
+    "iter": 150000,
+    "reinicios": 1,
+    "semente": 1
+  },
+  "orcamentoMs": 20000
 }
