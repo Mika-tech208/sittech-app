@@ -40,6 +40,8 @@ q -At -c "select 'cutover: '||valor::text from escala_parametros where chave='pr
 grep -q '"2026-11-09"' f2-cut.out; ok $? "produto_unico_cutover = 2026-11-09"
 q -At -c "select 'eventos de recálculo: total='||count(*)||' pendentes='||count(*) filter (where status='pendente')||' distintos(previsao,chave)='||count(distinct (previsao_id, chave)) from escala_producao_eventos"
 q -c "select public.produto_unico_converter_previsao('$PREV')" 2>&1 | grep -q ja_convertida.*true; ok $? "2ª conversão é idempotente (ja_convertida)"
+q -At -c "select ativo from produtos where id=(select produto_id from produto_canonico)" | grep -q '^t$'; ok $? "produto canônico ATIVO após a conversão (apontamento exige produto ativo)"
+q -At -c "select count(*) from produtos where id in ('27c229d7-f192-41eb-aad1-0c69ece53eba','a027ac97-ffd1-4834-8ed0-d3a94aac4aee') and ativo" | grep -q '^2$'; ok $? "legados continuam ativos (retroativo de datas antigas segue válido)"
 
 echo "== GUARDAS (semana >= cutover usa o canônico; anterior, os legados)"
 q -c "insert into previsao_itens (previsao_id, tipo, produto_id, produto_nome, valor_unitario, quantidade) values ('$PREV','previsto','27c229d7-f192-41eb-aad1-0c69ece53eba','x',0.18,1)" 2>&1 | grep -q PRODUTO_LEGADO_APOS_CUTOVER; ok $? "cliente antigo não regrava item LEGADO em semana canônica"
@@ -66,6 +68,7 @@ q -c "select md5(string_agg(t::text,'~' order by t.id::text)) from previsao_iten
 q -c "select md5(string_agg(t::text,'~' order by t::text)) from previsao_item_maquinas t where item_id in (select id from previsao_itens where previsao_id='$PREV')" > h-maq-depois.txt
 diff -q h-itens-antes.txt h-itens-depois.txt > /dev/null; ok $? "itens da Previsão idênticos (hash) antes da conversão e depois da reversão"
 diff -q h-maq-antes.txt h-maq-depois.txt > /dev/null; ok $? "máquinas selecionadas idênticas (hash) antes e depois"
+q -At -c "select ativo from produtos where id=(select produto_id from produto_canonico)" | grep -q '^f$'; ok $? "produto canônico volta a INATIVO após a reversão"
 q -At -c "select 'cutover após reversão: '||valor::text from escala_parametros where chave='produto_unico_cutover'"
 q -At -c "select 'trilha: '||string_agg(acao, ',' order by id) from produto_unico_conversoes"
 
@@ -77,5 +80,7 @@ q -c "select public.produto_unico_reverter_previsao('$PREV', 'ensaio')" > /dev/n
 ./pg.sh m_base -q -c "alter table escala_parametros disable trigger trg_escala_parametros_evento" -c "alter table escala_parametros disable trigger trg_escala_plano_versao" -c "update escala_parametros set valor='null'::jsonb where chave='produto_unico_cutover'" -c "alter table escala_parametros enable trigger trg_escala_plano_versao" -c "alter table escala_parametros enable trigger trg_escala_parametros_evento" > /dev/null 2>&1
 q -c "delete from escala_producao_eventos" > /dev/null
 ./pg.sh m_base -q -f fingerprint.sql > fp-f2-3-pos-rollback.txt 2>&1
-diff <(grep -v "produto_canonico_ativ" fp-f2-1-f0f1.txt) <(grep -v "produto_canonico_ativ" fp-f2-3-pos-rollback.txt) > diff-f2-rb.txt; ok $? "após rollback F2: fingerprint = F0+F1 (legado byte-idêntico, triggers/funções originais)"
+diff <(grep -v "produto_canonico_ativ" fp-f2-1-f0f1.txt | grep -v "^T produtos|") <(grep -v "produto_canonico_ativ" fp-f2-3-pos-rollback.txt | grep -v "^T produtos|") > diff-f2-rb.txt; ok $? "após rollback F2: fingerprint = F0+F1 (legado byte-idêntico, triggers/funções originais)"
 cat diff-f2-rb.txt | cut -c1-160
+q -At -c "select md5(string_agg(t::text,'~' order by t.id::text)) from produtos t where id not in (select produto_id from produto_canonico)" > h-prod-depois.txt
+grep -q "^T produtos|" fp-f2-1-f0f1.txt; q -At -c "select count(*) from produtos" | grep -q '^12$'; ok $? "12 produtos (11 + canônico); produtos legados/demais com hash inalterado: $(cat h-prod-depois.txt)"

@@ -181,6 +181,8 @@ begin
   if v_cut is null then
     update public.escala_parametros set valor = to_jsonb(to_char(v_semana, 'YYYY-MM-DD')), atualizado_em = now() where chave = 'produto_unico_cutover';
   end if;
+  -- o produto canônico passa a ser selecionável/apontável (registrar_apontamento_producao exige produto ativo); os legados NÃO são desativados (apontamento retroativo de datas antigas continua válido; os seletores escondem por data)
+  update public.produtos set ativo = true where id = v_prod and not ativo;
 
   insert into public.produto_unico_conversoes (previsao_id, semana_inicio, acao, feito_por, resumo, backup)
     values (p_previsao, v_semana, 'converter', p_feito_por,
@@ -233,6 +235,9 @@ begin
   select (valor #>> '{}')::date into v_cut from public.escala_parametros where chave = 'produto_unico_cutover' and jsonb_typeof(valor) = 'string';
   if v_restantes = 0 and v_cut is not null and v_cut >= v_semana then
     update public.escala_parametros set valor = 'null'::jsonb, atualizado_em = now() where chave = 'produto_unico_cutover';
+  end if;
+  if v_restantes = 0 then
+    update public.produtos set ativo = false where id = v_prod and ativo;
   end if;
   insert into public.produto_unico_conversoes (previsao_id, semana_inicio, acao, feito_por, resumo)
     values (p_previsao, v_semana, 'reverter', p_feito_por, jsonb_build_object('conversao_revertida', v_conv.id, 'itens_restaurados', jsonb_array_length(v_conv.backup -> 'itens'), 'cutover_zerado', v_restantes = 0 and v_cut is not null and v_cut >= v_semana));
