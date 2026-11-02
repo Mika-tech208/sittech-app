@@ -132,6 +132,7 @@ async function main() {
   const t0 = Date.now();
   console.log("== 0. ESTADO LEGADO (como em PROD)");
   const h0 = md5();
+  const contAntes = jq<any>("select valor from escala_parametros where chave = 'producao_real_contagens_fisicas'")[0].valor; // literal de PROD (15 itens de 28–30/10)
   confere("hash legado 828baf25… (288 linhas, dias v1)", h0 === "828baf25fc29ae34c00ff35b5ff4e588" && versoes() === "2026-11-03:1,2026-11-04:1,2026-11-05:1,2026-11-06:1", `${h0} · ${versoes()}`);
   const pv0 = nPlanoVersoes(), ev0 = nEventosRecalculo();
   // contrafactual: o que o motor LEGADO faria com o estado de hoje (para provar que o recálculo depois NÃO é isso)
@@ -247,7 +248,7 @@ async function main() {
   const hR = md5();
   confere("rollback: plano = legado 828baf25… (288 linhas)", hR === "828baf25fc29ae34c00ff35b5ff4e588", hR);
   const paramsR = jq<any>("select chave, valor from escala_parametros where chave in ('producao_real_semanas_ativas','producao_real_planejador_semanas','producao_real_planejador_config','producao_real_contagens_fisicas') order by 1");
-  confere("rollback: parâmetros voltaram ao estado de antes", JSON.stringify(paramsR) === JSON.stringify([{ chave: "producao_real_contagens_fisicas", valor: [] }, { chave: "producao_real_planejador_config", valor: {} }, { chave: "producao_real_planejador_semanas", valor: [] }, { chave: "producao_real_semanas_ativas", valor: ["2026-10-26"] }]), JSON.stringify(paramsR).slice(0, 300));
+  confere("rollback: parâmetros voltaram ao estado de antes", JSON.stringify(paramsR) === JSON.stringify([{ chave: "producao_real_contagens_fisicas", valor: contAntes }, { chave: "producao_real_planejador_config", valor: {} }, { chave: "producao_real_planejador_semanas", valor: [] }, { chave: "producao_real_semanas_ativas", valor: ["2026-10-26"] }]), JSON.stringify(paramsR).slice(0, 300));
   const rr = jq<any>("select payload->'resumo'->>'origem' o, payload->'resumo'->>'assinaturaAlertas' a from escala_producao_eventos where tipo='recalculo' order by criado_em desc limit 1")[0];
   confere("rollback: último evento recalculo = rollback (assinatura de alertas do legado)", rr.o === "rollback_ativacao_0211", JSON.stringify(rr));
   console.log("ev recalculo:", ev0, "→", nEventosRecalculo(), "· plano_versoes:", pv0, "→", nPlanoVersoes(), "· versões:", versoes());
