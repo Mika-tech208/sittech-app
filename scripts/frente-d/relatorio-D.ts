@@ -77,6 +77,8 @@ function tabelaConector(titulo: string, linhas: AlocacaoEscala[], wip: Record<st
   P(`- Embalagem 17 (Conv): as **${n0(w[2])} etiquetadas** acabam em **${rot(tEmb)}**; a Etiquetadora precisa ter entregue o excedente até o período anterior.`);
   P(`- (g) Máquina 8 (cadeia Automática, separada do Convencional): ${n0(sa.planejado[0].reduce((a, b) => a + b, 0))} pç na semana; a M8 só alimenta a Etiquetadora 15 para a Automática — consumo planejado da Etiquetadora para a Automática começa em ${rot(sa.planejado[1].findIndex((x) => x > 0))} com estoque M8→Etiq inicial ${n0(wip[aut]?.[0] ?? 0)}.`);
   P(`- (h) menor saldo ao fim de um período — Ros→Paf: ${minimo(sc.saldo[0])} · Paf→Etiq: ${minimo(sc.saldo[1])} · Etiq→Emb Conv: ${minimo(sc.saldo[2])} · M8→Etiq: ${minimo(sa.saldo[0])} · Etiq→Emb Autom: ${minimo(sa.saldo[1])}.`);
+  const jit = (plan: number[], disp: number[]) => plan.filter((v, t) => v > 0 && disp[t] > 0 && v >= disp[t] - 0.5).length;
+  P(`- (i) períodos em que o plano consome 100% do estoque disponível no início (zero folga, "just in time"): Etiquetadora 15 Conv ${jit(sc.planejado[2], sc.consumoMax[1])}/${sc.planejado[2].filter((v) => v > 0).length} períodos com consumo · Embalagem 17 Conv ${jit(sc.planejado[3], sc.consumoMax[2])}/${sc.planejado[3].filter((v) => v > 0).length} · Parafusar ${jit(sc.planejado[1], sc.consumoMax[0])}/${sc.planejado[1].filter((v) => v > 0).length}.`);
   P();
 }
 P("## T3 — Conector 3/4, período a período (4.000 rosqueadas / 2.400 parafusadas / 3.600 etiquetadas)");
