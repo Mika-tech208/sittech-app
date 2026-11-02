@@ -19,6 +19,7 @@ import { simularCadeia } from "./cadeia";
 import { montarEstado, prepararFluxo, type CtxFluxo } from "./estado";
 import { ERRO_ORCAMENTO, planejarFuturo, type EntradaPlanejador, type ObjetivoPlanejador, type SaidaPlanejador } from "./planejadorFuturo";
 import type { ProdutoRev, RecursoRev } from "./planoReverso";
+import { margemParaProdutoUnico, prepararProdutoUnico, produtoUnicoDePar, resumirUnico, type InfoUnico, type PreparoUnico, type ProdutoUnicoConfig, type ResumoUnico } from "./produtoUnico";
 import { verificarRestricoesDuras } from "./restricoes";
 import type { DadosProducaoReal, DiagnosticoItem, EstadoFluxo, OpcoesFluxo, ViolacaoDura } from "./tipos";
 
@@ -43,6 +44,11 @@ export interface ConfigPlanejadorCorte {
   orcamentoMs?: number;
   /** relógio injetável (ms); default Date.now. O planejador puro nunca lê relógio. */
   relogio?: () => number;
+  /**
+   * PRODUTO ÚNICO COM ROTAS (default AUSENTE = comportamento anterior, byte-idêntico). `true` = deriva do par legado de `opcoes.paresLegado` (Conv + Automática, `producao_real_pares_legado`);
+   * ou a configuração explícita. Ver produtoUnico.ts: Conv e Automática viram rotas de UM produto final, o trecho comum (Etiquetadora 15/Embalagem 17) é único e sem `distribuicao`.
+   */
+  produtoUnico?: boolean | ProdutoUnicoConfig;
 }
 
 export interface TentativaCorte { rotulo: string; ok: boolean; motivo: string | null; ms?: number }
@@ -62,6 +68,8 @@ export interface ResultadoCorte {
   hashEntrada: string | null;
   /** true: entrada idêntica à do último recálculo e o plano vigente continua válido ⇒ nada foi replanejado */
   mantidoPorEntradaIgual: boolean;
+  /** só com `cfg.produtoUnico`: o produto único com rotas (info + resumo por rota/estoque unificado) */
+  unico?: { info: InfoUnico; resumo: ResumoUnico | null };
 }
 
 /** Resultado das verificações INDEPENDENTES aplicadas ao plano do planejador (todas precisam passar para `ok`). */
@@ -121,27 +129,46 @@ interface ProblemaMontado {
   produtos: ProdutoRev[];
   poolPor: Map<string, PoolEscala>;
   repartidos: number;
+  unico?: PreparoUnico;
+}
+
+/** `cfg.produtoUnico` ⇒ configuração do produto único (ou null = desligado / sem par aplicável). */
+export function resolverProdutoUnico(v: ConfigPlanejadorCorte["produtoUnico"], opcoes: OpcoesFluxo, entrada: EntradaEscala): ProdutoUnicoConfig | null {
+  if (!v) return null;
+  if (typeof v === "object") return v;
+  const ids = new Set(entrada.pools.map((p) => p.produtoId).concat((entrada.poolsSemMaquina ?? []).map((p) => p.produtoId)));
+  const par = (opcoes.paresLegado ?? []).find((x) => ids.has(x.produtoConvencionalId) || ids.has(x.produtoAutomaticaId));
+  return par ? produtoUnicoDePar(par) : null;
 }
 
 /** Monta a entrada do planejador a partir do estado real. Ids opacos; taxas = metas efetivas do pool por período (já com o f de desempenho embutido pelo chamador). */
 export function montarProblemaCorte(entrada: EntradaEscala, dados: DadosProducaoReal, opcoes: OpcoesFluxo, cfg: ConfigPlanejadorCorte, planoVigenteBruto: AlocacaoEscala[]): ProblemaMontado {
+  // 0) PRODUTO ÚNICO COM ROTAS (opt-in): Conv + Automática viram um produto; o estado real é normalizado e agregado em produtoUnico.ts
+  const uCfg = resolverProdutoUnico(cfg.produtoUnico, opcoes, entrada);
+  let unico: PreparoUnico | undefined;
+  if (uCfg) {
+    const r = prepararProdutoUnico(entrada, dados, opcoes, uCfg);
+    if ("motivo" in r) throw new Error(`produto único: ${r.motivo}`);
+    unico = r;
+  }
   // 1) estado de produção real: apontamentos de linha compartilhada repartidos por produto; plano vigente/congeladas na visão POR PRODUTO (atribuição de quantidade)
-  const rep = repartirApontamentosCompartilhados(dados.apontamentos, planoVigenteBruto);
+  const rep = unico ? { apontamentos: dados.apontamentos, repartidos: 0 } : repartirApontamentosCompartilhados(dados.apontamentos, planoVigenteBruto);
   const dadosP: DadosProducaoReal = { ...dados, apontamentos: rep.apontamentos, planoVigente: expandirPorProduto(dados.planoVigente) };
   const entradaP: EntradaEscala = { ...entrada, congeladas: expandirPorProduto(entrada.congeladas) };
   const opcoesP: OpcoesFluxo = { ...opcoes };
   delete opcoesP.paresLegado; // cada produto tem a SUA cadeia (a distribuição por produto é do plano; contagens/apontamentos são por produto)
-  const ctx = prepararFluxo(entradaP, dadosP, opcoesP);
-  const estado = montarEstado(ctx);
+  const ctx = unico ? unico.ctx : prepararFluxo(entradaP, dadosP, opcoesP);
+  const estado = unico ? unico.estado : montarEstado(ctx);
 
   // 2) produtos / rotas / taxas
   const H = entrada.slots.length;
   const porProduto = new Map<string, PoolEscala[]>();
   entrada.pools.forEach((p) => (porProduto.get(p.produtoId) ?? porProduto.set(p.produtoId, []).get(p.produtoId)!).push(p));
   porProduto.forEach((ps) => ps.sort((a, b) => a.ordemEtapa - b.ordemEtapa));
-  const poolPor = new Map(entrada.pools.map((p) => [chavePool(p.produtoId, p.etapaId), p]));
+  const poolPor = unico ? unico.poolPor : new Map(entrada.pools.map((p) => [chavePool(p.produtoId, p.etapaId), p]));
   const restante = new Map(estado.produtos.map((p) => [p.produtoId, p.restanteEmAPartirDe]));
-  const produtos: ProdutoRev[] = [...porProduto.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([pid, ps]) => {
+  const idsDoUnico = new Set(unico ? [...(uCfg as ProdutoUnicoConfig).rotas.map((r) => r.produtoId)] : []);
+  const produtosComuns: ProdutoRev[] = [...porProduto.entries()].filter(([pid]) => !idsDoUnico.has(pid)).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([pid, ps]) => {
     const wip = ps.slice(0, -1).map((p) => Math.round(estado.projecao.wip[chavePool(pid, p.etapaId)]?.lo ?? 0));
     return {
       id: pid, rotulo: pid, demandaFinal: Math.max(0, Math.round(restante.get(pid) ?? ps[ps.length - 1].quantidade)), valorUnitario: ps[0].valorUnitario,
@@ -149,6 +176,7 @@ export function montarProblemaCorte(entrada: EntradaEscala, dados: DadosProducao
       etapas: ps.map((p) => ({ id: p.etapaId, rotulo: p.operacaoId, alternativas: p.maquinasIds.map((m) => ({ recursoId: m, pecasPorPosto: entrada.slots.map((s) => p.metas[s.periodoId] ?? 0) })) })),
     };
   });
+  const produtos: ProdutoRev[] = unico ? [...unico.produtos, ...produtosComuns].sort((a, b) => (a.id < b.id ? -1 : 1)) : produtosComuns;
   const maquinas = [...new Set(entrada.pools.flatMap((p) => p.maquinasIds))].sort();
   const recursos: RecursoRev[] = maquinas.map((m) => ({ id: m, rotulo: m, unidades: entrada.slots.map((s) => (maquinaDisponivelNoSlot(entrada, m, s) ? 1 : 0)) }));
   const ausentes: Record<number, string[]> = {};
@@ -164,15 +192,16 @@ export function montarProblemaCorte(entrada: EntradaEscala, dados: DadosProducao
   const entradaPlanejador: EntradaPlanejador = {
     slots: entrada.slots, aPartirDe: entrada.aPartirDe, recursos, produtos, equipe: entrada.funcionarios.map((f) => ({ id: f.id })), ausentes,
     linhasCongeladas: entrada.congeladas, producaoCongelada: {}, wipNoInicioDeAPartirDe: wipInicio,
-    objetivo: cfg.objetivo ?? "EQUILIBRIO", ...(cfg.margemPorPeca ? { margemPorPeca: cfg.margemPorPeca } : {}), ...(cfg.coberturaMinima !== undefined ? { coberturaMinima: cfg.coberturaMinima } : {}),
+    objetivo: cfg.objetivo ?? "EQUILIBRIO", ...(cfg.margemPorPeca ? { margemPorPeca: unico ? margemParaProdutoUnico(cfg.margemPorPeca, unico.info) as Record<string, number> : cfg.margemPorPeca } : {}), ...(cfg.coberturaMinima !== undefined ? { coberturaMinima: cfg.coberturaMinima } : {}),
     // EQUILIBRIO: piso de cobertura em termos ABSOLUTOS da semana (cobertura × demanda total − o já entregue), não do restante — senão o piso afrouxa a cada período e o mix de produtos muda sozinho
-    ...((cfg.objetivo ?? "EQUILIBRIO") === "EQUILIBRIO" ? { pisoPorProduto: Object.fromEntries(produtos.map((p) => { const total = (porProduto.get(p.id) as PoolEscala[]).slice(-1)[0].quantidade; return [p.id, Math.max(0, (cfg.coberturaMinima ?? 0.45) * total - (total - p.demandaFinal))]; })) } : {}),
+    // produto único: o piso é do CONECTOR TOTAL (cobertura × demanda total), não de cada rota
+    ...((cfg.objetivo ?? "EQUILIBRIO") === "EQUILIBRIO" ? { pisoPorProduto: Object.fromEntries(produtos.filter((p) => !p.alimenta).map((p) => { const total = unico && p.id === unico.info.principal ? unico.info.demandaTotal : (porProduto.get(p.id) as PoolEscala[]).slice(-1)[0].quantidade; return [p.id, Math.max(0, (cfg.coberturaMinima ?? 0.45) * total - (total - p.demandaFinal))]; })) } : {}),
     ...(cfg.prioridade ? { prioridade: cfg.prioridade } : {}), operacaoDe, ...(linhasIniciais && linhasIniciais.length > 0 ? { linhasIniciais } : {}),
     revezamento: { ponteM3T1: entrada.revezamentoPonteM3T1 === true, ...(entrada.equivalenciaOperacoes ? { equivalencias: entrada.equivalenciaOperacoes } : {}) },
     busca: linhasIniciais && linhasIniciais.length > 0 ? cfg.buscaComVigente ?? cfg.busca : cfg.busca,
     verificarDuras: (linhas) => verificarRestricoesDuras(entrada, linhas.filter((l) => (entrada.slots.find((s) => chaveSlot(s) === chaveSlot(l))?.indice ?? 0) >= entrada.aPartirDe), { somenteLinhasNovas: true }).length,
   };
-  return { entradaPlanejador, estado, ctx, produtos, poolPor, repartidos: rep.repartidos };
+  return { entradaPlanejador, estado, ctx, produtos, poolPor, repartidos: rep.repartidos, ...(unico ? { unico } : {}) };
 }
 
 /** Linhas do planejador → AlocacaoEscala gravável (distribuição só quando ≥ 2 produtos; produto da linha = dominante). */
@@ -244,7 +273,7 @@ function resultadoDe(entrada: EntradaEscala, linhas: AlocacaoEscala[], produtos:
   const alertas: AlertaEscala[] = [];
   const pecasRestantes: Record<string, number> = {};
   const porProd = expandirPorProduto(linhas);
-  produtos.forEach((prod) => {
+  produtos.filter((prod) => !prod.alimenta).forEach((prod) => {
     const ultima = prod.etapas[prod.etapas.length - 1];
     const programado = porProd.filter((a) => a.produtoId === prod.id && a.etapaId === ultima.id).reduce((x, a) => x + a.pecas, 0);
     // `demandaFinal` aqui é a RESTANTE em aPartirDe (enquadramento de recomeço): cortado = o que não cabe fisicamente com as pessoas/máquinas
@@ -277,6 +306,9 @@ export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProdu
   const m = montarProblemaCorte(entrada, dados, opcoes, cfg, planoVigenteBruto);
   m.entradaPlanejador.parar = parar;
   const hashEntrada = hashEntradaPlanejador(m.entradaPlanejador);
+  if (m.unico) diagnosticos.push(...m.unico.diagnosticos);
+  const ctxChk = m.unico ? undefined : m.ctx; // validador de capacidade por produto (informativo) não se aplica ao produto único: as etapas comuns existem uma vez
+  const comUnico = (saida: SaidaPlanejador | null): { unico?: { info: InfoUnico; resumo: ResumoUnico | null } } => (m.unico ? { unico: { info: m.unico.info, resumo: saida && Object.keys(saida.producao).length > 0 ? resumirUnico(saida, m.unico.info, m.produtos) : null } } : {});
   if (m.repartidos > 0) diagnosticos.push({ codigo: "APONTAMENTO_LINHA_COMPARTILHADO_REPARTIDO", severidade: "info", mensagem: `${m.repartidos} apontamento(s) de linha compartilhada repartido(s) entre os produtos pela distribuição planejada do período (um apontamento por máquina×período)` });
   const idxSlot = new Map(entrada.slots.map((s) => [chaveSlot(s), s.indice]));
   const vigenteFuturo = planoVigenteBruto.filter((a) => (idxSlot.get(chaveSlot(a)) ?? -1) >= entrada.aPartirDe);
@@ -292,10 +324,10 @@ export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProdu
         linhas.push({ data: s.data, periodoId: s.periodoId, funcionarioId: f.id, maquinaId: null, produtoId: null, etapaId: null, operacaoId: null, pecas: 0, pecasAdicional: 0, motivoSemPosto: MOTIVO_DEMANDA_ESGOTADA, excecaoRevezamento: false, motivoExcecao: null, origem: "auto" }));
     });
     const saidaVazia = { linhas: [], linhasPostos: [], porProduto: m.produtos.map((p) => ({ produtoId: p.id, demanda: 0, programado: 0, cortado: 0, futuro: 0 })), wip: {}, producao: {}, validacao: { cadeiaValida: true, violacoesCadeia: 0, violacoesDuras: 0, maxPostosSimultaneos: 0, semMaterial: 0, atribuicaoOk: true }, avisos: [], objetivoValor: 0 } as SaidaPlanejador;
-    const chk = checarPlanoCorte(entrada, linhas, saidaVazia, m.poolPor, m.ctx);
+    const chk = checarPlanoCorte(entrada, linhas, saidaVazia, m.poolPor, ctxChk);
     tentativas.push({ rotulo: "demanda atendida", ok: checagensOk(chk.checagens), motivo: null });
     diagnosticos.push({ codigo: "DEMANDA_FINAL_ATENDIDA", severidade: "info", mensagem: "Demanda restante zerada em todos os produtos: nenhuma produção a planejar" });
-    return { ...base, ok: checagensOk(chk.checagens), motivo: null, resultado: resultadoDe(entrada, linhas, m.produtos), saida: saidaVazia, violacoes: chk.violacoes, checagens: chk.checagens, tentativas };
+    return { ...base, ok: checagensOk(chk.checagens), motivo: null, resultado: resultadoDe(entrada, linhas, m.produtos), saida: saidaVazia, violacoes: chk.violacoes, checagens: chk.checagens, tentativas, ...comUnico(null) };
   }
 
   // 0) entrada idêntica ⇒ o plano vigente do planejador continua sendo O plano (se ainda válido)
@@ -303,10 +335,10 @@ export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProdu
     try {
       const iniciais = vigenteFuturo.filter((a) => a.maquinaId && a.operacaoId).map((a) => ({ t: idxSlot.get(chaveSlot(a)) as number, recursoId: a.maquinaId as string, operacaoId: a.operacaoId as string }));
       const sv = planejarFuturo({ ...m.entradaPlanejador, linhasIniciais: iniciais, busca: { iter: 0, reinicios: 1, semente: 1 } }); // avaliação do vigente (sem mover nada)
-      const chk = checarPlanoCorte(entrada, vigenteFuturo, sv, m.poolPor, m.ctx);
+      const chk = checarPlanoCorte(entrada, vigenteFuturo, sv, m.poolPor, ctxChk);
       const ok = checagensOk(chk.checagens);
       tentativas.push({ rotulo: "entrada idêntica: plano vigente mantido", ok, motivo: ok ? null : `vigente inválido: ${JSON.stringify(chk.checagens)}` });
-      if (ok) return { ...base, ok: true, motivo: null, resultado: resultadoDe(entrada, vigenteFuturo.map((a) => ({ ...a })), m.produtos), saida: sv, violacoes: chk.violacoes, checagens: chk.checagens, tentativas, mantidoPorEntradaIgual: true };
+      if (ok) return { ...base, ok: true, motivo: null, resultado: resultadoDe(entrada, vigenteFuturo.map((a) => ({ ...a })), m.produtos), saida: sv, violacoes: chk.violacoes, checagens: chk.checagens, tentativas, mantidoPorEntradaIgual: true, ...comUnico(sv) };
     } catch (e) {
       tentativas.push({ rotulo: "entrada idêntica: plano vigente mantido", ok: false, motivo: e instanceof Error ? e.message : String(e) });
     }
@@ -331,13 +363,13 @@ export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProdu
         }
       }
       let linhas = linhasGravaveis(saida);
-      let chk = checarPlanoCorte(entrada, linhas, saida, m.poolPor, m.ctx);
+      let chk = checarPlanoCorte(entrada, linhas, saida, m.poolPor, ctxChk);
       const ok = checagensOk(chk.checagens);
       // 2) estabilidade das pessoas contra o plano vigente (do planejador): mesmos postos ⇒ mesmas pessoas; só vale se continuar sem violação
       if (ok && cfg.partirDoVigente && vigenteFuturo.some((a) => a.maquinaId)) {
         const est = estabilizarPessoas(linhas, vigenteFuturo, entrada.congeladas, entrada.slots, { escopo: "bloco", equivalencias: entrada.equivalenciaOperacoes, ...(entrada.revezamentoPonteM3T1 ? { ponteM3T1: true } : {}) });
         if (est.estabilizou) {
-          const chk2 = checarPlanoCorte(entrada, est.linhas, saida, m.poolPor, m.ctx);
+          const chk2 = checarPlanoCorte(entrada, est.linhas, saida, m.poolPor, ctxChk);
           if (checagensOk(chk2.checagens)) {
             linhas = est.linhas; chk = chk2;
             diagnosticos.push({ codigo: "ESTABILIZACAO_PESSOAS", severidade: "info", mensagem: `Pessoas re-atribuídas em ${est.periodosAjustados} período(s) para manter o posto do plano vigente (mesmos postos)` });
@@ -345,7 +377,7 @@ export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProdu
         }
       }
       tentativas.push({ rotulo: g.rotulo, ok, motivo: ok ? null : `checagens: ${JSON.stringify(chk.checagens)}`, ms: relogio() - tg });
-      if (ok) return { ...base, ok: true, motivo: null, resultado: resultadoDe(entrada, linhas, m.produtos), saida, violacoes: chk.violacoes, checagens: chk.checagens, tentativas, diagnosticos: [...diagnosticos, ...saida.avisos.map((a) => ({ codigo: "PLANEJADOR_AVISO" as const, severidade: "info" as const, mensagem: a }))] };
+      if (ok) return { ...base, ok: true, motivo: null, resultado: resultadoDe(entrada, linhas, m.produtos), saida, violacoes: chk.violacoes, checagens: chk.checagens, tentativas, diagnosticos: [...diagnosticos, ...saida.avisos.map((a) => ({ codigo: "PLANEJADOR_AVISO" as const, severidade: "info" as const, mensagem: a }))], ...comUnico(saida) };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       tentativas.push({ rotulo: g.rotulo, ok: false, motivo: msg, ms: relogio() - tg });
