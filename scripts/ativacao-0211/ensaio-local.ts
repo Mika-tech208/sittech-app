@@ -179,13 +179,16 @@ async function main() {
     const slots = a1.e.slots;
     let anterior = planoDoBanco();
     const linhasTab: string[] = [];
-    let totalChurn = 0, maxChurn = 0, semMud = 0, ms = 0;
+    let totalChurn = 0, maxChurn = 0, semMud = 0, ms = 0, passadoMexeu = 0;
     for (let k = 1; k < slots.length - 1; k++) {
       const idx = new Map(slots.map((sl) => [`${sl.data}|${sl.periodoId}`, sl.indice]));
       apontamentos = anterior.filter((a) => (idx.get(`${a.data}|${a.periodoId}`) ?? 99) < k && a.maquinaId).map((a) => ({ data: a.data, periodoId: a.periodoId, funcionarioId: null, maquinaId: a.maquinaId, produtoId: a.produtoId, etapaId: a.etapaId, operacaoId: a.operacaoId, boas: a.pecas, refugo: 0, meta: a.pecas, status: "produzindo" as const, motivo: null, lancadoEmMs: slots[k].inicioMs }));
       const agora = new Date(slots[k].inicioMs + 10 * 60000).toISOString();
+      const lim = slots[k + 1];
+      const pasAntes = md5Passado(lim.data, lim.periodoId);
       const tk = Date.now();
       const r = await recalcular(agora);
+      if (md5Passado(lim.data, lim.periodoId) !== pasAntes) passadoMexeu++;
       ms += Date.now() - tk;
       const novo = planoDoBanco();
       const fut = (l: AlocacaoEscala[]) => new Map(l.filter((a) => (idx.get(`${a.data}|${a.periodoId}`) ?? -1) >= k + 1).map((a) => [`${a.data}|${a.periodoId}|${a.funcionarioId}`, `${a.maquinaId}|${a.produtoId}|${a.etapaId}|${a.pecas}`]));
@@ -201,7 +204,7 @@ async function main() {
       anterior = novo;
     }
     console.log(linhasTab.join("\n"));
-    confere("estabilidade: passado nunca reescrito ao longo de 22 replanejamentos", true, `churn médio ${(totalChurn / (slots.length - 2)).toFixed(1)} linhas/recálculo · máx ${maxChurn} · ${semMud}/${slots.length - 2} recálculos sem nenhuma mudança · ${Math.round(ms / (slots.length - 2))} ms/recálculo`);
+    confere("estabilidade: passado nunca reescrito ao longo de 22 replanejamentos", passadoMexeu === 0, `churn médio ${(totalChurn / (slots.length - 2)).toFixed(1)} linhas/recálculo · máx ${maxChurn} · ${semMud}/${slots.length - 2} recálculos sem nenhuma mudança · ${Math.round(ms / (slots.length - 2))} ms/recálculo`);
     apontamentos = [];
     psql("delete from escala_producao_alocacoes where false;");
   }
