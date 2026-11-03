@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 // Gera (uma vez) segredo JWT + postgrest.conf + env.clone. Idempotente: se postgrest.conf existir, não mexe (JWTs seguem válidos).
 // Segredos só em arquivos chmod 600 fora do repo; nada é impresso.
 const fs = require('fs'), crypto = require('crypto');

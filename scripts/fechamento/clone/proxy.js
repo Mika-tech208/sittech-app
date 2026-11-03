@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 // Proxy mínimo: supabase-js chama <url>/rest/v1/...; PostgREST serve na raiz. Remove o prefixo /rest/v1.
 // Escuta só em 127.0.0.1. Sem dependências.
 const http = require('http');

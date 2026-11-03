@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 // Valida supabase-js contra o clone (service_role). Uso: node smoke-test.cjs
 const fs = require('fs');
 const env = Object.fromEntries(fs.readFileSync('/Users/mikaellonghi/Documents/sittech-clone/env.clone', 'utf8').split('\n').filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));

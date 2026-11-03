@@ -13,7 +13,9 @@ create table usuario_permissoes(permissao text, constraint usuario_permissoes_pe
 create table escala_parametros(chave text primary key, valor jsonb not null, grupo text not null, descricao text);
 create table escala_producao_eventos(id uuid primary key default gen_random_uuid(), criado_em timestamptz default now(), tipo text not null, previsao_id uuid, payload jsonb default '{}', usuario_id uuid, status text not null default 'pendente', chave text, ultimo_lancamento_em timestamptz, lancamentos int default 0, processado_em timestamptz, tentativas int not null default 0, iniciado_em timestamptz,
   constraint escala_producao_eventos_tipo_check check (tipo in ('ausencia','previsao','geracao_manual','geracao_semanal','apontamento_periodo','recalculo','edicao_manual')));
-create table apontamentos_producao(id uuid primary key default gen_random_uuid(), data date not null, periodo_id text not null, criado_por uuid not null, quantidade_produzida numeric default 0);
+create table apontamentos_producao(id uuid primary key default gen_random_uuid(), data date not null, periodo_id text not null, criado_por uuid not null, quantidade_produzida numeric default 0, maquina_id uuid);
+create table apontamento_paradas(apontamento_id uuid, motivo_id uuid, minutos numeric);
+create table escala_producao_dias(data date primary key, previsao_id uuid, periodos_snapshot jsonb not null);
 create function is_admin() returns boolean language sql as 'select true';
 create function has_permissao(text) returns boolean language sql as 'select true';
 -- cópia fiel da função de PROD (20261020190000): a migration a ALTERA pela própria definição
@@ -42,3 +44,11 @@ as $$
    where e.id = c.id
   returning e.*;
 $$;
+
+-- cópia mínima da função de PROD só no que importa: a GUARDA DO HISTÓRICO (a migration a ALTERA pela própria definição)
+create function escala_aplicar_recalculo(p_a_partir_data date, p_a_partir_periodo text) returns text language plpgsql as $$
+declare v_inicio_corte timestamptz := ((p_a_partir_data + time '07:12') at time zone 'America/Sao_Paulo');
+begin
+  if v_inicio_corte <= now() then raise exception 'ESCALA_CORTE_NO_PASSADO: o período % de % já começou', p_a_partir_periodo, p_a_partir_data; end if;
+  return 'ok';
+end $$;

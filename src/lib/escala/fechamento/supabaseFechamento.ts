@@ -132,9 +132,9 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
         const prod = linhas.filter((a) => a.status === "produzindo");
         return { maquinaId: m, nome, status: prod.length > 0 ? "produzindo" : "sem_producao", produzido: prod.reduce((s, a) => s + a.quantidadeProduzida, 0), refugo: linhas.reduce((s, a) => s + a.quantidadeRefugo, 0), motivo: linhas.find((a) => a.motivo)?.motivo ?? null };
       });
-      const apIds = ok(await admin.from("apontamentos_producao").select("id, maquina_id").eq("data", data).eq("periodo_id", periodoId), "apontamentos_producao") as { id: string; maquina_id: string }[];
-      const paradas = apIds.length === 0 ? [] : (ok(await admin.from("apontamento_paradas").select("apontamento_id, motivo_id, minutos").in("apontamento_id", apIds.map((x) => x.id)), "apontamento_paradas") as { apontamento_id: string; motivo_id: string; minutos: number }[])
-        .map((p) => ({ maquinaId: apIds.find((x) => x.id === p.apontamento_id)?.maquina_id ?? null, motivoId: p.motivo_id, minutos: Number(p.minutos) }));
+      const paradasRpc = await admin.rpc("escala_fechamento_paradas", { p_data: data, p_periodo: periodoId });
+      if (paradasRpc.error) throw new Error(`escala_fechamento_paradas: ${paradasRpc.error.message}`);
+      const paradas = ((paradasRpc.data ?? []) as { maquina_id: string; motivo_id: string; minutos: number | string }[]).map((p) => ({ maquinaId: p.maquina_id, motivoId: p.motivo_id, minutos: Number(p.minutos) }));
 
       const vigente = (ok(await admin.from("escala_fechamento_estado").select("fechamento_id, estado, sombra").eq("data", data).eq("periodo_id", periodoId), "escala_fechamento_estado") as { fechamento_id: string; estado: EstadoFechamento; sombra: boolean }[])[0];
       const vigenteEstado = vigente?.estado ?? null;

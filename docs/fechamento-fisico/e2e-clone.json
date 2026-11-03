@@ -1,0 +1,119 @@
+{
+  "alvo": "clone",
+  "semana": "2026-11-02",
+  "data": "2026-11-03",
+  "sombra": {
+    "ensaio": {
+      "ms": 735,
+      "motivo": null,
+      "status": "processado",
+      "tempos_ms": {
+        "corte": 734,
+        "entrada": 0,
+        "validacao": 1,
+        "persistencia": 0
+      },
+      "publicavel": true,
+      "hash_plano_novo": "7ee4dc04aa79ed40c1fbe937ae16ed5889f8f839f38e9db8af3f7825de91afb8"
+    },
+    "ms": 845.2836669999999
+  },
+  "normal": {
+    "ms": 860.2718339999999,
+    "tempos": {
+      "gravacao": 6,
+      "entrada": 85,
+      "corte": 698,
+      "validacao": 0,
+      "persistencia": 48,
+      "total": 857,
+      "contexto": {
+        "estado": 65,
+        "montagem": 2,
+        "buffers": 3,
+        "postos": 11
+      }
+    }
+  },
+  "selo": {
+    "codigo": "AGUARDANDO_FECHAMENTO",
+    "texto": "AGUARDANDO FECHAMENTO",
+    "periodo": {
+      "data": "2026-11-03",
+      "periodoId": "t2",
+      "rotulo": "T2"
+    },
+    "fechadoEmMs": null
+  },
+  "benchmark": {
+    "n": 20,
+    "aprovadas": 20,
+    "tabela": {
+      "abrir": {
+        "p50": 87,
+        "p95": 91,
+        "max": 92
+      },
+      "contexto_estado": {
+        "p50": 61,
+        "p95": 67,
+        "max": 67
+      },
+      "contexto_montagem": {
+        "p50": 3,
+        "p95": 3,
+        "max": 3
+      },
+      "contexto_buffers": {
+        "p50": 3,
+        "p95": 3,
+        "max": 3
+      },
+      "contexto_postos": {
+        "p50": 9,
+        "p95": 10,
+        "max": 10
+      },
+      "entrada": {
+        "p50": 80,
+        "p95": 86,
+        "max": 87
+      },
+      "gravacao": {
+        "p50": 4,
+        "p95": 7,
+        "max": 8
+      },
+      "corte": {
+        "p50": 654,
+        "p95": 664,
+        "max": 682
+      },
+      "validacao": {
+        "p50": 0,
+        "p95": 1,
+        "max": 1
+      },
+      "persistencia": {
+        "p50": 37,
+        "p95": 43,
+        "max": 43
+      },
+      "servidor_total": {
+        "p50": 794,
+        "p95": 809,
+        "max": 825
+      },
+      "resposta_total": {
+        "p50": 796,
+        "p95": 812,
+        "max": 827
+      }
+    }
+  },
+  "exececao": {
+    "parcial": true,
+    "selo": "AGUARDANDO_FECHAMENTO"
+  },
+  "falhas": []
+}

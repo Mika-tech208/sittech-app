@@ -15,6 +15,14 @@ begin
   select pg_get_functiondef(p.oid) into v_def from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'escala_reivindicar_eventos';
   if v_def like '%fechamento_fisico%' then execute replace(v_def, ', ''fechamento_fisico'')', ')'); end if;
 end $$;
+-- devolve a guarda do histórico original e remove o helper
+do $$
+declare v_def text;
+begin
+  select pg_get_functiondef(p.oid) into v_def from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'escala_aplicar_recalculo';
+  if v_def like '%escala_fechamento_corte_liberado%' then execute replace(v_def, 'if v_inicio_corte <= now() and not public.escala_fechamento_corte_liberado(p_a_partir_data, p_a_partir_periodo) then', 'if v_inicio_corte <= now() then'); end if;
+end $$;
+drop function if exists public.escala_fechamento_corte_liberado(date, text);
 drop trigger if exists trg_apontamentos_producao_fechamento on public.apontamentos_producao;
 drop function if exists public.escala_trg_apontamento_fechamento();
 create table if not exists public.escala_fechamentos_arquivo as select * from public.escala_fechamentos;
@@ -29,6 +37,7 @@ drop function if exists public.escala_fechamento_resultado(uuid, text, jsonb);
 drop function if exists public.escala_fechamento_trava_adquirir(date, uuid, integer);
 drop function if exists public.escala_fechamento_trava_liberar(date, uuid);
 drop function if exists public.escala_fechamento_apontamento_permitido(date, text, uuid);
+drop function if exists public.escala_fechamento_paradas(date, text);
 drop function if exists public.escala_fechamento_fisico_modo();
 drop table if exists public.escala_buffer_dispensas, public.escala_fechamento_trava, public.escala_fechamento_log, public.escala_fechamento_buffers, public.escala_fechamentos, public.escala_fechamento_aberturas,
   public.escala_buffer_maquinas, public.escala_buffer_pares, public.escala_buffers_fisicos;

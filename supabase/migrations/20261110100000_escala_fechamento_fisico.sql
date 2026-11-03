@@ -418,6 +418,14 @@ returns void language sql security definer set search_path = public, pg_temp as 
   delete from public.escala_fechamento_trava where semana_inicio = p_semana and fechamento_id = p_fechamento;
 $$;
 
+-- paradas informadas nos apontamentos do período (a service_role do app NÃO lê apontamentos_producao/apontamento_paradas direto, só por RPC)
+create or replace function public.escala_fechamento_paradas(p_data date, p_periodo text)
+returns table (maquina_id uuid, motivo_id uuid, minutos numeric)
+language sql stable security definer set search_path = public, pg_temp as $$
+  select a.maquina_id, p.motivo_id, p.minutos from public.apontamentos_producao a join public.apontamento_paradas p on p.apontamento_id = a.id
+  where a.data = p_data and a.periodo_id = p_periodo;
+$$;
+
 -- o apontamento do período pode ser lançado por este usuário agora?
 create or replace function public.escala_fechamento_apontamento_permitido(p_data date, p_periodo text, p_usuario uuid)
 returns boolean language plpgsql stable security definer set search_path = public, pg_temp as $$
@@ -463,12 +471,55 @@ begin
     'escala_fechamento_resultado(uuid, text, jsonb)',
     'escala_fechamento_trava_adquirir(date, uuid, integer)',
     'escala_fechamento_trava_liberar(date, uuid)',
-    'escala_fechamento_apontamento_permitido(date, text, uuid)'] loop
+    'escala_fechamento_apontamento_permitido(date, text, uuid)',
+    'escala_fechamento_paradas(date, text)'] loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);
     execute format('grant execute on function public.%s to service_role', f);
   end loop;
 end $$;
 revoke all on function public.escala_trg_apontamento_fechamento() from public, anon, authenticated;
+
+-- =========================================================================
+-- 5b) A GUARDA DO HISTÓRICO (ESCALA_CORTE_NO_PASSADO) e o fechamento físico
+--   `escala_aplicar_recalculo` recusa gravar a partir de um período cujo início (relógio do banco) já passou. No fechamento isso é o CASO NORMAL: a troca de período atrasa o início
+--   real, então o período seguinte (ex.: M3 às 10:24) "já começou" pelo relógio quando o fechamento confirma (10:27) — e é justamente ele que precisa ser recalculado.
+--   A guarda continua valendo para tudo, EXCETO quando TODAS as condições abaixo (lidas do banco, não do chamador) são verdadeiras:
+--     modo `ativo`; existe fechamento OFICIAL (não sombra) do período imediatamente anterior ao corte, em RECALCULANDO/CONFIRMADO/ERRO_RECALCULO (retry); e o período do corte
+--     NÃO tem nenhum apontamento (a produção dele ainda não começou: nada de histórico real será reescrito).
+-- =========================================================================
+create or replace function public.escala_fechamento_corte_liberado(p_data date, p_periodo text)
+returns boolean
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare v_ant record;
+begin
+  if public.escala_fechamento_fisico_modo() <> 'ativo' then return false; end if;
+  with slots as (
+    select d.data, p.v ->> 'id' as periodo_id, row_number() over (order by d.data, p.ord) as n
+    from public.escala_producao_dias d cross join lateral jsonb_array_elements(d.periodos_snapshot) with ordinality as p(v, ord)
+  )
+  select a.data, a.periodo_id into v_ant from slots a join slots c on c.n = a.n + 1 where c.data = p_data and c.periodo_id = p_periodo;
+  if not found then return false; end if;
+  if not exists (select 1 from public.escala_fechamento_estado e where e.data = v_ant.data and e.periodo_id = v_ant.periodo_id and not e.sombra
+                 and e.estado in ('RECALCULANDO', 'CONFIRMADO', 'ERRO_RECALCULO')) then return false; end if;
+  if exists (select 1 from public.apontamentos_producao a where a.data = p_data and a.periodo_id = p_periodo) then return false; end if;
+  return true;
+end;
+$$;
+revoke all on function public.escala_fechamento_corte_liberado(date, text) from public, anon, authenticated;
+grant execute on function public.escala_fechamento_corte_liberado(date, text) to service_role;
+
+-- a função de aplicação é ALTERADA pela própria definição (só a condição da guarda), nunca reescrita do zero
+do $$
+declare v_def text;
+begin
+  select pg_get_functiondef(p.oid) into v_def from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'escala_aplicar_recalculo';
+  if v_def is null then raise exception 'escala_aplicar_recalculo não encontrada'; end if;
+  if v_def not like '%escala_fechamento_corte_liberado%' then
+    v_def := replace(v_def, 'if v_inicio_corte <= now() then', 'if v_inicio_corte <= now() and not public.escala_fechamento_corte_liberado(p_a_partir_data, p_a_partir_periodo) then');
+    if v_def not like '%escala_fechamento_corte_liberado%' then raise exception 'escala_aplicar_recalculo: guarda do histórico não reconhecida (revisar a migration)'; end if;
+    execute v_def;
+  end if;
+end $$;
 
 -- =========================================================================
 -- 7) RLS / grants: leitura para quem opera; NENHUMA escrita pelo navegador

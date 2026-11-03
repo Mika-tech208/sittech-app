@@ -5,6 +5,9 @@ insert into produtos(id) values ('27c229d7-f192-41eb-aad1-0c69ece53eba'), ('a027
 insert into roteiro_etapas(id) values ('ca90456c-9077-40f4-a058-bd0f467e87ec'), ('78aaa207-b8cc-412a-8a8b-d17bd95a1930'), ('34371af3-2608-42cc-9ded-1f7815a635a8'), ('b3db9629-c3f8-46d8-b4dd-64c9a61a5bc4'),
   ('1b72bf46-5d13-43c5-89b4-6169436085b7'), ('1863b452-77f3-4d5c-9c49-a6d28ae77131'), ('fb96d08d-bd64-43d3-8694-40230c695c39');
 insert into previsoes(id, semana_inicio) values ('6be15af5-9659-4c12-ba33-9c1fae6d4065', '2026-11-02');
+insert into escala_producao_dias(data, previsao_id, periodos_snapshot) values
+  ('2026-11-03', '6be15af5-9659-4c12-ba33-9c1fae6d4065', '[{"id":"m1","inicio":"07:12","fim":"08:48"},{"id":"m2","inicio":"08:48","fim":"10:24"},{"id":"m3","inicio":"10:24","fim":"11:55"},{"id":"t1","inicio":"13:00","fim":"14:20"},{"id":"t2","inicio":"14:20","fim":"15:40"},{"id":"t3","inicio":"15:40","fim":"17:00"}]'),
+  ('2026-11-04', '6be15af5-9659-4c12-ba33-9c1fae6d4065', '[{"id":"m1","inicio":"07:12","fim":"08:48"}]');
 insert into escala_buffers_fisicos(id, chave, rotulo, ordem) values
   ('b1000000-0000-0000-0000-000000000001','conector34:rosqueadas','Rosqueadas aguardando Parafusar',1),
   ('b1000000-0000-0000-0000-000000000002','conector34:parafusadas','Parafusadas aguardando Etiquetar',2),
@@ -160,6 +163,21 @@ do $$ declare d text; begin
   assert (select pg_get_constraintdef(oid) from pg_constraint where conname = 'escala_producao_eventos_tipo_check') like '%apontamento_periodo%', 'CHECK de eventos preserva os tipos';
   assert (select pg_get_constraintdef(oid) from pg_constraint where conname = 'usuario_permissoes_permissao_check') like '%escala_relatorios%', 'CHECK de permissões preserva as existentes';
   assert (select pg_get_constraintdef(oid) from pg_constraint where conname = 'usuario_permissoes_permissao_check') like '%escala_fechamento_excecao%';
+end $$;
+
+-- T11d: guarda do histórico — o corte no período SEGUINTE a um fechamento oficial é liberado (relógio já passou) SE não houver apontamento nele; no resto a guarda continua
+update escala_parametros set valor='"ativo"' where chave='escala_fechamento_fisico_modo';
+do $$ declare r text; begin
+  assert escala_fechamento_corte_liberado('2026-11-03','t3'), 't3: liberado (t2 fechado oficialmente, sem apontamento em t3)';
+  assert not escala_fechamento_corte_liberado('2026-11-03','m1'), 'm1: 1º período, sem anterior ⇒ não libera';
+  r := escala_aplicar_recalculo('2026-11-03','t3'); assert r = 'ok', 'a guarda deixa passar o corte liberado';
+  begin perform escala_aplicar_recalculo('2026-11-03','m1'); raise exception 'm1 deveria ser recusado'; exception when others then if sqlerrm not like 'ESCALA_CORTE_NO_PASSADO%' then raise; end if; end;
+  insert into apontamentos_producao(data, periodo_id, criado_por) values ('2026-11-03','t3','00000000-0000-0000-0000-0000000000a1');
+  assert not escala_fechamento_corte_liberado('2026-11-03','t3'), 'com apontamento no período do corte NÃO libera (histórico real)';
+  begin perform escala_aplicar_recalculo('2026-11-03','t3'); raise exception 't3 com apontamento deveria ser recusado'; exception when others then if sqlerrm not like 'ESCALA_CORTE_NO_PASSADO%' then raise; end if; end;
+  delete from apontamentos_producao where data='2026-11-03' and periodo_id='t3';
+  update escala_parametros set valor='"sombra"' where chave='escala_fechamento_fisico_modo';
+  assert not escala_fechamento_corte_liberado('2026-11-03','t3'), 'fora do modo ativo a guarda é a de sempre';
 end $$;
 
 -- T12: custo de gravar o fechamento no banco (Postgres local, 3 buffers; piso de latência — o custo de rede do Supabase entra na fase sombra)
