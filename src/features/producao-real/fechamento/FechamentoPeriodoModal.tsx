@@ -144,6 +144,7 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
               {ab.pode_excecao && <button type="button" className="stx-ap-btn-secondary" style={{ marginTop: 6 }} onClick={() => setExcecao((x) => !x)} disabled={fase !== "form"}>{excecao ? "Voltar à contagem" : "Fechar sem contagem (emergência)"}</button>}
             </div>
 
+            {ab.pares_sem_buffer.length > 0 && <p style={{ fontSize: 13, color: "var(--warning)", marginTop: 10 }} role="status">Atenção: {ab.pares_sem_buffer.length} estoque(s) intermediário(s) de produtos ativos ainda não estão no cadastro de buffers e não serão pedidos. Avise o administrador.</p>}
             {erro && <p className="stx-save-error" role="alert" style={{ marginTop: 12 }}>{erro}</p>}
             {confirmaGrande && (
               <div ref={dialogoRef} className="stx-fech-buf" role="alertdialog" style={{ borderColor: "var(--warning)" }}>

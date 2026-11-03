@@ -41,7 +41,7 @@ function instalarMock(cenario: string) {
       if (cenario === "bloqueado") return json({ erro: "Outro usuário já abriu o fechamento deste período (Supervisora B)." }, 409);
       const pend = cenario === "pendentes" ? [1, 4] : [];
       return json({ ok: true, abertura_id: "ab1", valido_ate_ms: Date.now() + 1_800_000, periodo: { data: "2026-11-03", periodo_id: "m2", rotulo: "M2", fim_ms: Date.now(), proximo: { rotulo: "M3", periodo_id: "m3" } },
-        postos: POSTOS.map((nome, i) => ({ maquinaId: `m${i}`, nome, status: pend.includes(i) ? "pendente" : "produzindo", produzido: 1000, refugo: 0, motivo: null })), tem_pendentes: pend.length > 0, buffers: BUFFERS, pode_excecao: true });
+        postos: POSTOS.map((nome, i) => ({ maquinaId: `m${i}`, nome, status: pend.includes(i) ? "pendente" : "produzindo", produzido: 1000, refugo: 0, motivo: null })), tem_pendentes: pend.length > 0, buffers: BUFFERS, pode_excecao: true, pares_sem_buffer: [] });
     }
     if (url.includes("/estado")) return json({ modo: "ativo", fechado: false, estado: cenario === "erro" && tentativas > 0 ? "RECALCULANDO" : undefined });
     if (url.includes("/retry")) { await new Promise((r) => setTimeout(r, 1200)); return json({ ok: true, estado: "CONFIRMADO", fechamentoId: "f1", mensagem: "M3 CONFIRMADO", erros: [], exigeConfirmacao: [], tempos, proximo: { data: "2026-11-03", periodoId: "m3", rotulo: "M3" }, programacao: PROG }); }

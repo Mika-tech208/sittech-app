@@ -130,4 +130,17 @@ do $$ begin
   assert (select excecao from escala_fechamentos where periodo_id='t1');
   assert (select count(*) from escala_fechamento_buffers b join escala_fechamentos f on f.id=b.fechamento_id where f.periodo_id='t1') = 0;
 end $$;
+-- T12: custo de gravar o fechamento no banco (Postgres local, 3 buffers; piso de latência — o custo de rede do Supabase entra na fase sombra)
+do $$ declare i int; t0 timestamptz; ms numeric[] := '{}'; v numeric[]; fid uuid; begin
+  for i in 1..200 loop
+    t0 := clock_timestamp();
+    fid := escala_fechamento_registrar(null,'2026-11-02', date '2027-01-01' + (i/6), 'p'||(i%6), 'periodo', now(), now(), now(), '00000000-0000-0000-0000-0000000000a1','bench', 11, 11, '{}',
+      '[{"buffer_id":"b1000000-0000-0000-0000-000000000001","saldo_estimado":1900,"saldo_fisico":1900},{"buffer_id":"b1000000-0000-0000-0000-000000000002","saldo_estimado":7000,"saldo_fisico":7000},{"buffer_id":"b1000000-0000-0000-0000-000000000003","saldo_estimado":8600,"saldo_fisico":8600}]'::jsonb,
+      3, null, false, null, null, gen_random_uuid());
+    perform escala_fechamento_resultado(fid, 'CONFIRMADO', '{}'::jsonb);
+    ms := ms || (extract(epoch from clock_timestamp() - t0) * 1000)::numeric;
+  end loop;
+  select array_agg(x order by x) into v from unnest(ms) x;
+  raise notice 'BENCH-DB registrar+resultado (200 execuções): p50 % ms · p95 % ms · pior % ms', round(v[100], 2), round(v[190], 2), round(v[200], 2);
+end $$;
 select 'TESTES-DB-OK' as resultado;

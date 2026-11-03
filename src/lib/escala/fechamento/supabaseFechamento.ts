@@ -102,6 +102,8 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
       const catalogo = await carregarCatalogo(data);
       const obrigatorios = buffersObrigatorios(catalogo, produtosAtivos);
       const estimativas = estimarBuffers(obrigatorios, pares);
+      const cobertos = new Set(catalogo.flatMap((b) => b.pares.map((p) => `${p.produtoId}|${p.etapaOrigemId}|${p.etapaSeguinteId}`)));
+      const paresSemBuffer = pares.filter((p) => produtosAtivos.has(p.produtoId) && !cobertos.has(`${p.produtoId}|${p.etapaOrigemId}|${p.etapaSeguinteId}`)).map((p) => ({ produtoId: p.produtoId, etapaOrigemId: p.etapaOrigemId, etapaSeguinteId: p.etapaSeguinteId }));
 
       // postos esperados = máquinas do plano oficial do período; coletado = tem apontamento (produzindo ou sem_producao)
       const esperados = [...new Set(estado.alocacoes.filter((a) => a.data === data && a.periodoId === periodoId && a.maquinaId).map((a) => a.maquinaId as string))];
@@ -124,7 +126,7 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
         periodoJaFechado: !!vigente, fechamentoVigente: vigente && vigenteEstado ? { id: vigente.id, estado: vigenteEstado } : null,
         hashPlanoAnterior: hashAlocacoes(regiaoRecalculavel(entrada, estado.alocacoes)),
         resumoProducao: { postos: postos.map((p) => ({ maquinaId: p.maquinaId, status: p.status, produzido: p.produzido, refugo: p.refugo, motivo: p.motivo })), paradas },
-        tempoEntradaMs: relogio() - t0,
+        tempoEntradaMs: relogio() - t0, paresSemBuffer,
       };
     },
 

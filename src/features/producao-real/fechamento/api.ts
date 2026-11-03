@@ -6,7 +6,7 @@ export interface BufferApi { buffer_id: string; rotulo: string; estimado: number
 export interface AberturaApi {
   ok: true; abertura_id: string; valido_ate_ms: number;
   periodo: { data: string; periodo_id: string; rotulo: string; fim_ms: number; proximo: { rotulo: string; periodo_id: string } | null };
-  postos: PostoApi[]; tem_pendentes: boolean; buffers: BufferApi[]; pode_excecao: boolean;
+  postos: PostoApi[]; tem_pendentes: boolean; buffers: BufferApi[]; pode_excecao: boolean; pares_sem_buffer: { produtoId: string; etapaOrigemId: string; etapaSeguinteId: string }[];
 }
 export interface LinhaProgramacao { maquina: string; pessoa: string; produto: string; pecas: number }
 export interface ResultadoApi {

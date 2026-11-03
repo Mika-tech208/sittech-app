@@ -21,6 +21,8 @@ export interface ContextoFechamento {
   hashPlanoAnterior: string | null;
   resumoProducao: Record<string, unknown>;
   tempoEntradaMs: number;
+  /** Pares (produto, etapa→etapa) do motor SEM buffer no catálogo: o inventário deles não é pedido — lacuna de cadastro a corrigir ANTES de ativar (GO/NO-GO: zero). */
+  paresSemBuffer?: { produtoId: string; etapaOrigemId: string; etapaSeguinteId: string }[];
 }
 
 export interface SnapshotParaGravar {
@@ -130,7 +132,7 @@ export async function confirmarFechamento(io: FechamentoIO, entrada: EntradaConf
       } catch (e) { ensaio = { erro: msg(e), publicavel: false }; }
     }
     const tempos: TemposFechamento = { gravacao, entrada: contexto.tempoEntradaMs, corte: 0, validacao: 0, persistencia: 0, total: relogio() - t0 };
-    await io.resultado(fechamentoId, "CONFIRMADO", { sombra: true, tentativa: 1, tempos_ms: tempos, hash_plano_anterior: contexto.hashPlanoAnterior, ensaio, nota: "modo sombra: inventário e erro gravados; o motor NÃO usou o físico" });
+    await io.resultado(fechamentoId, "CONFIRMADO", { sombra: true, tentativa: 1, tempos_ms: tempos, hash_plano_anterior: contexto.hashPlanoAnterior, ensaio, ...(contexto.paresSemBuffer && contexto.paresSemBuffer.length > 0 ? { pares_sem_buffer: contexto.paresSemBuffer } : {}), nota: "modo sombra: inventário e erro gravados; o motor NÃO usou o físico" });
     return vazio({ ok: true, estado: "CONFIRMADO", fechamentoId, tempos, hashPlanoAnterior: contexto.hashPlanoAnterior, mensagem: "Fechamento gravado (modo sombra)." });
   }
   return executarRecalculo(io, { fechamentoId, contexto, contagens, usuarioId, tentativa: 1, t0, gravacao, relogio, excecao: !!entrada.excecao });
@@ -160,7 +162,7 @@ async function executarRecalculo(io: FechamentoIO, a: ArgsRecalculo): Promise<Re
   const tempos: TemposFechamento = r
     ? { gravacao: a.gravacao, entrada: contexto.tempoEntradaMs + r.temposParciais.entrada, corte: r.temposParciais.corte, validacao: r.temposParciais.validacao, persistencia: r.temposParciais.persistencia, total }
     : { gravacao: a.gravacao, entrada: contexto.tempoEntradaMs, corte: relogio() - tCorte0, validacao: 0, persistencia: 0, total };
-  const detalheBase = { tentativa: a.tentativa, tempos_ms: tempos, hash_plano_anterior: contexto.hashPlanoAnterior, hash_plano_novo: r?.hashPlanoNovo ?? null, excecao: a.excecao };
+  const detalheBase = { ...(contexto.paresSemBuffer && contexto.paresSemBuffer.length > 0 ? { pares_sem_buffer: contexto.paresSemBuffer } : {}), tentativa: a.tentativa, tempos_ms: tempos, hash_plano_anterior: contexto.hashPlanoAnterior, hash_plano_novo: r?.hashPlanoNovo ?? null, excecao: a.excecao };
   if (erro) {
     await io.resultado(fechamentoId, "ERRO_RECALCULO", { ...detalheBase, erro });
     return vazio({ estado: "ERRO_RECALCULO", fechamentoId, tempos, proximo: contexto.periodo.proximo ? { data: contexto.periodo.proximo.data, periodoId: contexto.periodo.proximo.periodoId, rotulo: contexto.periodo.proximo.rotulo } : null, hashPlanoAnterior: contexto.hashPlanoAnterior, mensagem: "Estoque salvo. Programação ainda não gerada.", erros: [{ codigo: "RECALCULO_FALHOU", mensagem: erro }] });

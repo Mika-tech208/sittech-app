@@ -54,7 +54,7 @@ export async function acaoAbrir(io: FechamentoIO, u: UsuarioFechamento, body: un
     periodo: { data: c.periodo.data, periodo_id: c.periodo.periodoId, rotulo: c.periodo.rotulo, fim_ms: c.periodo.fimMs, proximo: c.periodo.proximo ? { rotulo: c.periodo.proximo.rotulo, periodo_id: c.periodo.proximo.periodoId } : null },
     postos: c.postos, tem_pendentes: c.postos.some((p) => p.status === "pendente"),
     buffers: c.obrigatorios.map((b) => { const e = c.estimativas.find((x) => x.bufferId === b.id); return { buffer_id: b.id, rotulo: b.rotulo, estimado: e?.estimado ?? null, estimado_lo: e?.lo ?? null, estimado_hi: e?.hi ?? null }; }),
-    pode_excecao: podeFecharSemContagem(u),
+    pode_excecao: podeFecharSemContagem(u), pares_sem_buffer: c.paresSemBuffer ?? [],
   } };
 }
 
