@@ -4,7 +4,7 @@
 import type { ContagemFisicaPar } from "@/features/escala/fluxo/tipos";
 import { contagensDoInventario } from "@/features/escala/fechamento/catalogo";
 import { validarConfirmacao, type ContextoValidacao } from "@/features/escala/fechamento/validacao";
-import type { BufferCatalogo, EntradaConfirmacao, ErroValidacao, EstadoFechamento, EstimativaBuffer, ModoFechamento, PostoFechamento, TemposFechamento } from "@/features/escala/fechamento/tipos";
+import type { BufferCatalogo, EntradaConfirmacao, ErroValidacao, EstadoFechamento, EstimativaBuffer, ModoFechamento, ParSemBuffer, PostoFechamento, TemposFechamento } from "@/features/escala/fechamento/tipos";
 import { VALIDADE_ABERTURA_MIN } from "@/features/escala/fechamento/tipos";
 
 export interface PeriodoFechamento { data: string; periodoId: string; rotulo: string; inicioMs: number; fimMs: number; proximo: { data: string; periodoId: string; rotulo: string; inicioMs: number } | null }
@@ -17,12 +17,35 @@ export interface ContextoFechamento {
   obrigatorios: BufferCatalogo[];
   estimativas: EstimativaBuffer[];
   periodoJaFechado: boolean;
-  fechamentoVigente: { id: string; estado: EstadoFechamento } | null;
+  /** `sombra` = fechamento gravado em modo sombra (o plano oficial não nasceu dele): em `ativo` NÃO conta como período fechado e vira revisão 2. */
+  fechamentoVigente: { id: string; estado: EstadoFechamento; sombra?: boolean } | null;
   hashPlanoAnterior: string | null;
   resumoProducao: Record<string, unknown>;
   tempoEntradaMs: number;
-  /** Pares (produto, etapa→etapa) do motor SEM buffer no catálogo: o inventário deles não é pedido — lacuna de cadastro a corrigir ANTES de ativar (GO/NO-GO: zero). */
-  paresSemBuffer?: { produtoId: string; etapaOrigemId: string; etapaSeguinteId: string }[];
+  /** Pares do motor SEM buffer no catálogo (e sem dispensa declarada): em `ativo` BLOQUEIA o fechamento (BUFFER_FISICO_NAO_CADASTRADO); em `sombra` só alerta. */
+  paresSemBuffer?: ParSemBuffer[];
+  /** A semana não está sob o planejador corte-v1 (ou a Produção Real não está ativa): em `ativo` BLOQUEIA o fechamento. */
+  semCorteV1?: boolean;
+  temposContexto?: { estado: number; montagem: number; buffers: number; postos: number };
+}
+
+export const MENSAGEM_SEM_CORTE_V1 = "Fechamento físico automático disponível apenas para semanas com corte-v1 ativo.";
+
+/** Bloqueios do modo ATIVO (em sombra viram alertas no log). Cada par sem buffer vira um erro BUFFER_FISICO_NAO_CADASTRADO com produto, rota, etapas, semana e período. */
+export function bloqueiosDoModoAtivo(c: ContextoFechamento): ErroValidacao[] {
+  const erros: ErroValidacao[] = [];
+  if (c.semCorteV1) erros.push({ codigo: "SEMANA_SEM_CORTE_V1", mensagem: MENSAGEM_SEM_CORTE_V1 });
+  (c.paresSemBuffer ?? []).forEach((p) => erros.push({
+    codigo: "BUFFER_FISICO_NAO_CADASTRADO",
+    mensagem: `Buffer físico não cadastrado: ${p.produto} — ${p.etapaOrigem} → ${p.etapaDestino}. Cadastre o buffer (ou declare que não há estoque físico) antes de fechar o período.`,
+    detalhes: { produtoId: p.produtoId, produto: p.produto, rota: p.rota, etapaOrigemId: p.etapaOrigemId, etapaOrigem: p.etapaOrigem, etapaSeguinteId: p.etapaSeguinteId, etapaDestino: p.etapaDestino, semana: c.semanaInicio, periodo: c.periodo.periodoId, data: c.periodo.data },
+  }));
+  return erros;
+}
+
+/** Alertas (modo sombra) no formato do diagnóstico. */
+export function alertasDeSombra(c: ContextoFechamento): Record<string, unknown>[] {
+  return bloqueiosDoModoAtivo(c).map((e) => ({ codigo: e.codigo, mensagem: e.mensagem, ...(e.detalhes ?? {}) }));
 }
 
 export interface SnapshotParaGravar {
@@ -67,6 +90,8 @@ export interface ResultadoFechamento {
   hashPlanoAnterior: string | null;
   hashPlanoNovo: string | null;
   duplicado?: boolean;
+  /** Fechamento de EXCEÇÃO (sem contagem): a programação seguinte é baseada PARCIALMENTE em estimativa. */
+  parcial?: boolean;
   /** Período que acabou de ser (ou será) confirmado: a tela mostra a programação dele imediatamente. */
   proximo?: { data: string; periodoId: string; rotulo: string } | null;
 }
@@ -76,14 +101,18 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export type Relogio = () => number;
 
 /** Janela de troca: abre o EM_FECHAMENTO para este usuário (apontamentos do período só por ele). */
-export async function abrirFechamento(io: FechamentoIO, a: { data: string; periodoId: string; usuarioId: string; dispositivo?: string | null; forcar?: boolean }, relogio: Relogio = Date.now): Promise<{ ok: boolean; aberturaId?: string; validoAteMs?: number; contexto?: ContextoFechamento; erro?: string }> {
+export async function abrirFechamento(io: FechamentoIO, a: { data: string; periodoId: string; usuarioId: string; dispositivo?: string | null; forcar?: boolean }, relogio: Relogio = Date.now): Promise<{ ok: boolean; aberturaId?: string; validoAteMs?: number; contexto?: ContextoFechamento; erro?: string; erros?: ErroValidacao[]; alertas?: Record<string, unknown>[] }> {
   const modo = await io.modo();
   if (modo === "desligado") return { ok: false, erro: "Fechamento físico desligado." };
   const contexto = await io.contexto(a.data, a.periodoId, relogio());
-  if (contexto.periodoJaFechado && !a.forcar) return { ok: false, contexto, erro: "Este período já foi fechado." };
+  const jaOficial = contexto.periodoJaFechado && !(modo === "ativo" && contexto.fechamentoVigente?.sombra);
+  if (jaOficial && !a.forcar) return { ok: false, contexto, erro: "Este período já foi fechado." };
+  // MODO ATIVO: catálogo incompleto ou semana fora do corte-v1 BLOQUEIA (nada de fechamento "confirmado" omitindo estoque); em sombra só alerta
+  const bloqueios = modo === "ativo" ? bloqueiosDoModoAtivo(contexto) : [];
+  if (bloqueios.length > 0) return { ok: false, contexto, erro: bloqueios[0].mensagem, erros: bloqueios };
   try {
     const r = await io.abrir({ contexto, usuarioId: a.usuarioId, dispositivo: a.dispositivo ?? null, forcar: a.forcar === true });
-    return { ok: true, aberturaId: r.aberturaId, validoAteMs: r.validoAteMs, contexto };
+    return { ok: true, aberturaId: r.aberturaId, validoAteMs: r.validoAteMs, contexto, ...(modo === "sombra" ? { alertas: alertasDeSombra(contexto) } : {}) };
   } catch (e) {
     return { ok: false, contexto, erro: msg(e) };
   }
@@ -101,9 +130,12 @@ export async function confirmarFechamento(io: FechamentoIO, entrada: EntradaConf
     return vazio({ ok: existente.estado === "CONFIRMADO", estado: existente.estado, fechamentoId: existente.id, duplicado: true, mensagem: existente.estado === "CONFIRMADO" ? "Já confirmado." : existente.estado === "ERRO_RECALCULO" ? "Estoque salvo. Programação ainda não gerada." : "Recalculando…" });
   }
   const contexto = await io.contexto(entrada.data, entrada.periodoId, t0);
+  // MODO ATIVO: bloqueio ANTES de gravar qualquer coisa (inclusive na exceção: sem catálogo completo e sem corte-v1 não há fechamento oficial)
+  const bloqueios = modo === "ativo" ? bloqueiosDoModoAtivo(contexto) : [];
+  if (bloqueios.length > 0) return vazio({ erros: bloqueios, mensagem: bloqueios[0].mensagem });
   const podeExcecao = entrada.excecao ? await io.podeExcecao(usuarioId) : false;
   const agoraMs = relogio();
-  const vctx: ContextoValidacao = { agoraMs, fimPeriodoMs: contexto.periodo.fimMs, postos: contexto.postos, obrigatorios: contexto.obrigatorios, estimativas: contexto.estimativas, podeExcecao, periodoJaFechado: contexto.periodoJaFechado && !opcoes.forcarRevisao };
+  const vctx: ContextoValidacao = { agoraMs, fimPeriodoMs: contexto.periodo.fimMs, postos: contexto.postos, obrigatorios: contexto.obrigatorios, estimativas: contexto.estimativas, podeExcecao, periodoJaFechado: contexto.periodoJaFechado && !opcoes.forcarRevisao && !(modo === "ativo" && contexto.fechamentoVigente?.sombra) };
   const v = validarConfirmacao(entrada, vctx);
   if (!v.ok) return vazio({ erros: v.erros, exigeConfirmacao: v.exigeConfirmacao, mensagem: v.erros[0]?.mensagem ?? "Fechamento inválido." });
 
@@ -113,7 +145,7 @@ export async function confirmarFechamento(io: FechamentoIO, entrada: EntradaConf
   const tGrav0 = relogio();
   let fechamentoId: string;
   try {
-    fechamentoId = await io.registrar({ aberturaId, contexto, entrada, usuarioId, iniciadoEmMs: opcoes.iniciadoEmMs ?? t0, contadoEmMs, instanteMotorMs, excecao: !!entrada.excecao, chave: entrada.chave, forcarRevisao: opcoes.forcarRevisao === true });
+    fechamentoId = await io.registrar({ aberturaId, contexto, entrada, usuarioId, iniciadoEmMs: opcoes.iniciadoEmMs ?? t0, contadoEmMs, instanteMotorMs, excecao: !!entrada.excecao, chave: entrada.chave, forcarRevisao: opcoes.forcarRevisao === true || (modo === "ativo" && contexto.fechamentoVigente?.sombra === true) });
   } catch (e) {
     return vazio({ mensagem: `Não foi possível gravar o fechamento: ${msg(e)}` });
   }
@@ -124,7 +156,8 @@ export async function confirmarFechamento(io: FechamentoIO, entrada: EntradaConf
     // SOMBRA: grava o inventário e MEDE o erro do WIP; o motor oficial NÃO usa o físico. Faz também um ENSAIO do recálculo (sem gravar nada) para medir o tempo real
     // e saber se o portão HARD aprovaria — são os números do GO/NO-GO da ativação.
     let ensaio: Record<string, unknown> = {};
-    if (!entrada.excecao) {
+    if (contexto.semCorteV1) ensaio = { publicavel: false, motivo: "SEMANA_SEM_CORTE_V1", status: "nao_executado" };
+    else if (!entrada.excecao) {
       try {
         const tE = relogio();
         const r = await io.recalcular({ fechamentoId, contexto, contagens, usuarioId, agoraMs: relogio(), dryRun: true });
@@ -132,7 +165,7 @@ export async function confirmarFechamento(io: FechamentoIO, entrada: EntradaConf
       } catch (e) { ensaio = { erro: msg(e), publicavel: false }; }
     }
     const tempos: TemposFechamento = { gravacao, entrada: contexto.tempoEntradaMs, corte: 0, validacao: 0, persistencia: 0, total: relogio() - t0 };
-    await io.resultado(fechamentoId, "CONFIRMADO", { sombra: true, tentativa: 1, tempos_ms: tempos, hash_plano_anterior: contexto.hashPlanoAnterior, ensaio, ...(contexto.paresSemBuffer && contexto.paresSemBuffer.length > 0 ? { pares_sem_buffer: contexto.paresSemBuffer } : {}), nota: "modo sombra: inventário e erro gravados; o motor NÃO usou o físico" });
+    await io.resultado(fechamentoId, "CONFIRMADO", { sombra: true, tentativa: 1, tempos_ms: tempos, hash_plano_anterior: contexto.hashPlanoAnterior, ensaio, alertas: alertasDeSombra(contexto), ...(entrada.excecao ? { excecao: true, base_parcial_estimativa: true, buffers_sem_contagem: contexto.obrigatorios.map((b) => b.id) } : {}), nota: "modo sombra: inventário e erro gravados; o motor NÃO usou o físico" });
     return vazio({ ok: true, estado: "CONFIRMADO", fechamentoId, tempos, hashPlanoAnterior: contexto.hashPlanoAnterior, mensagem: "Fechamento gravado (modo sombra)." });
   }
   return executarRecalculo(io, { fechamentoId, contexto, contagens, usuarioId, tentativa: 1, t0, gravacao, relogio, excecao: !!entrada.excecao });
@@ -160,15 +193,15 @@ async function executarRecalculo(io: FechamentoIO, a: ArgsRecalculo): Promise<Re
   }
   const total = relogio() - a.t0;
   const tempos: TemposFechamento = r
-    ? { gravacao: a.gravacao, entrada: contexto.tempoEntradaMs + r.temposParciais.entrada, corte: r.temposParciais.corte, validacao: r.temposParciais.validacao, persistencia: r.temposParciais.persistencia, total }
-    : { gravacao: a.gravacao, entrada: contexto.tempoEntradaMs, corte: relogio() - tCorte0, validacao: 0, persistencia: 0, total };
-  const detalheBase = { ...(contexto.paresSemBuffer && contexto.paresSemBuffer.length > 0 ? { pares_sem_buffer: contexto.paresSemBuffer } : {}), tentativa: a.tentativa, tempos_ms: tempos, hash_plano_anterior: contexto.hashPlanoAnterior, hash_plano_novo: r?.hashPlanoNovo ?? null, excecao: a.excecao };
+    ? { gravacao: a.gravacao, entrada: contexto.tempoEntradaMs + r.temposParciais.entrada, corte: r.temposParciais.corte, validacao: r.temposParciais.validacao, persistencia: r.temposParciais.persistencia, total, ...(contexto.temposContexto ? { contexto: contexto.temposContexto } : {}) }
+    : { gravacao: a.gravacao, entrada: contexto.tempoEntradaMs, corte: relogio() - tCorte0, validacao: 0, persistencia: 0, total, ...(contexto.temposContexto ? { contexto: contexto.temposContexto } : {}) };
+  const detalheBase = { ...(a.excecao ? { base_parcial_estimativa: true, buffers_sem_contagem: contexto.obrigatorios.map((b) => b.id) } : {}), tentativa: a.tentativa, tempos_ms: tempos, hash_plano_anterior: contexto.hashPlanoAnterior, hash_plano_novo: r?.hashPlanoNovo ?? null, excecao: a.excecao };
   if (erro) {
     await io.resultado(fechamentoId, "ERRO_RECALCULO", { ...detalheBase, erro });
     return vazio({ estado: "ERRO_RECALCULO", fechamentoId, tempos, proximo: contexto.periodo.proximo ? { data: contexto.periodo.proximo.data, periodoId: contexto.periodo.proximo.periodoId, rotulo: contexto.periodo.proximo.rotulo } : null, hashPlanoAnterior: contexto.hashPlanoAnterior, mensagem: "Estoque salvo. Programação ainda não gerada.", erros: [{ codigo: "RECALCULO_FALHOU", mensagem: erro }] });
   }
   await io.resultado(fechamentoId, "CONFIRMADO", detalheBase);
-  return vazio({ ok: true, estado: "CONFIRMADO", fechamentoId, tempos, hashPlanoAnterior: contexto.hashPlanoAnterior, hashPlanoNovo: r?.hashPlanoNovo ?? null, proximo: contexto.periodo.proximo ? { data: contexto.periodo.proximo.data, periodoId: contexto.periodo.proximo.periodoId, rotulo: contexto.periodo.proximo.rotulo } : null, mensagem: contexto.periodo.proximo ? `${contexto.periodo.proximo.rotulo} CONFIRMADO` : "Período fechado (último da semana)." });
+  return vazio({ ok: true, estado: "CONFIRMADO", fechamentoId, tempos, hashPlanoAnterior: contexto.hashPlanoAnterior, hashPlanoNovo: r?.hashPlanoNovo ?? null, parcial: a.excecao, proximo: contexto.periodo.proximo ? { data: contexto.periodo.proximo.data, periodoId: contexto.periodo.proximo.periodoId, rotulo: contexto.periodo.proximo.rotulo } : null, mensagem: contexto.periodo.proximo ? `${contexto.periodo.proximo.rotulo} CONFIRMADO${a.excecao ? " — baseado PARCIALMENTE em estimativa (fechamento sem contagem)" : ""}` : "Período fechado (último da semana)." });
 }
 
 /** Retry seguro: NÃO pede a contagem de novo. Usa o inventário já gravado. Idempotente se já CONFIRMADO. */

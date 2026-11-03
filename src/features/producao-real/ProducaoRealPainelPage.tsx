@@ -42,6 +42,7 @@ import { THEMES } from "@/lib/constants";
 import { useTema } from "@/hooks/useTema";
 import { temPermissao } from "@/lib/permissoes";
 import { dataLocalSP, horaLocalSP } from "@/hooks/useProducaoRealPainel";
+import SeloFechamento from "@/features/escala/fechamento/SeloFechamento";
 import FechamentoPeriodoModal from "@/features/producao-real/fechamento/FechamentoPeriodoModal";
 import { estadoFechamentoApi } from "@/features/producao-real/fechamento/api";
 import { formatBRL, setModoPrivadoAtivo } from "@/lib/format";
@@ -422,6 +423,8 @@ export default function ProducaoRealPainelPage() {
               </button>
             )}
           </div>
+
+          {podeFechar && modoFechamento === "ativo" && <div style={{ marginTop: 12 }}><SeloFechamento /></div>}
 
           {mostrarFechamento && periodoDoFechamento && (
             estadoFechamento === "CONFIRMADO" ? (

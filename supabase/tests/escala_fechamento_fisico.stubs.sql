@@ -16,3 +16,29 @@ create table escala_producao_eventos(id uuid primary key default gen_random_uuid
 create table apontamentos_producao(id uuid primary key default gen_random_uuid(), data date not null, periodo_id text not null, criado_por uuid not null, quantidade_produzida numeric default 0);
 create function is_admin() returns boolean language sql as 'select true';
 create function has_permissao(text) returns boolean language sql as 'select true';
+-- cópia fiel da função de PROD (20261020190000): a migration a ALTERA pela própria definição
+create function escala_reivindicar_eventos(p_limite integer default 50)
+returns setof public.escala_producao_eventos
+language sql
+security invoker
+set search_path = public, pg_temp
+as $$
+  with candidatos as (
+    select id
+    from escala_producao_eventos
+    where tipo in ('ausencia', 'previsao', 'recurso_bloqueado', 'recurso_liberado', 'geracao_manual', 'geracao_semanal')
+      and (
+        status = 'pendente'
+        or (status = 'erro' and tentativas < 3)
+        or (status = 'processando' and iniciado_em < now() - interval '5 minutes')
+      )
+    order by criado_em
+    limit greatest(1, least(coalesce(p_limite, 50), 200))
+    for update skip locked
+  )
+  update escala_producao_eventos e
+     set status = 'processando', tentativas = e.tentativas + 1, iniciado_em = now()
+    from candidatos c
+   where e.id = c.id
+  returning e.*;
+$$;

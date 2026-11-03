@@ -5,6 +5,7 @@
 // funcionários em períodos futuros e indisponibilidade de recursos. A tela
 // NÃO calcula escala: gerar/recalcular acontece em /api/escala/*.
 
+import SeloFechamento from "@/features/escala/fechamento/SeloFechamento";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthSession } from "@/hooks/useAuthSession";
@@ -241,6 +242,7 @@ export default function EscalaProducaoPage() {
                 <button type="button" className="stx-esc-pill" aria-label="Próxima semana" onClick={() => setSemana(shiftWeek(semana, 1))}>›</button>
               </div>
               <h1 className="stx-title">Escala de Produção</h1>
+              <SeloFechamento />
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {podeRelatorios && (

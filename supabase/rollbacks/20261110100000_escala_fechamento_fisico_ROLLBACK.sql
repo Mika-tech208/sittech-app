@@ -8,17 +8,13 @@
 --  2) recálculo oficial (o plano passa a ser função do legado) e SÓ ENTÃO este script. O plano publicado NÃO é tocado: para voltar o plano, restaurar as linhas de
 --     escala_plano_versoes da versão anterior (procedimento de sempre; ver docs/escala-fechamento-fisico-implantacao.md).
 begin;
--- restaura a lista original do claim da outbox (sem fechamento_fisico)
-create or replace function public.escala_reivindicar_eventos(p_limite integer default 50)
-returns setof public.escala_producao_eventos language sql security invoker set search_path = public, pg_temp as $$
-  with candidatos as (
-    select id from escala_producao_eventos
-    where tipo in ('ausencia', 'previsao', 'recurso_bloqueado', 'recurso_liberado', 'geracao_manual', 'geracao_semanal')
-      and (status = 'pendente' or (status = 'erro' and tentativas < 3) or (status = 'processando' and iniciado_em < now() - interval '5 minutes'))
-    order by criado_em limit greatest(1, least(coalesce(p_limite, 50), 200)) for update skip locked
-  )
-  update escala_producao_eventos e set status = 'processando', tentativas = e.tentativas + 1, iniciado_em = now() from candidatos c where e.id = c.id returning e.*;
-$$;
+-- restaura a lista do claim da outbox (remove só fechamento_fisico da definição atual)
+do $$
+declare v_def text;
+begin
+  select pg_get_functiondef(p.oid) into v_def from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'escala_reivindicar_eventos';
+  if v_def like '%fechamento_fisico%' then execute replace(v_def, ', ''fechamento_fisico'')', ')'); end if;
+end $$;
 drop trigger if exists trg_apontamentos_producao_fechamento on public.apontamentos_producao;
 drop function if exists public.escala_trg_apontamento_fechamento();
 create table if not exists public.escala_fechamentos_arquivo as select * from public.escala_fechamentos;
@@ -34,7 +30,7 @@ drop function if exists public.escala_fechamento_trava_adquirir(date, uuid, inte
 drop function if exists public.escala_fechamento_trava_liberar(date, uuid);
 drop function if exists public.escala_fechamento_apontamento_permitido(date, text, uuid);
 drop function if exists public.escala_fechamento_fisico_modo();
-drop table if exists public.escala_fechamento_trava, public.escala_fechamento_log, public.escala_fechamento_buffers, public.escala_fechamentos, public.escala_fechamento_aberturas,
+drop table if exists public.escala_buffer_dispensas, public.escala_fechamento_trava, public.escala_fechamento_log, public.escala_fechamento_buffers, public.escala_fechamentos, public.escala_fechamento_aberturas,
   public.escala_buffer_maquinas, public.escala_buffer_pares, public.escala_buffers_fisicos;
 drop function if exists public.escala_fechamento_trg_imutavel();
 drop function if exists public.escala_buffer_trg_catalogo();
@@ -43,9 +39,14 @@ delete from public.escala_parametros where chave = 'escala_fechamento_fisico_mod
 -- eventos pendentes viram 'ignorado'; o tipo PERMANECE no CHECK (histórico de eventos não é reescrito)
 update public.escala_producao_eventos set status = 'ignorado' where tipo = 'fechamento_fisico' and status in ('pendente', 'processando', 'erro');
 delete from public.usuario_permissoes where permissao in ('escala_fechamento', 'escala_fechamento_excecao');
-alter table public.usuario_permissoes drop constraint if exists usuario_permissoes_permissao_check;
-alter table public.usuario_permissoes add constraint usuario_permissoes_permissao_check check (permissao in (
-  'financeiro', 'produtos', 'maquinas', 'funcionarios', 'custo_hora', 'previsao', 'capacidade',
-  'producao_real_apontamento', 'producao_real_historico', 'producao_real_ocorrencias', 'producao_real_apontamentos_realizados',
-  'usuarios', 'auditoria', 'ausencias_funcionarios', 'escala_producao', 'escala_producao_tv', 'escala_wip_confirmar', 'escala_relatorios'));
+do $$
+declare v_def text; v_vals text[];
+begin
+  select pg_get_constraintdef(oid) into v_def from pg_constraint where conname = 'usuario_permissoes_permissao_check' and conrelid = 'public.usuario_permissoes'::regclass;
+  select array_agg(distinct x order by x) into v_vals from (
+    select unnest(case when q like '{%}' then string_to_array(trim(both '{}' from q), ',') else array[q] end) as x from (select m[1] as q from regexp_matches(v_def, '''([^'']+)''', 'g') m) s) t
+  where x not in ('escala_fechamento', 'escala_fechamento_excecao');
+  alter table public.usuario_permissoes drop constraint usuario_permissoes_permissao_check;
+  execute format('alter table public.usuario_permissoes add constraint usuario_permissoes_permissao_check check (permissao = any (%L::text[]))', v_vals);
+end $$;
 commit;

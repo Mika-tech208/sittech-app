@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { limiteMotivo } from "@/features/escala/fechamento/validacao";
 import { DIFERENCA_EXIGE_CONFIRMACAO } from "@/features/escala/fechamento/tipos";
-import { abrirFechamentoApi, confirmarFechamentoApi, estadoFechamentoApi, retryFechamentoApi, type AberturaApi, type ResultadoApi } from "./api";
+import { abrirFechamentoApi, confirmarFechamentoApi, estadoFechamentoApi, retryFechamentoApi, type AberturaApi, type DiagnosticoApi, type ResultadoApi } from "./api";
 
 const MOTIVOS = ["Contagem anterior errada", "Peças perdidas / refugo", "Estoque movido", "Outro"] as const;
 const fmt = (n: number) => Math.round(n).toLocaleString("pt-BR");
@@ -20,6 +20,8 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
   const [fase, setFase] = useState<Fase>("carregando");
   const [ab, setAb] = useState<AberturaApi | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [diagnosticos, setDiagnosticos] = useState<DiagnosticoApi[]>([]);
+  const [opcoesAbertas, setOpcoesAbertas] = useState(false);
   const [valores, setValores] = useState<Record<string, string>>({}); // vazio por padrão
   const [motivos, setMotivos] = useState<Record<string, string>>({});
   const [confirmaGrande, setConfirmaGrande] = useState<string[] | null>(null);
@@ -35,7 +37,7 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
     let vivo = true;
     void abrirFechamentoApi(data, periodoId).then((r) => {
       if (!vivo) return;
-      if (r.status !== 200 || !("ok" in r.corpo)) { setErro(r.corpo.erro ?? "Não foi possível abrir o fechamento."); setFase("bloqueado"); return; }
+      if (r.status !== 200 || !("ok" in r.corpo)) { setErro(r.corpo.erro ?? "Não foi possível abrir o fechamento."); setDiagnosticos(("erros" in r.corpo && r.corpo.erros) || []); setFase("bloqueado"); return; }
       setErro(null); setAb(r.corpo); setFase("form");
     }).catch(() => { if (vivo) { setErro("Falha de rede ao abrir o fechamento."); setFase("bloqueado"); } });
     return () => { vivo = false; };
@@ -113,7 +115,20 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
         </div>
 
         {fase === "carregando" && <p className="stx-fech-sec">Carregando estimativas do sistema…</p>}
-        {fase === "bloqueado" && <><p className="stx-save-error" role="alert">{erro}</p><button type="button" className="stx-ap-btn-secondary" onClick={onFechar}>Fechar</button></>}
+        {fase === "bloqueado" && (
+          <>
+            <p className="stx-save-error" role="alert">{diagnosticos.length > 0 ? "Este período NÃO pode ser fechado oficialmente:" : erro}</p>
+            {diagnosticos.map((d, i) => (
+              <div key={i} className="stx-fech-buf" role="alert" style={{ borderColor: "var(--warning)" }}>
+                <div className="nome">{d.codigo === "BUFFER_FISICO_NAO_CADASTRADO" ? "Buffer físico não cadastrado" : d.codigo === "SEMANA_SEM_CORTE_V1" ? "Semana sem corte-v1" : d.codigo}</div>
+                <div className="est">{d.detalhes?.produto ? `${d.detalhes.produto} · ${d.detalhes.etapaOrigem} → ${d.detalhes.etapaDestino}` : d.mensagem}</div>
+                {d.detalhes?.rota && <div className="est">Rota: {d.detalhes.rota} · semana {d.detalhes.semana} · período {String(d.detalhes.periodo ?? "").toUpperCase()}</div>}
+              </div>
+            ))}
+            {diagnosticos.length > 0 && <p style={{ fontSize: 13, color: "var(--text-3)" }}>Avise o administrador: o cadastro de buffers precisa estar completo para o fechamento físico valer.</p>}
+            <button type="button" className="stx-ap-btn-secondary" onClick={onFechar}>Fechar</button>
+          </>
+        )}
 
         {ab && (fase === "form" || fase === "salvando" || fase === "recalculando") && (
           <>
@@ -141,10 +156,15 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
                   {l.exigeMotivo && <div className="stx-fech-chips">{MOTIVOS.map((m) => <button type="button" key={m} className={`stx-fech-chip ${l.motivo === m ? "on" : ""}`} onClick={() => setMotivos((x) => ({ ...x, [l.buffer_id]: m }))}>{m}</button>)}</div>}
                 </div>
               ))}
-              {ab.pode_excecao && <button type="button" className="stx-ap-btn-secondary" style={{ marginTop: 6 }} onClick={() => setExcecao((x) => !x)} disabled={fase !== "form"}>{excecao ? "Voltar à contagem" : "Fechar sem contagem (emergência)"}</button>}
+              {ab.pode_excecao && (
+                <div style={{ marginTop: 10, fontSize: 12.5 }}>
+                  <button type="button" onClick={() => setOpcoesAbertas((x) => !x)} disabled={fase !== "form"} style={{ background: "none", border: "none", color: "var(--text-3)", cursor: "pointer", padding: 0, textDecoration: "underline" }}>Opções do administrador</button>
+                  {opcoesAbertas && <div style={{ marginTop: 6 }}><button type="button" className="stx-ap-btn-secondary" onClick={() => setExcecao((x) => !x)} disabled={fase !== "form"}>{excecao ? "Voltar à contagem" : "Fechar SEM contagem (emergência — fica auditado e a programação será parcialmente estimada)"}</button></div>}
+                </div>
+              )}
             </div>
 
-            {ab.pares_sem_buffer.length > 0 && <p style={{ fontSize: 13, color: "var(--warning)", marginTop: 10 }} role="status">Atenção: {ab.pares_sem_buffer.length} estoque(s) intermediário(s) de produtos ativos ainda não estão no cadastro de buffers e não serão pedidos. Avise o administrador.</p>}
+            {ab.alertas.length > 0 && <p style={{ fontSize: 13, color: "var(--warning)", marginTop: 10 }} role="status">[modo sombra] {ab.alertas.length} alerta(s) de cadastro: {ab.pares_sem_buffer.map((p) => `${p.produto} ${p.etapaOrigem}→${p.etapaDestino}`).join("; ")}. Em modo ativo isto BLOQUEARIA o fechamento.</p>}
             {erro && <p className="stx-save-error" role="alert" style={{ marginTop: 12 }}>{erro}</p>}
             {confirmaGrande && (
               <div ref={dialogoRef} className="stx-fech-buf" role="alertdialog" style={{ borderColor: "var(--warning)" }}>
@@ -166,7 +186,7 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
 
         {fase === "confirmado" && resultado && (
           <div className="stx-fech-sec" role="status">
-            <div className="stx-fech-estado ok">{resultado.mensagem ?? `${proximo} CONFIRMADO`}</div>
+            <div className={`stx-fech-estado ${resultado.parcial ? "err" : "ok"}`}>{resultado.mensagem ?? `${proximo} CONFIRMADO`}</div>
             {resultado.tempos && <p style={{ fontSize: 13, color: "var(--text-3)", margin: 0 }}>Fechamento concluído em {seg(resultado.tempos.total)}</p>}
             {resultado.programacao && resultado.programacao.length > 0 && (
               <table className="stx-fech-prog"><thead><tr><th>Posto</th><th>Pessoa</th><th>Produto</th><th>Peças</th></tr></thead>

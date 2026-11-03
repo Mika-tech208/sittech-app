@@ -19,56 +19,45 @@
 -- =========================================================================
 -- 1) Permissão e tipo de evento (a rede de segurança do recálculo usa a outbox existente)
 -- =========================================================================
-alter table public.usuario_permissoes drop constraint if exists usuario_permissoes_permissao_check;
-alter table public.usuario_permissoes add constraint usuario_permissoes_permissao_check check (permissao in (
-  'financeiro', 'produtos', 'maquinas', 'funcionarios', 'custo_hora',
-  'previsao', 'capacidade',
-  'producao_real_apontamento', 'producao_real_historico', 'producao_real_ocorrencias',
-  'producao_real_apontamentos_realizados',
-  'usuarios', 'auditoria',
-  'ausencias_funcionarios',
-  'escala_producao', 'escala_producao_tv',
-  'escala_wip_confirmar',
-  'escala_relatorios',
-  'escala_fechamento',            -- fechar período (inventário + recálculo)
-  'escala_fechamento_excecao'     -- perfil superior: fechar SEM contagem (emergência, com motivo e auditoria)
-));
+-- Os CHECKs são RECONSTRUÍDOS A PARTIR DA DEFINIÇÃO ATUAL do ambiente (+ os valores novos): nada que exista em PROD/DEV/clone é derrubado por uma lista fixa.
+do $$
+declare v_def text; v_vals text[];
+begin
+  select pg_get_constraintdef(oid) into v_def from pg_constraint where conname = 'usuario_permissoes_permissao_check' and conrelid = 'public.usuario_permissoes'::regclass;
+  if v_def is null then raise exception 'usuario_permissoes_permissao_check não encontrado'; end if;
+  -- a definição vem como ARRAY['a'::text, ...] (PG 15/16 em alguns ambientes) OU como '{a,b,...}'::text[] (PG 17 e depois de recriada): aceita as duas formas
+  select array_agg(distinct x order by x) into v_vals from (
+    select unnest(case when q like '{%}' then string_to_array(trim(both '{}' from q), ',') else array[q] end) as x from (select m[1] as q from regexp_matches(v_def, '''([^'']+)''', 'g') m) s
+    union select unnest(array['escala_fechamento', 'escala_fechamento_excecao'])) t;
+  alter table public.usuario_permissoes drop constraint usuario_permissoes_permissao_check;
+  execute format('alter table public.usuario_permissoes add constraint usuario_permissoes_permissao_check check (permissao = any (%L::text[]))', v_vals);
+end $$;
 
-alter table public.escala_producao_eventos drop constraint if exists escala_producao_eventos_tipo_check;
-alter table public.escala_producao_eventos add constraint escala_producao_eventos_tipo_check check (tipo in (
-  'ausencia', 'previsao', 'recurso_bloqueado', 'recurso_liberado', 'geracao_manual',
-  'geracao_semanal',
-  'apontamento_periodo',
-  'fechamento_fisico',
-  'recalculo', 'edicao_manual'
-));
+do $$
+declare v_def text; v_vals text[];
+begin
+  select pg_get_constraintdef(oid) into v_def from pg_constraint where conname = 'escala_producao_eventos_tipo_check' and conrelid = 'public.escala_producao_eventos'::regclass;
+  if v_def is null then raise exception 'escala_producao_eventos_tipo_check não encontrado'; end if;
+  select array_agg(distinct x order by x) into v_vals from (
+    select unnest(case when q like '{%}' then string_to_array(trim(both '{}' from q), ',') else array[q] end) as x from (select m[1] as q from regexp_matches(v_def, '''([^'']+)''', 'g') m) s
+    union select 'fechamento_fisico') t;
+  alter table public.escala_producao_eventos drop constraint escala_producao_eventos_tipo_check;
+  execute format('alter table public.escala_producao_eventos add constraint escala_producao_eventos_tipo_check check (tipo = any (%L::text[]))', v_vals);
+end $$;
 
--- O worker da outbox também reivindica 'fechamento_fisico' (rede de segurança: refaz o recálculo de um fechamento que gravou o inventário e não publicou)
-create or replace function public.escala_reivindicar_eventos(p_limite integer default 50)
-returns setof public.escala_producao_eventos
-language sql
-security invoker
-set search_path = public, pg_temp
-as $$
-  with candidatos as (
-    select id
-    from escala_producao_eventos
-    where tipo in ('ausencia', 'previsao', 'recurso_bloqueado', 'recurso_liberado', 'geracao_manual', 'geracao_semanal', 'fechamento_fisico')
-      and (
-        status = 'pendente'
-        or (status = 'erro' and tentativas < 3)
-        or (status = 'processando' and iniciado_em < now() - interval '5 minutes')
-      )
-    order by criado_em
-    limit greatest(1, least(coalesce(p_limite, 50), 200))
-    for update skip locked
-  )
-  update escala_producao_eventos e
-     set status = 'processando', tentativas = e.tentativas + 1, iniciado_em = now()
-    from candidatos c
-   where e.id = c.id
-  returning e.*;
-$$;
+-- O worker da outbox também reivindica 'fechamento_fisico' (rede de segurança: refaz o recálculo de um fechamento que gravou o inventário e não publicou).
+-- A função existente é ALTERADA pela sua própria definição (só acrescenta o tipo à lista), não reescrita do zero.
+do $$
+declare v_def text;
+begin
+  select pg_get_functiondef(p.oid) into v_def from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'escala_reivindicar_eventos';
+  if v_def is null then raise exception 'escala_reivindicar_eventos não encontrada'; end if;
+  if v_def not like '%fechamento_fisico%' then
+    v_def := replace(v_def, '''geracao_semanal'')', '''geracao_semanal'', ''fechamento_fisico'')');
+    if v_def not like '%fechamento_fisico%' then raise exception 'escala_reivindicar_eventos: lista de tipos não reconhecida (revisar a migration)'; end if;
+    execute v_def;
+  end if;
+end $$;
 
 -- =========================================================================
 -- 2) Flag
@@ -111,6 +100,20 @@ create table if not exists public.escala_buffer_pares (
   constraint escala_buffer_pares_vigencia check (vigente_ate is null or vigente_ate >= vigente_de)
 );
 create index if not exists escala_buffer_pares_buffer_idx on public.escala_buffer_pares (buffer_id);
+-- Par de etapas consecutivas que NÃO tem estoque físico (fluxo contínuo): declarado, com motivo, para não ser confundido com buffer esquecido no catálogo.
+create table if not exists public.escala_buffer_dispensas (
+  id uuid primary key default gen_random_uuid(),
+  produto_id uuid not null references public.produtos(id),
+  etapa_origem_id uuid not null references public.roteiro_etapas(id),
+  etapa_seguinte_id uuid not null references public.roteiro_etapas(id),
+  motivo text not null check (length(btrim(motivo)) >= 5),
+  vigente_de date not null default current_date,
+  vigente_ate date,
+  criado_por uuid references public.usuarios(id) on delete set null,
+  criado_em timestamptz not null default now(),
+  constraint escala_buffer_dispensas_unico unique (produto_id, etapa_origem_id, etapa_seguinte_id, vigente_de),
+  constraint escala_buffer_dispensas_vigencia check (vigente_ate is null or vigente_ate >= vigente_de)
+);
 create table if not exists public.escala_buffer_maquinas (
   buffer_id uuid not null references public.escala_buffers_fisicos(id),
   maquina_id uuid not null references public.maquinas(id),
@@ -227,7 +230,7 @@ $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['escala_buffers_fisicos', 'escala_buffer_pares'] loop
+  foreach t in array array['escala_buffers_fisicos', 'escala_buffer_pares', 'escala_buffer_dispensas'] loop
     execute format('drop trigger if exists %I on public.%I', 'trg_' || t || '_catalogo', t);
     execute format('create trigger %I before delete on public.%I for each row execute function public.escala_buffer_trg_catalogo()', 'trg_' || t || '_catalogo', t);
   end loop;
@@ -245,7 +248,9 @@ create or replace view public.escala_fechamento_estado as
   select f.id as fechamento_id, f.data, f.periodo_id, f.revisao, f.fechado_em, f.fechado_por, f.excecao,
          coalesce((select l.estado from public.escala_fechamento_log l where l.fechamento_id = f.id order by l.seq desc limit 1), 'RECALCULANDO') as estado,
          (select l.em from public.escala_fechamento_log l where l.fechamento_id = f.id order by l.seq desc limit 1) as estado_em,
-         (select l.detalhe from public.escala_fechamento_log l where l.fechamento_id = f.id order by l.seq desc limit 1) as detalhe
+         (select l.detalhe from public.escala_fechamento_log l where l.fechamento_id = f.id order by l.seq desc limit 1) as detalhe,
+         -- fechamento feito em modo SOMBRA: o plano oficial NÃO foi gerado a partir dele (só grava e mede); não vale como "período fechado oficialmente"
+         coalesce((select (l.detalhe ->> 'sombra') = 'true' from public.escala_fechamento_log l where l.fechamento_id = f.id order by l.seq desc limit 1), false) as sombra
   from public.escala_fechamentos_vigentes f;
 
 -- contagem VIGENTE por par legado do motor (a mais recente por instante do motor). Fechamento de exceção (sem contagem) não gera contagem.
@@ -299,7 +304,8 @@ declare v_atual record; v_id uuid;
 begin
   perform pg_advisory_xact_lock(hashtextextended('abrir|' || p_data::text || '|' || p_periodo, 0));
   if exists (select 1 from public.escala_fechamentos_vigentes f where f.data = p_data and f.periodo_id = p_periodo
-             and exists (select 1 from public.escala_fechamento_log l where l.fechamento_id = f.id and l.estado = 'CONFIRMADO')) and not p_forcar then
+             and exists (select 1 from public.escala_fechamento_log l where l.fechamento_id = f.id and l.estado = 'CONFIRMADO')
+             and not exists (select 1 from public.escala_fechamento_log l where l.fechamento_id = f.id and (l.detalhe ->> 'sombra') = 'true' and public.escala_fechamento_fisico_modo() = 'ativo')) and not p_forcar then
     raise exception 'FECHAMENTO_JA_CONFIRMADO: o período % de % já está fechado (correção exige abertura forçada)', p_periodo, p_data;
   end if;
   select * into v_atual from public.escala_fechamento_aberturas a
@@ -332,7 +338,15 @@ begin
   select id into v_id from public.escala_fechamentos where chave_idempotencia = p_chave;
   if found then return v_id; end if;
 
-  if not p_excecao then
+  -- fechamento de EXCEÇÃO: todos os buffers obrigatórios vêm com saldo_fisico nulo (registrados como "sem contagem"); fechamento normal exige todos preenchidos
+  if p_excecao then
+    if jsonb_typeof(p_buffers) <> 'array' or jsonb_array_length(p_buffers) <> p_buffers_obrigatorios then
+      raise exception 'FECHAMENTO_BUFFERS_INCOMPLETOS: a exceção deve registrar todos os % buffers como sem contagem', p_buffers_obrigatorios;
+    end if;
+    if exists (select 1 from jsonb_to_recordset(p_buffers) as x(saldo_fisico numeric) where x.saldo_fisico is not null) then
+      raise exception 'FECHAMENTO_EXCECAO_COM_SALDO: fechamento sem contagem não pode trazer saldo físico';
+    end if;
+  else
     if jsonb_typeof(p_buffers) <> 'array' or jsonb_array_length(p_buffers) <> p_buffers_obrigatorios then
       raise exception 'FECHAMENTO_BUFFERS_INCOMPLETOS: esperados %, recebidos %', p_buffers_obrigatorios, case when jsonb_typeof(p_buffers) = 'array' then jsonb_array_length(p_buffers) else -1 end;
     end if;
@@ -342,7 +356,8 @@ begin
   end if;
 
   -- um período só fecha uma vez (a menos que seja correção forçada). Fechamento em ERRO_RECALCULO NÃO reabre: o estoque já está salvo e o recálculo é refeito por retry
-  if exists (select 1 from public.escala_fechamentos_vigentes f where f.data = p_data and f.periodo_id = p_periodo) and not p_forcar_revisao then
+  if exists (select 1 from public.escala_fechamentos_vigentes f where f.data = p_data and f.periodo_id = p_periodo
+             and not (public.escala_fechamento_fisico_modo() = 'ativo' and exists (select 1 from public.escala_fechamento_log l where l.fechamento_id = f.id and (l.detalhe ->> 'sombra') = 'true'))) and not p_forcar_revisao then
     raise exception 'FECHAMENTO_JA_EXISTE: o período % de % já foi fechado', p_periodo, p_data;
   end if;
   if p_abertura is not null then
@@ -409,7 +424,8 @@ returns boolean language plpgsql stable security definer set search_path = publi
 declare v_ab record; v_fech record;
 begin
   if public.escala_fechamento_fisico_modo() <> 'ativo' then return true; end if;
-  select f.* into v_fech from public.escala_fechamentos_vigentes f where f.data = p_data and f.periodo_id = p_periodo;
+  select f.* into v_fech from public.escala_fechamentos_vigentes f where f.data = p_data and f.periodo_id = p_periodo
+    and not exists (select 1 from public.escala_fechamento_log l where l.fechamento_id = f.id and (l.detalhe ->> 'sombra') = 'true');
   if found then
     -- já fechado: só com uma abertura NOVA (correção) do próprio usuário
     select a.* into v_ab from public.escala_fechamento_aberturas a
@@ -460,7 +476,7 @@ revoke all on function public.escala_trg_apontamento_fechamento() from public, a
 do $$
 declare t text;
 begin
-  foreach t in array array['escala_buffers_fisicos', 'escala_buffer_pares', 'escala_buffer_maquinas', 'escala_fechamento_aberturas', 'escala_fechamentos', 'escala_fechamento_buffers', 'escala_fechamento_log', 'escala_fechamento_trava'] loop
+  foreach t in array array['escala_buffers_fisicos', 'escala_buffer_pares', 'escala_buffer_dispensas', 'escala_buffer_maquinas', 'escala_fechamento_aberturas', 'escala_fechamentos', 'escala_fechamento_buffers', 'escala_fechamento_log', 'escala_fechamento_trava'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists %I on public.%I', t || '_leitura', t);
     execute format('create policy %I on public.%I for select to authenticated using (public.is_admin() or public.has_permissao(%L) or public.has_permissao(%L) or public.has_permissao(%L))',

@@ -1,4 +1,4 @@
--- SEED do catálogo de buffers físicos (PROD) — rodar DEPOIS da migration 20261110100000 e SÓ com autorização. Idempotente. Não altera nada além do catálogo.
+-- SEED do catálogo de buffers físicos (PROD) — cobre TODOS os produtos ativos com ≥ 2 etapas na semana de 02/11 (Conector 3/4 Conv+Auto, Conector 1.1/4", Caixa Amarela) — rodar DEPOIS da migration 20261110100000 e SÓ com autorização. Idempotente. Não altera nada além do catálogo.
 -- Conector 3/4 (enquanto Convencional e Automático existirem separados): 3 buffers FÍSICOS; Conv = 'contabil' (recebe o total), Automático = 'zero' (recebe 0).
 -- Caixa Amarela: Etiquetar (E16) → Montagem. Conferir com a query de cobertura (ao final): TODO par de produto ativo com ≥ 2 etapas precisa de buffer.
 begin;
@@ -6,7 +6,8 @@ insert into public.escala_buffers_fisicos (chave, rotulo, descricao, ordem) valu
   ('conector34:rosqueadas',  'Rosqueadas aguardando Parafusar',   'Estoque entre Rosquear e Parafusar (Conector 3/4)', 10),
   ('conector34:parafusadas', 'Parafusadas aguardando Etiquetar',  'UM estoque físico: Parafusadeiras + saída da M8 (Convencional + Automático)', 20),
   ('conector34:etiquetadas', 'Etiquetadas aguardando Embalar',    'UM estoque físico antes da Embalagem (Convencional + Automático)', 30),
-  ('caixa:e16-montagem',     'Caixas etiquetadas aguardando Montagem', 'Caixa Amarela: Etiquetadora 16 → Montagem', 40)
+  ('caixa:e16-montagem',     'Caixas etiquetadas aguardando Montagem', 'Caixa Amarela: Etiquetar (E16) → Montar Presilha', 40),
+  ('conector114:rosqueadas', 'Rosqueadas 1.1/4" aguardando Embalar', 'Conector 1.1/4": Rosquear → Embalar (Embalagem 17B)', 50)
 on conflict (chave) do nothing;
 
 insert into public.escala_buffer_pares (buffer_id, produto_id, etapa_origem_id, etapa_seguinte_id, papel, vigente_de)
@@ -17,7 +18,8 @@ from (values
   ('conector34:parafusadas', 'a027ac97-ffd1-4834-8ed0-d3a94aac4aee', '1b72bf46-5d13-43c5-89b4-6169436085b7', '1863b452-77f3-4d5c-9c49-a6d28ae77131', 'zero'),
   ('conector34:etiquetadas', '27c229d7-f192-41eb-aad1-0c69ece53eba', '34371af3-2608-42cc-9ded-1f7815a635a8', 'b3db9629-c3f8-46d8-b4dd-64c9a61a5bc4', 'contabil'),
   ('conector34:etiquetadas', 'a027ac97-ffd1-4834-8ed0-d3a94aac4aee', '1863b452-77f3-4d5c-9c49-a6d28ae77131', 'fb96d08d-bd64-43d3-8694-40230c695c39', 'zero'),
-  ('caixa:e16-montagem',     '238ca607-2111-4aff-9a19-a9ae6f20da7e', 'c765eb93-4597-405f-803a-91c7fab9ad8e', 'f75cc037-a579-4e82-b457-3287dbb6f694', 'contabil')
+  ('caixa:e16-montagem',     '238ca607-2111-4aff-9a19-a9ae6f20da7e', 'c765eb93-4597-405f-803a-91c7fab9ad8e', 'f75cc037-a579-4e82-b457-3287dbb6f694', 'contabil'),
+  ('conector114:rosqueadas', 'fbbcfe63-ad4d-4e3d-9376-892f6902a5cc', 'c85fea8c-702d-4484-b9c8-2ad46670abd2', '035e7833-6947-47f9-a23a-fa258bf9a84f', 'contabil')
 ) as v(chave, produto_id, origem, seguinte, papel)
 join public.escala_buffers_fisicos b on b.chave = v.chave
 on conflict (buffer_id, produto_id, etapa_origem_id, etapa_seguinte_id, vigente_de) do nothing;

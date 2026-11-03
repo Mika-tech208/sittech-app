@@ -27,10 +27,17 @@ export interface EntradaConfirmacao {
   dispositivo?: string | null;
 }
 
-export interface ErroValidacao { codigo: string; mensagem: string; bufferId?: string }
+export interface ErroValidacao { codigo: string; mensagem: string; bufferId?: string; detalhes?: Record<string, unknown> }
+
+/** Par (produto, etapa→etapa) com estoque intermediário que o motor controla e que NÃO está no catálogo de buffers nem declarado como sem estoque físico. */
+export interface ParSemBuffer { produtoId: string; produto: string; etapaOrigemId: string; etapaOrigem: string; etapaSeguinteId: string; etapaDestino: string; rota: string }
 export interface ResultadoValidacao { ok: boolean; erros: ErroValidacao[]; exigeConfirmacao: string[] }
 
-export interface TemposFechamento { gravacao: number; entrada: number; corte: number; validacao: number; persistencia: number; total: number }
+export interface TemposFechamento {
+  gravacao: number; entrada: number; corte: number; validacao: number; persistencia: number; total: number;
+  /** carga do contexto da confirmação, aberta por etapa (ms): estado do banco, montagem do estado do fluxo, catálogo de buffers+estimativas, postos/apontamentos */
+  contexto?: { estado: number; montagem: number; buffers: number; postos: number };
+}
 
 /** Limites (iguais aos CHECKs do banco). */
 export const DIFERENCA_EXIGE_MOTIVO = { absoluta: 500, relativa: 0.15 } as const;

@@ -124,12 +124,44 @@ end $$;
 select escala_fechamento_resultado(:'fid3','CONFIRMADO','{}'::jsonb);
 do $$ begin assert (select status from escala_producao_eventos where tipo='fechamento_fisico' and payload->>'fechamento_id' = (select id::text from escala_fechamentos where revisao=1 and periodo_id='m3')) = 'processado', 'CONFIRMADO baixa o evento'; end $$;
 
--- T11: fechamento de exceção (sem contagem): grava, não gera contagem para o motor, exige motivo
-select escala_fechamento_registrar(null,'2026-11-02','2026-11-03','t1','periodo', now(), now(), '2026-11-03 14:20-03', :'A','t', 11,11,'{}','[]'::jsonb, 3, null, true, 'impossível acessar o estoque: incêndio no galpão', null, '44444444-4444-4444-4444-444444444444') as fid4 \gset
+-- T11: fechamento de exceção (sem contagem): registra TODOS os buffers como "sem contagem" (saldo nulo), não gera contagem para o motor, exige motivo e recusa saldo informado
+do $$ begin
+  begin perform escala_fechamento_registrar(null,'2026-11-02','2026-11-03','t1','periodo', now(), now(), now(), '00000000-0000-0000-0000-0000000000a1','t', 11,11,'{}','[{"buffer_id":"b1000000-0000-0000-0000-000000000001","saldo_fisico":5},{"buffer_id":"b1000000-0000-0000-0000-000000000002"},{"buffer_id":"b1000000-0000-0000-0000-000000000003"}]'::jsonb, 3, null, true, 'galpão interditado', null, gen_random_uuid()); raise exception 'exceção com saldo aceita'; exception when others then if sqlerrm not like 'FECHAMENTO_EXCECAO_COM_SALDO%' then raise; end if; end;
+  begin perform escala_fechamento_registrar(null,'2026-11-02','2026-11-03','t1','periodo', now(), now(), now(), '00000000-0000-0000-0000-0000000000a1','t', 11,11,'{}','[]'::jsonb, 3, null, true, 'galpão interditado', null, gen_random_uuid()); raise exception 'exceção sem os buffers aceita'; exception when others then if sqlerrm not like 'FECHAMENTO_BUFFERS_INCOMPLETOS%' then raise; end if; end;
+end $$;
+select escala_fechamento_registrar(null,'2026-11-02','2026-11-03','t1','periodo', now(), now(), '2026-11-03 14:20-03', :'A','t', 11,11,'{}',
+  '[{"buffer_id":"b1000000-0000-0000-0000-000000000001","saldo_estimado":1200},{"buffer_id":"b1000000-0000-0000-0000-000000000002","saldo_estimado":4800},{"buffer_id":"b1000000-0000-0000-0000-000000000003","saldo_estimado":9000}]'::jsonb, 3, null, true, 'impossível acessar o estoque: incêndio no galpão', null, '44444444-4444-4444-4444-444444444444') as fid4 \gset
 do $$ begin
   assert (select excecao from escala_fechamentos where periodo_id='t1');
-  assert (select count(*) from escala_fechamento_buffers b join escala_fechamentos f on f.id=b.fechamento_id where f.periodo_id='t1') = 0;
+  assert (select count(*) from escala_fechamento_buffers b join escala_fechamentos f on f.id=b.fechamento_id where f.periodo_id='t1' and b.saldo_fisico is null) = 3, '3 buffers registrados sem contagem';
+  assert (select count(*) from escala_contagens_fechamento_para_motor where fechamento_id = (select id from escala_fechamentos where periodo_id='t1')) = 0, 'exceção não gera contagem para o motor';
 end $$;
+
+-- T11c: fechamento feito em SOMBRA não conta como fechamento oficial quando a flag vira ATIVO (abre, fecha de novo como revisão 2 e libera o apontamento)
+update escala_parametros set valor='"sombra"' where chave='escala_fechamento_fisico_modo';
+select escala_fechamento_registrar(null,'2026-11-02','2026-11-03','t2','periodo', now(), now(), '2026-11-03 15:40-03', :'A','t', 11,11,'{}',
+  '[{"buffer_id":"b1000000-0000-0000-0000-000000000001","saldo_estimado":100,"saldo_fisico":100},{"buffer_id":"b1000000-0000-0000-0000-000000000002","saldo_estimado":100,"saldo_fisico":100},{"buffer_id":"b1000000-0000-0000-0000-000000000003","saldo_estimado":100,"saldo_fisico":100}]'::jsonb, 3, null, false, null, null, '66666666-6666-6666-6666-666666666666') as fsom \gset
+select escala_fechamento_resultado(:'fsom','CONFIRMADO','{"sombra":true}'::jsonb);
+do $$ begin assert (select sombra from escala_fechamento_estado where periodo_id='t2'), 'view marca sombra'; end $$;
+update escala_parametros set valor='"ativo"' where chave='escala_fechamento_fisico_modo';
+do $$ begin
+  assert escala_fechamento_apontamento_permitido('2026-11-03','t2','00000000-0000-0000-0000-0000000000a2'), 'sombra não bloqueia apontamento em ativo';
+  perform escala_fechamento_abrir('2026-11-02','2026-11-03','t2','00000000-0000-0000-0000-0000000000a1','t',30);
+  perform escala_fechamento_registrar(null,'2026-11-02','2026-11-03','t2','periodo', now(), now(), '2026-11-03 15:40-03', '00000000-0000-0000-0000-0000000000a1','t', 11,11,'{}',
+    '[{"buffer_id":"b1000000-0000-0000-0000-000000000001","saldo_estimado":100,"saldo_fisico":100},{"buffer_id":"b1000000-0000-0000-0000-000000000002","saldo_estimado":100,"saldo_fisico":100},{"buffer_id":"b1000000-0000-0000-0000-000000000003","saldo_estimado":100,"saldo_fisico":100}]'::jsonb, 3, null, false, null, null, '77777777-7777-7777-7777-777777777777');
+  assert (select revisao from escala_fechamentos_vigentes where periodo_id='t2') = 2, 'revisão 2 oficial depois da sombra';
+end $$;
+update escala_parametros set valor='"sombra"' where chave='escala_fechamento_fisico_modo';
+
+-- T11b: o claim da outbox ganhou 'fechamento_fisico' SEM perder os tipos que já existiam; os CHECKs mantêm os valores anteriores
+do $$ declare d text; begin
+  select pg_get_functiondef(p.oid) into d from pg_proc p where p.proname = 'escala_reivindicar_eventos';
+  assert d like '%fechamento_fisico%' and d like '%geracao_semanal%' and d like '%recurso_liberado%', 'claim da outbox';
+  assert (select pg_get_constraintdef(oid) from pg_constraint where conname = 'escala_producao_eventos_tipo_check') like '%apontamento_periodo%', 'CHECK de eventos preserva os tipos';
+  assert (select pg_get_constraintdef(oid) from pg_constraint where conname = 'usuario_permissoes_permissao_check') like '%escala_relatorios%', 'CHECK de permissões preserva as existentes';
+  assert (select pg_get_constraintdef(oid) from pg_constraint where conname = 'usuario_permissoes_permissao_check') like '%escala_fechamento_excecao%';
+end $$;
+
 -- T12: custo de gravar o fechamento no banco (Postgres local, 3 buffers; piso de latência — o custo de rede do Supabase entra na fase sombra)
 do $$ declare i int; t0 timestamptz; ms numeric[] := '{}'; v numeric[]; fid uuid; begin
   for i in 1..200 loop

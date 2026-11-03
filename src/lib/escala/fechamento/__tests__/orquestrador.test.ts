@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { abrirFechamento, confirmarFechamento, reprocessarFechamento, type ContextoFechamento, type FechamentoIO, type FechamentoSalvo, type ResultadoRecalculo, type SnapshotParaGravar } from "../orquestrador";
+import { abrirFechamento, confirmarFechamento, reprocessarFechamento, MENSAGEM_SEM_CORTE_V1, type ContextoFechamento, type FechamentoIO, type FechamentoSalvo, type ResultadoRecalculo, type SnapshotParaGravar } from "../orquestrador";
 import type { BufferCatalogo, EntradaConfirmacao, EstadoFechamento, ModoFechamento } from "@/features/escala/fechamento/tipos";
 import type { ContagemFisicaPar } from "@/features/escala/fluxo/tipos";
 
@@ -196,5 +196,48 @@ describe("fluxo único: fechar → recalcular → confirmar", () => {
     const io = new Fake(); const r = await confirmarFechamento(io, entrada(), U, relogio);
     const x = r.tempos!; expect(x.gravacao + x.entrada + x.corte + x.validacao + x.persistencia).toBeLessThanOrEqual(x.total + 4000);
     expect(io.log.at(-1)!.detalhe.tempos_ms).toEqual(x);
+  });
+
+  const SEM_BUFFER = { produtoId: "p-plug", produto: "Plug Macho", etapaOrigemId: "e1", etapaOrigem: "Rosquear", etapaSeguinteId: "e2", etapaDestino: "Embalar", rota: "Rosquear → Embalar" };
+  it("MODO ATIVO: buffer físico não cadastrado BLOQUEIA (abrir e confirmar), com produto, rota, etapas, semana e período; nada é gravado", async () => {
+    const io = new Fake(); io.ctx = ctx0({ paresSemBuffer: [SEM_BUFFER] });
+    const ab = await abrirFechamento(io, { data: "2026-11-03", periodoId: "m2", usuarioId: U });
+    expect(ab.ok).toBe(false);
+    expect(ab.erros?.[0]).toMatchObject({ codigo: "BUFFER_FISICO_NAO_CADASTRADO", detalhes: { produto: "Plug Macho", rota: "Rosquear → Embalar", etapaOrigem: "Rosquear", etapaDestino: "Embalar", semana: "2026-11-02", periodo: "m2" } });
+    const r = await confirmarFechamento(io, entrada(), U, relogio);
+    expect(r.ok).toBe(false); expect(r.erros[0].codigo).toBe("BUFFER_FISICO_NAO_CADASTRADO");
+    expect(io.fechamentos.size).toBe(0); expect(io.recalculos).toHaveLength(0);
+    // nem a exceção contorna: sem catálogo completo não há fechamento oficial
+    io.excecaoOk = true;
+    const ex = await confirmarFechamento(io, entrada({ buffers: [], excecao: { motivo: "galpão interditado" }, chave: "88888888-8888-8888-8888-888888888888" }), U, relogio);
+    expect(ex.ok).toBe(false); expect(io.fechamentos.size).toBe(0);
+  });
+  it("MODO SOMBRA: buffer não cadastrado só ALERTA (registra no log) e continua", async () => {
+    const io = new Fake(); io.modoAtual = "sombra"; io.ctx = ctx0({ paresSemBuffer: [SEM_BUFFER] });
+    const ab = await abrirFechamento(io, { data: "2026-11-03", periodoId: "m2", usuarioId: U });
+    expect(ab.ok).toBe(true); expect(ab.alertas?.[0]).toMatchObject({ codigo: "BUFFER_FISICO_NAO_CADASTRADO", produto: "Plug Macho" });
+    const r = await confirmarFechamento(io, entrada(), U, relogio);
+    expect(r.ok).toBe(true);
+    expect((io.log.at(-1)!.detalhe.alertas as { codigo: string }[])[0].codigo).toBe("BUFFER_FISICO_NAO_CADASTRADO");
+  });
+  it("MODO ATIVO: semana sem corte-v1 BLOQUEIA com a mensagem combinada; em sombra segue sem ensaio", async () => {
+    const io = new Fake(); io.ctx = ctx0({ semCorteV1: true });
+    const r = await confirmarFechamento(io, entrada(), U, relogio);
+    expect(r.ok).toBe(false); expect(r.mensagem).toBe(MENSAGEM_SEM_CORTE_V1); expect(r.erros[0].codigo).toBe("SEMANA_SEM_CORTE_V1"); expect(io.fechamentos.size).toBe(0);
+    io.modoAtual = "sombra";
+    const s = await confirmarFechamento(io, entrada(), U, relogio);
+    expect(s.ok).toBe(true); expect(io.recalculos).toHaveLength(0); expect(io.log.at(-1)!.detalhe.ensaio).toMatchObject({ publicavel: false, motivo: "SEMANA_SEM_CORTE_V1" });
+  });
+  it("EXCEÇÃO: registra todos os buffers sem contagem, marca a programação como PARCIAL e fica no log", async () => {
+    const io = new Fake(); io.excecaoOk = true;
+    const r = await confirmarFechamento(io, entrada({ buffers: [], excecao: { motivo: "galpão interditado" }, chave: "99999999-9999-9999-9999-999999999999" }), U, relogio);
+    expect(r).toMatchObject({ ok: true, parcial: true }); expect(r.mensagem).toMatch(/PARCIALMENTE em estimativa/);
+    expect(io.log.at(-1)!.detalhe).toMatchObject({ excecao: true, base_parcial_estimativa: true, buffers_sem_contagem: ["b1", "b2", "b3"] });
+  });
+  it("fechamento feito em SOMBRA não impede o oficial quando a flag vira ATIVO (vira revisão)", async () => {
+    const io = new Fake(); io.modoAtual = "ativo";
+    io.trocarContexto = (c) => ({ ...c, periodoJaFechado: true, fechamentoVigente: { id: "f0", estado: "CONFIRMADO", sombra: true } });
+    const r = await confirmarFechamento(io, entrada(), U, relogio);
+    expect(r.ok).toBe(true); expect(r.estado).toBe("CONFIRMADO");
   });
 });

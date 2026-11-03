@@ -85,7 +85,7 @@ Banco (Postgres local, `registrar + resultado`, 200 execuções): p50 0,15 ms ·
 Pré-requisito: semana ativa no planejador `corte-v1` (`producao_real_planejador_semanas`), senão o portão recusa (por desenho).
 1. **Backup durável** (fora de `/private/tmp`): hash/versão do plano, linhas da semana, contagens, parâmetros, eventos (mesmo pacote de 03/11 12:2x).
 2. **Migration** `20261110100000` em PROD (inerte: modo desligado, só cria objetos e troca o `escala_reivindicar_eventos` para também reivindicar o novo tipo). Rollback: `supabase/rollbacks/20261110100000_escala_fechamento_fisico_ROLLBACK.sql`.
-3. **Seed do catálogo** `docs/fechamento-fisico/seed-catalogo-conector34.sql` (Conector 3/4 + Caixa) e a query de cobertura (0 pares sem buffer).
+3. **Seed do catálogo** `docs/fechamento-fisico/seed-catalogo-buffers.sql` (Conector 3/4 + Caixa) e a query de cobertura (0 pares sem buffer).
 4. **Permissões**: conceder `escala_fechamento` à(s) pessoa(s) do tablet e `escala_fechamento_excecao` ao perfil superior.
 5. **Deploy do código** (flag ainda desligada): sem mudança visível.
 6. **SOMBRA** (`"sombra"`) por pelo menos 3 dias úteis completos (≥ 15 fechamentos): a pessoa do tablet já usa a tela; o motor oficial NÃO usa o físico; o banco acumula erro de WIP e ensaios.

@@ -4,6 +4,7 @@
 // período, sem sidebar, alto contraste, letras grandes, atualização
 // automática. Nunca escreve, nunca recalcula, nunca dispara regra.
 
+import SeloFechamento from "@/features/escala/fechamento/SeloFechamento";
 import { useEffect, useState } from "react";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useEscalaTv } from "@/hooks/useEscalaTv";
@@ -119,6 +120,7 @@ export default function EscalaTvPage() {
       <style>{ESTILOS_TV}</style>
       <div className="stx-tv-topo">
         <span>Escala de Produção · {d}/{m}{tv.simulando ? " · SIMULAÇÃO" : ""}</span>
+        <SeloFechamento intervaloMs={20_000} grande />
         <span className="stx-tv-relogio">{hora}</span>
         <span>{tv.tempoReal === "ativo" ? "● ao vivo" : tv.tempoReal === "polling" ? "● atualização periódica" : "● conectando…"}</span>
       </div>
