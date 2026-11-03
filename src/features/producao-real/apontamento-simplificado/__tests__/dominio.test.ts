@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AlocacaoPlano, ApontamentoExistente, Catalogo, LinhaApontamento, VinculoSalvo } from "../tipos";
 import { postosProgramados, linhasIniciais } from "../prefill";
 import { adicionarExtra, desfazerNaoProduziu, editarDescricao, editarReal, escolherMotivo, etapaDoPar, informarQuantidades, marcarNaoProduziu, operacaoDaLinha, produtosDaMaquina, removerExtra } from "../linhas";
-import { divergencias } from "../diff";
+import { alteradoDoPlanejado, divergencias } from "../diff";
 import { MOTIVOS_NAO_PRODUZIU, motivoDoBanco, paraSemProducao } from "../motivos";
 import { bloqueiosParaSalvar, completude, linhaEmBranco, linhaIniciada, paraRpc, problemasDaLinha, problemasDoConjunto } from "../validacao";
 import { lerLinhas } from "../payload";
@@ -103,6 +103,16 @@ describe("TUDO editável + planejado preservado (planejado × real)", () => {
     expect(problemasDaLinha(l, CAT).map((p) => p.codigo)).toContain("PRODUTO_SEM_ETAPA_NA_MAQUINA");
     expect(produtosDaMaquina(CAT, "m6").map((p) => p.id)).toEqual(["pA", "pB"]);
     expect(divergencias(editarReal(por(iniciais(), "m3"), { maquinaId: "m10" }, CAT), CAT)).toEqual(["MAQUINA", "OPERACAO"]);
+  });
+  it("selo ALTERADO DO PLANEJADO: operador, máquina ou produto; só quantidades ou voltar ao plano não acionam", () => {
+    const l = por(iniciais(), "m3");
+    expect(alteradoDoPlanejado(informarQuantidades(l, { produzido: 1, refugo: 0 }), CAT)).toBe(false);
+    expect(alteradoDoPlanejado(editarReal(l, { funcionarioId: "f3" }, CAT), CAT)).toBe(true);
+    expect(alteradoDoPlanejado(editarReal(l, { maquinaId: "m6" }, CAT), CAT)).toBe(true);
+    expect(alteradoDoPlanejado(editarReal(editarReal(l, { maquinaId: "m6" }, CAT), { produtoId: "pB" }, CAT), CAT)).toBe(true);
+    expect(alteradoDoPlanejado(editarReal(editarReal(l, { funcionarioId: "f3" }, CAT), { funcionarioId: "f1" }, CAT), CAT)).toBe(false);
+    expect(alteradoDoPlanejado(marcarNaoProduziu(editarReal(l, { maquinaId: "m6" }, CAT), "PARADA"), CAT)).toBe(true);   // PLANEJADO m3 / REAL m6, sem exigir NÃO PRODUZIU na m3
+    expect(alteradoDoPlanejado(adicionarExtra([], U(1))[0], CAT)).toBe(false);                                          // extra não tem plano para comparar
   });
   it("sem alteração não há divergência; sem produção só compara a máquina", () => {
     const l = por(iniciais(), "m3");

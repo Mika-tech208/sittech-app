@@ -112,6 +112,12 @@ describe("HTTP do apontamento simplificado", () => {
     const regra = fakeApIO({ salvar: async () => { throw new Error(`LINHA[${U(1)}]: Nenhuma etapa do roteiro do produto é elegível`); } });
     const r = await acaoApontamentosSalvar(regra.io, FECHA, { data: "2026-11-03", periodo_id: "m2", linhas: [LINHA] });
     expect(r.status).toBe(422); expect(r.corpo.mensagem).toBe("Nada foi gravado.");
+    const semEtapa = fakeApIO({ salvar: async () => { throw new Error(`LINHA[${U(1)}]: Nenhuma etapa do roteiro do produto ${U(3)} é elegível para a máquina ${U(2)} — verifique o cadastro do produto`); } });
+    const e = await acaoApontamentosSalvar(semEtapa.io, FECHA, { data: "2026-11-03", periodo_id: "m2", linhas: [LINHA] });
+    expect(e.status).toBe(422);
+    expect(e.corpo).toMatchObject({ codigo: "PRODUTO_SEM_ETAPA_NA_MAQUINA", linha: U(1), mensagem: "Nada foi gravado." });
+    expect(String(e.corpo.erro)).toContain("tecnicamente válida");
+    expect(String(e.corpo.erro)).not.toContain(U(3));                              // sem ids na mensagem
     const queda = fakeApIO({ salvar: async () => { throw new Error("fetch failed"); } });
     expect((await acaoApontamentosSalvar(queda.io, FECHA, { data: "2026-11-03", periodo_id: "m2", linhas: [LINHA] })).status).toBe(500);
   });

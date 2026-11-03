@@ -4,6 +4,8 @@ import type { Catalogo, LinhaApontamento, LinhaRpc, ProblemaLinha } from "./tipo
 import { defMotivo } from "./motivos";
 import { etapaDoPar } from "./linhas";
 
+/** Decidido: NÃO relaxar o CHECK do banco — a combinação real precisa ser tecnicamente válida (roteiro com exatamente uma etapa para máquina×produto). */
+export const MENSAGEM_SEM_ETAPA = "Esta combinação de máquina e produto não tem etapa cadastrada no roteiro (ou tem mais de uma). A combinação real precisa ser tecnicamente válida: escolha outro produto/máquina ou peça o cadastro do roteiro.";
 const ehInteiro = (n: number | null) => n !== null && Number.isInteger(n) && n >= 0;
 
 /** Linha totalmente em branco (extra que ninguém começou): é ignorada, nunca bloqueia. */
@@ -21,7 +23,7 @@ export function problemasDaLinha(l: LinhaApontamento, cat: Catalogo): ProblemaLi
     return p;
   }
   if (!l.real.produtoId) p.push({ codigo: "PRODUTO_OBRIGATORIO", mensagem: "Escolha o produto.", campo: "produto" });
-  else if (l.real.maquinaId && !etapaDoPar(cat, l.real.maquinaId, l.real.produtoId)) p.push({ codigo: "PRODUTO_SEM_ETAPA_NA_MAQUINA", mensagem: "Este produto não tem etapa cadastrada (ou tem mais de uma) nesta máquina. Escolha outro produto/máquina.", campo: "produto" });
+  else if (l.real.maquinaId && !etapaDoPar(cat, l.real.maquinaId, l.real.produtoId)) p.push({ codigo: "PRODUTO_SEM_ETAPA_NA_MAQUINA", mensagem: MENSAGEM_SEM_ETAPA, campo: "produto" });
   if (!l.real.funcionarioId) p.push({ codigo: "OPERADOR_OBRIGATORIO", mensagem: "Escolha quem estava no posto.", campo: "operador" });
   if (l.produzido === null) p.push({ codigo: "PRODUZIDO_OBRIGATORIO", mensagem: "Informe o produzido.", campo: "produzido" });
   else if (!ehInteiro(l.produzido)) p.push({ codigo: "PRODUZIDO_INVALIDO", mensagem: "Produzido deve ser um número inteiro (0 ou mais).", campo: "produzido" });

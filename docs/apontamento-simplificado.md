@@ -76,8 +76,8 @@ Tabela `apontamento_planejado_real` (**append-only**: UPDATE bloqueado por gatil
 ## 4. Fluxo (6 passos, dentro do modal de fechamento)
 
 1. **Apontamentos dos postos programados**: só as máquinas do plano oficial daquele período (nunca máquina não programada), pré-preenchidas (operador, produto, operação, peças). Normalmente só `produzido` e `refugo`
-   (refugo vazio = 0, igual ao modal de hoje). `NÃO PRODUZIU` + motivo. **Tudo editável**: máquina, operador e produto (a operação é derivada de máquina×produto pelo roteiro); o programado fica visível ao lado e as
-   divergências aparecem como etiquetas. Nada bloqueia a edição; só o salvar valida (produto sem etapa na máquina, refugo > produzido, duas linhas na mesma máquina…).
+   (refugo vazio = 0, igual ao modal de hoje). `NÃO PRODUZIU` + motivo. **Tudo editável**: máquina, operador e produto (a operação é derivada de máquina×produto pelo roteiro); o programado fica visível ao lado e um selo
+   discreto "ALTERADO DO PLANEJADO" aparece quando operador, máquina ou produto mudam (sem confirmação extra). Nada bloqueia a edição; só o salvar valida (produto sem etapa na máquina, refugo > produzido, duas linhas na mesma máquina…).
 2. **Apontamento extra** (`+ ADICIONAR APONTAMENTO`): produção fora da escala; aceita o real e grava `POSTO_NAO_PLANEJADO`. Extra em branco é ignorada; extra iniciada precisa estar correta.
    `SALVAR APONTAMENTOS` grava o que está pronto (salvamento parcial permitido; postos intocados seguem pendentes).
 3. **Inventário intermediário físico** (já existia, inalterado).
@@ -98,13 +98,14 @@ pendência de um posto que a pessoa já tratou. Isso é feito por `ajustarPostos
 
 | Camada | Arquivo | Resultado |
 |---|---|---|
-| Domínio puro (pré-preenchimento, edição de qualquer campo, planejado preservado e congelado, NÃO PRODUZIU + 6 motivos + mapeamento, POSTO_NAO_PLANEJADO, completude, payload estrito, passos, flag) | `src/features/producao-real/apontamento-simplificado/__tests__/dominio.test.ts` | 35 |
-| UI (React Testing Library; API mockada): flag desligada, pré-preenchimento, salvar, editar real, extra, erro; **modal** com flag desligada (fluxo anterior) e ativa (passos + botão só libera após salvar) | `__tests__/ui.test.tsx` | 7 |
-| Orquestrador/HTTP: ajuste de postos, `acaoAbrir` (`tem_pendentes`), `acaoConfirmar` (`POSTOS_PENDENTES` 422 sem gravar; fecha com NÃO PRODUZIU/realizado em outra máquina), rotas do apontamento (403/400/409/422/500) | `src/lib/escala/fechamento/__tests__/apontamentoSimplificado.test.ts` | 10 |
+| Domínio puro (pré-preenchimento, edição de qualquer campo, planejado preservado e congelado, **selo ALTERADO DO PLANEJADO**, NÃO PRODUZIU + 6 motivos + mapeamento, POSTO_NAO_PLANEJADO, completude, payload estrito, passos, flag) | `src/features/producao-real/apontamento-simplificado/__tests__/dominio.test.ts` | 36 |
+| UI (React Testing Library; API mockada): flag desligada, pré-preenchimento, salvar, editar real, **selo ALTERADO DO PLANEJADO (aparece/some, sem confirmação extra)**, **opção "Parada" → motivo fino PARADA**, extra, erro; **modal** com flag desligada (fluxo anterior) e ativa (passos + botão só libera após salvar) | `__tests__/ui.test.tsx` | 9 |
+| Orquestrador/HTTP: ajuste de postos, `acaoAbrir` (`tem_pendentes`), `acaoConfirmar` (`POSTOS_PENDENTES` 422 sem gravar; fecha com NÃO PRODUZIU/realizado em outra máquina), rotas do apontamento (403/400/409/422/500; **máquina×produto sem etapa ⇒ 422 com explicação clara, sem ids**) | `src/lib/escala/fechamento/__tests__/apontamentoSimplificado.test.ts` | 10 |
 | **Banco** (clone local de PROD copiado para um Postgres descartável; migration 2× + teste + rollback + reaplicação) | `supabase/tests/apontamento_simplificado.test.sql` via `scripts/apontamento-simplificado/rodar-teste-db.sh` | 29 verificações ok, termina em ROLLBACK |
+| **Ensaio supabase-js/RPC com JWT de usuário via PostgREST** (clone local; ver 6.1) | `scripts/apontamento-simplificado/ensaio-supabasejs.sh` | 28 PASS / 0 FAIL |
 
-`npx vitest run` completo: **1976 passam / 14 falham em 6 arquivos — exatamente as 14 falhas de `origin/main`** (intelligence evals, producao-real desvios/funcionarios/validacao-previsao/visao-geral, relatorios arquivo; baseline medido
-antes das mudanças: 1924 passam / 14 falham; +52 testes novos). `tsc --noEmit` limpo; `eslint` limpo nos arquivos novos e tocados; `next build --webpack` (env dummy pedido) compila e lista `/api/escala/fechamento/apontamentos`.
+`npx vitest run` completo: **1979 passam / 14 falham em 6 arquivos — exatamente as 14 falhas de `origin/main`** (intelligence evals, producao-real desvios/funcionarios/validacao-previsao/visao-geral, relatorios arquivo; baseline medido
+antes das mudanças: 1924 passam / 14 falham; +55 testes novos). `tsc --noEmit` limpo; `eslint` limpo nos arquivos novos e tocados; `next build --webpack` (env dummy pedido) compila e lista `/api/escala/fechamento/apontamentos`.
 
 Banco (casos): flag desligada recusa; ligar a flag não enfileira recálculo; lote com 4 linhas (igual ao plano / NÃO PRODUZIU PARADA / operador trocado / extra) → vínculos, divergências, `POSTO_NAO_PLANEJADO`, `criado_por`;
 append-only; reenvio substitui e guarda histórico+vínculo; máquina duplicada, posto inexistente, OUTRO sem descrição, motivo inválido, produto inexistente (atomicidade: nada gravado); apontamento do painel preservado;
@@ -112,11 +113,25 @@ linha editada fora do fluxo bloqueia o reenvio; usuário sem permissão; janela 
 
 Verificação visual: harness `/dev/apontamento-simplificado` (não renderiza em produção) + `scripts/apontamento-simplificado/capturas.cjs` (Chrome headless): `docs/apontamento-simplificado/screenshots/01…09`.
 
+### 6.1 Ensaio da camada supabase-js/RPC (JWT de usuário via PostgREST) — resultado
+
+`scripts/apontamento-simplificado/ensaio-supabasejs.sh` (+ `.ts`): copia o clone local de PROD para o banco descartável `sittech_apont_e2e` (o clone compartilhado **não** recebe a migration), aplica a migration, sobe um PostgREST e um proxy próprios
+(3311/3310, mesmo `jwt-secret` do clone lido do arquivo e nunca impresso), emite JWTs HS256 de usuário e roda as camadas **reais** do app: `acaoApontamentos*` → `criarApontamentosIO` → RPC → `criarFechamentoIO.contexto` → `acaoAbrir/acaoConfirmar`.
+Desenho idêntico ao de produção: `supabaseAsUser` = anon key + `Authorization: Bearer <jwt do usuário>` para gravar; `service_role` para ler. Aborta se a URL não for local ou se o banco for o `sittech_clone`.
+
+**Resultado (rodado em 03/11, contra o clone local): 28 PASS, 0 FAIL.** Cobriu: JWT aceito pelo PostgREST (`auth.uid()` chega ao banco); flag desligada (estado só `{modo}`, POST 409, RPC recusa via PostgREST); flag ativa: postos = máquinas do plano oficial (12 em 30/10 M1),
+catálogo/elegibilidade; salvar 3 linhas numa transação (igual ao plano / NÃO PRODUZIU PARADA / operador trocado) com `criado_por` = usuário do JWT, divergência `OPERADOR`, motivo fino `PARADA` e `sem_producao` legado `outro` + "Parada de máquina";
+estado de volta (SALVA_FLUXO, motivo fino volta); contexto REAL do fechamento (motor/estado do clone): 12 postos, 9 pendentes → após completar (um posto realizado em OUTRA máquina) e **reenviar (substitui 3, histórico preservado)**: 0 pendentes e `resumoProducao` com o resumo;
+`acaoAbrir` (`tem_pendentes=false`) e `acaoConfirmar` (`POSTOS_PENDENTES` 422 quando falta posto); com o fechamento físico em modo `ativo`: janela aberta por A ⇒ JWT de B recusado pelo gatilho, JWT de A grava; usuário sem permissão recusado; **anon e service_role não executam a RPC**; vínculo append-only também via PostgREST.
+Limites do ensaio: não há GoTrue no clone (a validação do token em `autenticarRequisicaoIntelligence`, `admin.auth.getUser`, não é exercitada; o ensaio usa os mesmos clientes que ela produziria); o motor completo de recálculo (confirmação até CONFIRMADO) não foi repetido aqui (coberto pelo e2e do fechamento).
+
+**Antes de ligar `apontamento_simplificado_modo` em PROD**: repetir este ensaio é necessário mas não suficiente; falta rodar em Preview/DEV com login real (GoTrue) e conferir o grant/permissão dos usuários reais (`escala_fechamento`).
+
 ### O que NÃO foi testado (honestidade)
-- **Não** rodou contra o Supabase real nem contra o PostgREST do clone com JWT de usuário: a camada IO (`criarApontamentosIO`) foi validada só por (i) conferência das colunas/grants das consultas como `service_role` no clone e (ii) fakes. A RPC foi testada direto no Postgres com `request.jwt.claims`.
+- Login real (GoTrue) e Supabase DEV/Preview: só clone local (ver 6.1).
 - Revezamento real de vários funcionários num mesmo posto/período: não há modelo (1 `funcionario_id`).
 - Navegador real em tablet físico; apenas harness com dados scriptados.
-- Fluxo completo com o fechamento em modo `ativo` + recálculo real (motor) — o orquestrador foi coberto com IO fake; o ensaio completo precisa do clone com a migration aplicada e usuários reais.
+- Confirmação completa até CONFIRMADO (motor de recálculo) com o apontamento simplificado: o ensaio 6.1 chega até a validação (`POSTOS_PENDENTES`/`tem_pendentes`) e o orquestrador foi coberto com IO fake.
 
 ## 7. CONFLITOS COM feat/fechamento-fisico
 
@@ -138,14 +153,16 @@ Não tocados (nem em outra forma): `orquestrador.ts`, `http.ts`, `api.ts`, `leit
 2. Não é trivialmente isolada: 2 arquivos compartilhados com a #1 (um é a tela principal do fechamento), uma migration dependente da dela e +1 consulta por `contexto`.
 3. Nada nela é necessário para a ativação: o fluxo atual (apontar no painel e tocar "Atualizar") continua válido e é o que foi ensaiado (replay de 03/11, ensaio final no dump).
 4. Reversível sem custo: flag `desligado` por padrão. Ordem sugerida: ativar o fechamento (#1) → observar 1–2 dias → mergear esta PR com a flag desligada → ensaio com a flag ativa em Preview/clone → ligar no horário de menor risco (fora da troca de período).
+**Decidido pelo usuário**: não entra antes da ativação de amanhã; ligar a flag só depois do ensaio em Preview/DEV com login real (item 8 da seção 9).
 Se a decisão for integrar antes, o mínimo seguro é: mergear com a flag desligada (comportamento idêntico, mas a migration e a +1 query já valem em PROD).
 
-## 9. Decisões tomadas por default e perguntas para o Mikael
+## 9. Decisões do usuário (DECIDIDAS e aplicadas)
 
-1. **Revezamento / operador**: o apontamento tem 1 `funcionario_id`. Default: pré-preenche o operador do plano e a pessoa escolhe quem estava no posto (registro, não desempenho); se várias pessoas revezaram, a tela registra uma só. *Pergunta*: registrar mais de uma (exige modelo novo)? Mantém-se "postos primeiro".
-2. **Operação editável?** No banco a operação é derivada de máquina×produto (1 etapa elegível). Default: mostrada e atualizada ao trocar máquina/produto, não editável isoladamente. *Pergunta*: precisa realmente trocar a operação mantendo máquina e produto?
-3. **Produto/máquina sem etapa cadastrada**: "realidade do chão" bate no limite do cadastro (o banco recusa). Default: a tela explica e a pessoa escolhe outro par; a RPC não grava nada. *Pergunta*: aceitar um apontamento "sem etapa" (relaxar os CHECK) ou exigir o cadastro do roteiro?
-4. **Posto programado trocado de máquina** conta como resolvido (não exige NÃO PRODUZIU na máquina original). *Pergunta*: a máquina original deveria exigir motivo?
-5. **Refugo vazio = 0** (como o modal atual). *Pergunta*: exigir digitar 0?
-6. **Linhas lançadas no painel** são só exibidas (corrigir em Apontamentos realizados, que já audita). Reenvio só substitui o que o fluxo criou.
-7. "Parada" mapeia para `outro` (não para `manutencao_programada`): quebra real continua pelo fluxo de ocorrências de máquina.
+1. **Operador**: 1 só por apontamento, pré-preenchido pelo plano e editável. Sem modelo de múltiplos operadores (registro de quem estava no posto, não desempenho; "postos primeiro").
+2. **Operação**: continua **derivada** de máquina+produto; sem edição isolada. Ao mudar máquina ou produto a operação é recalculada na hora (exibida na linha); se o par não gera exatamente uma etapa, a linha fica inválida (ver 3).
+3. **Máquina×produto sem etapa cadastrada**: o CHECK **não** é relaxado. A tela valida antes e o servidor recusa (422, `PRODUTO_SEM_ETAPA_NA_MAQUINA`, nada gravado) com a explicação: "A combinação real precisa ser tecnicamente válida: escolha outro produto/máquina ou peça o cadastro do roteiro" (sem expor ids).
+4. **Posto planejado que produziu em outra máquina**: resolvido pelo próprio apontamento alterado; **não** exige NÃO PRODUZIU na máquina original. Fica guardado PLANEJADO A / REAL B (`planejado` + `real` + `divergencias`, tabela append-only). No fechamento, o posto original aparece resolvido ("realizado em B").
+5. **Refugo vazio = 0** (não obriga digitar).
+6. **"Parada"** é motivo **resumido** do NÃO PRODUZIU (a ocorrência detalhada segue no módulo de Paradas; não duplica diagnóstico). Aparece como "Parada" na UI e grava `motivo_nao_produziu = 'PARADA'` no registro novo, mesmo que o `sem_producao` legado receba `outro` + "Parada de máquina" (testado em UI, SQL e ensaio).
+7. **Selo discreto "ALTERADO DO PLANEJADO"** na linha quando operador, máquina ou produto diferem do plano (tooltip lista o que mudou), **sem confirmação adicional** (um toque para salvar). A operação sozinha não aciona o selo (é consequência). Cobertura: domínio, UI (aparece, some ao voltar ao plano, sem `alertdialog`) e screenshots/harness atualizados.
+8. **Sequência**: esta PR **não** entra antes da ativação do fechamento físico de amanhã. Antes de ligar `apontamento_simplificado_modo`: ensaio da camada supabase-js/RPC (feito no clone, 6.1) e repetição em Preview/DEV com login real.

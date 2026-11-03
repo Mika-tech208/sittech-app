@@ -87,12 +87,43 @@ describe("PassoApontamentos (UI)", () => {
     fireEvent.click(within(cartao).getByRole("button", { name: "Alterar máquina / operador / produto" }));
     fireEvent.change(within(cartao).getByLabelText(/Operador/), { target: { value: U(12) } });
     fireEvent.change(within(cartao).getByLabelText("Máquina"), { target: { value: U(3) } });
-    expect(await within(cartao).findByText("máquina alterada")).toBeTruthy();
-    expect(within(cartao).getByText("operador alterado")).toBeTruthy();
+    const selo = await within(cartao).findByText("ALTERADO DO PLANEJADO");
+    expect(selo.getAttribute("title")).toBe("Planejado ≠ real: máquina alterada, operador alterado");
     expect(within(cartao).getByText(/Programado: Caroline/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "SALVAR APONTAMENTOS" }));
     await waitFor(() => expect(salvarApontamentosApi).toHaveBeenCalled());
     expect(salvarApontamentosApi.mock.calls[0][2][0]).toMatchObject({ maquina_planejada_id: U(1), maquina_id: U(3), funcionario_id: U(12), produto_id: U(21), produzido: 700 });
+  });
+
+  it("selo ALTERADO DO PLANEJADO: aparece só quando operador, máquina ou produto mudam; some ao voltar ao plano; salvar não pede confirmação extra", async () => {
+    monta();
+    await screen.findByText("Rosqueadeira 3");
+    const cartao = screen.getByText("Rosqueadeira 3").closest(".stx-apx-card") as HTMLElement;
+    fireEvent.change(within(cartao).getByLabelText("Produzido Rosqueadeira 3"), { target: { value: "700" } });
+    expect(screen.queryAllByTestId("selo-alterado")).toHaveLength(0);                    // só quantidades: nada alterado
+    fireEvent.click(within(cartao).getByRole("button", { name: "Alterar máquina / operador / produto" }));
+    fireEvent.change(within(cartao).getByLabelText(/Operador/), { target: { value: U(12) } });
+    expect((await within(cartao).findByTestId("selo-alterado")).textContent).toBe("ALTERADO DO PLANEJADO");
+    expect(screen.queryAllByTestId("selo-alterado")).toHaveLength(1);                    // só nesta linha
+    fireEvent.change(within(cartao).getByLabelText(/Operador/), { target: { value: U(11) } });
+    await waitFor(() => expect(screen.queryAllByTestId("selo-alterado")).toHaveLength(0));
+    fireEvent.change(within(cartao).getByLabelText(/Operador/), { target: { value: U(12) } });
+    await screen.findByTestId("selo-alterado");
+    fireEvent.click(screen.getByRole("button", { name: "SALVAR APONTAMENTOS" }));        // um toque: sem diálogo de confirmação
+    await waitFor(() => expect(salvarApontamentosApi).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("NÃO PRODUZIU oferece 'Parada' com esse nome e grava o motivo fino PARADA", async () => {
+    monta();
+    await screen.findByText("Rosqueadeira 3");
+    const cartao = screen.getByText("Rosqueadeira 3").closest(".stx-apx-card") as HTMLElement;
+    fireEvent.click(within(cartao).getByRole("button", { name: "NÃO PRODUZIU" }));
+    expect(within(cartao).getAllByRole("button").map((b) => b.textContent)).toContain("Parada");
+    fireEvent.click(within(cartao).getByRole("button", { name: "Parada" }));
+    fireEvent.click(screen.getByRole("button", { name: "SALVAR APONTAMENTOS" }));
+    await waitFor(() => expect(salvarApontamentosApi).toHaveBeenCalled());
+    expect(salvarApontamentosApi.mock.calls[0][2][0]).toMatchObject({ maquina_id: U(1), nao_produziu: true, motivo: "PARADA" });
   });
 
   it("+ ADICIONAR APONTAMENTO cria linha FORA DA ESCALA (maquina_planejada_id null); em branco não bloqueia nem é enviada", async () => {

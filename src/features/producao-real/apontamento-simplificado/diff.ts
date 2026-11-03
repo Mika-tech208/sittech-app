@@ -15,3 +15,7 @@ export function divergencias(l: LinhaApontamento, cat: Catalogo): Divergencia[] 
 }
 
 export const ROTULO_DIVERGENCIA: Record<Divergencia, string> = { MAQUINA: "máquina alterada", OPERADOR: "operador alterado", PRODUTO: "produto alterado", OPERACAO: "operação alterada" };
+
+/** Selo "ALTERADO DO PLANEJADO": operador, máquina ou produto diferentes do plano (a operação é consequência desses; sozinha não aciona o selo). Sem confirmação extra. */
+export const alteradoDoPlanejado = (l: LinhaApontamento, cat: Catalogo): boolean => divergencias(l, cat).some((d) => d !== "OPERACAO");
+export const ROTULO_SELO_ALTERADO = "ALTERADO DO PLANEJADO";

@@ -4,7 +4,7 @@
 // TUDO editável (máquina, operador, produto); o planejado aparece ao lado e nunca é sobrescrito. Operador = registro de quem estava no posto, não desempenho.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { estadoApontamentosApi, salvarApontamentosApi } from "./api";
-import { divergencias, ROTULO_DIVERGENCIA } from "./diff";
+import { alteradoDoPlanejado, divergencias, ROTULO_DIVERGENCIA, ROTULO_SELO_ALTERADO } from "./diff";
 import { adicionarExtra, desfazerNaoProduziu, editarDescricao, editarReal, editavel, escolherMotivo, informarQuantidades, marcarNaoProduziu, operacaoDaLinha, produtosDaMaquina, removerExtra } from "./linhas";
 import { MOTIVOS_NAO_PRODUZIU, rotuloMotivo } from "./motivos";
 import { linhasIniciais } from "./prefill";
@@ -111,7 +111,7 @@ export default function PassoApontamentos({ data, periodoId, bloqueado, onModo, 
           <div className="stx-apx-tags">
             {l.situacao === "EXISTENTE_PAINEL" && <span className="stx-apx-tag">LANÇADO NO PAINEL</span>}
             {l.situacao === "SALVA_FLUXO" && !alterado && <span className="stx-apx-tag ok">SALVO</span>}
-            {div.map((d) => <span key={d} className="stx-apx-tag warn">{ROTULO_DIVERGENCIA[d]}</span>)}
+            {alteradoDoPlanejado(l, cat) && <span className="stx-apx-tag warn" data-testid="selo-alterado" title={`Planejado ≠ real: ${div.map((d) => ROTULO_DIVERGENCIA[d]).join(", ")}`}>{ROTULO_SELO_ALTERADO}</span>}
           </div>
         </div>
 

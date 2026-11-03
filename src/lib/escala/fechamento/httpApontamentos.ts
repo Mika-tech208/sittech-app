@@ -1,5 +1,6 @@
 // Camada HTTP fina e testável do apontamento simplificado (as rotas só autenticam e delegam). Sem Next aqui.
 import { lerLinhas } from "@/features/producao-real/apontamento-simplificado/payload";
+import { MENSAGEM_SEM_ETAPA } from "@/features/producao-real/apontamento-simplificado/validacao";
 import { podeFechar, type RespostaHttp, type UsuarioFechamento } from "./http";
 import type { ApontamentosIO } from "./apontamentoSimplificado";
 
@@ -32,6 +33,8 @@ export async function acaoApontamentosSalvar(io: ApontamentosIO, u: UsuarioFecha
   } catch (e) {
     const m = e instanceof Error ? e.message : "Falha ao gravar os apontamentos.";
     // erros de regra (RPC): 422 com a mensagem para a tela; o resto: 500. Nada é gravado em nenhum caso (transação única).
+    // máquina×produto sem etapa (ou ambíguo): o banco recusa e a regra NÃO é relaxada; explica sem expor ids
+    if (/Nenhuma etapa do roteiro|Mais de uma etapa do roteiro/.test(m)) return { status: 422, corpo: { erro: MENSAGEM_SEM_ETAPA, codigo: "PRODUTO_SEM_ETAPA_NA_MAQUINA", linha: /LINHA\[([^\]]+)\]/.exec(m)?.[1] ?? null, mensagem: "Nada foi gravado." } };
     const regra = /LINHA\[|MAQUINA_DUPLICADA|POSTO_PROGRAMADO|APONTAMENTO_EDITADO_FORA_DO_FLUXO|FECHAMENTO_PERIODO_EM_FECHAMENTO|ainda não começou|data futura|Produto|Funcionário|Meta não cadastrada|etapa|exige/.test(m);
     return { status: regra ? 422 : 500, corpo: { erro: m, mensagem: "Nada foi gravado." } };
   }
