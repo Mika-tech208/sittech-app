@@ -13,6 +13,7 @@ import { carregarApontamentosBanco } from "../fluxo/supabaseFluxo";
 import type { EstadoBruto } from "../estado";
 import { processarSemana, type EscalaIO } from "../processar";
 import { criarEscalaIO, resolverPrevisaoPorSemana } from "../supabaseIO";
+import { ajustarPostosDoFechamento } from "./apontamentoSimplificado";
 import { CHAVE_MODO_FECHAMENTO, lerModoFechamento } from "./leitura";
 import type { ContextoFechamento, FechamentoIO, FechamentoSalvo, ResultadoRecalculo, SnapshotParaGravar } from "./orquestrador";
 
@@ -125,13 +126,15 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
       // postos esperados = máquinas do plano oficial do período; coletado = tem apontamento (produzindo ou sem_producao)
       const esperados = [...new Set(estado.alocacoes.filter((a) => a.data === data && a.periodoId === periodoId && a.maquinaId).map((a) => a.maquinaId as string))];
       const apont = (await carregarApontamentosBanco(admin, semanaInicio)).filter((a) => a.data === data && a.periodoId === periodoId);
-      const postos: PostoFechamento[] = esperados.map((m): PostoFechamento => {
+      const postosBase: PostoFechamento[] = esperados.map((m): PostoFechamento => {
         const linhas = apont.filter((a) => a.maquinaId === m);
         const nome = (estado.nomesMaquinas?.[m] ?? m).trim();
         if (linhas.length === 0) return { maquinaId: m, nome, status: "pendente", produzido: 0, refugo: 0, motivo: null };
         const prod = linhas.filter((a) => a.status === "produzindo");
         return { maquinaId: m, nome, status: prod.length > 0 ? "produzindo" : "sem_producao", produzido: prod.reduce((s, a) => s + a.quantidadeProduzida, 0), refugo: linhas.reduce((s, a) => s + a.quantidadeRefugo, 0), motivo: linhas.find((a) => a.motivo)?.motivo ?? null };
       });
+      // apontamento simplificado (flag própria, padrão desligado): posto programado realizado em OUTRA máquina fica resolvido; sem a flag devolve `postosBase` intacto
+      const { postos, resumo: resumoApontamento } = await ajustarPostosDoFechamento(admin, data, periodoId, postosBase, (id) => (estado.nomesMaquinas?.[id] ?? id).trim());
       const paradasRpc = await admin.rpc("escala_fechamento_paradas", { p_data: data, p_periodo: periodoId });
       if (paradasRpc.error) throw new Error(`escala_fechamento_paradas: ${paradasRpc.error.message}`);
       const paradas = ((paradasRpc.data ?? []) as { maquina_id: string; motivo_id: string; minutos: number | string }[]).map((p) => ({ maquinaId: p.maquina_id, motivoId: p.motivo_id, minutos: Number(p.minutos) }));
@@ -142,7 +145,7 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
         semanaInicio, previsaoId, periodo, postos, obrigatorios, estimativas,
         periodoJaFechado: !!vigente, fechamentoVigente: vigente && vigenteEstado ? { id: vigente.fechamento_id, estado: vigenteEstado, sombra: vigente.sombra } : null,
         hashPlanoAnterior: hashAlocacoes(regiaoRecalculavel(entrada, estado.alocacoes)),
-        resumoProducao: { postos: postos.map((p) => ({ maquinaId: p.maquinaId, status: p.status, produzido: p.produzido, refugo: p.refugo, motivo: p.motivo })), paradas },
+        resumoProducao: { postos: postos.map((p) => ({ maquinaId: p.maquinaId, status: p.status, produzido: p.produzido, refugo: p.refugo, motivo: p.motivo })), paradas, ...(resumoApontamento ? { apontamento_simplificado: resumoApontamento } : {}) },
         tempoEntradaMs: relogio() - t0, paresSemBuffer, semCorteV1,
         temposContexto: { estado: tEstado, montagem: tMontagem, buffers: tBuffers, postos: relogio() - tPostos0 },
       };

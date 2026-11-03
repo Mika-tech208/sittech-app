@@ -2,9 +2,12 @@
 
 // "FECHAR PERÍODO E GERAR PRÓXIMA PROGRAMAÇÃO" — tela única do tablet. Apontamentos + estoque intermediário físico + confirmação + recálculo + publicação.
 // Campo físico SEMPRE nasce vazio (nunca preenchido com o estimado). A janela de troca pertence a quem abriu esta tela (apontamentos do período só por ele).
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { limiteMotivo } from "@/features/escala/fechamento/validacao";
 import { DIFERENCA_EXIGE_CONFIRMACAO } from "@/features/escala/fechamento/tipos";
+import PassoApontamentos from "@/features/producao-real/apontamento-simplificado/PassoApontamentos";
+import PassosFechamento from "@/features/producao-real/apontamento-simplificado/PassosFechamento";
+import { estadoDosPassos } from "@/features/producao-real/apontamento-simplificado/passos";
 import { abrirFechamentoApi, confirmarFechamentoApi, estadoFechamentoApi, retryFechamentoApi, type AberturaApi, type DiagnosticoApi, type ResultadoApi } from "./api";
 
 const MOTIVOS = ["Contagem anterior errada", "Peças perdidas / refugo", "Estoque movido", "Outro"] as const;
@@ -28,6 +31,10 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
   const [resultado, setResultado] = useState<ResultadoApi | null>(null);
   const [excecao, setExcecao] = useState(false);
   const [motivoExcecao, setMotivoExcecao] = useState("");
+  // APONTAMENTO SIMPLIFICADO (flag apontamento_simplificado_modo): "desligado" mantém o fluxo anterior byte a byte; "ativo" troca só a seção de apontamentos (passos 1-2)
+  const [simplificado, setSimplificado] = useState<"indefinido" | "ativo" | "desligado">("indefinido");
+  const [naoSalvo, setNaoSalvo] = useState(false);
+  const aoModo = useCallback((ativo: boolean) => setSimplificado(ativo ? "ativo" : "desligado"), []);
   const enviando = useRef(false);
   const dialogoRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => { if (confirmaGrande) dialogoRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }, [confirmaGrande]);
@@ -56,7 +63,7 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
 
   const pendentes = ab?.postos.filter((p) => p.status === "pendente") ?? [];
   const tudoPreenchido = linhas.every((l) => l.valido && (!l.exigeMotivo || l.motivo.length > 0));
-  const pode = ab && pendentes.length === 0 && (excecao ? motivoExcecao.trim().length >= 5 : tudoPreenchido) && fase === "form";
+  const pode = ab && pendentes.length === 0 && !naoSalvo && (excecao ? motivoExcecao.trim().length >= 5 : tudoPreenchido) && fase === "form";
 
   async function enviar(confirmouGrande: boolean) {
     if (!ab || enviando.current) return;                              // duplo clique
@@ -114,6 +121,7 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
           {(fase === "form" || fase === "bloqueado" || fase === "confirmado" || fase === "erro_recalculo") && <button type="button" className="stx-ap-modal-close" onClick={onFechar} aria-label="Fechar">✕</button>}
         </div>
 
+        {simplificado === "ativo" && ab && <PassosFechamento estados={estadoDosPassos({ apontamentosCompletos: pendentes.length === 0 && !naoSalvo, inventarioCompleto: tudoPreenchido, fase })} />}
         {fase === "carregando" && <p className="stx-fech-sec">Carregando estimativas do sistema…</p>}
         {fase === "bloqueado" && (
           <>
@@ -132,14 +140,15 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
 
         {ab && (fase === "form" || fase === "salvando" || fase === "recalculando") && (
           <>
-            <div className="stx-fech-sec">
+            {simplificado !== "desligado" && <PassoApontamentos data={data} periodoId={periodoId} bloqueado={fase !== "form"} onModo={aoModo} onNaoSalvo={setNaoSalvo} onSalvo={abrir} />}
+            {simplificado === "desligado" && <div className="stx-fech-sec">
               <h3>Apontamentos</h3>
               {pendentes.length === 0
                 ? <div className="stx-fech-ok">✓ {ab.postos.length}/{ab.postos.length} coletados</div>
                 : <div><div className="stx-fech-warn" role="alert">⚠ {ab.postos.length - pendentes.length}/{ab.postos.length} — faltam: {pendentes.map((p) => p.nome).join(", ")}</div>
                     <p style={{ fontSize: 13, color: "var(--text-3)", margin: "6px 0" }}>Lance os apontamentos pendentes no painel (fica liberado só para você nesta troca) e toque em Atualizar.</p>
                     <button type="button" className="stx-ap-btn-secondary" onClick={() => abrir()} disabled={fase !== "form"}>Atualizar</button></div>}
-            </div>
+            </div>}
 
             <div className="stx-fech-sec">
               <h3>Estoque intermediário</h3>
