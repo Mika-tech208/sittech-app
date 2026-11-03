@@ -163,7 +163,7 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
     },
     async travaLiberar(semana, id) { await admin.rpc("escala_fechamento_trava_liberar", { p_semana: semana, p_fechamento: id }); },
 
-    async recalcular({ contexto, contagens, usuarioId, agoraMs }): Promise<ResultadoRecalculo> {
+    async recalcular({ contexto, contagens, usuarioId, agoraMs, dryRun }): Promise<ResultadoRecalculo> {
       const chaveCache = `${contexto.previsaoId}|${contexto.periodo.data}|${contexto.periodo.periodoId}`;
       const p = contexto.periodo;
       const corte = p.proximo ? { data: p.proximo.data, periodoId: p.proximo.periodoId, agoraEquidadeMs: p.proximo.inicioMs - 1 } : undefined;
@@ -176,7 +176,7 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
       };
       let tEntrada = 0, tPersist = 0, tValid = 0;
       let primeira = cache.get(chaveCache) ?? null;
-      const pendentes = (ok(await admin.from("escala_producao_eventos").select("id").eq("previsao_id", contexto.previsaoId).in("status", ["pendente", "processando", "erro"]).neq("tipo", "fechamento_fisico"), "escala_producao_eventos") as { id: string }[]).map((x) => x.id);
+      const pendentes = dryRun ? [] : (ok(await admin.from("escala_producao_eventos").select("id").eq("previsao_id", contexto.previsaoId).in("status", ["pendente", "processando", "erro"]).neq("tipo", "fechamento_fisico"), "escala_producao_eventos") as { id: string }[]).map((x) => x.id);
       const io: EscalaIO = {
         ...base,
         async carregarEstado(a, c) {
@@ -186,7 +186,8 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
             return injetar(await base.carregarEstado(a, c));
           } finally { tEntrada += relogio() - t; }
         },
-        async aplicar(payload) { const t = relogio(); try { return await base.aplicar(payload); } finally { tPersist += relogio() - t; } },
+        async aplicar(payload) { if (dryRun) return { versoes: Object.fromEntries(payload.dias.map((d) => [d.data, 0])) }; const t = relogio(); try { return await base.aplicar(payload); } finally { tPersist += relogio() - t; } },
+        ...(dryRun ? { registrarFluxo: async () => undefined, gravarSnapshotsWip: async () => undefined } : {}),
       };
       const tProc0 = relogio();
       const r = await processarSemana(io, {
@@ -202,6 +203,7 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
         },
       });
       const total = relogio() - tProc0;
+      if (dryRun) return { status: r.status, motivo: r.motivoIgnorado ?? r.corte?.motivoFalha ?? null, hashPlanoNovo: r.corte?.hashPlano ?? null, filaRestante: 0, temposParciais: { entrada: tEntrada, validacao: tValid, persistencia: 0, corte: Math.max(0, total - tEntrada - tValid) } };
       if (r.status === "sem_alteracao" && pendentes.length > 0) await admin.rpc("escala_concluir_eventos", { p_ids: pendentes, p_status: "processado", p_erro: null });
       const restante = (ok(await admin.from("escala_producao_eventos").select("id").eq("previsao_id", contexto.previsaoId).in("status", ["pendente", "processando", "erro"]).neq("tipo", "fechamento_fisico"), "escala_producao_eventos") as { id: string }[]).length;
       return {

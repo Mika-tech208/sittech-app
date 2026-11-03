@@ -1,0 +1,66 @@
+{
+  "fechamento M2 (10:35)": {
+    "execucoes": 15,
+    "aprovadas": 15,
+    "status": [
+      "processado"
+    ],
+    "total": {
+      "p50": 673,
+      "p95": 842,
+      "max": 842
+    },
+    "entrada": {
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "corte": {
+      "p50": 673,
+      "p95": 842,
+      "max": 842
+    },
+    "validacao": {
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "persistencia": {
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    }
+  },
+  "fechamento M3 (12:06)": {
+    "execucoes": 15,
+    "aprovadas": 15,
+    "status": [
+      "processado"
+    ],
+    "total": {
+      "p50": 653,
+      "p95": 961,
+      "max": 961
+    },
+    "entrada": {
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "corte": {
+      "p50": 653,
+      "p95": 961,
+      "max": 961
+    },
+    "validacao": {
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "persistencia": {
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    }
+  }
+}

@@ -64,7 +64,9 @@ export async function acaoConfirmar(io: FechamentoIO, u: UsuarioFechamento, body
   if ("erro" in lido) return { status: 400, corpo: { erro: lido.erro } };
   if (lido.entrada.excecao && !podeFecharSemContagem(u)) return { status: 403, corpo: { erro: "Fechar sem contagem exige perfil superior." } };
   try {
-    const r = await confirmarFechamento(io, lido.entrada, u.id, relogio, { forcarRevisao: false });
+    // CORREÇÃO de um período já fechado (nova revisão; a anterior fica no histórico): só perfil superior, e a janela foi aberta com `forcar`
+    const revisao = (body as { revisao?: unknown } | null)?.revisao === true && podeFecharSemContagem(u);
+    const r = await confirmarFechamento(io, lido.entrada, u.id, relogio, { forcarRevisao: revisao });
     return { status: statusHttp(r), corpo: { ...r } };
   } catch (e) {
     return { status: 500, corpo: { erro: e instanceof Error ? e.message : "Falha no fechamento.", mensagem: "Falha no fechamento. Nada foi publicado." } };

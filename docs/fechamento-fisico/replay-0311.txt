@@ -1,0 +1,31 @@
+# Replay do corte-v1 em 03/11 (dados reais de PROD, só SELECT). Linhas: entrada · status · WIP do motor · diferenças contra o plano publicado (linhas pessoa×posto×peças do futuro).
+### 10:35 — SEM fechamento físico (o que foi publicado): reproduz a versão 13ccb8da
+AGORA 2026-11-03T10:35:17-03:00 · plano de entrada 283 linhas hash e0f141c8f48af5ebbc471e316eeaf2e2c548252beb8fda34035c33c67e82bb79 · contagens 20 (extra 0) · apontamentos 44
+status: processado · 
+  FUTURO (T1+ e dias seguintes): 249 linhas calculadas × 249 esperadas · só no calculado 0 · só no esperado 0
+WIP no início do futuro (T1) usado pelo motor: Conv:3437=8600[contagem_fisica] Conv:78aa=1950[contagem_fisica] Conv:ca90=4850[contagem_fisica] Auto:1863=0[est] Auto:1b72=1122[est]
+
+### 10:35 — COM fechamento do M2 (físico 4.150 / 750 / 9.000 às 10:24)
+AGORA 2026-11-03T10:35:17-03:00 · plano de entrada 283 linhas hash e0f141c8f48af5ebbc471e316eeaf2e2c548252beb8fda34035c33c67e82bb79 · contagens 25 (extra 5) · apontamentos 44
+status: processado · 
+  FUTURO (T1+ e dias seguintes): 249 linhas calculadas × 249 esperadas · só no calculado 16 · só no esperado 16
+WIP no início do futuro (T1) usado pelo motor: Conv:3437=9000[contagem_fisica] Conv:78aa=750[contagem_fisica] Conv:ca90=4150[contagem_fisica] Auto:1863=0[contagem_fisica] Auto:1b72=0[contagem_fisica]
+
+### 12:06 — SEM fechamento físico (o que foi publicado): reproduz a versão f75d1ea0
+AGORA 2026-11-03T12:06:15-03:00 · plano de entrada 283 linhas hash 5a49eb3bf028f721ee30548a7d9e2074e750ce00485ac4b36d8558305f201b1c · contagens 20 (extra 0) · apontamentos 66
+status: processado · 
+  FUTURO (T1+ e dias seguintes): 249 linhas calculadas × 249 esperadas · só no calculado 0 · só no esperado 0
+WIP no início do futuro (T1) usado pelo motor: Conv:3437=8600[contagem_fisica] Conv:78aa=4900[contagem_fisica] Conv:ca90=1900[contagem_fisica] Auto:1863=0[est] Auto:1b72=2222[est]
+
+### 12:06 — COM o fechamento do M2 já feito
+AGORA 2026-11-03T12:06:15-03:00 · plano de entrada 283 linhas hash 5a49eb3bf028f721ee30548a7d9e2074e750ce00485ac4b36d8558305f201b1c · contagens 25 (extra 5) · apontamentos 66
+status: processado · 
+  FUTURO (T1+ e dias seguintes): 249 linhas calculadas × 249 esperadas · só no calculado 125 · só no esperado 125
+WIP no início do futuro (T1) usado pelo motor: Conv:3437=9000[contagem_fisica] Conv:78aa=3700[contagem_fisica] Conv:ca90=1200[contagem_fisica] Auto:1863=0[contagem_fisica] Auto:1b72=1100[contagem_fisica]
+
+### 12:06 — COM os fechamentos do M2 e do M3 (físico 1.200 / 4.800 / 9.000 às 11:55)
+AGORA 2026-11-03T12:06:15-03:00 · plano de entrada 283 linhas hash 5a49eb3bf028f721ee30548a7d9e2074e750ce00485ac4b36d8558305f201b1c · contagens 30 (extra 10) · apontamentos 66
+status: processado · 
+  FUTURO (T1+ e dias seguintes): 249 linhas calculadas × 249 esperadas · só no calculado 138 · só no esperado 138
+WIP no início do futuro (T1) usado pelo motor: Conv:3437=9000[contagem_fisica] Conv:78aa=4800[contagem_fisica] Conv:ca90=1200[contagem_fisica] Auto:1863=0[contagem_fisica] Auto:1b72=0[contagem_fisica]
+

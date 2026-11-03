@@ -27,7 +27,7 @@ class Fake implements FechamentoIO {
   falharMotor: string | null = null;
   statusMotor: ResultadoRecalculo["status"] = "processado";
   filaRestante = 0;
-  recalculos: { contagens: ContagemFisicaPar[] }[] = [];
+  recalculos: { contagens: ContagemFisicaPar[]; dryRun?: boolean }[] = [];
   excecaoOk = false;
   trocarContexto: ((c: ContextoFechamento) => ContextoFechamento) | null = null;
   async modo() { return this.modoAtual; }
@@ -58,8 +58,8 @@ class Fake implements FechamentoIO {
   }
   async travaAdquirir(semana: string) { if (this.travas.has(semana)) return false; this.travas.add(semana); return true; }
   async travaLiberar(semana: string) { this.travas.delete(semana); }
-  async recalcular(a: { contagens: ContagemFisicaPar[] }): Promise<ResultadoRecalculo> {
-    this.recalculos.push({ contagens: a.contagens });
+  async recalcular(a: { contagens: ContagemFisicaPar[]; dryRun?: boolean }): Promise<ResultadoRecalculo> {
+    this.recalculos.push({ contagens: a.contagens, dryRun: a.dryRun });
     if (this.falharMotor) throw new Error(this.falharMotor);
     return { status: this.statusMotor, motivo: this.statusMotor === "bloqueado" ? "CADEIA_INVALIDA (1)" : null, hashPlanoNovo: "09663708", filaRestante: this.filaRestante, temposParciais: { entrada: 300, corte: 2500, validacao: 20, persistencia: 400 } };
   }
@@ -166,12 +166,17 @@ describe("fluxo único: fechar → recalcular → confirmar", () => {
     expect(ok.ok).toBe(true); expect(io.recalculos[0].contagens).toEqual([]);
     expect(io.log.at(-1)!.detalhe.excecao).toBe(true);
   });
-  it("modo desligado: nada acontece; sombra: grava e confirma SEM chamar o motor", async () => {
+  it("modo desligado: nada acontece; sombra: grava, faz ENSAIO do recálculo (dryRun, nada publicado) e registra se o portão aprovaria", async () => {
     const io = new Fake(); io.modoAtual = "desligado";
     expect((await confirmarFechamento(io, entrada(), U, relogio)).mensagem).toMatch(/desligado/); expect(io.fechamentos.size).toBe(0);
     io.modoAtual = "sombra";
     const r = await confirmarFechamento(io, entrada(), U, relogio);
-    expect(r.ok).toBe(true); expect(io.recalculos).toHaveLength(0); expect(io.log.at(-1)!.detalhe.sombra).toBe(true);
+    expect(r.ok).toBe(true); expect(io.log.at(-1)!.detalhe.sombra).toBe(true);
+    expect(io.recalculos).toHaveLength(1); expect(io.recalculos[0].dryRun).toBe(true); expect(io.travas.size).toBe(0);
+    expect(io.log.at(-1)!.detalhe.ensaio).toMatchObject({ publicavel: true, status: "processado" });
+    io.fechamentos.clear(); io.statusMotor = "bloqueado";
+    await confirmarFechamento(io, entrada({ chave: "55555555-5555-5555-5555-555555555555" }), U, relogio);
+    expect(io.log.at(-1)!.detalhe.ensaio).toMatchObject({ publicavel: false, motivo: "CADEIA_INVALIDA (1)" }); // o portão acusa na sombra, antes de ativar
   });
   it("fechamentos consecutivos M1→M2→M3: cada um confirma o seguinte e gera 3 históricos independentes", async () => {
     const io = new Fake();

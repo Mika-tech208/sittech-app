@@ -27,6 +27,8 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
   const [excecao, setExcecao] = useState(false);
   const [motivoExcecao, setMotivoExcecao] = useState("");
   const enviando = useRef(false);
+  const dialogoRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { if (confirmaGrande) dialogoRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }, [confirmaGrande]);
 
   const [recarregar, setRecarregar] = useState(0);
   useEffect(() => {
@@ -57,8 +59,9 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
   async function enviar(confirmouGrande: boolean) {
     if (!ab || enviando.current) return;                              // duplo clique
     enviando.current = true; setFase("salvando"); setErro(null);
+    let vivo = true; // resposta atrasada do polling NUNCA pode sobrescrever o estado final (confirmado/erro)
     const timer = setTimeout(() => setFase((f) => (f === "salvando" ? "recalculando" : f)), 700);
-    const poll = setInterval(async () => { const e = await estadoFechamentoApi(data, periodoId); if (e.corpo.estado === "RECALCULANDO") setFase("recalculando"); }, 900);
+    const poll = setInterval(async () => { const e = await estadoFechamentoApi(data, periodoId); if (vivo && e.corpo.estado === "RECALCULANDO") setFase((f) => (f === "salvando" ? "recalculando" : f)); }, 900);
     try {
       const r = await confirmarFechamentoApi({ data, periodoId, chave, confirmouDiferencaGrande: confirmouGrande, ...(excecao ? { excecaoMotivo: motivoExcecao.trim() } : {}),
         buffers: excecao ? [] : linhas.map((l) => ({ buffer_id: l.buffer_id, fisico: l.fisico, motivo: l.motivo || null })) });
@@ -68,7 +71,7 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
       if (c.estado === "ERRO_RECALCULO" || c.estado === "RECALCULANDO") { setResultado(c); setFase("erro_recalculo"); return; }
       setErro(c.erros?.[0]?.mensagem ?? c.mensagem ?? c.erro ?? "Fechamento não aceito."); setFase("form");
     } catch (e) { setErro(e instanceof Error ? e.message : "Falha de rede. Tente novamente."); setFase("form"); }
-    finally { clearTimeout(timer); clearInterval(poll); enviando.current = false; }
+    finally { vivo = false; clearTimeout(timer); clearInterval(poll); enviando.current = false; }
   }
   async function tentarDeNovo() {
     if (!resultado?.fechamentoId || enviando.current) return;
@@ -132,8 +135,8 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
                 <div key={l.buffer_id} className="stx-fech-buf">
                   <div className="nome">{l.rotulo}</div>
                   <div className="est">Estimado pelo sistema: {l.estimado === null ? "—" : fmt(l.estimado)}{l.estimado_lo !== null && l.estimado_hi !== null && l.estimado_lo !== l.estimado_hi ? ` (${fmt(l.estimado_lo)}–${fmt(l.estimado_hi)})` : ""}</div>
-                  <input className="stx-fech-in" inputMode="numeric" pattern="[0-9]*" autoComplete="off" aria-label={`Físico: ${l.rotulo}`} placeholder="Físico" value={l.txt} disabled={fase !== "form"}
-                    onChange={(e) => setValores((v) => ({ ...v, [l.buffer_id]: e.target.value.replace(/[^0-9]/g, "") }))} />
+                  <input className="stx-fech-in" inputMode="numeric" pattern="[0-9]*" autoComplete="off" aria-label={`Físico: ${l.rotulo}`} placeholder="Físico" value={l.txt === "" ? "" : fmt(Number(l.txt))} disabled={fase !== "form"}
+                    onChange={(e) => setValores((v) => ({ ...v, [l.buffer_id]: e.target.value.replace(/[^0-9]/g, "").slice(0, 9) }))} />
                   {l.dif !== null && <div className={`stx-fech-dif ${l.exigeMotivo ? "alerta" : ""}`}>Diferença: {l.dif > 0 ? "+" : ""}{fmt(l.dif)} peças{l.exigeMotivo ? " — escolha o motivo" : ""}</div>}
                   {l.exigeMotivo && <div className="stx-fech-chips">{MOTIVOS.map((m) => <button type="button" key={m} className={`stx-fech-chip ${l.motivo === m ? "on" : ""}`} onClick={() => setMotivos((x) => ({ ...x, [l.buffer_id]: m }))}>{m}</button>)}</div>}
                 </div>
@@ -143,7 +146,7 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
 
             {erro && <p className="stx-save-error" role="alert" style={{ marginTop: 12 }}>{erro}</p>}
             {confirmaGrande && (
-              <div className="stx-fech-buf" role="alertdialog" style={{ borderColor: "var(--warning)" }}>
+              <div ref={dialogoRef} className="stx-fech-buf" role="alertdialog" style={{ borderColor: "var(--warning)" }}>
                 <div className="nome">Confirme os valores</div>
                 {linhas.filter((l) => confirmaGrande.includes(l.buffer_id)).map((l) => <div key={l.buffer_id} className="est">{l.rotulo}: <b>{fmt(l.fisico ?? 0)}</b> em vez de {fmt(l.estimado ?? 0)}</div>)}
                 <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
@@ -175,7 +178,7 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
         {fase === "erro_recalculo" && (
           <div className="stx-fech-sec" role="alert">
             <div className="stx-fech-estado err">Estoque salvo. Programação ainda não gerada.</div>
-            <p style={{ fontSize: 14, color: "var(--text-3)" }}>{resultado?.erros?.[0]?.mensagem ?? "O recálculo não foi concluído."} A contagem não precisa ser refeita.</p>
+            <p style={{ fontSize: 14, color: "var(--text-3)" }}>{(resultado?.erros?.[0]?.mensagem ?? "O recálculo não foi concluído.").replace(/\.?$/, ".")} A contagem não precisa ser refeita.</p>
             <button type="button" className="stx-fech-go" onClick={() => void tentarDeNovo()}>Tentar gerar a programação de novo</button>
           </div>
         )}

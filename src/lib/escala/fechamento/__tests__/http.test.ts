@@ -26,6 +26,15 @@ describe("HTTP do fechamento", () => {
   it("fechar SEM contagem exige o perfil superior (403 para o perfil comum)", async () => {
     expect((await acaoConfirmar(io("ativo"), COM, { data: "2026-11-03", periodo_id: "m2", chave: CH, buffers: [], excecao_motivo: "galpão interditado" })).status).toBe(403);
   });
+  it("correção (revisão) só com o perfil superior: o perfil comum NÃO força revisão", async () => {
+    let forcou: boolean | undefined;
+    const fake = { modo: async () => "ativo", fechamentoPorChave: async () => null, contexto: async () => ({ periodoJaFechado: true, periodo: { fimMs: 0, proximo: null }, postos: [], obrigatorios: [], estimativas: [], semanaInicio: "x", previsaoId: "p", fechamentoVigente: null, hashPlanoAnterior: null, resumoProducao: {}, tempoEntradaMs: 0 }), podeExcecao: async () => true, aberturaAtual: async () => null,
+      registrar: async (s: { forcarRevisao: boolean }) => { forcou = s.forcarRevisao; throw new Error("parar aqui"); } } as unknown as FechamentoIO;
+    const corpo = { data: "2026-11-03", periodo_id: "m2", chave: CH, buffers: [], revisao: true };
+    const SUPER: UsuarioFechamento = { id: "u3", papel: "usuario", permissoes: ["escala_fechamento", "escala_fechamento_excecao"] };
+    await acaoConfirmar(fake, SUPER, corpo, () => 1_000_000); expect(forcou).toBe(true);
+    forcou = undefined; await acaoConfirmar(fake, COM, corpo, () => 1_000_000); expect(forcou).toBeUndefined(); // comum: validação recusa antes (PERIODO_JA_FECHADO)
+  });
   it("lerEntrada: vazio vira null (nunca zero) e mapeia os campos", () => {
     const r = lerEntrada({ data: "2026-11-03", periodo_id: "m2", chave: CH, buffers: [{ buffer_id: "b1", fisico: "" }, { buffer_id: "b2", fisico: 0 }, { buffer_id: "b3", fisico: 5, motivo: "x" }], confirmou_diferenca_grande: true });
     expect("entrada" in r && r.entrada.buffers).toEqual([{ bufferId: "b1", fisico: null, motivo: null }, { bufferId: "b2", fisico: 0, motivo: null }, { bufferId: "b3", fisico: 5, motivo: "x" }]);

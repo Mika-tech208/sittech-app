@@ -18,8 +18,11 @@ export interface ResultadoApi {
 export interface EstadoApi { modo: "desligado" | "sombra" | "ativo"; fechado: boolean; fechamento_id?: string; estado?: string; erro?: string | null; tempos_ms?: ResultadoApi["tempos"] }
 
 async function chamar<T>(caminho: string, init: RequestInit & { corpo?: unknown } = {}): Promise<{ status: number; corpo: T }> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+  // a leitura da sessão nunca pode travar o fechamento (fábrica parada esperando): 3 s e segue sem token (o servidor responde 401 e a tela mostra o erro)
+  const token = await Promise.race([
+    supabase.auth.getSession().then(({ data }) => data.session?.access_token).catch(() => undefined),
+    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3000)),
+  ]);
   const resp = await fetch(caminho, { method: init.corpo !== undefined ? "POST" : "GET", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token ?? ""}` }, ...(init.corpo !== undefined ? { body: JSON.stringify(init.corpo) } : {}) });
   return { status: resp.status, corpo: (await resp.json().catch(() => ({}))) as T };
 }

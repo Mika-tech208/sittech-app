@@ -47,7 +47,8 @@ export interface FechamentoIO {
   registrar(s: SnapshotParaGravar): Promise<string>;
   travaAdquirir(semanaInicio: string, fechamentoId: string): Promise<boolean>;
   travaLiberar(semanaInicio: string, fechamentoId: string): Promise<void>;
-  recalcular(a: { fechamentoId: string; contexto: ContextoFechamento; contagens: ContagemFisicaPar[]; usuarioId: string; agoraMs: number }): Promise<ResultadoRecalculo>;
+  /** dryRun = ENSAIO (modo sombra): roda o motor e o portão com o inventário em memória e NÃO grava plano, evento nem diagnóstico — mede o tempo e se o portão aprovaria. */
+  recalcular(a: { fechamentoId: string; contexto: ContextoFechamento; contagens: ContagemFisicaPar[]; usuarioId: string; agoraMs: number; dryRun?: boolean }): Promise<ResultadoRecalculo>;
   resultado(fechamentoId: string, estado: EstadoFechamento, detalhe: Record<string, unknown>): Promise<void>;
   carregarFechamento(fechamentoId: string): Promise<FechamentoSalvo | null>;
   fechamentoPorChave(chave: string): Promise<FechamentoSalvo | null>;
@@ -118,8 +119,18 @@ export async function confirmarFechamento(io: FechamentoIO, entrada: EntradaConf
 
   const contagens = entrada.excecao ? [] : contagensDoInventario(contexto.obrigatorios, entrada.buffers, instanteMotorMs, usuarioId, "Fechamento físico (inventário na troca de período)");
   if (modo === "sombra") {
+    // SOMBRA: grava o inventário e MEDE o erro do WIP; o motor oficial NÃO usa o físico. Faz também um ENSAIO do recálculo (sem gravar nada) para medir o tempo real
+    // e saber se o portão HARD aprovaria — são os números do GO/NO-GO da ativação.
+    let ensaio: Record<string, unknown> = {};
+    if (!entrada.excecao) {
+      try {
+        const tE = relogio();
+        const r = await io.recalcular({ fechamentoId, contexto, contagens, usuarioId, agoraMs: relogio(), dryRun: true });
+        ensaio = { status: r.status, publicavel: r.status === "processado" || r.status === "sem_alteracao", motivo: r.motivo, hash_plano_novo: r.hashPlanoNovo, ms: relogio() - tE, tempos_ms: r.temposParciais };
+      } catch (e) { ensaio = { erro: msg(e), publicavel: false }; }
+    }
     const tempos: TemposFechamento = { gravacao, entrada: contexto.tempoEntradaMs, corte: 0, validacao: 0, persistencia: 0, total: relogio() - t0 };
-    await io.resultado(fechamentoId, "CONFIRMADO", { sombra: true, tentativa: 1, tempos_ms: tempos, hash_plano_anterior: contexto.hashPlanoAnterior, nota: "modo sombra: inventário e erro gravados; o motor NÃO usou o físico" });
+    await io.resultado(fechamentoId, "CONFIRMADO", { sombra: true, tentativa: 1, tempos_ms: tempos, hash_plano_anterior: contexto.hashPlanoAnterior, ensaio, nota: "modo sombra: inventário e erro gravados; o motor NÃO usou o físico" });
     return vazio({ ok: true, estado: "CONFIRMADO", fechamentoId, tempos, hashPlanoAnterior: contexto.hashPlanoAnterior, mensagem: "Fechamento gravado (modo sombra)." });
   }
   return executarRecalculo(io, { fechamentoId, contexto, contagens, usuarioId, tentativa: 1, t0, gravacao, relogio, excecao: !!entrada.excecao });
