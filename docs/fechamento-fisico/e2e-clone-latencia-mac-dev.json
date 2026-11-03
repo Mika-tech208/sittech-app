@@ -1,0 +1,124 @@
+{
+  "alvo": "clone",
+  "semana": "2026-11-02",
+  "data": "2026-11-03",
+  "sombra": {
+    "ensaio": {
+      "ms": 3418,
+      "motivo": null,
+      "status": "processado",
+      "tempos_ms": {
+        "corte": 3418,
+        "entrada": 0,
+        "validacao": 0,
+        "persistencia": 0
+      },
+      "publicavel": true,
+      "hash_plano_novo": "47837e49d4256c286a38fc51ec7a2a9d3151e38d6589dd472743ba3420c74e87"
+    },
+    "ms": 5442.435375
+  },
+  "normal": {
+    "ms": 3198.8013330000013,
+    "tempos": {
+      "gravacao": 80,
+      "entrada": 1572,
+      "corte": 805,
+      "validacao": 0,
+      "persistencia": 101,
+      "total": 3131,
+      "contexto": {
+        "estado": 1153,
+        "montagem": 8,
+        "buffers": 86,
+        "postos": 185
+      }
+    }
+  },
+  "selo": {
+    "codigo": "AGUARDANDO_FECHAMENTO",
+    "texto": "AGUARDANDO FECHAMENTO",
+    "periodo": {
+      "data": "2026-11-03",
+      "periodoId": "t2",
+      "rotulo": "T2"
+    },
+    "fechadoEmMs": null
+  },
+  "benchmark": {
+    "n": 20,
+    "aprovadas": 20,
+    "tabela": {
+      "idas_por_fechamento": {
+        "p50": 84,
+        "p95": 84,
+        "max": 84
+      },
+      "abrir": {
+        "p50": 1693,
+        "p95": 1750,
+        "max": 1765
+      },
+      "contexto_estado": {
+        "p50": 1089,
+        "p95": 1150,
+        "max": 1170
+      },
+      "contexto_montagem": {
+        "p50": 9,
+        "p95": 11,
+        "max": 11
+      },
+      "contexto_buffers": {
+        "p50": 77,
+        "p95": 84,
+        "max": 85
+      },
+      "contexto_postos": {
+        "p50": 213,
+        "p95": 240,
+        "max": 255
+      },
+      "entrada": {
+        "p50": 1528,
+        "p95": 1608,
+        "max": 1614
+      },
+      "gravacao": {
+        "p50": 79,
+        "p95": 88,
+        "max": 90
+      },
+      "corte": {
+        "p50": 762,
+        "p95": 781,
+        "max": 792
+      },
+      "validacao": {
+        "p50": 0,
+        "p95": 0,
+        "max": 1
+      },
+      "persistencia": {
+        "p50": 115,
+        "p95": 127,
+        "max": 127
+      },
+      "servidor_total": {
+        "p50": 3020,
+        "p95": 3112,
+        "max": 3116
+      },
+      "resposta_total": {
+        "p50": 3087,
+        "p95": 3187,
+        "max": 3199
+      }
+    }
+  },
+  "exececao": {
+    "parcial": true,
+    "selo": "AGUARDANDO_FECHAMENTO"
+  },
+  "falhas": []
+}

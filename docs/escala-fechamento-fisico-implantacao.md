@@ -1,7 +1,7 @@
 # Fechamento físico atômico na troca de período — IMPLANTAÇÃO (branch `feat/fechamento-fisico`, flag DESLIGADA)
 
 Substitui a especificação v2 onde ela falava em período PROVISÓRIO: **não existe mais período provisório**. A troca de período é UM processo atômico, com as máquinas paradas.
-Nada foi aplicado em PROD, nada foi publicado, a branch não foi enviada ao remoto. Com `escala_fechamento_fisico_modo = desligado` (padrão) o comportamento da Escala e do apontamento é o de hoje.
+Nada foi aplicado em PROD (a flag segue DESLIGADA e a migration NÃO foi aplicada lá). A migration + seed foram aplicadas em DEV e num clone local de PROD; a branch foi enviada ao remoto e há PR aberto — NÃO mesclar (seção 7). Com `escala_fechamento_fisico_modo = desligado` (padrão) o comportamento da Escala e do apontamento é o de hoje.
 
 ## 1. O fluxo (uma única ação)
 
@@ -51,79 +51,96 @@ Commits (em `feat/fechamento-fisico`, a partir de `origin/main` 4b3f2c4): `0a044
 
 | Camada | Arquivo | Resultado |
 |---|---|---|
-| Domínio puro (catálogo Conv/Auto, validações, portão HARD, estados) | `src/features/escala/fechamento/__tests__/dominio.test.ts` | 27 |
-| Orquestrador (fluxo único, duplo clique, 2 usuários, 2 recálculos, fila com evento antigo, motor falhando, retry, portão, exceção, sombra/ensaio, M1→M2→M3, último período, tempos) | `src/lib/escala/fechamento/__tests__/orquestrador.test.ts` | 16 |
-| HTTP (permissão, entrada, desligado, exceção, revisão, mapa de status) | `…/http.test.ts` | 7 |
-| Motor real (corte-v1, banco em memória): recálculo do PRÓXIMO período com o relógio dentro dele, passado intacto, WIP = físico, consumo do M3 ≤ físico (lote), portão recusa ⇒ nada gravado, byte-idêntico sem flag, M1→M2→M3 | `src/lib/escala/__tests__/fechamentoFisicoMotor.test.ts` | 7 |
-| Banco (Postgres 16 local): migration 2× (idempotente), flag desligado/sombra/ativo, campo faltando, negativo, postos incompletos, diferença sem motivo, imutabilidade, duplo clique, dois usuários, trava concorrente, evento antigo/fila, revisão, ERRO→CONFIRMADO, bloqueio de apontamento (ativo), exceção, seed do catálogo, **rollback atômico** | `scripts/fechamento/rodar-teste-db.sh` | OK (203 fechamentos arquivados no rollback de teste) |
-| Suíte completa do repositório | `npx vitest run` | 1.913 verdes (entre 1.927) · **14 falhas que já existiam em `origin/main`** (6 arquivos de intelligence/indicadores/relatórios; confirmado rodando-os em um worktree limpo de `origin/main`) |
-| Build | `next build --webpack` | OK (usei webpack porque `node_modules` é symlink e o Turbopack recusa) |
-| Lint nos arquivos novos | `eslint` | limpo (o erro de memoização de `ProducaoRealPainelPage` já existe em `origin/main`) |
+| Domínio puro (catálogo, validações, portão HARD, estados, selo) | `src/features/escala/fechamento/__tests__/{dominio,selo}.test.ts` | verde |
+| Orquestrador (fluxo único, duplo clique, 2 usuários, motor falhando, retry, portão, exceção, sombra, bloqueio por buffer não cadastrado / semana sem corte-v1) | `src/lib/escala/fechamento/__tests__/orquestrador.test.ts` | verde |
+| HTTP (permissão, entrada, desligado, exceção, revisão) | `…/http.test.ts` | verde |
+| Motor real (corte-v1, banco em memória) | `src/lib/escala/__tests__/fechamentoFisicoMotor.test.ts` | verde |
+| Banco local descartável (PG16): migration 2×, T1–T12 (inclui guarda do histórico liberada só para o corte, flag que não enfileira recálculo, sombra→ativo), seed, rollback atômico | `scripts/fechamento/rodar-teste-db.sh` | `TESTES-DB-OK`, `SEED-OK`, objetos restantes após rollback = 0 |
+| **Ensaio estrutural no clone de PROD** (migration 2×, seed 2×, 19 verificações, compatibilidade histórica, rollback byte-idêntico, reaplicação) | `scripts/fechamento/ensaio-estrutural-clone.sh` → `docs/fechamento-fisico/ensaio-estrutural-clone.txt` | tudo OK |
+| **E2E com banco real (clone de PROD + PostgREST + rotas reais)** | `scripts/fechamento/e2e.ts` → `docs/fechamento-fisico/e2e-clone.json` | todos PASS, 0 FALHA |
+| Suíte completa | `npx vitest run` | 1.924 verdes / 14 falhas · **as mesmas 14 de `origin/main`** (6 arquivos: intelligence evals, producao-real desvios/funcionarios/validacao-previsao/visao-geral, relatórios) — não mexidas |
+| Tipos / lint / build | `tsc --noEmit`, `eslint`, `next build --webpack` | OK (o único erro de lint, em `ProducaoRealPainelPage`, já existe em `origin/main`) |
 
-Cenários pedidos × cobertura: fechamento normal ✓ · inventário muito diferente ✓ (motivo + 2º passo) · campo faltando ✓ · duplo clique ✓ · dois usuários ✓ · fila com evento antigo ✓ · motor falhando ✓ · retry ✓ · ausência/parada/M8/revezamento/produto de uma operação: **cobertos pelo motor existente** (667 testes) e pelo integração acima; o portão HARD valida os mesmos checks (`violacoesDuras`, `maquinaForaDaPrevisao`, `excedePessoas`, `duplicidade`) · Conector 3/4 com buffers compartilhados ✓ · rollback ✓ · M1→M2→M3 ✓ (domínio, orquestrador, motor).
+**E2E no clone — o que cobre:** desligado ⇒ 503 · sombra (gravado, ensaio registrado, portão aprovaria, NENHUMA versão de plano criada) · ativo: EM_FECHAMENTO → apontamentos → contagem física → confirmação → persistência → corte-v1 → portão HARD → plano futuro → **CONFIRMADO**, motor partindo de contagem física em todos os buffers (7 pares; WIP inicial = inventário), log append-only `RECALCULANDO→CONFIRMADO`, inventário gravado exatamente como informado · sombra (rev 1) e oficial (rev 2) preservados · idempotência (mesma chave ⇒ mesmo fechamento) · duplo clique concorrente (1 linha só) · dois usuários (409) · **motor falhando ⇒ ERRO_RECALCULO com inventário preservado ⇒ retry sem recontar ⇒ CONFIRMADO** (+ retry idempotente) · **catálogo incompleto ⇒ BLOQUEIA em `ativo`** (BUFFER_FISICO_NAO_CADASTRADO com produto, rota, etapa origem/destino, semana, período) e só ALERTA em sombra · **semana sem corte-v1 ⇒ BLOQUEIA** (“Fechamento físico automático disponível apenas para semanas com corte-v1 ativo.”) · exceção: quem só tem `escala_fechamento` NÃO fecha sem contagem (403); perfil superior fecha com motivo, TODOS os buffers registrados sem contagem, status “programação parcial (estimativa)” · selo calculado.
 
-**Golden 03/11** (`scripts/fechamento/replay-fechamentos.ts`, saída em `docs/fechamento-fisico/replay-0311.txt`, dados reais de PROD):
-* sem contagens extras o replay **reproduz o plano publicado** (10:35 → versão `13ccb8da`; 12:06 → `f75d1ea0`: 0 linhas diferentes);
-* WIP que o motor usou às 12:06: publicado `8.600 / 4.900+2.222 / 1.900`; **com o fechamento do M2** `9.000 / 3.700+1.100 / 1.200`; **com M2+M3** `9.000 / 4.800+0 / 1.200` — exatamente a contagem manual das 12:08 (o motor não depende das projeções erradas);
-* teste dourado em miniatura no motor real: físico 30 contra plano de 90 ⇒ o M3 recalculado consome ≤ 30.
+**Golden 03/11** (`scripts/fechamento/replay-fechamentos.ts` → `replay-0311.txt`, dados reais): sem contagens extras o replay reproduz o plano publicado (0 diferenças); com o fechamento do M2 e do M3 o WIP do motor = contagem manual das 12:08 (`9.000 / 4.800+0 / 1.200`).
 
-## 5. Benchmark
+## 5. Benchmark (banco real — clone de PROD, com latência de rede injetada)
 
-Offline com dados reais de 03/11 (`scripts/fechamento/benchmark.ts`, 15 execuções por cenário + aquecimento; JSON em `docs/fechamento-fisico/benchmark-fechamento.json`). O motor aprovou o portão em **15/15** execuções nos dois cenários.
+Tempos separados por etapa, 20 fechamentos completos CONFIRMADOS (20/20), ~84 idas ao banco por fechamento. `docs/fechamento-fisico/e2e-clone*.json`.
 
-| Cenário | total p50 | total p95 | pior | corte-v1 + montagem p95 |
-|---|---|---|---|---|
-| fechamento do M2 (10:35) | 673 ms | 842 ms | 842 ms | 842 ms |
-| fechamento do M3 (12:06) | 653 ms | 961 ms | 961 ms | 961 ms |
+| Cenário (RTT ao banco) | abrir | contexto/buffers | entrada | gravar inventário | corte-v1 | portão HARD | persistir plano | **resposta total p50 / p95 / pior** |
+|---|---|---|---|---|---|---|---|---|
+| clone local (≈ 0 ms) | 82 ms | 58 ms | 77 ms | 3 ms | 668 ms | 0 ms | 37 ms | **806 / 829 / 844 ms** |
+| mesma região (8–16 ms) | 452 ms | 325 ms | 440 ms | 21 ms | 690 ms | 0 ms | 55 ms | **1,35 / 1,38 / 1,40 s** |
+| Mac → Supabase (46–80 ms, pessimista) | 1,69 s | 1,09 s | 1,53 s | 79 ms | 762 ms | 0 ms | 115 ms | **3,09 / 3,19 / 3,20 s** |
 
-Banco (Postgres local, `registrar + resultado`, 200 execuções): p50 0,15 ms · p95 0,18 ms · pior 0,39 ms.
+Meta p95 ≤ 5 s: **atendida em todos os cenários**; o custo dominante em rede é o nº de idas (carga de estado + entrada), não o motor. Honestidade: o clone é Postgres 16 local com os dados de PROD (não o Supabase hospedado); a rede foi emulada por um proxy com atraso. A medição definitiva é a sombra (o log guarda `tempos_ms` por etapa; `escala_fechamento_duracao`). Benchmark offline do motor (dados reais de 03/11): corte-v1 p95 0,84–0,96 s, portão aprova 15/15.
 
-**O que NÃO está medido (e por quê):** o custo real de rede/consultas do Supabase (≈ 25 idas ao banco: carga do estado, apontamentos, catálogo, RPCs de gravação/aplicação/log) e a RPC `escala_aplicar_recalculo` em PROD. Esta máquina não tem credenciais de PROD (e eu não escrevo em PROD). Estimativa de engenharia: 2–3,5 s p50; **a medição oficial é a fase SOMBRA** (o ensaio registra entrada/corte/validação; o `gravacao` e o total são medidos no próprio clique) e a ativação só ocorre se p95 ≤ 5 s (abaixo).
+## 6. DEV e clone — resultado
 
-## 6. Plano de deploy (nada disto foi executado)
+* **Clone de PROD** (dump de PROD, somente leitura; PG16 + PostgREST 16.5): migration×2 ✓, seed×2 ✓, 19 verificações estruturais ✓ (constraints, 16 FKs validadas, RLS em 9 tabelas, policies, grants — authenticated/anon sem escrita; service_role só INSERT nas append-only —, 16 índices, funções, 8 triggers de imutabilidade, trigger de apontamento, CHECK de permissões/eventos, claim da outbox, guarda do histórico alterada em UMA condição); **contagens das tabelas pré-existentes idênticas** (nenhum dado histórico alterado, nenhum evento/recálculo enfileirado; só `escala_parametros` +1 = a flag desligada); rollback devolve funções byte-idênticas e o mesmo nº de tabelas/funções; migration+seed reaplicáveis depois.
+* **DEV (`zjwcomwjmhsloyxfypax`)**: migration aplicada 2× (idempotente) e as 19 verificações passam (0 FALHA). **DEV NÃO é equivalente a PROD** (faltam as migrations do fluxo, `escala_trg_parametros` tem outro corpo): por isso o E2E completo roda no clone e a migration foi escrita para não depender do corpo das funções (reescreve a definição existente; aborta com erro claro se a âncora não existir). A migration foi aplicada em DEV via `db query` (NÃO registrada no histórico de migrations do Supabase) e a flag permanece desligada.
 
-Pré-requisito: semana ativa no planejador `corte-v1` (`producao_real_planejador_semanas`), senão o portão recusa (por desenho).
-1. **Backup durável** (fora de `/private/tmp`): hash/versão do plano, linhas da semana, contagens, parâmetros, eventos (mesmo pacote de 03/11 12:2x).
-2. **Migration** `20261110100000` em PROD (inerte: modo desligado, só cria objetos e troca o `escala_reivindicar_eventos` para também reivindicar o novo tipo). Rollback: `supabase/rollbacks/20261110100000_escala_fechamento_fisico_ROLLBACK.sql`.
-3. **Seed do catálogo** `docs/fechamento-fisico/seed-catalogo-buffers.sql` (Conector 3/4 + Caixa) e a query de cobertura (0 pares sem buffer).
-4. **Permissões**: conceder `escala_fechamento` à(s) pessoa(s) do tablet e `escala_fechamento_excecao` ao perfil superior.
-5. **Deploy do código** (flag ainda desligada): sem mudança visível.
-6. **SOMBRA** (`"sombra"`) por pelo menos 3 dias úteis completos (≥ 15 fechamentos): a pessoa do tablet já usa a tela; o motor oficial NÃO usa o físico; o banco acumula erro de WIP e ensaios.
-7. **GO/NO-GO** (abaixo) → `"ativo"` numa segunda-feira (começo de semana), com o procedimento de rollback à mão.
-8. Monitorar: `select * from escala_fechamento_duracao order by 1 desc`, `escala_wip_erro_dia`, eventos `fechamento_fisico` pendentes/erro.
+## 7. Plano de deploy, segurança do merge e rollback
 
-## 7. Rollback
+**Merge em `main` — NÃO feito.** O repositório não tem workflow que aplique migration (os únicos workflows, `escala-drenar` e `escala-gerar-semana`, chamam endpoints) e a migration NÃO roda sozinha em merge; o Vercel faz deploy do código de `main`. Efeito de mesclar antes de aplicar a migration em PROD: o código novo sobe com a flag ausente ⇒ tratada como `desligado` ⇒ rotas respondem 503 e o motor segue idêntico ao de hoje (testes de motor byte-idêntico), e o botão do painel não aparece (depende da flag). Recomendação: mesclar só junto do plano abaixo, na ordem 1–5, para o deploy não preceder a migration.
 
-* **Desligar**: `escala_fechamento_fisico_modo = '"desligado"'` — tela some, trigger de apontamento fica inerte, o motor volta às contagens legadas.
-* **Exportar o físico para o legado** antes de remover (senão o motor "esquece" a verdade): bloco comentado no início do rollback (`update escala_parametros … || (select … from escala_contagens_fechamento_para_motor)`).
-* **Remover objetos**: o script arquiva tudo em `*_arquivo` (tabelas append-only nunca são apagadas sem cópia), restaura o claim da outbox, devolve o CHECK de permissões e roda em transação. O tipo de evento `fechamento_fisico` permanece permitido (histórico não é reescrito).
-* **Plano**: o recálculo do fechamento só publica via portão HARD; para desfazer um plano publicado vale o procedimento de sempre (restaurar as linhas da versão anterior de `escala_plano_versoes`).
-* **Código**: reverter os commits da branch; com a flag desligada nada depende deles.
+Ordem de implantação para SOMBRA (nada disto foi executado em PROD):
+1. **Backup durável** (plano vigente + hash, linhas da semana, contagens, parâmetros, eventos).
+2. **Migration** `20261110100000` em PROD (inerte: flag desligada; troca o claim da outbox, relaxa a guarda do histórico só quando o fechamento libera). Rollback: `supabase/rollbacks/20261110100000_escala_fechamento_fisico_ROLLBACK.sql`.
+3. **Seed do catálogo** `docs/fechamento-fisico/seed-catalogo-buffers.sql` + consulta de cobertura (0 produtos ativos/pares sem buffer nem dispensa).
+4. **Permissões**: `escala_fechamento` à pessoa do tablet e aos substitutos autorizados; `escala_fechamento_excecao` SOMENTE ao perfil superior (não é concedida automaticamente a quem tem `escala_fechamento`).
+5. **Deploy do código** (flag desligada): sem mudança visível além do selo.
+6. **Flag → `"sombra"`** por 1–2 dias produtivos: a pessoa fecha o período de verdade no tablet com TODOS os buffers; o inventário é gravado; o motor roda contrafactual; o plano oficial de PROD NÃO é substituído.
+7. Comparar por período (consultas na seção 10) → GO/NO-GO → só então `"ativo"`.
 
-## 8. Critérios GO / NO-GO para `ativo`
+**O que aconteceria se a flag virasse `ativo` em PROD hoje** (não fazer): (a) cada troca de período passa a exigir o fechamento atômico; botão FECHAR PERÍODO aparece para quem tem a permissão; (b) durante EM_FECHAMENTO só quem abriu consegue apontar (trigger); (c) catálogo incompleto ou semana sem corte-v1 ativo BLOQUEIA (hard block) — é preciso conferir, antes, quais semanas de PROD estão em `corte-v1` (`producao_real_planejador_semanas`); (d) o plano publicado passa a nascer do inventário físico, com portão HARD; (e) selo ESCALA CONFIRMADA / AGUARDANDO FECHAMENTO nas telas. Nenhum histórico é reescrito.
 
-GO somente se TODOS valerem em ≥ 15 fechamentos reais em sombra (≥ 3 dias):
-1. **Tempo**: p95 do fechamento completo (`total_ms` + `aplicar` estimado) ≤ **5 s**; pior caso ≤ 10 s. Acima de 10 s ⇒ NO-GO e investigar o gargalo (log traz entrada/corte/validação/persistência).
-2. **Portão**: ≥ 95% dos ensaios com `publicavel = true`; todo `false` explicado e corrigido (o motivo vem no log).
-3. **Catálogo**: 0 `pares_sem_buffer` nos ensaios.
-4. **Adesão**: ≥ 95% dos períodos com fechamento gravado; 0 fechamentos "sem contagem" que não sejam emergência registrada.
-5. **Qualidade do dado**: desvio médio do WIP estimado medido; viés constante entre fechamentos classificado como erro de âncora (esperado cair a ~0 após o 1º dia).
-6. **Segurança**: 0 apontamentos bloqueados indevidamente em teste de aceitação com a flag `ativo` num ambiente de Preview; rollback ensaiado uma vez.
-7. **Equipe**: pessoa do tablet treinada; perfil superior definido para a exceção; plano de contingência (fechamento por exceção) conhecido.
-NO-GO imediato (reverter para `desligado`): qualquer plano publicado fora do portão; apontamento perdido; fechamento CONFIRMADO sem plano persistido; p95 > 10 s.
+**Rollback**
+* **Desligar**: `escala_fechamento_fisico_modo = '"desligado"'` (não enfileira recálculo — o gatilho de parâmetros ignora a flag).
+* **Exportar o físico para o legado** antes de remover: bloco comentado no início do rollback.
+* **Remover objetos**: o script arquiva tudo em `*_arquivo`, restaura o claim da outbox, o CHECK de permissões e a guarda do histórico (byte-idêntico, verificado no clone), em transação.
+* **Plano**: restaurar as linhas da versão anterior de `escala_plano_versoes` (procedimento de sempre).
 
-## 9. Impacto nas telas atuais
+## 8. Permissões
 
-* `/producao-real` (painel): novo botão **FECHAR PERÍODO E GERAR PRÓXIMA PROGRAMAÇÃO** (só com flag ≠ desligado, permissão `escala_fechamento` e nos últimos 5 min/depois do fim do período); faixa verde quando confirmado.
-* Apontamento (`ApontamentoModal`/`SemProducaoModal`): durante o fechamento (modo ativo) só o responsável lança; mensagem clara quando o trigger recusa.
-* Permissões de usuário: duas permissões novas.
-* Nada muda nas telas de Escala/TV/Previsão (a tela de Escala já mostra o plano novo porque ele é publicado).
+* `escala_fechamento`: pessoa do tablet + substitutos autorizados (conceder em Usuários → permissões).
+* `escala_fechamento_excecao`: apenas admin/perfil superior; **não** vem junto com `escala_fechamento`.
+* “Fechar sem contagem” não tem botão chamativo; exige a permissão de exceção, motivo obrigatório, auditoria, buffers sem contagem registrados, status especial e a programação seguinte marcada como parcialmente baseada em estimativa.
 
-## 10. Lacunas conhecidas (não escondo)
+## 9. Correção administrativa (sem tela, por enquanto)
 
-* **Correção pós-fechamento**: o backend e a API aceitam nova revisão (perfil superior), mas **não há tela** para isso.
-* **Páginas "Qualidade do WIP" e selo CONFIRMADO nas telas de Escala/TV**: as views existem; as telas não foram feitas (a confirmação aparece na própria tela do fechamento e no painel).
-* **Medição de rede/banco do Supabase**: depende da fase sombra (seção 5).
-* **Gate de catálogo**: pares sem buffer geram **aviso** (e métrica), não bloqueio — decisão para não parar a fábrica por lacuna de cadastro; o GO exige 0.
-* **Produto Único**: deliberadamente fora; só `escala_buffer_pares` muda no cutover.
-* **Harness de DEV** `/dev/fechamento` (mock de fetch, `notFound()` em produção, padrão de `/dev/intelligence`): serve à revisão da UX e aos screenshots (`docs/fechamento-fisico/screenshots/`).
+A API já aceita correção por perfil superior: nunca se edita o registro original — cria-se uma **nova revisão**. Procedimento: (1) superior com `escala_fechamento_excecao` chama `POST /api/escala/fechamento/abrir` com `forcar: true` para o período; (2) `POST /api/escala/fechamento/confirmar` com `revisao: true`, inventário corrigido e motivo; (3) o log mostra rev N+1; a anterior permanece (tabelas append-only por trigger e por privilégio). Qualidade do WIP: os dados (estimado × físico por buffer/dia) já são gravados desde o início (`escala_wip_erro_dia`); a página fica para depois do piloto.
+
+## 10. Preparação da sombra (comparação por período)
+
+Por período fechado em sombra, comparar: WIP estimado × físico (`escala_wip_erro_dia`); plano vigente × plano contrafactual (`detalhe` do log: hash_plano_novo × hash_plano_anterior, `publicavel`); tempo do fechamento (`escala_fechamento_duracao`); portões HARD reprovados (`motivo`); erros (`ERRO_RECALCULO`). Consultas e exemplos no E2E (`e2e-clone.json`).
+
+## 11. Critérios GO / NO-GO para `ativo`
+
+Resultado hoje (ambiente de teste) × exigência para PROD:
+
+| Critério | Hoje (clone/DEV) | Falta em PROD |
+|---|---|---|
+| Catálogo 100% coberto para produtos ativos | seed cobre Conector 3/4 + Caixa (5 buffers/7 pares); lacuna ⇒ bloqueio provado | conferir os demais produtos ativos de PROD (consulta de cobertura) |
+| 0 erro de migration | ✓ clone (PG16, dump de PROD) ×2 e DEV ×2 | aplicar em PROD |
+| 0 quebra histórica / compatibilidade | ✓ contagens idênticas, histórico preservado | repetir no ensaio de PROD |
+| 0 duplicidade / 0 fechamento perdido | ✓ duplo clique, 2 usuários, concorrência | observar na sombra |
+| Idempotência + retry + ERRO_RECALCULO | ✓ | — |
+| HARD gate | ✓ (reprova ⇒ nada gravado) | ≥ 95% aprovam na sombra |
+| Replay 03/11 | ✓ reproduz o publicado e o WIP de 12:08 | — |
+| p95 ≤ 5 s | ✓ 0,83 / 1,38 / 3,19 s (emulado) | confirmar com Supabase real na sombra |
+| Contagem física preservada integralmente | ✓ (inclusive em ERRO_RECALCULO) | — |
+| Próximo período correto | ✓ | — |
+| Rollback testado | ✓ byte-idêntico no clone e no banco local | — |
+| Nenhuma regressão além das 14 | ✓ mesmas 14 | — |
+
+NO-GO imediato (voltar a `desligado`): plano publicado fora do portão; apontamento perdido; CONFIRMADO sem plano persistido; p95 > 10 s.
+
+## 12. Lacunas conhecidas
+
+* **Sem tela de correção pós-fechamento** (API pronta, procedimento na seção 9); **sem página Qualidade do WIP** (dados gravados).
+* Medição em Supabase hospedado real só na sombra; o clone é PG16 local com latência emulada.
+* **Produto Único**: deliberadamente fora (pausado); só `escala_buffer_pares` muda no cutover.
+* **Harness de DEV** `/dev/fechamento` (`notFound()` em produção): UX e screenshots em `docs/fechamento-fisico/screenshots/`.

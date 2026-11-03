@@ -45,8 +45,18 @@ drop function if exists public.escala_fechamento_trg_imutavel();
 drop function if exists public.escala_buffer_trg_catalogo();
 alter table public.escala_parametros drop constraint if exists escala_parametros_fechamento_fisico_modo;
 delete from public.escala_parametros where chave = 'escala_fechamento_fisico_modo';
--- eventos pendentes viram 'ignorado'; o tipo PERMANECE no CHECK (histórico de eventos não é reescrito)
+-- eventos pendentes viram 'ignorado'; o tipo só sai do CHECK se NENHUM evento desse tipo existe (o histórico de eventos não é reescrito)
 update public.escala_producao_eventos set status = 'ignorado' where tipo = 'fechamento_fisico' and status in ('pendente', 'processando', 'erro');
+do $$
+declare v_def text; v_vals text[];
+begin
+  if not exists (select 1 from public.escala_producao_eventos where tipo = 'fechamento_fisico') then
+    select pg_get_constraintdef(oid) into v_def from pg_constraint where conname = 'escala_producao_eventos_tipo_check' and conrelid = 'public.escala_producao_eventos'::regclass;
+    select array_agg(distinct x order by x) into v_vals from (select unnest(case when q like '{%}' then string_to_array(trim(both '{}' from q), ',') else array[q] end) as x from (select m[1] as q from regexp_matches(v_def, '''([^'']+)''', 'g') m) s) t where x <> 'fechamento_fisico';
+    alter table public.escala_producao_eventos drop constraint escala_producao_eventos_tipo_check;
+    execute format('alter table public.escala_producao_eventos add constraint escala_producao_eventos_tipo_check check (tipo = any (%L::text[]))', v_vals);
+  end if;
+end $$;
 delete from public.usuario_permissoes where permissao in ('escala_fechamento', 'escala_fechamento_excecao');
 do $$
 declare v_def text; v_vals text[];
@@ -57,5 +67,12 @@ begin
   where x not in ('escala_fechamento', 'escala_fechamento_excecao');
   alter table public.usuario_permissoes drop constraint usuario_permissoes_permissao_check;
   execute format('alter table public.usuario_permissoes add constraint usuario_permissoes_permissao_check check (permissao = any (%L::text[]))', v_vals);
+end $$;
+-- devolve o gatilho de parâmetros original
+do $$
+declare v_def text;
+begin
+  select pg_get_functiondef(p.oid) into v_def from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'escala_trg_parametros';
+  if v_def like '%a flag do fechamento físico nunca dispara recálculo%' then execute replace(v_def, E'  if coalesce(new.chave, old.chave) = ''escala_fechamento_fisico_modo'' then\n    return null; -- a flag do fechamento físico nunca dispara recálculo\n  end if;\n', ''); end if;
 end $$;
 commit;

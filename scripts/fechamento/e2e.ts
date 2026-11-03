@@ -17,6 +17,8 @@ const DATA = process.env.DATA ?? "2026-11-03", SEMANA = process.env.SEMANA ?? "2
 const N = Number(process.env.BENCH_N ?? 20);
 const admin: SupabaseClient = createClient(URL, KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 const falhas: string[] = [];
+// nº de idas ao banco por fechamento (só quando o proxy do clone está na frente): STATS_URL=http://127.0.0.1:3310/__stats
+const idas = async (): Promise<number> => { try { return process.env.STATS_URL ? ((await (await fetch(process.env.STATS_URL)).json()) as { n: number }).n : NaN; } catch { return NaN; } };
 const ok = (cond: boolean, nome: string, detalhe = "") => { console.log(`${cond ? "PASS" : "FAIL"}  ${nome}${detalhe ? ` — ${detalhe}` : ""}`); if (!cond) falhas.push(nome); };
 const uuid = () => crypto.randomUUID();
 const ms = async <T>(f: () => Promise<T>): Promise<[T, number]> => { const t = performance.now(); const r = await f(); return [r, performance.now() - t]; };
@@ -46,18 +48,18 @@ const modo = (m: "desligado" | "sombra" | "ativo") => setParam("escala_fechament
 if (ALVO === "clone") sql("notify pgrst, 'reload schema'");
 
 (async () => {
-  const { data: us } = await admin.from("usuarios").select("id, nome").limit(3);
-  if (!us || us.length < 3) throw new Error("precisa de ≥ 3 usuários");
+  const { data: us } = await admin.from("usuarios").select("id, nome").order("id").limit(3);
+  if (!us || us.length < 2) throw new Error("precisa de ≥ 2 usuários");
+  const U0 = us[0].id;
   const A: UsuarioFechamento = { id: us[0].id, papel: "usuario", permissoes: ["escala_fechamento"] };
   const B: UsuarioFechamento = { id: us[1].id, papel: "usuario", permissoes: ["escala_fechamento"] };
-  const SUP: UsuarioFechamento = { id: us[2].id, papel: "usuario", permissoes: ["escala_fechamento", "escala_fechamento_excecao"] };
+  const SUP: UsuarioFechamento = { id: (us[2] ?? us[1]).id, papel: "usuario", permissoes: ["escala_fechamento", "escala_fechamento_excecao"] };
   const io = (u: UsuarioFechamento) => ioDoUsuario(admin, u);
   const originais = { modo: await param("escala_fechamento_fisico_modo"), planejadorSemanas: await param("producao_real_planejador_semanas"), config: await param("producao_real_planejador_config"), contagens: await param("producao_real_contagens_fisicas") };
   console.log(`# E2E fechamento físico · alvo ${ALVO} · semana ${SEMANA} · dia ${DATA} · usuários ${us.map((u) => u.nome).join(", ")}`);
   const relatorio: Record<string, unknown> = { alvo: ALVO, semana: SEMANA, data: DATA };
   const CADEIA = (process.env.CADEIA ?? "m1,m2,m3,t1").split(",");
   const [P1, P2, P3, P4] = CADEIA;
-  const apCols = "(select string_agg(quote_ident(column_name), ',') from information_schema.columns where table_schema='public' and table_name='apontamentos_producao' and is_generated='NEVER')";
   // SIMULAÇÃO DO DIA (só clone): os períodos seguintes ao que está sendo fechado ainda NÃO têm apontamento (como na vida real); os apontamentos de cada período voltam do backup
   // quando "a produção dele acontece". Também tira as contagens manuais posteriores ao dia, para o fechamento ser sempre a contagem mais recente (ordem cronológica real).
   const posteriores = CADEIA.slice(1).concat(["t2", "t3"]).filter((x, i, a) => a.indexOf(x) === i);
@@ -69,21 +71,56 @@ if (ALVO === "clone") sql("notify pgrst, 'reload schema'");
          delete from public.apontamentos_producao where data = '${DATA}' and periodo_id in (${lista});`);
     sql(`update public.escala_parametros set valor = coalesce((select jsonb_agg(e) from jsonb_array_elements(valor) e where (e->>'contadoEm')::timestamptz < '${DATA}T00:00:00-03:00'::timestamptz), '[]'::jsonb) where chave = 'producao_real_contagens_fisicas'`);
   };
-  // "a produção do período acontece": os operadores seguem o plano VIGENTE (o recálculo do fechamento anterior pode ter mudado os postos), então cada posto do plano ganha um apontamento
-  // (cópia de um apontamento "produzindo" real como molde: mesma meta/custo/horário, trocando máquina/produto/etapa/operação/pessoa/peças pelos da alocação)
-  const producaoDo = (periodo: string) => sql(`do $$ declare c text := (select string_agg('t.' || quote_ident(column_name), ',') from information_schema.columns where table_schema='public' and table_name='apontamentos_producao' and is_generated='NEVER'
-        and column_name not in ('id','idempotency_key','maquina_id','produto_id','etapa_id','operacao_id','funcionario_id','quantidade_produzida','periodo_id','data'));
-      n text := (select string_agg(quote_ident(column_name), ',') from information_schema.columns where table_schema='public' and table_name='apontamentos_producao' and is_generated='NEVER'
-        and column_name not in ('id','idempotency_key','maquina_id','produto_id','etapa_id','operacao_id','funcionario_id','quantidade_produzida','periodo_id','data'));
-      begin
-        execute format('insert into public.apontamentos_producao (%s, id, idempotency_key, maquina_id, produto_id, etapa_id, operacao_id, funcionario_id, quantidade_produzida, periodo_id, data)
-          select %s, gen_random_uuid(), gen_random_uuid(), a.maquina_id, a.produto_id, a.etapa_id, a.operacao_id, a.funcionario_id, a.pecas, a.periodo_id, a.data
-          from public.escala_producao_alocacoes a cross join (select * from public.e2e_ap_backup where status = %L limit 1) t
-          where a.data = %L and a.periodo_id = %L and a.maquina_id is not null', n, c, 'produzindo', '${DATA}', '${periodo}');
-      end $$`);
+  // "a produção do período acontece": os operadores seguem o plano VIGENTE (o recálculo do fechamento anterior pode ter mudado os postos): cada posto do plano ganha um apontamento
+  // sintético (meta/horários dos cadastros reais; quantidade = peças da alocação). Funciona em clone e em DEV (não depende de apontamento anterior).
+  const producaoDo = (periodo: string) => sql(`insert into public.apontamentos_producao (produto_id, etapa_id, operacao_id, maquina_id, funcionario_id, periodo_id, data, hora_lancamento, quantidade_produzida, quantidade_refugo,
+        periodo_inicio_vigente, periodo_fim_vigente, meta_periodo_vigente, custo_hora_operacao_vigente, idempotency_key, criado_por)
+      select a.produto_id, a.etapa_id, a.operacao_id, a.maquina_id, a.funcionario_id, a.periodo_id, a.data, pe.fim, greatest(a.pecas, 1), 0, pe.inicio, pe.fim,
+        coalesce((to_jsonb(e) ->> ('meta_' || a.periodo_id))::numeric, 100), 0, gen_random_uuid(), '${U0}'
+      from public.escala_producao_alocacoes a join public.periodos pe on pe.id = a.periodo_id join public.roteiro_etapas e on e.id = a.etapa_id
+      where a.data = '${DATA}' and a.periodo_id = '${periodo}' and a.maquina_id is not null
+      on conflict do nothing`);
+  const diretorioDev = `${process.env.HOME}/Documents/sittech-rollbacks/e2e-dev-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  const chavesDev = ["producao_real_modo", "producao_real_semanas_ativas", "producao_real_planejador_semanas", "producao_real_planejador_config", "producao_real_pares_legado", "producao_real_fluxo_mesmo_periodo", "producao_real_cadeia_diagnostico", "revezamento_escopo", "revezamento_ponte_m3_t1"];
+  const originaisDev: Record<string, unknown> = {};
+  let alocBackup: unknown[] = [];
+  async function prepararDev() {
+    // DEV: (1) backup local do plano da semana e dos parâmetros, (2) liga o corte-v1 só nesta semana, (3) catálogo gerado das rotas reais (um buffer por par de etapas)
+    fs.mkdirSync(diretorioDev, { recursive: true });
+    for (const k of chavesDev) originaisDev[k] = await param(k);
+    const dias = (await admin.from("escala_producao_dias").select("data").gte("data", SEMANA).lte("data", new Date(Date.parse(SEMANA) + 6 * 86_400_000).toISOString().slice(0, 10))).data?.map((d: any) => d.data) ?? [];
+    alocBackup = (await admin.from("escala_producao_alocacoes").select("*").in("data", dias)).data ?? [];
+    fs.writeFileSync(`${diretorioDev}/alocacoes.json`, JSON.stringify(alocBackup));
+    fs.writeFileSync(`${diretorioDev}/parametros.json`, JSON.stringify(originaisDev));
+    console.log(`# DEV: backup em ${diretorioDev} (${alocBackup.length} alocações, ${Object.keys(originaisDev).length} parâmetros)`);
+    const cfgProd = (originais.config as Record<string, unknown>) ?? { objetivo: "EQUILIBRIO", orcamentoMs: 20000, busca: { iter: 400000, semente: 1, reinicios: 2 }, ganhoMinimoRel: 0.01 };
+    await setParam("producao_real_planejador_config", { objetivo: "EQUILIBRIO", orcamentoMs: 20000, busca: { iter: 400000, semente: 1, reinicios: 2 }, buscaComVigente: { iter: 200000, semente: 1, reinicios: 1 }, ganhoMinimoRel: 0.01, ...(cfgProd.objetivo ? {} : {}) });
+    await setParam("producao_real_semanas_ativas", [SEMANA]); await setParam("producao_real_planejador_semanas", [SEMANA]); await setParam("producao_real_pares_legado", []);
+    await setParam("producao_real_fluxo_mesmo_periodo", false); await setParam("producao_real_cadeia_diagnostico", "ativo"); await setParam("revezamento_escopo", "bloco"); await setParam("revezamento_ponte_m3_t1", true);
+    await setParam("producao_real_modo", "ativo");
+    sql(`with pares as (select e1.produto_id, e1.id o, e2.id s, p.nome, e1.ordem from public.roteiro_etapas e1 join public.roteiro_etapas e2 on e2.produto_id = e1.produto_id and e2.ordem = e1.ordem + 1 join public.produtos p on p.id = e1.produto_id
+         where e1.produto_id in (select produto_id from public.previsao_itens where previsao_id = (select id from public.previsoes where semana_inicio = '${SEMANA}') and tipo = 'previsto' and (quantidade > 0 or coalesce(quantidade_adicional, 0) > 0))),
+       b as (insert into public.escala_buffers_fisicos (chave, rotulo, ordem) select 'dev:' || produto_id || ':' || o, nome || ' — estoque entre etapas ' || (ordem + 1) || '→' || (ordem + 2), 100 + ordem from pares on conflict (chave) do nothing returning id)
+       insert into public.escala_buffer_pares (buffer_id, produto_id, etapa_origem_id, etapa_seguinte_id, papel, vigente_de)
+       select bf.id, pr.produto_id, pr.o, pr.s, 'contabil', date '2026-01-01' from pares pr join public.escala_buffers_fisicos bf on bf.chave = 'dev:' || pr.produto_id || ':' || pr.o on conflict do nothing`);
+  }
+  async function restaurarDev() {
+    // devolve parâmetros (apaga os que não existiam) e o plano da semana ao estado anterior; fechamentos/versões são append-only e ficam (DEV)
+    for (const k of chavesDev) { if (originaisDev[k] === undefined || originaisDev[k] === null) sql(`delete from public.escala_parametros where chave = '${k}'`); else await setParam(k, originaisDev[k]); }
+    const dias = [...new Set((alocBackup as any[]).map((a) => a.data))];
+    if (dias.length > 0) {
+      const arquivo = `${diretorioDev}/restaurar-plano.sql`;
+      fs.writeFileSync(arquivo, `begin;\ndelete from public.escala_producao_alocacoes where data in (${dias.map((d) => `'${d}'`).join(",")});\ninsert into public.escala_producao_alocacoes select * from jsonb_populate_recordset(null::public.escala_producao_alocacoes, $j$${JSON.stringify(alocBackup)}$j$::jsonb);\ncommit;\n`);
+      execFileSync("npx", ["supabase", "db", "query", "--linked", "--yes", "-f", arquivo], { cwd: process.env.DEV_CHECKOUT ?? "/Users/mikaellonghi/Documents/sittech-app", stdio: ["ignore", "ignore", "inherit"] });
+      console.log(`# DEV: plano da semana restaurado (${alocBackup.length} alocações)`);
+    }
+    sql(`delete from public.apontamentos_producao where data = '${DATA}' and criado_por = '${U0}' and observacao is null and idempotency_key is not null and periodo_id in ('m1','m2','m3','t1','t2','t3') and hora_lancamento is not null and custo_hora_operacao_vigente = 0`);
+  }
   try {
     if (ALVO === "clone") preparar();
+    if (ALVO === "dev") await prepararDev();
     await modo("sombra");
+    if (ALVO === "dev") producaoDo(P1);
     const buffersDe = (ab: any, fator: number) => (ab.corpo.buffers as any[]).map((b, i) => ({ buffer_id: b.buffer_id, fisico: Math.max(0, Math.round((b.estimado ?? 1000 * (i + 1)) * fator)), motivo: "Contagem anterior errada" }));
     const confirmar = (u: UsuarioFechamento, periodo: string, ab: any, extra: Record<string, unknown> = {}, fator = 0.93) => acaoConfirmar(io(u), u, { data: DATA, periodo_id: periodo, chave: uuid(), buffers: buffersDe(ab, fator), confirmou_diferenca_grande: true, ...extra });
 
@@ -133,7 +170,7 @@ if (ALVO === "clone") sql("notify pgrst, 'reload schema'");
     relatorio.normal = { ms: msN, tempos: cN.tempos };
 
     // ---- 4. idempotência / duplo clique / concorrência (período 2) ----
-    if (ALVO === "clone") producaoDo(P2);
+    producaoDo(P2);
     const re = await acaoConfirmar(io(A), A, { data: DATA, periodo_id: P1, chave: chaveN, buffers: bufN, confirmou_diferenca_grande: true });
     ok((re.corpo as any).duplicado === true && (re.corpo as any).fechamentoId === cN.fechamentoId, "idempotência: reenvio da mesma chave devolve o mesmo fechamento");
     const abC = await acaoAbrir(io(A), A, { data: DATA, periodo_id: P2 });
@@ -148,7 +185,7 @@ if (ALVO === "clone") sql("notify pgrst, 'reload schema'");
     ok(abA.status === 200 && abB.status === 409, "dois usuários: a 2ª abertura da janela é recusada", `${abA.status}/${abB.status}`);
 
     // ---- 5. ERRO_RECALCULO → retry → CONFIRMADO (período 3) ----
-    if (ALVO === "clone") producaoDo(P3);
+    producaoDo(P3);
     const abE = await acaoAbrir(io(A), A, { data: DATA, periodo_id: P3 });
     const bufE = buffersDe(abE, 0.82 + Math.random() * 0.06);
     await setParam("producao_real_planejador_config", { ...(originais.config as object), orcamentoMs: 1000, busca: { iter: 2_000_000, reinicios: 6, semente: 1 }, buscaComVigente: { iter: 2_000_000, reinicios: 6, semente: 1 } }); // busca enorme × orçamento mínimo de 1 s ⇒ o planejador estoura o orçamento (falha real do motor)
@@ -165,7 +202,7 @@ if (ALVO === "clone") sql("notify pgrst, 'reload schema'");
     ok((await acaoRetry(io(A), A, { fechamento_id: cE.fechamentoId })).corpo.duplicado === true, "retry é idempotente (já confirmado)");
 
     // ---- período 4: fechamento normal que serve de base ao benchmark e às exceções ----
-    if (ALVO === "clone") producaoDo(P4);
+    producaoDo(P4);
     const abT = await acaoAbrir(io(A), A, { data: DATA, periodo_id: P4 });
     const rT = await confirmar(A, P4, abT, {}, 0.97);
     ok((rT.corpo as any).estado === "CONFIRMADO", `fechamento ${P4.toUpperCase()} (base do benchmark)`, `${(rT.corpo as any).tempos?.total} ms`);
@@ -197,13 +234,15 @@ if (ALVO === "clone") sql("notify pgrst, 'reload schema'");
 
     // ---- 8. BENCHMARK com banco real (revisões do mesmo período; cada uma percorre o fluxo inteiro) ----
     console.log(`\n# BENCHMARK: ${N} fechamentos completos (revisão) em ${DATA} ${P4}`);
-    const amostras: Record<string, number[]> = { abrir: [], contexto_estado: [], contexto_montagem: [], contexto_buffers: [], contexto_postos: [], entrada: [], gravacao: [], corte: [], validacao: [], persistencia: [], servidor_total: [], resposta_total: [] };
+    const amostras: Record<string, number[]> = { idas_por_fechamento: [], abrir: [], contexto_estado: [], contexto_montagem: [], contexto_buffers: [], contexto_postos: [], entrada: [], gravacao: [], corte: [], validacao: [], persistencia: [], servidor_total: [], resposta_total: [] };
     let aprov = 0;
     for (let i = 0; i < N; i++) {
+      const n0 = await idas();
       const [ab, tAb] = await ms(() => acaoAbrir(io(SUP), SUP, { data: DATA, periodo_id: P4, forcar: true }));
       if (ab.status !== 200) { console.log(`  rodada ${i}: abrir ${ab.status} ${(ab.corpo as any).erro}`); continue; }
       const [r, tCf] = await ms(() => acaoConfirmar(io(SUP), SUP, { data: DATA, periodo_id: P4, chave: uuid(), revisao: true, buffers: buffersDe(ab, 0.85 + (i % 7) * 0.02), confirmou_diferenca_grande: true }));
       const c = r.corpo as any;
+      amostras.idas_por_fechamento.push((await idas()) - n0);
       if (c.estado === "CONFIRMADO") aprov++; else console.log(`  rodada ${i}: ${c.estado} ${c.erros?.[0]?.mensagem?.slice(0, 100) ?? c.mensagem}`);
       const t = c.tempos; if (!t) continue;
       amostras.abrir.push(tAb); amostras.resposta_total.push(tCf);
@@ -230,6 +269,7 @@ if (ALVO === "clone") sql("notify pgrst, 'reload schema'");
     ok(tabela.resposta_total.p95 <= 5000, "benchmark: p95 da resposta total ≤ 5 s", `${tabela.resposta_total.p95} ms`);
   } finally {
     await modo((originais.modo as "desligado" | "sombra" | "ativo") ?? "desligado");
+    if (ALVO === "dev") { try { await restaurarDev(); } catch (e) { console.error("FALHA AO RESTAURAR O DEV (restaure manualmente a partir de " + diretorioDev + "):", e); } }
     await setParam("producao_real_planejador_semanas", originais.planejadorSemanas);
     await setParam("producao_real_planejador_config", originais.config);
     if (ALVO === "clone") { await setParam("producao_real_contagens_fisicas", originais.contagens); sql("drop table if exists public.e2e_ap_backup, public.e2e_par_backup"); }

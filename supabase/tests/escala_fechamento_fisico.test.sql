@@ -180,6 +180,18 @@ do $$ declare r text; begin
   assert not escala_fechamento_corte_liberado('2026-11-03','t3'), 'fora do modo ativo a guarda é a de sempre';
 end $$;
 
+-- T11e: a FLAG do fechamento físico nunca enfileira recálculo (a migration inseriu a chave e tudo que mexeu nela depois)
+do $$ begin
+  update escala_parametros set valor='"sombra"' where chave='escala_fechamento_fisico_modo';
+  update escala_parametros set valor='"ativo"' where chave='escala_fechamento_fisico_modo';
+  update escala_parametros set valor='"desligado"' where chave='escala_fechamento_fisico_modo';
+  assert (select count(*) from escala_producao_eventos where tipo = 'previsao') = 0, 'a flag NÃO pode enfileirar evento de recálculo';
+  insert into escala_parametros(chave, valor, grupo) values ('outra_chave_qualquer', '1', 'operacional');
+  assert (select count(*) from escala_producao_eventos where tipo = 'previsao') = 1, 'as demais chaves continuam com o comportamento de antes';
+  delete from escala_parametros where chave = 'outra_chave_qualquer'; delete from escala_producao_eventos where tipo = 'previsao';
+  update escala_parametros set valor='"sombra"' where chave='escala_fechamento_fisico_modo';
+end $$;
+
 -- T12: custo de gravar o fechamento no banco (Postgres local, 3 buffers; piso de latência — o custo de rede do Supabase entra na fase sombra)
 do $$ declare i int; t0 timestamptz; ms numeric[] := '{}'; v numeric[]; fid uuid; begin
   for i in 1..200 loop

@@ -52,3 +52,17 @@ begin
   if v_inicio_corte <= now() then raise exception 'ESCALA_CORTE_NO_PASSADO: o período % de % já começou', p_a_partir_periodo, p_a_partir_data; end if;
   return 'ok';
 end $$;
+
+-- gatilho de parâmetros de PROD (forma da função e do gatilho): qualquer chave desconhecida enfileira um recálculo ('previsao'); a migration ALTERA a função pela própria definição
+create function escala_trg_parametros() returns trigger language plpgsql as $$
+declare
+  v_chave text := coalesce(new.chave, old.chave);
+begin
+  if v_chave in ('replanejamento_modo', 'replanejamento_semanas_ativas') then
+    return null;
+  end if;
+  insert into escala_producao_eventos (tipo, payload) values ('previsao', jsonb_build_object('chave', v_chave));
+  return null;
+end;
+$$;
+create trigger trg_escala_parametros_evento after insert or delete or update on escala_parametros for each row execute function escala_trg_parametros();

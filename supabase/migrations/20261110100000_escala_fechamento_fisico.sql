@@ -59,6 +59,21 @@ begin
   end if;
 end $$;
 
+-- O gatilho de parâmetros (escala_trg_parametros) enfileira um RECÁLCULO a cada mudança de parâmetro que ele não conhece. A flag do fechamento físico NÃO pode disparar recálculo
+-- (ligar/desligar/virar sombra não muda plano; o plano só muda no fechamento). A função existente é ALTERADA pela própria definição: ganha uma saída antecipada para esta chave.
+do $$
+declare v_def text;
+begin
+  select pg_get_functiondef(p.oid) into v_def from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'escala_trg_parametros';
+  if v_def is null then raise exception 'escala_trg_parametros não encontrada'; end if;
+  if v_def not like '%escala_fechamento_fisico_modo%' then
+    -- saída antecipada logo depois do 1º BEGIN do corpo (independe do resto da função, que varia entre ambientes)
+    v_def := regexp_replace(v_def, E'\nbegin\n', E'\nbegin\n  if coalesce(new.chave, old.chave) = ''escala_fechamento_fisico_modo'' then\n    return null; -- a flag do fechamento físico nunca dispara recálculo\n  end if;\n');
+    if v_def not like '%escala_fechamento_fisico_modo%' then raise exception 'escala_trg_parametros: ponto de inserção não reconhecido (revisar a migration)'; end if;
+    execute v_def;
+  end if;
+end $$;
+
 -- =========================================================================
 -- 2) Flag
 -- =========================================================================
@@ -538,5 +553,7 @@ begin
   end loop;
   execute 'grant update, delete on public.escala_fechamento_trava to service_role';
 end $$;
+-- defesa em profundidade: as tabelas append-only não aceitam UPDATE/DELETE/TRUNCATE nem da service_role (os gatilhos de imutabilidade já recusam; aqui também o privilégio)
+revoke update, delete, truncate on public.escala_fechamentos, public.escala_fechamento_buffers, public.escala_fechamento_log, public.escala_fechamento_aberturas from service_role;
 grant select on public.escala_fechamentos_vigentes, public.escala_fechamento_estado, public.escala_contagens_fechamento_para_motor, public.escala_wip_erro,
   public.escala_wip_erro_dia, public.escala_wip_erro_maquina, public.escala_wip_erro_produto, public.escala_fechamento_duracao to authenticated, service_role;
