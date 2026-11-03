@@ -14,4 +14,4 @@ export function divergencias(l: LinhaApontamento, cat: Catalogo): Divergencia[] 
   return d;
 }
 
-export const ROTULO_DIVERGENCIA: Record<Divergencia, string> = { MAQUINA: "máquina", OPERADOR: "operador", PRODUTO: "produto", OPERACAO: "operação" };
+export const ROTULO_DIVERGENCIA: Record<Divergencia, string> = { MAQUINA: "máquina alterada", OPERADOR: "operador alterado", PRODUTO: "produto alterado", OPERACAO: "operação alterada" };

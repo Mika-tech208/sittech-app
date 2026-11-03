@@ -88,7 +88,7 @@ describe("PassoApontamentos (UI)", () => {
     fireEvent.change(within(cartao).getByLabelText(/Operador/), { target: { value: U(12) } });
     fireEvent.change(within(cartao).getByLabelText("Máquina"), { target: { value: U(3) } });
     expect(await within(cartao).findByText("máquina alterada")).toBeTruthy();
-    expect(within(cartao).getByText("operador alterada")).toBeTruthy();
+    expect(within(cartao).getByText("operador alterado")).toBeTruthy();
     expect(within(cartao).getByText(/Programado: Caroline/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "SALVAR APONTAMENTOS" }));
     await waitFor(() => expect(salvarApontamentosApi).toHaveBeenCalled());

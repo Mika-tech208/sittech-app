@@ -111,7 +111,7 @@ export default function PassoApontamentos({ data, periodoId, bloqueado, onModo, 
           <div className="stx-apx-tags">
             {l.situacao === "EXISTENTE_PAINEL" && <span className="stx-apx-tag">LANÇADO NO PAINEL</span>}
             {l.situacao === "SALVA_FLUXO" && !alterado && <span className="stx-apx-tag ok">SALVO</span>}
-            {div.map((d) => <span key={d} className="stx-apx-tag warn">{ROTULO_DIVERGENCIA[d]} alterada</span>)}
+            {div.map((d) => <span key={d} className="stx-apx-tag warn">{ROTULO_DIVERGENCIA[d]}</span>)}
           </div>
         </div>
 
@@ -174,7 +174,7 @@ export default function PassoApontamentos({ data, periodoId, bloqueado, onModo, 
         .stx-apx-grade{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px}.stx-apx-grade label{display:flex;flex-direction:column;font-size:12px;color:var(--text-3);gap:3px}
         .stx-apx-op{grid-column:1/-1;font-size:13px}.stx-apx-dica{font-size:12px;color:var(--text-3)}.stx-apx-ro{margin-top:8px;font-size:15px}
         .stx-apx-erros{margin:8px 0 0;padding-left:18px;color:var(--danger,#e5484d);font-size:13px}
-        .stx-apx-barra{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+        .stx-apx-barra{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}.stx-apx-barra button{padding:12px 18px;min-height:48px;font-weight:700;border-radius:10px}
         @media (max-width:640px){.stx-apx-grade{grid-template-columns:1fr}}
       `}</style>
       <h3>Apontamentos do período</h3>
