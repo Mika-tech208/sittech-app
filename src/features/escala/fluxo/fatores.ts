@@ -13,15 +13,15 @@ import { construirGrafo } from "./grafo";
 import type { ParLegado } from "./tipos";
 
 /** Último slot FECHADO (fim + fechamentoMinutos ≤ agora) limitado a aPartirDe−1; −1 se nenhum. */
-export function ultimoSlotFechado(entrada: EntradaEscala, agoraMs: number, fechamentoMinutos = 10): number {
+export function ultimoSlotFechado(entrada: EntradaEscala, agoraMs: number, fechamentoMinutos = 10, fechamentoFisicoFimMs?: number): number {
   let c = -1;
-  entrada.slots.forEach((s) => { if (s.fimMs + fechamentoMinutos * 60_000 <= agoraMs) c = s.indice; });
+  entrada.slots.forEach((s) => { if (s.fimMs + fechamentoMinutos * 60_000 <= agoraMs || (fechamentoFisicoFimMs !== undefined && s.fimMs <= fechamentoFisicoFimMs)) c = s.indice; });
   return Math.min(c, entrada.aPartirDe - 1);
 }
 
 /** f por pool ("produto|etapa") a partir do realizado visível no corte. Só devolve os pools com f ≠ 1 (vazio = metas nominais). `entrada.pools` deve estar NOMINAL. */
-export function fatoresDeDesempenho(entrada: EntradaEscala, apontamentos: ApontamentoReal[], agoraMs: number, paresLegado: ParLegado[] = [], fechamentoMinutos = 10): Record<string, number> {
-  const c = ultimoSlotFechado(entrada, agoraMs, fechamentoMinutos);
+export function fatoresDeDesempenho(entrada: EntradaEscala, apontamentos: ApontamentoReal[], agoraMs: number, paresLegado: ParLegado[] = [], fechamentoMinutos = 10, fechamentoFisicoFimMs?: number): Record<string, number> {
+  const c = ultimoSlotFechado(entrada, agoraMs, fechamentoMinutos, fechamentoFisicoFimMs);
   if (c < 0) return {};
   const vis = visivelNoCorte(apontamentos, entrada.slots, c, agoraMs);
   const porPool = desempenhoPorEtapa(entrada.pools, vis);

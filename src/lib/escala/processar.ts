@@ -7,7 +7,8 @@
 // em ESCALA_VERSAO_CONFLITO o estado é relido e tudo é recalculado.
 
 import { gerarEscala } from "@/features/escala/gerarEscala";
-import { AVISO_PRIMEIRA_GERACAO, type AlertaEscala, type EntradaEscala, type PeriodoEscala, type ResultadoEscala } from "@/features/escala/types";
+import { hashAlocacoes } from "@/features/escala/horizonte";
+import { AVISO_PRIMEIRA_GERACAO, type AlertaEscala, type AlocacaoEscala, type EntradaEscala, type PeriodoEscala, type ResultadoEscala } from "@/features/escala/types";
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import { alertasRotaIndisponivel, montarEntradaEscala } from "./montarEntrada";
 import { assinaturaAlertas, planosIguais } from "./planoIgual";
@@ -64,6 +65,18 @@ export interface OpcoesProcessamento {
   gatilhoFluxo?: GatilhoFluxo; // padrão: 'manual' (geração manual) ou 'evento'
   corteFluxo?: { data: string; periodoId: string } | null; // período fechado que originou o recálculo (gatilho 'fechamento')
   planejadorCorte?: PlanejarCorte; // injeção (testes); padrão = planejarSemanaComCorte
+  /** PORTÃO DE PUBLICAÇÃO (fechamento físico): roda DEPOIS do planejador e ANTES de gravar. Devolver texto = recusar (status "bloqueado", nada é gravado, nem o plano "mantido"). */
+  portaoPublicacao?: (c: PortaoPublicacaoContexto) => string | null;
+}
+
+export interface PortaoPublicacaoContexto {
+  corteUsado: boolean;
+  corteMotivoFalha: string | null;
+  registro: RegistroFluxo | null;
+  checagens: unknown;
+  entrada: EntradaEscala;
+  estado: EstadoBruto;
+  alocacoes: AlocacaoEscala[];
 }
 
 export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento): Promise<ResultadoProcessamento> {
@@ -108,6 +121,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
     let corteUsado = false;
     let corteMotivoFalha: string | null = null;
     let corteHashEntrada: string | null = null;
+    let corteChecagens: unknown = null;
     if (pcorte) {
       if (pr && ctxFluxo && pr.modoEfetivo === "ativo") {
         const t = tentarPlanoCorte(ctxFluxo, pcorte, opcoes.planejadorCorte);
@@ -117,6 +131,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
           fluxoUsado = true;
           corteUsado = true;
           corteHashEntrada = t.hashEntrada;
+          corteChecagens = t.corte.checagens;
         } else {
           resultado = t.mantido;
           corteMotivoFalha = t.motivo;
@@ -145,6 +160,12 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
     resultado.alocacoes = resultado.alocacoes.map((x) => (manuaisMantidas.has(chaveTroca(x)) ? { ...x, origem: "manual" as const } : x));
     const aPartirDeData = corte.data;
     const aPartirDePeriodo = corte.periodoId;
+    if (opcoes.portaoPublicacao) {
+      const bloqueio = opcoes.portaoPublicacao({ corteUsado, corteMotivoFalha, registro: registroAtivo, checagens: corteChecagens, entrada, estado, alocacoes: resultado.alocacoes });
+      if (bloqueio) {
+        return { status: "bloqueado", motivoIgnorado: bloqueio, tentativas: tentativa, alertas: [], alocacoesGravadas: 0, corte: { usado: corteUsado, motivoFalha: corteMotivoFalha, hashEntrada: corteHashEntrada, hashPlano: hashAlocacoes(resultado.alocacoes) } };
+      }
+    }
 
     // seleções da Previsão que o roteiro atual não torna elegíveis: ignoradas pelo motor e SEMPRE registradas no resumo do recálculo (a Previsão não é corrigida em silêncio)
     const invalidas: AlertaEscala[] = montada.avisos
@@ -185,7 +206,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
       const atualNaRegiao = estado.alocacoes.filter((a) => (indice.get(`${a.data}|${a.periodoId}`) ?? -1) >= entrada.aPartirDe);
       if (planosIguais(atualNaRegiao, resultado.alocacoes)) {
         const fluxo = await registrarFluxo(false);
-        return { status: "sem_alteracao", tentativas: tentativa, alertas: [], alocacoesGravadas: 0, ...(fluxo ? { fluxo } : {}) };
+        return { status: "sem_alteracao", tentativas: tentativa, alertas: [], alocacoesGravadas: 0, ...(fluxo ? { fluxo } : {}), ...(pcorte ? { corte: { usado: corteUsado, motivoFalha: corteMotivoFalha, hashEntrada: corteHashEntrada, hashPlano: hashAlocacoes(resultado.alocacoes) } } : {}) };
       }
     }
 
@@ -227,6 +248,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
         aviso: resultado.primeiraGeracaoComSemanaEmAndamento ? AVISO_PRIMEIRA_GERACAO : undefined,
         alocacoesGravadas: resultado.alocacoes.length,
         ...(fluxo ? { fluxo } : {}),
+        ...(pcorte ? { corte: { usado: corteUsado, motivoFalha: corteMotivoFalha, hashEntrada: corteHashEntrada, hashPlano: hashAlocacoes(resultado.alocacoes) } } : {}),
       };
     } catch (e) {
       if (e instanceof ConflitoDeVersaoError) {

@@ -122,7 +122,9 @@ export interface EstadoProducaoReal {
   limiar: number | null; // producao_real_limiar_estabilidade (θ em peças finais); null = derivado pelo núcleo
   paresLegado: ParLegado[]; // producao_real_pares_legado
   contagensFisicas?: ContagemFisicaPar[]; // producao_real_contagens_fisicas (itens bem formados; o núcleo revalida)
-  contagensFisicasDescartadas?: DiagnosticoItem[]; // itens malformados dessa chave (ignorados, com diagnóstico)
+  contagensFisicasDescartadas?: DiagnosticoItem[];
+  /** Fechamento físico atômico: fim (epoch ms) do período fechado com inventário na troca (ver DadosProducaoReal.fechamentoFisicoFimMs). Ausente = nenhum. */
+  fechamentoFisicoFimMs?: number; // itens malformados dessa chave (ignorados, com diagnóstico)
   mesmoPeriodo?: boolean; // producao_real_fluxo_mesmo_periodo: ausente/true = padrão; false = regra conservadora de material (ver parametrosFluxo.ts)
   cadeia?: { diagnostico?: true }; // camadas do planejamento de cadeia ligadas (producao_real_cadeia_*); ausente = nenhuma
   apontamentos: ApontamentoReal[]; // TODAS as linhas de apontamento da semana (produzindo e sem_producao, com motivo e carimbo)
@@ -155,8 +157,10 @@ export interface PayloadAplicacao {
 }
 
 export interface ResultadoProcessamento {
-  status: "processado" | "ignorado" | "sem_alteracao";
+  status: "processado" | "ignorado" | "sem_alteracao" | "bloqueado"; // "bloqueado" = um portão de publicação (fechamento físico) recusou o plano: NADA foi gravado
   motivoIgnorado?: string;
+  /** Planejador de corte: o que aconteceu neste recálculo (ausente fora da semana do corte). `hashPlano` = hash das linhas calculadas. */
+  corte?: { usado: boolean; motivoFalha: string | null; hashEntrada: string | null; hashPlano: string };
   tentativas: number;
   versoes?: Record<string, number>;
   alertas: (AlertaEscala | AvisoMontagem)[];

@@ -71,7 +71,7 @@ export function prepararFluxo(entrada: EntradaEscala, dados: DadosProducaoReal, 
   const aPartirDe = Math.min(Math.max(entrada.aPartirDe, 0), T);
   let ultimoFechado = -1;
   entrada.slots.forEach((s) => {
-    if (s.fimMs + fech * MIN <= dados.agoraMs) ultimoFechado = s.indice;
+    if (s.fimMs + fech * MIN <= dados.agoraMs || (dados.fechamentoFisicoFimMs !== undefined && s.fimMs <= dados.fechamentoFisicoFimMs)) ultimoFechado = s.indice;
   });
   ultimoFechado = Math.min(ultimoFechado, aPartirDe - 1);
 

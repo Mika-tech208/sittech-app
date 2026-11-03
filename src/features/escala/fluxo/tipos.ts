@@ -49,6 +49,10 @@ export interface DadosProducaoReal {
   /** CONTAGENS FÍSICAS informadas (escala_parametros.producao_real_contagens_fisicas): saldo físico do par no instante `contadoEmMs`. Independente de `wipConfirmado`/wip_controle.
    *  Ausente/vazio ⇒ nenhuma. Item inválido é IGNORADO com diagnóstico `CONTAGEM_FISICA_IGNORADA` (nunca derruba o cálculo). Ver docs/escala-fluxo-contagem-fisica.md. */
   contagensFisicas?: ContagemFisicaPar[];
+  /** FECHAMENTO FÍSICO (processo atômico na troca de período): o período que termina em `fechamentoFisicoFimMs` foi FECHADO com inventário físico na troca,
+   *  com as máquinas paradas. Trata esse período (e os anteriores) como fechado e deixa o instante efetivo de uma contagem física ir até esse fim, mesmo que o
+   *  relógio de planejamento (`agoraMs`) esteja 1 ms antes (o período seguinte continua mutável). Ausente ⇒ comportamento anterior, byte-idêntico. */
+  fechamentoFisicoFimMs?: number;
   /** Linhas gravadas da semana (planejado por máquina/pool nos períodos passados e futuros, base da estabilidade/churn). */
   planoVigente: AlocacaoEscala[];
 }
