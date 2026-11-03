@@ -5,7 +5,7 @@ import * as fs from "node:fs";
 import { montarEstado as carregar } from "../ativacao-0211/carga";
 import { montarEntradaEscala } from "@/lib/escala/montarEntrada";
 import { montarProblemaCorte } from "@/features/escala/fluxo/planoCorte";
-import { buscaLocal, despachar, linhasParaOcc, occParaLinhas, prepararDespacho, restricoesOk, type ConfigDespacho, type LinhaPostoD, type ResultadoDespacho } from "@/features/escala/fluxo/postosDespacho";
+import { buscaLocal, despachar, linhasComDetalhes, linhasParaOcc, occParaLinhas, prepararDespacho, restricoesOk, type ConfigDespacho, type LinhaPostoD, type ResultadoDespacho } from "@/features/escala/fluxo/postosDespacho";
 import { planejarFuturo } from "@/features/escala/fluxo/planejadorFuturo";
 import { lerConfigPlanejador } from "@/lib/escala/fluxo/parametrosFluxo";
 import { lerDistribuicao } from "@/features/escala/distribuicao";
@@ -100,5 +100,5 @@ export function planoDoMotor(c: Ctx, postos: LinhaPostoD[]) {
   return planejarFuturo({ ...c.e, linhasIniciais: postos, busca: { iter: 0, reinicios: 1, semente: 1 } });
 }
 
-export { buscaLocal, despachar, linhasParaOcc, occParaLinhas, prepararDespacho, restricoesOk };
+export { buscaLocal, despachar, linhasParaOcc, occParaLinhas, prepararDespacho, restricoesOk, linhasComDetalhes };
 export type { LinhaPostoD, ResultadoDespacho, ConfigDespacho };
