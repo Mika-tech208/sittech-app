@@ -79,6 +79,8 @@ export interface IndisponibilidadeBruta {
 }
 
 export interface EstadoBruto {
+  /** Fechamento físico: o PRÓXIMO período a recalcular é este, mesmo que o relógio já o considere iniciado (a troca atrasou o início real). Ausente = pelo relógio. */
+  corteExplicito?: { data: string; periodoId: string };
   previsaoId: string;
   semanaInicio: string;
   diasProdutivos: string[]; // datas ISO ativas na Previsão

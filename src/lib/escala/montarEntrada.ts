@@ -60,7 +60,8 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
     dias.push({ data: d.data, periodos: d.periodosSnapshot, somenteIniciadosAte: agoraMs });
   });
   const slots = construirSlotsDeDias(dias);
-  const aPartirDe = primeiroSlotFuturo(slots, agoraMs);
+  const explicito = estado.corteExplicito ? slots.findIndex((s) => s.data === estado.corteExplicito!.data && s.periodoId === estado.corteExplicito!.periodoId) : -1;
+  const aPartirDe = explicito >= 0 ? explicito : primeiroSlotFuturo(slots, agoraMs);
 
   // ---- pools (produto, etapa) ----
   const etapasPorProduto = new Map<string, typeof estado.etapas>();

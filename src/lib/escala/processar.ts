@@ -42,8 +42,11 @@ export function pontoDeCorte(
   return { data: candidatos[0].data, periodoId: candidatos[0].periodoId };
 }
 
+/** Fechamento físico: o período a partir do qual se recalcula (independe do relógio) e o instante que limita o histórico de equidade. */
+export interface CorteExplicito { data: string; periodoId: string; agoraEquidadeMs: number }
+
 export interface EscalaIO {
-  carregarEstado(agoraMs?: number): Promise<EstadoBruto>; // agoraMs: só o consolidado (períodos já iniciados) entra no histórico de equidade
+  carregarEstado(agoraMs?: number, corte?: CorteExplicito): Promise<EstadoBruto>; // agoraMs: só o consolidado (períodos já iniciados) entra no histórico de equidade
   aplicar(payload: PayloadAplicacao): Promise<{ versoes: Record<string, number> }>;
   // Foto de abertura da semana (WIP): idempotente, a 1ª gravada vale. Opcional (só o banco real e o banco em memória implementam).
   gravarSnapshotsWip?(semanaInicio: string, snapshots: SnapshotWipParaGravar[]): Promise<void>;
@@ -67,6 +70,8 @@ export interface OpcoesProcessamento {
   planejadorCorte?: PlanejarCorte; // injeção (testes); padrão = planejarSemanaComCorte
   /** PORTÃO DE PUBLICAÇÃO (fechamento físico): roda DEPOIS do planejador e ANTES de gravar. Devolver texto = recusar (status "bloqueado", nada é gravado, nem o plano "mantido"). */
   portaoPublicacao?: (c: PortaoPublicacaoContexto) => string | null;
+  /** Fechamento físico: recalcular a partir deste período (o anterior acabou de ser fechado com inventário), mesmo com o relógio já dentro dele. */
+  corteExplicito?: CorteExplicito;
 }
 
 export interface PortaoPublicacaoContexto {
@@ -84,7 +89,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
   let ultimoConflito: Error | null = null;
 
   for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
-    const estado = await io.carregarEstado(opcoes.agoraMs);
+    const estado = await io.carregarEstado(opcoes.agoraMs, opcoes.corteExplicito);
 
     if (opcoes.somenteSeNaoExiste && estado.diasExistentes.length > 0) {
       return { status: "ignorado", motivoIgnorado: MOTIVO_ESCALA_JA_EXISTE, tentativas: tentativa, alertas: [], alocacoesGravadas: 0 };
