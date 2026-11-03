@@ -37,7 +37,7 @@ export function validarConfirmacao(e: EntradaConfirmacao, c: ContextoValidacao):
 
   const ids = new Set(c.obrigatorios.map((b) => b.id));
   e.buffers.forEach((b) => { if (!ids.has(b.bufferId)) add("BUFFER_DESCONHECIDO", "Buffer não pertence a este fechamento.", b.bufferId); });
-  new Set(e.buffers.map((b) => b.bufferId)).size !== e.buffers.length && add("BUFFER_DUPLICADO", "Buffer informado mais de uma vez.");
+  if (new Set(e.buffers.map((b) => b.bufferId)).size !== e.buffers.length) add("BUFFER_DUPLICADO", "Buffer informado mais de uma vez.");
   c.obrigatorios.forEach((b) => {
     const inf = e.buffers.find((x) => x.bufferId === b.id);
     if (!inf || inf.fisico === null || inf.fisico === undefined || (typeof inf.fisico === "number" && Number.isNaN(inf.fisico))) { add("BUFFER_FALTANDO", `Informe o estoque físico: ${b.rotulo}.`, b.id); return; }

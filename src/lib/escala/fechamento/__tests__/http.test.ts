@@ -4,7 +4,6 @@ import type { FechamentoIO, ResultadoFechamento } from "../orquestrador";
 
 const SEM: UsuarioFechamento = { id: "u1", papel: "usuario", permissoes: ["producao_real_apontamento"] };
 const COM: UsuarioFechamento = { id: "u2", papel: "usuario", permissoes: ["escala_fechamento"] };
-const SUP: UsuarioFechamento = { id: "u3", papel: "usuario", permissoes: ["escala_fechamento", "escala_fechamento_excecao"] };
 const io = (modo: "desligado" | "sombra" | "ativo" = "desligado"): FechamentoIO => ({ modo: async () => modo } as unknown as FechamentoIO);
 const CH = "11111111-1111-1111-1111-111111111111";
 const base = { ok: false, estado: null, fechamentoId: null, erros: [], exigeConfirmacao: [], mensagem: null, tempos: null, hashPlanoAnterior: null, hashPlanoNovo: null } satisfies ResultadoFechamento;

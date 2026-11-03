@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { criarClienteAdmin } from "@/lib/supabase-admin";
 import { autenticarRequisicaoIntelligence } from "@/features/intelligence/auth";
-import { acaoConfirmar, ioDoUsuario } from "@/lib/escala/fechamento/http";
+import { programacaoDoPeriodo, acaoConfirmar, ioDoUsuario } from "@/lib/escala/fechamento/http";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -13,5 +13,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const admin = criarClienteAdmin();
   const r = await acaoConfirmar(ioDoUsuario(admin, auth.usuario), auth.usuario, body);
-  return NextResponse.json(r.corpo, { status: r.status });
+  const prox = r.corpo.proximo as { data: string; periodoId: string } | null | undefined;
+  const programacao = r.corpo.estado === "CONFIRMADO" && prox ? await programacaoDoPeriodo(admin, prox.data, prox.periodoId).catch(() => []) : undefined;
+  return NextResponse.json(programacao ? { ...r.corpo, programacao } : r.corpo, { status: r.status });
 }

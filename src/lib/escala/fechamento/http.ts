@@ -83,6 +83,21 @@ export async function acaoRetry(io: FechamentoIO, u: UsuarioFechamento, body: un
   }
 }
 
+export interface LinhaProgramacao { maquina: string; pessoa: string; produto: string; pecas: number }
+/** Programação (postos × pessoas × peças) de um período — mostrada logo após o CONFIRMADO. */
+export async function programacaoDoPeriodo(admin: SupabaseClient, data: string, periodoId: string): Promise<LinhaProgramacao[]> {
+  const { data: rows, error } = await admin.from("escala_producao_alocacoes").select("funcionario_id, maquina_id, produto_id, pecas").eq("data", data).eq("periodo_id", periodoId).not("maquina_id", "is", null);
+  if (error || !rows) return [];
+  const ls = rows as { funcionario_id: string; maquina_id: string; produto_id: string | null; pecas: number | string }[];
+  const [maq, fun, prod] = await Promise.all([
+    admin.from("maquinas").select("id, nome").in("id", [...new Set(ls.map((l) => l.maquina_id))]),
+    admin.from("funcionarios").select("id, nome").in("id", [...new Set(ls.map((l) => l.funcionario_id))]),
+    admin.from("produtos").select("id, nome").in("id", [...new Set(ls.map((l) => l.produto_id).filter(Boolean) as string[])]),
+  ]);
+  const nome = (r: { data: unknown }, id: string | null) => ((r.data as { id: string; nome: string }[] | null) ?? []).find((x) => x.id === id)?.nome?.trim() ?? "—";
+  return ls.map((l) => ({ maquina: nome(maq, l.maquina_id), pessoa: nome(fun, l.funcionario_id).split(" ")[0], produto: nome(prod, l.produto_id), pecas: Number(l.pecas) })).sort((a, b) => a.maquina.localeCompare(b.maquina));
+}
+
 export function ioDoUsuario(admin: SupabaseClient, u: UsuarioFechamento): FechamentoIO {
   return criarFechamentoIO(admin, { podeExcecao: podeFecharSemContagem(u) });
 }
@@ -91,8 +106,11 @@ export function ioDoUsuario(admin: SupabaseClient, u: UsuarioFechamento): Fecham
 export async function acaoEstado(admin: SupabaseClient, u: UsuarioFechamento, data: string, periodoId: string): Promise<RespostaHttp> {
   if (!temPermissao(u, "escala_fechamento") && !temPermissao(u, "escala_producao") && !temPermissao(u, "producao_real_apontamento")) return { status: 403, corpo: { erro: "Sem permissão." } };
   if (!DATA.test(data)) return { status: 400, corpo: { erro: "data inválida" } };
+  const modoRow = await admin.from("escala_parametros").select("valor").eq("chave", "escala_fechamento_fisico_modo").maybeSingle();
+  const modo = modoRow.data?.valor === "sombra" || modoRow.data?.valor === "ativo" ? (modoRow.data.valor as string) : "desligado";
+  if (modo === "desligado") return { status: 200, corpo: { modo, fechado: false } };
   const { data: rows, error } = await admin.from("escala_fechamento_estado").select("fechamento_id, estado, estado_em, detalhe, fechado_em, excecao").eq("data", data).eq("periodo_id", periodoId).limit(1);
   if (error) return { status: 500, corpo: { erro: error.message } };
   const r = (rows ?? [])[0] as { fechamento_id: string; estado: string; estado_em: string; detalhe: Record<string, unknown>; fechado_em: string; excecao: boolean } | undefined;
-  return { status: 200, corpo: { fechado: !!r, ...(r ? { fechamento_id: r.fechamento_id, estado: r.estado, estado_em: r.estado_em, fechado_em: r.fechado_em, excecao: r.excecao, tempos_ms: (r.detalhe?.tempos_ms ?? null), erro: (r.detalhe?.erro ?? null) } : {}) } };
+  return { status: 200, corpo: { modo, fechado: !!r, ...(r ? { fechamento_id: r.fechamento_id, estado: r.estado, estado_em: r.estado_em, fechado_em: r.fechado_em, excecao: r.excecao, tempos_ms: (r.detalhe?.tempos_ms ?? null), erro: (r.detalhe?.erro ?? null) } : {}) } };
 }

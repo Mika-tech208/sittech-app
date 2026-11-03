@@ -64,6 +64,8 @@ export interface ResultadoFechamento {
   hashPlanoAnterior: string | null;
   hashPlanoNovo: string | null;
   duplicado?: boolean;
+  /** Período que acabou de ser (ou será) confirmado: a tela mostra a programação dele imediatamente. */
+  proximo?: { data: string; periodoId: string; rotulo: string } | null;
 }
 
 const vazio = (o: Partial<ResultadoFechamento>): ResultadoFechamento => ({ ok: false, estado: null, fechamentoId: null, erros: [], exigeConfirmacao: [], mensagem: null, tempos: null, hashPlanoAnterior: null, hashPlanoNovo: null, ...o });
@@ -150,10 +152,10 @@ async function executarRecalculo(io: FechamentoIO, a: ArgsRecalculo): Promise<Re
   const detalheBase = { tentativa: a.tentativa, tempos_ms: tempos, hash_plano_anterior: contexto.hashPlanoAnterior, hash_plano_novo: r?.hashPlanoNovo ?? null, excecao: a.excecao };
   if (erro) {
     await io.resultado(fechamentoId, "ERRO_RECALCULO", { ...detalheBase, erro });
-    return vazio({ estado: "ERRO_RECALCULO", fechamentoId, tempos, hashPlanoAnterior: contexto.hashPlanoAnterior, mensagem: "Estoque salvo. Programação ainda não gerada.", erros: [{ codigo: "RECALCULO_FALHOU", mensagem: erro }] });
+    return vazio({ estado: "ERRO_RECALCULO", fechamentoId, tempos, proximo: contexto.periodo.proximo ? { data: contexto.periodo.proximo.data, periodoId: contexto.periodo.proximo.periodoId, rotulo: contexto.periodo.proximo.rotulo } : null, hashPlanoAnterior: contexto.hashPlanoAnterior, mensagem: "Estoque salvo. Programação ainda não gerada.", erros: [{ codigo: "RECALCULO_FALHOU", mensagem: erro }] });
   }
   await io.resultado(fechamentoId, "CONFIRMADO", detalheBase);
-  return vazio({ ok: true, estado: "CONFIRMADO", fechamentoId, tempos, hashPlanoAnterior: contexto.hashPlanoAnterior, hashPlanoNovo: r?.hashPlanoNovo ?? null, mensagem: contexto.periodo.proximo ? `${contexto.periodo.proximo.rotulo} CONFIRMADO` : "Período fechado (último da semana)." });
+  return vazio({ ok: true, estado: "CONFIRMADO", fechamentoId, tempos, hashPlanoAnterior: contexto.hashPlanoAnterior, hashPlanoNovo: r?.hashPlanoNovo ?? null, proximo: contexto.periodo.proximo ? { data: contexto.periodo.proximo.data, periodoId: contexto.periodo.proximo.periodoId, rotulo: contexto.periodo.proximo.rotulo } : null, mensagem: contexto.periodo.proximo ? `${contexto.periodo.proximo.rotulo} CONFIRMADO` : "Período fechado (último da semana)." });
 }
 
 /** Retry seguro: NÃO pede a contagem de novo. Usa o inventário já gravado. Idempotente se já CONFIRMADO. */

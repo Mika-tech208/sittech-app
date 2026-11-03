@@ -163,7 +163,7 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
     },
     async travaLiberar(semana, id) { await admin.rpc("escala_fechamento_trava_liberar", { p_semana: semana, p_fechamento: id }); },
 
-    async recalcular({ fechamentoId, contexto, contagens, usuarioId, agoraMs }): Promise<ResultadoRecalculo> {
+    async recalcular({ contexto, contagens, usuarioId, agoraMs }): Promise<ResultadoRecalculo> {
       const chaveCache = `${contexto.previsaoId}|${contexto.periodo.data}|${contexto.periodo.periodoId}`;
       const p = contexto.periodo;
       const corte = p.proximo ? { data: p.proximo.data, periodoId: p.proximo.periodoId, agoraEquidadeMs: p.proximo.inicioMs - 1 } : undefined;
