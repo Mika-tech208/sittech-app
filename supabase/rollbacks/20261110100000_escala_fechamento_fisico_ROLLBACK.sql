@@ -8,6 +8,17 @@
 --  2) recálculo oficial (o plano passa a ser função do legado) e SÓ ENTÃO este script. O plano publicado NÃO é tocado: para voltar o plano, restaurar as linhas de
 --     escala_plano_versoes da versão anterior (procedimento de sempre; ver docs/escala-fechamento-fisico-implantacao.md).
 begin;
+-- restaura a lista original do claim da outbox (sem fechamento_fisico)
+create or replace function public.escala_reivindicar_eventos(p_limite integer default 50)
+returns setof public.escala_producao_eventos language sql security invoker set search_path = public, pg_temp as $$
+  with candidatos as (
+    select id from escala_producao_eventos
+    where tipo in ('ausencia', 'previsao', 'recurso_bloqueado', 'recurso_liberado', 'geracao_manual', 'geracao_semanal')
+      and (status = 'pendente' or (status = 'erro' and tentativas < 3) or (status = 'processando' and iniciado_em < now() - interval '5 minutes'))
+    order by criado_em limit greatest(1, least(coalesce(p_limite, 50), 200)) for update skip locked
+  )
+  update escala_producao_eventos e set status = 'processando', tentativas = e.tentativas + 1, iniciado_em = now() from candidatos c where e.id = c.id returning e.*;
+$$;
 drop trigger if exists trg_apontamentos_producao_fechamento on public.apontamentos_producao;
 drop function if exists public.escala_trg_apontamento_fechamento();
 create table if not exists public.escala_fechamentos_arquivo as select * from public.escala_fechamentos;

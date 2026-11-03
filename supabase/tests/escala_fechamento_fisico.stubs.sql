@@ -11,7 +11,7 @@ create table maquinas(id uuid primary key default gen_random_uuid());
 create table previsoes(id uuid primary key default gen_random_uuid(), semana_inicio date unique);
 create table usuario_permissoes(permissao text, constraint usuario_permissoes_permissao_check check (permissao in ('financeiro','escala_relatorios')));
 create table escala_parametros(chave text primary key, valor jsonb not null, grupo text not null, descricao text);
-create table escala_producao_eventos(id uuid primary key default gen_random_uuid(), criado_em timestamptz default now(), tipo text not null, previsao_id uuid, payload jsonb default '{}', usuario_id uuid, status text not null default 'pendente', chave text, ultimo_lancamento_em timestamptz, lancamentos int default 0, processado_em timestamptz,
+create table escala_producao_eventos(id uuid primary key default gen_random_uuid(), criado_em timestamptz default now(), tipo text not null, previsao_id uuid, payload jsonb default '{}', usuario_id uuid, status text not null default 'pendente', chave text, ultimo_lancamento_em timestamptz, lancamentos int default 0, processado_em timestamptz, tentativas int not null default 0, iniciado_em timestamptz,
   constraint escala_producao_eventos_tipo_check check (tipo in ('ausencia','previsao','geracao_manual','geracao_semanal','apontamento_periodo','recalculo','edicao_manual')));
 create table apontamentos_producao(id uuid primary key default gen_random_uuid(), data date not null, periodo_id text not null, criado_por uuid not null, quantidade_produzida numeric default 0);
 create function is_admin() returns boolean language sql as 'select true';

@@ -10,9 +10,9 @@ $PGB/pg_ctl -D $D/data -o "-p 55432 -c unix_socket_directories= -c listen_addres
 P="$PSQL -h 127.0.0.1 -p 55432 -U postgres -v ON_ERROR_STOP=1 -q"
 $P -d postgres -c "create database t" >/dev/null
 $P -d t -f "$RAIZ/supabase/tests/escala_fechamento_fisico.stubs.sql" >/dev/null
-$P -d t -f "$RAIZ/supabase/migrations/20261110100000_escala_fechamento_fisico.sql" >/dev/null 2>&1; echo "migration: ok"
-$P -d t -f "$RAIZ/supabase/migrations/20261110100000_escala_fechamento_fisico.sql" >/dev/null 2>&1; echo "migration (2ª vez, idempotente): ok"
+$P -d t -f "$RAIZ/supabase/migrations/20261110100000_escala_fechamento_fisico.sql" >/dev/null 2> >(grep -v NOTICE >&2); echo "migration: ok"
+$P -d t -f "$RAIZ/supabase/migrations/20261110100000_escala_fechamento_fisico.sql" >/dev/null 2> >(grep -v NOTICE >&2); echo "migration (2ª vez, idempotente): ok"
 $P -d t -f "$RAIZ/supabase/tests/escala_fechamento_fisico.test.sql" 2>&1 | grep -v NOTICE | tail -8
-$P -d t -f "$RAIZ/supabase/rollbacks/20261110100000_escala_fechamento_fisico_ROLLBACK.sql" >/dev/null 2>&1; echo "rollback: ok"
+$P -d t -f "$RAIZ/supabase/rollbacks/20261110100000_escala_fechamento_fisico_ROLLBACK.sql" >/dev/null 2> >(grep -v NOTICE >&2); echo "rollback: ok"
 $P -d t -At -c "select 'objetos restantes: '||count(*) from information_schema.tables where table_schema='public' and table_name ~ '^(escala_fechamento|escala_buffer)' and table_name !~ 'arquivo$'"
 $P -d t -At -c "select 'arquivados: '||(select count(*) from escala_fechamentos_arquivo)||' fechamentos / '||(select count(*) from escala_fechamento_log_arquivo)||' transições'"

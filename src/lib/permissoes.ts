@@ -20,6 +20,8 @@ export type Permissao =
   | "escala_producao_tv"
   | "escala_wip_confirmar"
   | "escala_relatorios"
+  | "escala_fechamento"
+  | "escala_fechamento_excecao"
   | "usuarios"
   | "auditoria";
 
@@ -50,6 +52,8 @@ export const GRUPOS_PERMISSOES: GrupoPermissoes[] = [
       { chave: "escala_producao_tv", label: "Escala de Produção — TV (somente leitura)" },
       { chave: "escala_wip_confirmar", label: "Escala de Produção — Confirmar/ajustar estoque intermediário (WIP)" },
       { chave: "escala_relatorios", label: "Escala de Produção — Relatórios semanais em PDF (gerar, consultar, baixar)" },
+      { chave: "escala_fechamento", label: "Escala de Produção — Fechar período (apontamentos + estoque físico + nova programação)" },
+      { chave: "escala_fechamento_excecao", label: "Escala de Produção — Fechar período SEM contagem (emergência, com motivo e auditoria)" },
     ],
   },
   {

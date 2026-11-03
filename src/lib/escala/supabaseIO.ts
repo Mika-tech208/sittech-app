@@ -342,6 +342,18 @@ export async function processarEventosPendentes(admin: SupabaseClient, agoraMs: 
       if (restantes.length === 0) continue;
       lista.splice(0, lista.length, ...restantes);
     }
+    // FECHAMENTO FÍSICO (rede de segurança): refaz o recálculo de um fechamento que gravou o inventário e não chegou a publicar. Nunca bloqueia os demais eventos.
+    const fechamentos = lista.filter((e) => e.tipo === "fechamento_fisico");
+    if (fechamentos.length > 0) {
+      const { processarEventoFechamento } = await import("./fechamento/resgate");
+      for (const ev of fechamentos) {
+        const st = await processarEventoFechamento(admin, ev as { id: string; payload: Record<string, unknown> | null; usuario_id: string | null }, agoraMs);
+        if (st === "processado") resumo.processadas++; else resumo.erros++;
+      }
+      const demais = lista.filter((e) => e.tipo !== "fechamento_fisico");
+      if (demais.length === 0) continue;
+      lista.splice(0, lista.length, ...demais);
+    }
     const ids = lista.map((e) => e.id);
     if (!previsaoId) {
       await admin.rpc("escala_concluir_eventos", { p_ids: ids, p_status: "ignorado", p_erro: "evento sem previsão associada" });
