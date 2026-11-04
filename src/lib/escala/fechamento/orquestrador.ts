@@ -57,6 +57,8 @@ export interface ResultadoRecalculo {
   status: "processado" | "sem_alteracao" | "bloqueado" | "ignorado";
   motivo: string | null;
   hashPlanoNovo: string | null;
+  /** versão (escala_producao_dias.versao) de cada dia gravado por ESTE recálculo — vira o vínculo explícito fechamento→plano na transação do CONFIRMADO */
+  planoVersoes?: Record<string, number>;
   temposParciais: { entrada: number; corte: number; validacao: number; persistencia: number };
   filaRestante: number;
 }
@@ -195,7 +197,7 @@ async function executarRecalculo(io: FechamentoIO, a: ArgsRecalculo): Promise<Re
   const tempos: TemposFechamento = r
     ? { gravacao: a.gravacao, entrada: contexto.tempoEntradaMs + r.temposParciais.entrada, corte: r.temposParciais.corte, validacao: r.temposParciais.validacao, persistencia: r.temposParciais.persistencia, total, ...(contexto.temposContexto ? { contexto: contexto.temposContexto } : {}) }
     : { gravacao: a.gravacao, entrada: contexto.tempoEntradaMs, corte: relogio() - tCorte0, validacao: 0, persistencia: 0, total, ...(contexto.temposContexto ? { contexto: contexto.temposContexto } : {}) };
-  const detalheBase = { ...(a.excecao ? { base_parcial_estimativa: true, buffers_sem_contagem: contexto.obrigatorios.map((b) => b.id) } : {}), tentativa: a.tentativa, tempos_ms: tempos, hash_plano_anterior: contexto.hashPlanoAnterior, hash_plano_novo: r?.hashPlanoNovo ?? null, excecao: a.excecao };
+  const detalheBase = { ...(a.excecao ? { base_parcial_estimativa: true, buffers_sem_contagem: contexto.obrigatorios.map((b) => b.id) } : {}), tentativa: a.tentativa, tempos_ms: tempos, hash_plano_anterior: contexto.hashPlanoAnterior, hash_plano_novo: r?.hashPlanoNovo ?? null, ...(r?.planoVersoes && Object.keys(r.planoVersoes).length > 0 ? { plano_versoes: r.planoVersoes } : {}), excecao: a.excecao };
   if (erro) {
     await io.resultado(fechamentoId, "ERRO_RECALCULO", { ...detalheBase, erro });
     return vazio({ estado: "ERRO_RECALCULO", fechamentoId, tempos, proximo: contexto.periodo.proximo ? { data: contexto.periodo.proximo.data, periodoId: contexto.periodo.proximo.periodoId, rotulo: contexto.periodo.proximo.rotulo } : null, hashPlanoAnterior: contexto.hashPlanoAnterior, mensagem: "Estoque salvo. Programação ainda não gerada.", erros: [{ codigo: "RECALCULO_FALHOU", mensagem: erro }] });

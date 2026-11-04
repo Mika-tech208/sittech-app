@@ -256,8 +256,12 @@ export default function ProducaoRealPainelPage() {
   // Apontamentos realizados (abrirResumoFechado), de onde dá pra editar,
   // transformar em produção realizada ou excluir — mesmo fluxo, chamado
   // agora também a partir do card, não só da lista.
+  // FECHAMENTO ATIVO: quem fecha o período lança os apontamentos pelo FLUXO ÚNICO (postos programados já pré-preenchidos: máquina, operador, produto, operação, período).
+  // O passo-a-passo antigo (escolher máquina/operador/produto à mão) só resta para quem não fecha período e para períodos retroativos.
+  const fluxoUnicoDeApontamento = modoFechamento === "ativo" && estadoGrade === "programada" && podeFechar && !!periodoDoFechamento && !periodoSelecionado;
   function abrirEscolha(m: (typeof painel.maquinasView)[number]) {
     if (m.estadoPeriodo === "pendente") {
+      if (fluxoUnicoDeApontamento) { setFechamentoAberto(true); return; }
       setMaquinaEmEdicaoId(m.id);
       setFluxoAtual("escolha");
       return;
@@ -559,7 +563,7 @@ export default function ProducaoRealPainelPage() {
               </div>
               {estadoGrade === "programada" && (
                 <div style={{ marginTop: 14 }}>
-                  <button type="button" className="stx-ap-btn-secondary" onClick={() => setAdicionando(true)}>+ ADICIONAR APONTAMENTO</button>
+                  <button type="button" className="stx-ap-btn-secondary" onClick={() => (fluxoUnicoDeApontamento ? setFechamentoAberto(true) : setAdicionando(true))}>+ ADICIONAR APONTAMENTO</button>
                   <span className="stx-ap-legend-label" style={{ marginLeft: 10 }}>só para máquina que trabalhou fora da programação</span>
                 </div>
               )}
@@ -612,7 +616,7 @@ export default function ProducaoRealPainelPage() {
       )}
 
       {fechamentoAberto && periodoDoFechamento && (
-        <FechamentoPeriodoModal data={periodoDoFechamento.data} periodoId={periodoDoFechamento.id} onFechar={() => setFechamentoAberto(false)} />
+        <FechamentoPeriodoModal data={periodoDoFechamento.data} periodoId={periodoDoFechamento.id} onFechar={() => { setFechamentoAberto(false); painel.recarregar(); }} />
       )}
 
       {maquinaEmEdicao && painel.periodoAtual && fluxoAtual === "producao" && (

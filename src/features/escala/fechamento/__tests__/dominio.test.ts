@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buffersObrigatorios, contagensDoInventario, estimarBuffers, somaPorBuffer } from "../catalogo";
 import { estadoDoPeriodo, seloProximoPeriodo } from "../estados";
-import { portaoHard, validarConfirmacao, type ContextoValidacao, limiteMotivo, MOTIVO_AUTOMATICO, motivoAutomatico } from "../validacao";
+import { portaoHard, validarConfirmacao, type ContextoValidacao } from "../validacao";
 import type { BufferCatalogo, EntradaConfirmacao } from "../tipos";
 
 const CV = "27c229d7-f192-41eb-aad1-0c69ece53eba", AU = "a027ac97-ffd1-4834-8ed0-d3a94aac4aee";
@@ -83,14 +83,9 @@ describe("validação do fechamento", () => {
     expect(cod([{ bufferId: "b1", fisico: 1.5 }, { bufferId: "b2", fisico: 1 }, { bufferId: "b3", fisico: 1 }])).toContain("SALDO_NAO_INTEIRO");
     expect(cod([{ bufferId: "bX", fisico: 1 }, { bufferId: "b1", fisico: 1 }, { bufferId: "b2", fisico: 1 }, { bufferId: "b3", fisico: 1 }])).toContain("BUFFER_DESCONHECIDO");
   });
-  it("o CHECK do banco (motivo acima do limite) é satisfeito em silêncio: motivo automático só quando a divergência passa do limite; o que a pessoa escrever é preservado", () => {
-    expect(motivoAutomatico(4800, 7122, null)).toBe(MOTIVO_AUTOMATICO);   // −2.322 > max(500, 15%)
-    expect(motivoAutomatico(0, 3000, "")).toBe(MOTIVO_AUTOMATICO);
-    expect(motivoAutomatico(4900, 5000, null)).toBeNull();                 // dentro do limite: nada a registrar
-    expect(motivoAutomatico(4800, 7122, "contei errado")).toBe("contei errado");
-    expect(motivoAutomatico(4800, null, null)).toBeNull();                 // sem estimado: nada a comparar
-    expect(Math.abs(4800 - 7122) > limiteMotivo(4800)).toBe(true);
-    expect(MOTIVO_AUTOMATICO.trim().length).toBeGreaterThanOrEqual(3);     // atende length(btrim(motivo)) >= 3 do CHECK
+  it("diferença enorme entre estimado e físico NUNCA exige motivo nem confirmação (físico é a verdade; 0 também)", () => {
+    const base = [{ bufferId: "b1", fisico: 4800 }, { bufferId: "b2", fisico: 0 }, { bufferId: "b3", fisico: 999999 }];
+    expect(validarConfirmacao(entrada({ buffers: base }), ctx()).erros).toEqual([]);
   });
   it("posto sem apontamento (pendente) bloqueia; sem_producao conta como coletado", () => {
     const pend = ctx({ postos: [{ maquinaId: "a", nome: "Paf 10", status: "pendente", produzido: 0, refugo: 0, motivo: null }] });

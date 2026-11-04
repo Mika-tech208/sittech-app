@@ -1,32 +1,30 @@
 "use client";
 
-// HOTFIX 04/11 — POSTOS PROGRAMADOS do período, pré-preenchidos pela escala (só produzido e refugo a digitar) + NÃO PRODUZIU. SÓ os postos programados (máquina sem posto não aparece).
+// PASSOS 1 e 2 do fechamento: postos PROGRAMADOS pré-preenchidos pela escala (normalmente só produzido e refugo) + NÃO PRODUZIU + `+ ADICIONAR APONTAMENTO`.
 // TUDO editável (máquina, operador, produto); o planejado aparece ao lado e nunca é sobrescrito. Operador = registro de quem estava no posto, não desempenho.
-// Gravação pelas RPCs LEGADAS do painel (mesmo caminho validado); sem tabela/flag/migration nova.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "@/services/supabase-client";
-import { mensagemErroRegistrarLancamento } from "../calculations";
-import { alteradoDoPlanejado, divergencias, ROTULO_DIVERGENCIA, ROTULO_SELO_ALTERADO } from "../apontamento-simplificado/diff";
-import { desfazerNaoProduziu, editarDescricao, editarReal, editavel, escolherMotivo, informarQuantidades, marcarNaoProduziu, operacaoDaLinha, produtosDaMaquina } from "../apontamento-simplificado/linhas";
-import { MOTIVOS_NAO_PRODUZIU, rotuloMotivo } from "../apontamento-simplificado/motivos";
-import { linhasIniciais } from "../apontamento-simplificado/prefill";
-import type { Catalogo, LinhaApontamento, MotivoNaoProduziu } from "../apontamento-simplificado/tipos";
-import { bloqueiosParaSalvar, completude, linhaIniciada, problemasDoConjunto } from "../apontamento-simplificado/validacao";
-import { postosProgramadosApi } from "./api";
-import { executarGravacao, planejarGravacao } from "./gravacao";
+import { MENSAGEM_POSTOS_NAO_CARREGADOS } from "@/features/producao-real/fechamento/textos";
+import { estadoApontamentosApi, salvarApontamentosApi } from "./api";
+import { alteradoDoPlanejado, divergencias, ROTULO_DIVERGENCIA, ROTULO_SELO_ALTERADO } from "./diff";
+import { adicionarExtra, desfazerNaoProduziu, editarDescricao, editarReal, editavel, escolherMotivo, informarQuantidades, marcarNaoProduziu, operacaoDaLinha, produtosDaMaquina, removerExtra } from "./linhas";
+import { MOTIVOS_NAO_PRODUZIU, rotuloMotivo } from "./motivos";
+import { linhasIniciais } from "./prefill";
+import type { Catalogo, LinhaApontamento, MotivoNaoProduziu } from "./tipos";
+import { bloqueiosParaSalvar, completude, linhaIniciada, paraRpc, problemasDoConjunto } from "./validacao";
 
 const fmt = (n: number) => Math.round(n).toLocaleString("pt-BR");
 const soDigitos = (v: string) => v.replace(/[^0-9]/g, "").slice(0, 9);
 const num = (v: string): number | null => (v === "" ? null : Number(v));
 
-export interface PostosProgramadosProps {
-  data: string; periodoId: string; rotulo: string; fimMs: number;
+export interface PassoApontamentosProps {
+  data: string; periodoId: string;
   bloqueado?: boolean;                               // fechamento em andamento: tudo travado
-  onIndisponivel: () => void;                        // não foi possível carregar: a tela volta ao aviso antigo (lançar pelo painel)
+  onModo: (ativo: boolean) => void;                  // false = fluxo de apontamento desligado (a tela BLOQUEIA o fechamento: não há fluxo concorrente)
   onSalvo: () => void;                               // recarrega o contexto do fechamento (postos pendentes)
+  onNaoSalvo: (haAlteracoes: boolean) => void;
 }
 
-export default function PostosProgramadosFechamento({ data, periodoId, rotulo, fimMs, bloqueado, onIndisponivel, onSalvo }: PostosProgramadosProps) {
+export default function PassoApontamentos({ data, periodoId, bloqueado, onModo, onSalvo, onNaoSalvo }: PassoApontamentosProps) {
   const [carregando, setCarregando] = useState(true);
   const [erroCarga, setErroCarga] = useState<string | null>(null);
   const [cat, setCat] = useState<Catalogo | null>(null);
@@ -43,23 +41,27 @@ export default function PostosProgramadosFechamento({ data, periodoId, rotulo, f
   const recarregar = useCallback(() => setTick((n) => n + 1), []);
   useEffect(() => {
     let vivo = true;
-    postosProgramadosApi(data, periodoId).then((r) => {
+    estadoApontamentosApi(data, periodoId).then((r) => {
       if (!vivo) return;
       setErroCarga(null);
-      if (r.status !== 200 || !r.corpo.catalogo) { setErroCarga(r.corpo.erro ?? "Não foi possível carregar os postos programados."); return; }
-      const l = linhasIniciais(r.corpo.postos ?? [], r.corpo.existentes ?? [], [], () => crypto.randomUUID());
+      if (r.status !== 200) { setErroCarga(r.corpo.erro ?? "Não foi possível carregar os apontamentos."); return; }
+      if (r.corpo.modo !== "ativo") { onModo(false); return; }
+      if (r.corpo.naoLiberado || !r.corpo.catalogo) { setErroCarga("Programação deste período ainda não liberada."); return; }
+      onModo(true);
+      const l = linhasIniciais(r.corpo.postos ?? [], r.corpo.existentes ?? [], r.corpo.vinculos ?? [], () => crypto.randomUUID());
       setCat(r.corpo.catalogo); setLinhas(l); setBase(JSON.stringify(l.map(chaveEstado))); setEditando(new Set());
     }).catch(() => { if (vivo) setErroCarga("Falha de rede ao carregar os apontamentos."); })
       .finally(() => { if (vivo) setCarregando(false); });
     return () => { vivo = false; };
-  }, [data, periodoId, tick]);
+  }, [data, periodoId, onModo, tick]);
 
   const alterado = useMemo(() => base !== "" && JSON.stringify(linhas.map(chaveEstado)) !== base, [linhas, base]);
+  useEffect(() => { onNaoSalvo(alterado); }, [alterado, onNaoSalvo]);
 
   const resumo = useMemo(() => (cat ? completude(linhas, cat) : null), [linhas, cat]);
   const bloqueios = useMemo(() => (cat ? bloqueiosParaSalvar(linhas, cat) : []), [linhas, cat]);
   const conjunto = useMemo(() => problemasDoConjunto(linhas), [linhas]);
-  const operacoes = useMemo(() => (cat ? planejarGravacao(linhas, cat) : []), [linhas, cat]);
+  const prontas = useMemo(() => (cat ? paraRpc(linhas, cat) : []), [linhas, cat]);
   const travado = !!bloqueado || salvando;
 
   const atualizar = (chave: string, f: (l: LinhaApontamento) => LinhaApontamento) => { setAviso(null); setLinhas((ls) => ls.map((l) => (l.chave === chave ? f(l) : l))); };
@@ -70,23 +72,20 @@ export default function PostosProgramadosFechamento({ data, periodoId, rotulo, f
     if (bloqueios.length > 0 || conjunto.length > 0) { setErroSalvar("Corrija os campos marcados antes de salvar."); return; }
     salvandoRef.current = true; setSalvando(true); setErroSalvar(null);
     try {
-      const r = await executarGravacao(operacoes, { data, periodoId, fimMs }, {
-        rpc: async (nome, args) => { const { error } = await supabase.rpc(nome, args); return { error: error ? { message: error.message } : null }; },
-        agora: () => Date.now(), esperar: (ms) => new Promise((res) => setTimeout(res, ms)), traduzErro: mensagemErroRegistrarLancamento,
-      });
-      if (r.gravadas > 0) { setAviso(`${r.gravadas} registro(s) salvos.`); recarregar(); onSalvo(); }   // o que já foi gravado aparece como LANÇADO e não é regravado
-      if (r.erro) { setErroSalvar(`${r.erro.mensagem}${r.gravadas > 0 ? ` (${r.gravadas} registro(s) anteriores já foram salvos.)` : " Nada foi gravado."}`); return; }
-      setTentou(false);
-    } catch { setErroSalvar("Falha de rede. Confira os postos e tente de novo."); }
+      const r = await salvarApontamentosApi(data, periodoId, prontas);
+      if (r.status !== 200 || !r.corpo.ok) { setErroSalvar(r.corpo.erro ?? "Não foi possível salvar. Nada foi gravado."); return; }
+      setAviso(`${prontas.length} apontamento(s) salvos.`); setTentou(false);
+      recarregar(); onSalvo();
+    } catch { setErroSalvar("Falha de rede. Nada foi gravado — tente de novo."); }
     finally { salvandoRef.current = false; setSalvando(false); }
   }
 
   if (carregando && !cat) return <p className="stx-fech-sec" role="status">Carregando os postos programados…</p>;
   if (erroCarga && !cat) return (
     <div className="stx-fech-sec" role="alert">
-      <p className="stx-save-error">{erroCarga}</p>
-      <button type="button" className="stx-ap-btn-secondary" onClick={() => { setCarregando(true); setErroCarga(null); recarregar(); }}>Tentar de novo</button>{" "}
-      <button type="button" className="stx-ap-btn-secondary" onClick={onIndisponivel}>Usar o painel de apontamentos</button>
+      <p className="stx-save-error">{MENSAGEM_POSTOS_NAO_CARREGADOS}</p>
+      <p style={{ fontSize: 13, color: "var(--text-3)" }}>{erroCarga}</p>
+      <button type="button" className="stx-ap-btn-secondary" onClick={() => { setCarregando(true); setErroCarga(null); recarregar(); }}>Tentar de novo</button>
     </div>
   );
   if (!cat || !resumo) return null;
@@ -148,6 +147,7 @@ export default function PostosProgramadosFechamento({ data, periodoId, rotulo, f
                 <div className="stx-apx-op">Operação: <b>{op?.nome ?? "—"}</b> <span className="stx-apx-dica">(definida pela máquina e produto)</span></div>
               </div>
             )}
+            {l.origem === "POSTO_NAO_PLANEJADO" && <button type="button" className="stx-apx-link" disabled={travada} onClick={() => setLinhas((ls) => removerExtra(ls, l.chave))}>Remover este apontamento extra</button>}
           </>
         )}
         {(probs.length > 0 || dup) && <ul className="stx-apx-erros" role="alert">{probs.map((x) => <li key={x.codigo}>{x.mensagem}</li>)}{dup && <li>Duas linhas na mesma máquina.</li>}</ul>}
@@ -179,7 +179,7 @@ export default function PostosProgramadosFechamento({ data, periodoId, rotulo, f
         .stx-apx-barra{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}.stx-apx-barra button{padding:12px 18px;min-height:48px;font-weight:700;border-radius:10px}
         @media (max-width:640px){.stx-apx-grade{grid-template-columns:1fr}}
       `}</style>
-      <h3>POSTOS PROGRAMADOS — {rotulo}</h3>
+      <h3>Apontamentos do período</h3>
       {resumo.pendentes.length === 0 && resumo.comProblema.length === 0
         ? <div className="stx-fech-ok">✓ {programadas.length}/{programadas.length} postos programados resolvidos</div>
         : <div className="stx-fech-warn" role="status">⚠ {resolvidas}/{programadas.length} postos resolvidos — falta: {resumo.pendentes.map((l) => l.planejado?.maquinaNome).join(", ") || "corrigir os campos marcados"}</div>}
@@ -187,9 +187,11 @@ export default function PostosProgramadosFechamento({ data, periodoId, rotulo, f
 
       {programadas.map(cartao)}
 
-      {extras.length > 0 && <h3 style={{ marginTop: 16 }}>Outros lançamentos já feitos neste período</h3>}
+      <h3 style={{ marginTop: 16 }}>Apontamento extra (fora da escala) — opcional</h3>
+      {extras.length === 0 && <p className="stx-apx-dica">Nenhum. Use o botão abaixo só se uma máquina produziu sem estar programada.</p>}
       {extras.map(cartao)}
       <div className="stx-apx-barra">
+        <button type="button" className="stx-ap-btn-secondary" disabled={travado} onClick={() => setLinhas((ls) => adicionarExtra(ls, crypto.randomUUID()))}>+ ADICIONAR APONTAMENTO</button>
         <button type="button" className="stx-ap-btn-primary" disabled={travado || !alterado} onClick={() => void salvar()}>{salvando ? "Salvando…" : "SALVAR APONTAMENTOS"}</button>
         {alterado && !salvando && <span className="stx-fech-warn" role="status">Alterações não salvas</span>}
       </div>

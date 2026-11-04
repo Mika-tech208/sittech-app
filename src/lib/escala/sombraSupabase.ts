@@ -67,6 +67,10 @@ export function criarSombraIO(admin: SupabaseClient): SombraIO {
       return lerConfigFluxo(data as { chave: string; valor: unknown }[]);
     },
     async aoFechamento(a) {
+      // FECHAMENTO FÍSICO ATIVO: o período é fechado SÓ pelo fechamento físico (tablet). O fechamento legado por tempo/completude NÃO recalcula (sem sistemas concorrentes).
+      const modoFisico = await admin.from("escala_parametros").select("valor").eq("chave", "escala_fechamento_fisico_modo").maybeSingle();
+      if (modoFisico.error) throw new Error(`escala_parametros: ${modoFisico.error.message}`);   // dúvida ⇒ erro (não recalcula às cegas)
+      if (modoFisico.data?.valor === "ativo") return null;
       return fluxoNoFechamento(
         { recalcular: (opcoes) => processarSemana(criarEscalaIO(admin, a.estado.previsaoId), opcoes), registrar: async (registro) => { await registrarDiagnosticoFluxo(admin, registro); } },
         { estado: a.estado, ev: { data: a.ev.data, periodoId: a.ev.periodoId }, agoraMs: a.agoraMs }

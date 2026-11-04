@@ -98,6 +98,7 @@ export function useProducaoRealPainel(
   const [periodoAtual, setPeriodoAtual] = useState<PeriodoAtual | null>(null);
   const [maquinasView, setMaquinasView] = useState<MaquinaProducaoReal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [revisao, setRevisao] = useState(0);   // recarregar(): refaz a leitura do período (ex.: depois de salvar apontamentos pelo fechamento)
   const [erro, setErro] = useState<string | null>(null);
 
   const modoRetroativo = !!periodoSelecionado;
@@ -222,7 +223,7 @@ export function useProducaoRealPainel(
     // próprio carregamento — recalcular só quando `pronto` ou o período
     // escolhido mudam evita refetch em loop a cada render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pronto, periodoSelecionado?.data, periodoSelecionado?.periodoId]);
+  }, [pronto, periodoSelecionado?.data, periodoSelecionado?.periodoId, revisao]);
 
   // Atualiza um card localmente pra "apontado" sem refazer a busca inteira
   // — chamado pelo formulário logo depois de um registrar_apontamento_producao
@@ -282,7 +283,7 @@ export function useProducaoRealPainel(
   }
 
   return {
-    periodoAtual, maquinasView, loading, erro, modoRetroativo,
+    periodoAtual, maquinasView, loading, erro, modoRetroativo, recarregar: () => setRevisao((n) => n + 1),
     marcarMaquinaApontada, marcarMaquinaSemProducao, marcarMaquinaPendente,
     marcarOcorrenciaAberta, marcarOcorrenciaEncerrada,
   };
