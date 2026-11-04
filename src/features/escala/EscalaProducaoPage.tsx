@@ -33,6 +33,7 @@ import { ESTILOS_ESCALA } from "./components/estilos";
 import { validarTroca } from "./rotacao";
 import { primeiroPeriodoAfetado } from "./disponibilidade";
 import { epochMsNoFuso } from "./tempo";
+import { useLiberacaoDia } from "./fechamento/useLiberacaoDia";
 import RelatoriosEscalaModal from "./components/RelatoriosEscalaModal";
 import { buscarLista, finalAutomaticoDisponivel } from "./relatoriosApi";
 
@@ -102,6 +103,7 @@ export default function EscalaProducaoPage() {
   const [bloqueando, setBloqueando] = useState<string | null>(null);
 
   const diaAtual = useMemo(() => estado.dias.find((d) => d.data === diaSel) ?? estado.dias.find((d) => d.data >= toISODate(new Date())) ?? estado.dias[0] ?? null, [estado.dias, diaSel]);
+  const liberacaoDia = useLiberacaoDia(diaAtual?.data);   // períodos não liberados = PLANO INTERNO/ESTIMADO (marcado na grade)
   const funcionariosOrdenados = useMemo(() => {
     const ids = [...new Set(estado.alocacoes.map((a) => a.funcionarioId))];
     return ids.sort((a, b) => (estado.nomes.funcionarios.get(a) || "").localeCompare(estado.nomes.funcionarios.get(b) || "", "pt-BR"));
@@ -300,6 +302,7 @@ export default function EscalaProducaoPage() {
                   funcionarios={funcionariosOrdenados}
                   nomes={estado.nomes}
                   agoraMs={agoraMs}
+                  liberacao={liberacaoDia}
                   onEditar={(periodoId, funcionarioId) => { setErroModal(null); setEdicao({ data: diaAtual.data, periodoId, funcionarioId }); }}
                 />
               )}

@@ -5,7 +5,6 @@
 // automática. Nunca escreve, nunca recalcula, nunca dispara regra.
 
 import SeloFechamento from "@/features/escala/fechamento/SeloFechamento";
-import { useLiberacaoTv } from "@/features/escala/fechamento/liberacaoTv";
 import { visaoLiberacaoTv } from "@/features/escala/fechamento/visaoTv";
 import { useEffect, useState } from "react";
 import { useAuthSession } from "@/hooks/useAuthSession";
@@ -92,7 +91,6 @@ export default function EscalaTvPage() {
   const { snapshot, agoraMs } = tv;
   const wakeLock = useWakeLockTv(auth.autenticado && permitido);
   usePreChecagemEscala(auth.autenticado && permitido && !tv.simulando ? snapshot?.periodos : undefined); // revalida a disponibilidade das máquinas 5 min antes de cada período
-  const lib = useLiberacaoTv(auth.autenticado && permitido && !tv.simulando); // liberação da programação (fechamento físico confirmado do período anterior)
 
   // refaz a leitura quando o dia vira (a TV fica ligada o dia todo)
   const diaLocal = dataHoraNoFuso(agoraMs).data;
@@ -121,8 +119,8 @@ export default function EscalaTvPage() {
     return `${String(Math.floor(minutos / 60)).padStart(2, "0")}:${String(minutos % 60).padStart(2, "0")}`;
   })();
   const situacao = snapshot?.existe && snapshot.periodos ? situacaoTv(snapshot.data, snapshot.periodos, agoraMs) : null;
-  // LIBERAÇÃO: a programação de um período só aparece depois do fechamento físico CONFIRMADO do anterior (plano estimado ≠ escala liberada)
-  const visao = visaoLiberacaoTv({ modo: lib?.modo, liberacao: lib?.liberacao, atual: situacao?.atual ? { id: situacao.atual.id, nome: situacao.atual.nome } : null, proximo: situacao?.proximo ? { id: situacao.proximo.id, nome: situacao.proximo.nome } : null, agoraMs, ignorar: tv.simulando });
+  // LIBERAÇÃO (fonte única = banco): só mostra o período se o snapshot disser `liberado` (fechamento anterior CONFIRMADO + plano gerado por ele). Sem informação ⇒ não mostra (fail-closed).
+  const visao = visaoLiberacaoTv({ liberacao: snapshot?.liberacao, atual: situacao?.atual ? { id: situacao.atual.id, nome: situacao.atual.nome } : null, proximo: situacao?.proximo ? { id: situacao.proximo.id, nome: situacao.proximo.nome } : null, agoraMs, ignorar: tv.simulando });
   const alocacoes = snapshot?.alocacoes ?? [];
   const [, m, d] = diaLocal.split("-");
 
