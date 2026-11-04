@@ -91,6 +91,7 @@ export function dadosProducaoReal(estado: EstadoBruto, agoraMs: number): DadosPr
   return {
     apontamentos: estado.producaoReal?.apontamentos ?? [], agoraMs, planoVigente: estado.alocacoes,
     ...(wipConfirmado.length > 0 ? { wipConfirmado } : {}), ...(contagens.length > 0 ? { contagensFisicas: contagens } : {}),
+    ...(estado.producaoReal?.fechamentoFisicoFimMs !== undefined ? { fechamentoFisicoFimMs: estado.producaoReal.fechamentoFisicoFimMs } : {}),
   };
 }
 
@@ -101,7 +102,7 @@ export function dadosProducaoReal(estado: EstadoBruto, agoraMs: number): DadosPr
  */
 export function insumosFluxo(estado: EstadoBruto, entrada: EntradaEscala, agoraMs: number): { entrada: EntradaEscala; opcoes: OpcoesFluxo } {
   const pr = estado.producaoReal;
-  const fator = pr ? nucleoReal.fatoresDeDesempenho(entrada, pr.apontamentos, agoraMs, pr.paresLegado) : {};
+  const fator = pr ? nucleoReal.fatoresDeDesempenho(entrada, pr.apontamentos, agoraMs, pr.paresLegado, 10, pr.fechamentoFisicoFimMs) : {};
   const comF = nucleoReal.embutirFatores(entrada, fator);
   const opcoes: OpcoesFluxo = {
     ...(pr && pr.paresLegado.length > 0 ? { paresLegado: pr.paresLegado } : {}),
@@ -156,7 +157,7 @@ export function hashDaEntrada(ctx: ContextoFluxo, dados: DadosProducaoReal, opco
   const { cadeia: _cadeia, ...opcoes } = opcoesBrutas;
   void _cadeia;
   return hashCanonico({
-    entrada: ctx.entrada, apontamentos: dados.apontamentos, wipConfirmado: dados.wipConfirmado ?? [], ...(dados.contagensFisicas && dados.contagensFisicas.length > 0 ? { contagensFisicas: dados.contagensFisicas } : {}),
+    entrada: ctx.entrada, apontamentos: dados.apontamentos, wipConfirmado: dados.wipConfirmado ?? [], ...(dados.contagensFisicas && dados.contagensFisicas.length > 0 ? { contagensFisicas: dados.contagensFisicas } : {}), ...(dados.fechamentoFisicoFimMs !== undefined ? { fechamentoFisicoFimMs: dados.fechamentoFisicoFimMs } : {}),
     opcoes, ultimoFechado, planoVigente: hashAlocacoes(dados.planoVigente), versao: VERSAO_MOTOR_FLUXO,
   });
 }

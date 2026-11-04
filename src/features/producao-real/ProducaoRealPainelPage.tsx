@@ -12,7 +12,7 @@
 // aparecem nesta tela — só o necessário pra supervisora saber o que já
 // fechou e o que falta.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 import { formatarTempoDecorrido } from "@/lib/tempoDecorrido";
@@ -41,6 +41,10 @@ import GlobalStyles from "@/components/shell/GlobalStyles";
 import { THEMES } from "@/lib/constants";
 import { useTema } from "@/hooks/useTema";
 import { temPermissao } from "@/lib/permissoes";
+import { dataLocalSP, horaLocalSP } from "@/hooks/useProducaoRealPainel";
+import SeloFechamento from "@/features/escala/fechamento/SeloFechamento";
+import FechamentoPeriodoModal from "@/features/producao-real/fechamento/FechamentoPeriodoModal";
+import { estadoFechamentoApi } from "@/features/producao-real/fechamento/api";
 import { formatBRL, setModoPrivadoAtivo } from "@/lib/format";
 import { toISODate, mondayOf } from "@/lib/date";
 import { calcularTotalFixoAtivo, calcularTotalCustoFuncionariosAtivos, calcularMetaFaturamento } from "@/features/custo-hora/calculations";
@@ -150,6 +154,22 @@ export default function ProducaoRealPainelPage() {
   );
   const metaSemanalUsaPrevisto = resumoSemana.valorPrevisto > 0;
   const metaSemanalFinal = metaSemanalUsaPrevisto ? resumoSemana.valorPrevisto : faturamentoSemanalNecessario;
+
+  // ---- FECHAMENTO FÍSICO (flag escala_fechamento_fisico_modo; desligado = esta seção não aparece e nada muda) ----
+  const podeFechar = temPermissao(auth.usuarioLogado, "escala_fechamento");
+  const [modoFechamento, setModoFechamento] = useState<"desligado" | "sombra" | "ativo">("desligado");
+  const [estadoFechamento, setEstadoFechamento] = useState<string | null>(null);
+  const [fechamentoAberto, setFechamentoAberto] = useState(false);
+  const periodoDoFechamento = painel.periodoAtual;
+  useEffect(() => {
+    if (!podeFechar || !periodoDoFechamento) return;
+    let vivo = true;
+    void estadoFechamentoApi(periodoDoFechamento.data, periodoDoFechamento.id).then((r) => { if (!vivo) return; setModoFechamento(r.corpo.modo ?? "desligado"); setEstadoFechamento(r.corpo.fechado ? (r.corpo.estado ?? null) : null); }).catch(() => undefined);
+    return () => { vivo = false; };
+  }, [podeFechar, periodoDoFechamento, fechamentoAberto]);
+  const minutos = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+  const naJanelaDeTroca = !!periodoDoFechamento && (periodoDoFechamento.data < dataLocalSP() || (periodoDoFechamento.data === dataLocalSP() && minutos(horaLocalSP()) >= minutos(periodoDoFechamento.fim) - 5));
+  const mostrarFechamento = podeFechar && modoFechamento !== "desligado" && !!periodoDoFechamento && naJanelaDeTroca;
 
   const totalMaquinas = painel.maquinasView.length;
   const totalFechadas = painel.maquinasView.filter((m) => m.estadoPeriodo !== "pendente").length;
@@ -404,6 +424,18 @@ export default function ProducaoRealPainelPage() {
             )}
           </div>
 
+          {podeFechar && modoFechamento === "ativo" && <div style={{ marginTop: 12 }}><SeloFechamento /></div>}
+
+          {mostrarFechamento && periodoDoFechamento && (
+            estadoFechamento === "CONFIRMADO" ? (
+              <div className="stx-ap-completo-banner">✓ {periodoDoFechamento.nome} fechado fisicamente — próximo período CONFIRMADO</div>
+            ) : (
+              <button type="button" className="stx-ap-btn-primary" style={{ width: "100%", marginTop: 16, minHeight: 64 }} onClick={() => setFechamentoAberto(true)}>
+                {estadoFechamento === "ERRO_RECALCULO" ? "Estoque salvo — gerar a programação de novo" : "FECHAR PERÍODO E GERAR PRÓXIMA PROGRAMAÇÃO"}
+              </button>
+            )
+          )}
+
           {tudoFechado && (
             <div className="stx-ap-completo-banner">✓ Período fechado — todas as máquinas apontadas</div>
           )}
@@ -502,6 +534,10 @@ export default function ProducaoRealPainelPage() {
           onSemProducao={() => setFluxoAtual("sem_producao")}
           onFechar={fecharFluxo}
         />
+      )}
+
+      {fechamentoAberto && periodoDoFechamento && (
+        <FechamentoPeriodoModal data={periodoDoFechamento.data} periodoId={periodoDoFechamento.id} onFechar={() => setFechamentoAberto(false)} />
       )}
 
       {maquinaEmEdicao && painel.periodoAtual && fluxoAtual === "producao" && (

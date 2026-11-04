@@ -1,0 +1,33 @@
+# Ensaio estrutural · dump prod-20261103-183828.sql · 2026-11-03T19:10:27Z
+baseline:       21 impressões (clone restaurado do dump, antes da migration)
+migration: aplicação 1 OK
+migration: aplicação 2 OK
+seed: aplicação 1 OK
+seed: aplicação 2 OK
+--- verificação estrutural (após migration + seed)
+OK    tabelas novas existem (9) · 9
+OK    views novas existem (8) · 8
+OK    RLS ligado em TODAS as tabelas novas · 9 tabelas
+OK    policy de leitura em cada tabela nova · 9
+OK    authenticated/anon NÃO têm escrita nas tabelas novas · sem grants de escrita
+OK    service_role só INSERT nas tabelas append-only · imutáveis também por privilégio
+OK    RPCs só para service_role (sem execute para public/anon/authenticated) · execute restrito
+OK    funções novas existem (RPCs + helpers) · 10
+OK    triggers de imutabilidade (update/delete e truncate) nas 4 tabelas append-only · 8
+OK    trigger de apontamento instalado em apontamentos_producao · before insert
+OK    índices das tabelas novas · 16
+OK    FKs das tabelas novas (todas validadas) · 16
+OK    CHECK de permissões preserva as existentes + as 2 novas · escala_relatorios + novas
+OK    CHECK de eventos aceita fechamento_fisico e preserva os tipos · tipos
+OK    claim da outbox reivindica fechamento_fisico e mantém os tipos antigos · definição alterada
+OK    guarda do histórico: UMA condição alterada, resto igual · ocorrências do helper = 1
+OK    flag escala_fechamento_fisico_modo existe e é válida · "desligado"
+OK    gatilho de parâmetros ignora a flag (ligar/desligar não dispara recálculo) · saída antecipada
+OK    append-only: UPDATE em fechamentos é recusado · trigger presente
+--- compatibilidade histórica: linhas das tabelas pré-existentes (baseline × depois da migration)
+OK    contagens das tabelas pré-existentes IDÊNTICAS (nenhum dado histórico alterado, NENHUM evento/recálculo enfileirado); só escala_parametros +1 (a flag, desligada)
+--- ROLLBACK
+OK    após o rollback TUDO volta idêntico ao baseline: funções byte-idênticas (guarda do histórico, claim da outbox e gatilho de parâmetros), permissões e tipos de evento equivalentes, contagens (nenhum evento criado) e nº de tabelas/funções iguais (as cópias *_arquivo ficam por desenho)
+objetos do fechamento restantes: 0
+--- migration de novo (estado final)
+OK    migration + seed reaplicados depois do rollback

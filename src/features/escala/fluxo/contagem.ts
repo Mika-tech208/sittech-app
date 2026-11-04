@@ -72,7 +72,8 @@ export function validarContagens(grafo: Grafo, dados: DadosProducaoReal, slots: 
     if (!aresta) return ignorar(i, c, "par inexistente ou etapas não consecutivas nesta semana");
     if (c.contadoEmMs > dados.agoraMs + TOLERANCIA_FUTURO_MS) return ignorar(i, c, `contadoEm (${iso(c.contadoEmMs)}) está no futuro`);
     if (c.contadoEmMs < inicioSemana - ANTECEDENCIA_MAXIMA_MS) return ignorar(i, c, `contadoEm (${iso(c.contadoEmMs)}) é anterior demais ao início da semana`);
-    const instanteMs = Math.min(c.contadoEmMs, dados.agoraMs);
+    // fechamento físico: o inventário feito na troca vale como o estado no FIM do período fechado, mesmo que o relógio de planejamento esteja 1 ms antes
+    const instanteMs = Math.min(c.contadoEmMs, Math.max(dados.agoraMs, dados.fechamentoFisicoFimMs ?? Number.NEGATIVE_INFINITY));
     const atual = validas.get(aresta.id);
     if (atual) {
       // duplicada: vale a mais recente (empate: a que aparece depois na lista)

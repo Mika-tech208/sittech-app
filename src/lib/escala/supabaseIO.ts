@@ -11,7 +11,8 @@ import { linhasConsolidadas, type LinhaHistoricoBruta } from "./historicoConsoli
 import { historicoDaAusencia } from "./ausenciaAberta";
 import { historicoDeSituacao } from "./situacaoFuncionario";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "./estado";
-import { processarSemana, type EscalaIO, type OpcoesProcessamento } from "./processar";
+import { processarSemana, type CorteExplicito, type EscalaIO, type OpcoesProcessamento } from "./processar";
+import { carregarContagensDeFechamento, lerModoFechamento } from "./fechamento/leitura";
 import { carregarWipControle, gravarSnapshotsWip } from "./wipIO";
 import { lerConfigFluxo, modoEfetivoFluxo, planejadorCorteNaSemana } from "./fluxo/parametrosFluxo";
 import { carregarApontamentosReais, registrarDiagnosticoFluxo } from "./fluxo/supabaseFluxo";
@@ -88,7 +89,7 @@ export async function resolverPrevisaoPorSemana(admin: SupabaseClient, semanaIni
 
 export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): EscalaIO {
   return {
-    async carregarEstado(agoraMs: number = Date.now()): Promise<EstadoBruto> {
+    async carregarEstado(agoraMs: number = Date.now(), corte?: CorteExplicito): Promise<EstadoBruto> {
       const prev = ok(await admin.from("previsoes").select("id, semana_inicio").eq("id", previsaoId).single(), "previsoes") as { id: string; semana_inicio: string };
       const semanaFim = somarDias(prev.semana_inicio, 6);
 
@@ -135,7 +136,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         : [];
 
       const periodosAtuais = (ok(periodos, "periodos") as PeriodoEscala[]).map((p) => ({ id: p.id, nome: p.nome, inicio: hhmm(p.inicio), fim: hhmm(p.fim) }));
-      const historicoEquidade = await carregarHistoricoEquidade(admin, prev.semana_inicio, periodosAtuais, agoraMs);
+      const historicoEquidade = await carregarHistoricoEquidade(admin, prev.semana_inicio, periodosAtuais, corte?.agoraEquidadeMs ?? agoraMs);
       // assinatura dos alertas do último recálculo gravado (base do NO-OP; ausente = recálculo anterior ao recurso => nunca no-op uma vez)
       const ultimoRecalculo = await admin.from("escala_producao_eventos").select("payload").eq("previsao_id", previsaoId).eq("tipo", "recalculo").order("criado_em", { ascending: false }).limit(1);
       const ultimoResumo = (ok(ultimoRecalculo, "escala_producao_eventos (último recálculo)") as { payload: { resumo?: { assinaturaAlertas?: string; planejador?: string; planejadorCorte?: { hashEntrada?: string | null } } } | null }[])[0]?.payload?.resumo;
@@ -169,6 +170,12 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
           erroProducaoReal = e instanceof Error ? e.message : String(e);
         }
       }
+      // FECHAMENTO FÍSICO (flag em `ativo`): as contagens vigentes dos fechamentos entram como contagens físicas do motor (a mais recente por par vence, regra de sempre).
+      // Em sombra/desligado nada é lido. Falha na leitura com a flag ativa = o recálculo NÃO segue com estimativa escondida: propaga (retentável).
+      if (producaoReal && lerModoFechamento(parametrosRows) === "ativo") {
+        const doFechamento = await carregarContagensDeFechamento(admin);
+        if (doFechamento.length > 0) producaoReal = { ...producaoReal, contagensFisicas: [...(producaoReal.contagensFisicas ?? []), ...doFechamento] };
+      }
       // PLANEJADOR DE CORTE (ativação controlada): semana configurada em producao_real_planejador_semanas (com o modo efetivo "ativo"). Nesta semana o motor LEGADO nunca recalcula:
       // se a Produção Real ou a coluna `distribuicao` estiverem indisponíveis, o processador mantém o plano vigente e registra o motivo (ver processar.ts).
       let planejadorCorte: EstadoBruto["planejadorCorte"];
@@ -186,6 +193,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
       const wipControle = parametros.wipModo === "ativo" ? await carregarWipControle(admin, prev.semana_inicio) : undefined;
 
       return {
+        ...(corte ? { corteExplicito: { data: corte.data, periodoId: corte.periodoId } } : {}),
         previsaoId,
         semanaInicio: prev.semana_inicio,
         diasProdutivos: diasRows.filter((d) => d.ativo).map((d) => d.dia).sort(),
@@ -333,6 +341,18 @@ export async function processarEventosPendentes(admin: SupabaseClient, agoraMs: 
       const restantes = lista.filter((e) => e.tipo !== "geracao_semanal");
       if (restantes.length === 0) continue;
       lista.splice(0, lista.length, ...restantes);
+    }
+    // FECHAMENTO FÍSICO (rede de segurança): refaz o recálculo de um fechamento que gravou o inventário e não chegou a publicar. Nunca bloqueia os demais eventos.
+    const fechamentos = lista.filter((e) => e.tipo === "fechamento_fisico");
+    if (fechamentos.length > 0) {
+      const { processarEventoFechamento } = await import("./fechamento/resgate");
+      for (const ev of fechamentos) {
+        const st = await processarEventoFechamento(admin, ev as { id: string; payload: Record<string, unknown> | null; usuario_id: string | null }, agoraMs);
+        if (st === "processado") resumo.processadas++; else resumo.erros++;
+      }
+      const demais = lista.filter((e) => e.tipo !== "fechamento_fisico");
+      if (demais.length === 0) continue;
+      lista.splice(0, lista.length, ...demais);
     }
     const ids = lista.map((e) => e.id);
     if (!previsaoId) {
