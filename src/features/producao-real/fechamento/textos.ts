@@ -7,3 +7,8 @@ export function textoApontamentosCompletos(modo: "desligado" | "sombra" | "ativo
 
 /** A etapa de ESTOQUE FÍSICO só é liberada quando todos os postos programados estão resolvidos (apontados ou NÃO PRODUZIU). O estoque continua obrigatório para fechar. */
 export const etapaEstoqueLiberada = (postos: { status: string }[]): boolean => postos.every((p) => p.status !== "pendente");
+
+/** Grade do painel com o fechamento ATIVO: só postos PROGRAMADOS do período (plano vigente) + máquinas que já têm apontamento. `programados = null` ⇒ grade completa (falha ao carregar nunca trava o apontamento). */
+export function filtrarGradeProgramada<T extends { id: string; estadoPeriodo: string }>(maquinas: T[], programados: Set<string> | null): T[] {
+  return programados ? maquinas.filter((m) => programados.has(m.id) || m.estadoPeriodo !== "pendente") : maquinas;
+}
