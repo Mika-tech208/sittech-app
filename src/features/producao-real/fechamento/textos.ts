@@ -4,3 +4,6 @@ export function textoApontamentosCompletos(modo: "desligado" | "sombra" | "ativo
   if (modo !== "ativo") return "✓ Período fechado — todas as máquinas apontadas";
   return estado === "CONFIRMADO" ? "✓ Apontamentos completos e estoque físico confirmado" : "✓ Apontamentos completos — FALTA o fechamento físico (estoques) para gerar a próxima programação";
 }
+
+/** A etapa de ESTOQUE FÍSICO só é liberada quando todos os postos programados estão resolvidos (apontados ou NÃO PRODUZIU). O estoque continua obrigatório para fechar. */
+export const etapaEstoqueLiberada = (postos: { status: string }[]): boolean => postos.every((p) => p.status !== "pendente");
