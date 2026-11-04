@@ -145,16 +145,15 @@ end $$;
 reset role;
 
 delete from apontamentos_producao where data = (select data from cen3) and periodo_id = 'm2';
--- 9) JANELA do fechamento físico (modo ATIVO): com a janela aberta por OUTRO usuário a RPC é recusada pelo gatilho; aberta pelo próprio usuário, grava
+-- 9) JANELA do fechamento físico (modo ATIVO): SEM dono — janela aberta por OUTRO usuário NÃO bloqueia o apontamento; aberta pelo próprio, também grava
 update escala_parametros set valor = '"ativo"' where chave = 'escala_fechamento_fisico_modo';
 create temp table u3 as select id from usuarios where ativo and id <> (select id from u) order by id limit 1;
 select escala_fechamento_abrir((select date_trunc('week', data)::date from cen3), (select data from cen3), 'm1', (select id from u3), 'teste', 30, false);
 set local role authenticated;
 select set_config('request.jwt.claims', json_build_object('sub', (select auth_user_id from u), 'role', 'authenticated')::text, true);
-do $$ declare v text; begin
-  begin perform registrar_apontamentos_fechamento((select data from cen3), 'm1', jsonb_build_array(jsonb_build_object('chave', gen_random_uuid(), 'maquina_id', (select m_extra from cen3), 'nao_produziu', true, 'motivo', 'SEM_MATERIAL'))); v := 'sem erro';
-  exception when others then v := sqlerrm; end;
-  perform pg_temp.chk(v like '%FECHAMENTO_PERIODO_EM_FECHAMENTO%', 'janela aberta por OUTRO usuário recusa o apontamento (' || left(v, 40) || ')');
+do $$ declare v jsonb; begin
+  v := registrar_apontamentos_fechamento((select data from cen3), 'm1', jsonb_build_array(jsonb_build_object('chave', gen_random_uuid(), 'maquina_id', (select m_extra from cen3), 'nao_produziu', true, 'motivo', 'SEM_MATERIAL')));
+  perform pg_temp.chk((v ->> 'ok')::boolean, 'janela aberta por OUTRO usuário NÃO bloqueia o apontamento (sem dono da janela)');
 end $$;
 reset role;
 select escala_fechamento_abrir((select date_trunc('week', data)::date from cen3), (select data from cen3), 'm2', (select id from u), 'teste', 30, false);

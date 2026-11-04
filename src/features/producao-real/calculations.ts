@@ -50,7 +50,7 @@ export function calcularPerformance(dados: DadosPerformance): number | null {
 // o mesmo texto pra "período já fechado" e pra máquina inativa.
 export function mensagemErroRegistrarLancamento(mensagem: string | undefined): string {
   const m = mensagem || "";
-  if (m.includes("FECHAMENTO_PERIODO_EM_FECHAMENTO")) return "Este período está em fechamento: o apontamento só pode ser lançado por quem abriu o fechamento.";
+  if (m.includes("FECHAMENTO_PERIODO_EM_FECHAMENTO")) return "Este período já está confirmado. Para corrigir, é preciso reabrir o período.";
   if (m.includes("Já existe um apontamento")) return "Este período já foi fechado para esta máquina.";
   if (m.includes("Máquina") && m.includes("inativa")) return "Esta máquina está inativa.";
   if (m.includes("Produto") && m.includes("inativo")) return "Este produto está inativo.";
