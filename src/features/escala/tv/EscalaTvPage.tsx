@@ -5,6 +5,8 @@
 // automática. Nunca escreve, nunca recalcula, nunca dispara regra.
 
 import SeloFechamento from "@/features/escala/fechamento/SeloFechamento";
+import { useLiberacaoTv } from "@/features/escala/fechamento/liberacaoTv";
+import { visaoLiberacaoTv } from "@/features/escala/fechamento/visaoTv";
 import { useEffect, useState } from "react";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useEscalaTv } from "@/hooks/useEscalaTv";
@@ -41,14 +43,20 @@ const ESTILOS_TV = `
 .stx-tv-rodape { padding:1vh 2vw; border-top:2px solid #333; font-size:clamp(13px,1.9vh,24px); color:#999; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 .stx-tv-alerta { color:#ff6b6b; font-weight:700; }
 .stx-tv-diag { color:#666; font-size:.85em; }
+.stx-tv-bloqueio { grid-column: 1 / -1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:3vh; border:4px solid #ffd400; border-radius:24px; padding:4vh 4vw; }
+.stx-tv-bloqueio.erro { border-color:#ff6b6b; }
+.stx-tv-bloqueio-titulo { font-size:clamp(34px,9vh,120px); font-weight:900; color:#ffd400; letter-spacing:.02em; line-height:1.05; }
+.stx-tv-bloqueio.erro .stx-tv-bloqueio-titulo { color:#ff6b6b; }
+.stx-tv-bloqueio-detalhe { font-size:clamp(18px,3.6vh,48px); color:#ddd; font-weight:600; }
+.stx-tv-liberado { background:#27d17f; color:#000; font-weight:900; text-align:center; font-size:clamp(22px,5vh,64px); padding:1vh 2vw; }
 `;
 
-function Coluna({ classe, titulo, sub, linhas }: { classe: string; titulo: string; sub?: string; linhas: LinhaTv[] }) {
+function Coluna({ classe, titulo, sub, linhas, aviso }: { classe: string; titulo: string; sub?: string; linhas: LinhaTv[]; aviso?: string }) {
   return (
     <section className={`stx-tv-col ${classe}`}>
       <div className="stx-tv-titulo"><span>{titulo}</span>{sub && <span className="stx-tv-sub">{sub}</span>}</div>
       <div className="stx-tv-lista" style={{ ["--linhas" as string]: Math.max(4, Math.ceil(linhas.length / 2)) }}>
-        {linhas.length === 0 && <div className="stx-tv-vazio">—</div>}
+        {linhas.length === 0 && <div className="stx-tv-vazio">{aviso ?? "—"}</div>}
         {linhas.map((l) => (
           <div className="stx-tv-card" key={l.funcionario_id}>
             <div className="stx-tv-nome">{l.funcionario}</div>
@@ -84,6 +92,7 @@ export default function EscalaTvPage() {
   const { snapshot, agoraMs } = tv;
   const wakeLock = useWakeLockTv(auth.autenticado && permitido);
   usePreChecagemEscala(auth.autenticado && permitido && !tv.simulando ? snapshot?.periodos : undefined); // revalida a disponibilidade das máquinas 5 min antes de cada período
+  const lib = useLiberacaoTv(auth.autenticado && permitido && !tv.simulando); // liberação da programação (fechamento físico confirmado do período anterior)
 
   // refaz a leitura quando o dia vira (a TV fica ligada o dia todo)
   const diaLocal = dataHoraNoFuso(agoraMs).data;
@@ -112,6 +121,8 @@ export default function EscalaTvPage() {
     return `${String(Math.floor(minutos / 60)).padStart(2, "0")}:${String(minutos % 60).padStart(2, "0")}`;
   })();
   const situacao = snapshot?.existe && snapshot.periodos ? situacaoTv(snapshot.data, snapshot.periodos, agoraMs) : null;
+  // LIBERAÇÃO: a programação de um período só aparece depois do fechamento físico CONFIRMADO do anterior (plano estimado ≠ escala liberada)
+  const visao = visaoLiberacaoTv({ modo: lib?.modo, liberacao: lib?.liberacao, atual: situacao?.atual ? { id: situacao.atual.id, nome: situacao.atual.nome } : null, proximo: situacao?.proximo ? { id: situacao.proximo.id, nome: situacao.proximo.nome } : null, agoraMs, ignorar: tv.simulando });
   const alocacoes = snapshot?.alocacoes ?? [];
   const [, m, d] = diaLocal.split("-");
 
@@ -132,20 +143,42 @@ export default function EscalaTvPage() {
       ) : situacao.encerrado ? (
         <div className="stx-tv-corpo"><div className="stx-tv-vazio">Produção encerrada por hoje.</div></div>
       ) : (
+        <>
+        {visao.bannerLiberado && <div className="stx-tv-liberado">{visao.bannerLiberado}</div>}
         <div className="stx-tv-corpo">
-          <Coluna
-            classe="agora"
-            titulo={situacao.atual ? `AGORA — ${situacao.atual.nome}` : situacao.antesDoInicio ? "AGORA — produção ainda não iniciou" : "AGORA — intervalo"}
-            sub={situacao.atual ? `${situacao.atual.inicio}–${situacao.atual.fim}${situacao.minutosParaTroca !== null ? ` · troca em ${situacao.minutosParaTroca} min` : ""}` : situacao.proximo ? `próximo período às ${situacao.proximo.inicio}` : undefined}
-            linhas={linhasDoPeriodo(alocacoes, situacao.atual?.id)}
-          />
-          <Coluna
-            classe={`proximo ${situacao.destacarProximo ? "destaque" : ""}`}
-            titulo={situacao.proximo ? `PRÓXIMO — ${situacao.proximo.nome}` : "PRÓXIMO"}
-            sub={situacao.proximo ? `${situacao.proximo.inicio}–${situacao.proximo.fim}${situacao.destacarProximo ? " · TROCA EM BREVE" : ""}` : "último período do dia"}
-            linhas={linhasDoPeriodo(alocacoes, situacao.proximo?.id)}
-          />
+          {!visao.atual.liberado && visao.atual.bloqueio ? (
+            <div className={`stx-tv-bloqueio ${visao.atual.bloqueio.titulo.startsWith("PROGRAMAÇÃO NÃO") ? "erro" : ""}`} role="status">
+              <div className="stx-tv-bloqueio-titulo">{visao.atual.bloqueio.titulo}</div>
+              <div className="stx-tv-bloqueio-detalhe">{visao.atual.bloqueio.detalhe}</div>
+            </div>
+          ) : (
+            <>
+              <Coluna
+                classe="agora"
+                titulo={situacao.atual ? `AGORA — ${situacao.atual.nome}` : situacao.antesDoInicio ? "AGORA — produção ainda não iniciou" : "AGORA — intervalo"}
+                sub={situacao.atual ? `${situacao.atual.inicio}–${situacao.atual.fim}${situacao.minutosParaTroca !== null ? ` · troca em ${situacao.minutosParaTroca} min` : ""}` : situacao.proximo ? `próximo período às ${situacao.proximo.inicio}` : undefined}
+                linhas={linhasDoPeriodo(alocacoes, situacao.atual?.id)}
+              />
+              {visao.proximo.liberado ? (
+                <Coluna
+                  classe={`proximo ${situacao.destacarProximo ? "destaque" : ""}`}
+                  titulo={situacao.proximo ? `PRÓXIMO — ${situacao.proximo.nome}` : "PRÓXIMO"}
+                  sub={situacao.proximo ? `${situacao.proximo.inicio}–${situacao.proximo.fim}${situacao.destacarProximo ? " · TROCA EM BREVE" : ""}` : "último período do dia"}
+                  linhas={linhasDoPeriodo(alocacoes, situacao.proximo?.id)}
+                />
+              ) : (
+                <Coluna
+                  classe="proximo"
+                  titulo={situacao.proximo ? `PRÓXIMO — ${situacao.proximo.nome}` : "PRÓXIMO"}
+                  sub={situacao.proximo ? `${situacao.proximo.inicio}–${situacao.proximo.fim}` : undefined}
+                  linhas={[]}
+                  aviso="A programação será liberada após o fechamento físico do período em execução."
+                />
+              )}
+            </>
+          )}
         </div>
+        </>
       )}
 
       <div className="stx-tv-rodape">
