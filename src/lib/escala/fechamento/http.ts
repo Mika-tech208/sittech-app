@@ -2,7 +2,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { temPermissao } from "@/lib/permissoes";
 import type { EntradaConfirmacao, EstadoFechamento } from "@/features/escala/fechamento/tipos";
-import { calcularSelo, type FechamentoSelo, type SlotSelo } from "@/features/escala/fechamento/selo";
+import { calcularSelo, statusLiberacao, type FechamentoSelo, type SlotSelo, type StatusLiberacao } from "@/features/escala/fechamento/selo";
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import { abrirFechamento, confirmarFechamento, reprocessarFechamento, type FechamentoIO, type ResultadoFechamento } from "./orquestrador";
 import { criarFechamentoIO } from "./supabaseFechamento";
@@ -133,5 +133,8 @@ export async function acaoSelo(admin: SupabaseClient, u: UsuarioFechamento, agor
   const { data: fechs, error: e2 } = await admin.from("escala_fechamento_estado").select("data, periodo_id, estado, excecao, fechado_em, sombra").gte("data", desde).lte("data", hoje);
   if (e2) return { status: 500, corpo: { erro: e2.message } };
   const mapa = new Map<string, FechamentoSelo>(((fechs ?? []) as { data: string; periodo_id: string; estado: EstadoFechamento; excecao: boolean; fechado_em: string; sombra: boolean }[]).filter((f) => !f.sombra).map((f) => [`${f.data}|${f.periodo_id}`, { estado: f.estado, excecao: f.excecao, fechadoEmMs: Date.parse(f.fechado_em) }]));
-  return { status: 200, corpo: { modo, selo: calcularSelo(slots, agoraMs, mapa) } };
+  // LIBERAÇÃO da programação para o chão (TV): por período de hoje, "liberado" só com o fechamento físico do anterior CONFIRMADO (ver selo.ts)
+  const liberacao: Record<string, StatusLiberacao> = {};
+  slots.filter((s) => s.data === hoje).forEach((s) => { liberacao[s.periodoId] = statusLiberacao(s, slots, mapa); });
+  return { status: 200, corpo: { modo, selo: calcularSelo(slots, agoraMs, mapa), liberacao } };
 }
