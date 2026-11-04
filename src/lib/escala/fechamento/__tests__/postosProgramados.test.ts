@@ -8,7 +8,7 @@ import { editarReal, informarQuantidades, marcarNaoProduziu, escolherMotivo, edi
 import { problemasDaLinha, linhaPronta, completude } from "@/features/producao-real/apontamento-simplificado/validacao";
 import { MOTIVOS_NAO_PRODUZIU } from "@/features/producao-real/apontamento-simplificado/motivos";
 import { chaveIrma, executarGravacao, modoRpc, planejarGravacao } from "@/features/producao-real/fechamento/gravacao";
-import { etapaEstoqueLiberada } from "@/features/producao-real/fechamento/textos";
+import { etapaEstoqueLiberada, filtrarGradeProgramada } from "@/features/producao-real/fechamento/textos";
 import type { LinhaApontamento } from "@/features/producao-real/apontamento-simplificado/tipos";
 
 // DADOS REAIS do M2 de 04/11/2026 (escala ativa f134bd2b + cadastros do PROD, lidos em modo somente leitura)
@@ -152,5 +152,21 @@ describe("rota de leitura", () => {
     expect((await acaoPostos(carregar, { id: "u", papel: "usuario", permissoes: ["escala_fechamento"] }, "x", "m2")).status).toBe(400);
     const r = await acaoPostos(carregar, { id: "u", papel: "usuario", permissoes: ["escala_fechamento"] }, "2026-11-04", "m2");
     expect(r.status).toBe(200); expect((r.corpo.postos as unknown[]).length).toBe(12);
+  });
+});
+
+describe("grade do painel com o fechamento ativo: M2 = exatamente os 12 programados (não as 22 ativas)", () => {
+  const ativas = F.maquinas.filter((m) => m.ativo !== false).map((m) => ({ id: m.id, nome: m.nome.trim(), estadoPeriodo: "pendente" }));
+  const programados = new Set(estado.postos.map((p) => p.maquinaId));
+  it("22 máquinas ativas na grade ⇒ 12 cartões, os mesmos postos da escala; falha de carga ⇒ grade completa", () => {
+    expect(ativas).toHaveLength(22);
+    const g = filtrarGradeProgramada(ativas, programados);
+    expect(g).toHaveLength(12); expect(g.map((m) => m.id).sort()).toEqual([...programados].sort());
+    expect(filtrarGradeProgramada(ativas, null)).toHaveLength(22);
+  });
+  it("máquina fora da escala que JÁ tem apontamento continua visível (não some o que foi lançado)", () => {
+    const fora = ativas.find((m) => !programados.has(m.id))!;
+    const g = filtrarGradeProgramada(ativas.map((m) => (m.id === fora.id ? { ...m, estadoPeriodo: "apontado" } : m)), programados);
+    expect(g).toHaveLength(13); expect(g.some((m) => m.id === fora.id)).toBe(true);
   });
 });

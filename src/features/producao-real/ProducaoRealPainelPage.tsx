@@ -44,8 +44,8 @@ import { temPermissao } from "@/lib/permissoes";
 import { dataLocalSP, horaLocalSP } from "@/hooks/useProducaoRealPainel";
 import SeloFechamento from "@/features/escala/fechamento/SeloFechamento";
 import FechamentoPeriodoModal from "@/features/producao-real/fechamento/FechamentoPeriodoModal";
-import { estadoFechamentoApi } from "@/features/producao-real/fechamento/api";
-import { textoApontamentosCompletos } from "@/features/producao-real/fechamento/textos";
+import { estadoFechamentoApi, postosProgramadosApi } from "@/features/producao-real/fechamento/api";
+import { filtrarGradeProgramada, textoApontamentosCompletos } from "@/features/producao-real/fechamento/textos";
 import { formatBRL, setModoPrivadoAtivo } from "@/lib/format";
 import { toISODate, mondayOf } from "@/lib/date";
 import { calcularTotalFixoAtivo, calcularTotalCustoFuncionariosAtivos, calcularMetaFaturamento } from "@/features/custo-hora/calculations";
@@ -168,29 +168,39 @@ export default function ProducaoRealPainelPage() {
     void estadoFechamentoApi(periodoDoFechamento.data, periodoDoFechamento.id).then((r) => { if (!vivo) return; setModoFechamento(r.corpo.modo ?? "desligado"); setEstadoFechamento(r.corpo.fechado ? (r.corpo.estado ?? null) : null); }).catch(() => undefined);
     return () => { vivo = false; };
   }, [podeFechar, periodoDoFechamento, fechamentoAberto]);
+  // FECHAMENTO ATIVO: a grade mostra SÓ os postos PROGRAMADOS do período na escala vigente (+ máquinas que já têm apontamento). Máquina sem posto não aparece nem é pedida.
+  // Fonte = /api/escala/fechamento/postos (alocações do plano vigente). Falha ao carregar ⇒ grade completa de antes (nunca trava o apontamento).
+  const [postosProg, setPostosProg] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    if (!podeFechar || modoFechamento !== "ativo" || !periodoDoFechamento) { setPostosProg(null); return; }
+    let vivo = true;
+    void postosProgramadosApi(periodoDoFechamento.data, periodoDoFechamento.id).then((r) => { if (vivo) setPostosProg(r.status === 200 && Array.isArray(r.corpo.postos) && r.corpo.postos.length > 0 ? new Set(r.corpo.postos.map((p) => p.maquinaId)) : null); }).catch(() => { if (vivo) setPostosProg(null); });
+    return () => { vivo = false; };
+  }, [podeFechar, modoFechamento, periodoDoFechamento, fechamentoAberto]);
+  const maquinasView = useMemo(() => filtrarGradeProgramada(painel.maquinasView, postosProg), [postosProg, painel.maquinasView]);
   const minutos = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
   const naJanelaDeTroca = !!periodoDoFechamento && (periodoDoFechamento.data < dataLocalSP() || (periodoDoFechamento.data === dataLocalSP() && minutos(horaLocalSP()) >= minutos(periodoDoFechamento.fim) - 5));
   // apontamentos completos também abrem o fechamento (máquinas já paradas), mesmo antes dos 5 min finais do período
-  const apontamentosCompletos = painel.maquinasView.length > 0 && painel.maquinasView.every((m) => m.estadoPeriodo !== "pendente");
+  const apontamentosCompletos = maquinasView.length > 0 && maquinasView.every((m) => m.estadoPeriodo !== "pendente");
   const mostrarFechamento = podeFechar && modoFechamento !== "desligado" && !!periodoDoFechamento && (naJanelaDeTroca || apontamentosCompletos);
 
-  const totalMaquinas = painel.maquinasView.length;
-  const totalFechadas = painel.maquinasView.filter((m) => m.estadoPeriodo !== "pendente").length;
+  const totalMaquinas = maquinasView.length;
+  const totalFechadas = maquinasView.filter((m) => m.estadoPeriodo !== "pendente").length;
   const tudoFechado = totalMaquinas > 0 && totalFechadas === totalMaquinas;
   const pctFechadas = totalMaquinas > 0 ? (totalFechadas / totalMaquinas) * 100 : 0;
 
-  // Só contagem de estados já presentes em painel.maquinasView — nenhum
+  // Só contagem de estados já presentes em maquinasView — nenhum
   // dado novo, nenhuma busca nova (legenda "N pendentes/apontadas/sem
   // produção" da composição visual).
   const contagemEstados = useMemo(() => {
     let pendentes = 0, apontadas = 0, semProducao = 0;
-    painel.maquinasView.forEach((m) => {
+    maquinasView.forEach((m) => {
       if (m.estadoPeriodo === "pendente") pendentes++;
       else if (m.estadoPeriodo === "apontado") apontadas++;
       else if (m.estadoPeriodo === "sem_producao") semProducao++;
     });
     return { pendentes, apontadas, semProducao };
-  }, [painel.maquinasView]);
+  }, [maquinasView]);
 
   // ---- fluxo de "Registrar produção" ----
   // Só ativos aqui — não dá pra escolher um funcionário inativo num
@@ -213,15 +223,15 @@ export default function ProducaoRealPainelPage() {
   // "escolha" = passo 1 (Registrar produção / Sem produção); os outros dois
   // são o formulário de fato, cada um seguindo a escolha.
   const [fluxoAtual, setFluxoAtual] = useState<"escolha" | "producao" | "sem_producao" | null>(null);
-  const maquinaEmEdicao = painel.maquinasView.find((m) => m.id === maquinaEmEdicaoId) || null;
+  const maquinaEmEdicao = maquinasView.find((m) => m.id === maquinaEmEdicaoId) || null;
 
   // ---- fluxo de "Ocorrência de máquina" (independente do estadoPeriodo) ----
   const [abrirOcorrenciaAberto, setAbrirOcorrenciaAberto] = useState(false);
   const [maquinaEncerrandoId, setMaquinaEncerrandoId] = useState<string | null>(null);
-  const maquinaEncerrando = painel.maquinasView.find((m) => m.id === maquinaEncerrandoId) || null;
+  const maquinaEncerrando = maquinasView.find((m) => m.id === maquinaEncerrandoId) || null;
   const maquinasSemOcorrenciaAberta = useMemo(
-    () => painel.maquinasView.filter((m) => m.estadoMaquina !== "parada").map((m) => ({ id: m.id, nome: m.nome })),
-    [painel.maquinasView]
+    () => maquinasView.filter((m) => m.estadoMaquina !== "parada").map((m) => ({ id: m.id, nome: m.nome })),
+    [maquinasView]
   );
 
   // Pendente: comportamento de sempre (passo 1 "Registrar produção"/"Sem
@@ -258,7 +268,7 @@ export default function ProducaoRealPainelPage() {
   // Próxima máquina PENDENTE na ordem atual da grade, a partir da posição
   // seguinte à atual (dá a volta se preciso) — nunca a própria atual.
   function proximaPendente(atualId: string) {
-    const lista = painel.maquinasView;
+    const lista = maquinasView;
     const idxAtual = lista.findIndex((m) => m.id === atualId);
     if (idxAtual === -1) return null;
     for (let i = 1; i <= lista.length; i++) {
@@ -462,7 +472,7 @@ export default function ProducaoRealPainelPage() {
               {erroResumo && <div className="stx-empty" style={{ marginBottom: 12 }}>{erroResumo}</div>}
 
               <div className="stx-ap-grid">
-                {painel.maquinasView.map((m) => {
+                {maquinasView.map((m) => {
                   const parada = m.estadoMaquina === "parada";
                   const fechada = !parada && m.estadoPeriodo !== "pendente";
                   return (
