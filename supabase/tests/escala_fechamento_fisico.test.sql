@@ -100,16 +100,16 @@ end $$;
 -- T9: modo ATIVO — bloqueio do apontamento durante EM_FECHAMENTO e depois de CONFIRMADO
 update escala_parametros set valor='"ativo"' where chave='escala_fechamento_fisico_modo';
 do $$ begin
-  assert not escala_fechamento_apontamento_permitido('2026-11-03','m2','00000000-0000-0000-0000-0000000000a2'), 'período fechado: outro usuário não lança';
-  assert not escala_fechamento_apontamento_permitido('2026-11-03','m2','00000000-0000-0000-0000-0000000000a1'), 'período fechado: nem o responsável sem nova abertura';
+  assert not escala_fechamento_apontamento_permitido('2026-11-03','m2','00000000-0000-0000-0000-0000000000a2'), 'período CONFIRMADO: edição direta bloqueada (qualquer usuário)';
+  assert not escala_fechamento_apontamento_permitido('2026-11-03','m2','00000000-0000-0000-0000-0000000000a1'), 'período CONFIRMADO: nem quem fechou, sem reabertura';
   begin insert into apontamentos_producao(data, periodo_id, criado_por) values ('2026-11-03','m2','00000000-0000-0000-0000-0000000000a2'); raise exception 'apontamento em período fechado aceito'; exception when others then if sqlerrm not like 'FECHAMENTO_PERIODO_EM_FECHAMENTO%' then raise; end if; end;
   assert escala_fechamento_apontamento_permitido('2026-11-03','t3','00000000-0000-0000-0000-0000000000a2'), 'período sem janela aberta: apontamento normal';
 end $$;
--- janela do M3 aberta pela A: B não lança; A lança
+-- janela do M3 aberta pela A (EM_FECHAMENTO): SEM dono — A e B lançam/corrigem; o lock segue só no fechamento (B não abre outra janela)
 select escala_fechamento_abrir('2026-11-02','2026-11-03','m3',:'A','tablet-1',30) as ab3 \gset
 do $$ begin
   assert escala_fechamento_apontamento_permitido('2026-11-03','m3','00000000-0000-0000-0000-0000000000a1');
-  assert not escala_fechamento_apontamento_permitido('2026-11-03','m3','00000000-0000-0000-0000-0000000000a2');
+  assert escala_fechamento_apontamento_permitido('2026-11-03','m3','00000000-0000-0000-0000-0000000000a2'), 'EM_FECHAMENTO: não depende de quem abriu';
   begin perform escala_fechamento_abrir('2026-11-02','2026-11-03','m3','00000000-0000-0000-0000-0000000000a2','tablet-2',30); raise exception 'segunda abertura concorrente aceita'; exception when others then if sqlerrm not like 'FECHAMENTO_EM_ANDAMENTO%' then raise; end if; end;
   assert escala_fechamento_abrir('2026-11-02','2026-11-03','m3','00000000-0000-0000-0000-0000000000a1','tablet-1',30) = (select id from escala_fechamento_aberturas where periodo_id='m3' order by aberto_em desc limit 1), 'reabrir pelo mesmo usuário é idempotente';
 end $$;
