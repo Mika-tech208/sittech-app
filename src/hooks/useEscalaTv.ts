@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import { calcularOffset, type LinhaTv } from "@/features/escala/tv";
 import type { PeriodoEscala } from "@/features/escala/types";
+import type { LiberacaoDia } from "@/features/escala/fechamento/visaoTv";
 
 export interface SnapshotTv {
   agora: string;
@@ -19,6 +20,8 @@ export interface SnapshotTv {
   periodos?: PeriodoEscala[];
   alocacoes?: LinhaTv[];
   indisponiveis?: { maquina: string; desde: string; motivo: string }[];
+  /** liberação por período, decidida no BANCO (período só aparece com o fechamento anterior CONFIRMADO + plano gerado por ele) */
+  liberacao?: LiberacaoDia;
 }
 
 const POLLING_MS = 30000;

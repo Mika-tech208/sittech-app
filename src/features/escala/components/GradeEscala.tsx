@@ -2,6 +2,7 @@
 
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import type { AlocacaoLinha, DiaEscala, Nomes } from "@/hooks/useEscalaProducao";
+import type { LiberacaoDia } from "@/features/escala/fechamento/visaoTv";
 
 export type EstadoCelula = "passado" | "atual" | "futuro";
 
@@ -20,9 +21,12 @@ export interface GradeEscalaProps {
   nomes: Nomes;
   agoraMs: number;
   onEditar: (periodoId: string, funcionarioId: string) => void;
+  /** liberação por período (banco). Período NÃO liberado = PLANO INTERNO/ESTIMADO: nunca é a escala liberada para o chão. */
+  liberacao?: LiberacaoDia | null;
 }
 
-export default function GradeEscala({ dia, alocacoes, funcionarios, nomes, agoraMs, onEditar }: GradeEscalaProps) {
+export default function GradeEscala({ dia, alocacoes, funcionarios, nomes, agoraMs, onEditar, liberacao }: GradeEscalaProps) {
+  const naoLiberado = (id: string) => !!liberacao && liberacao[id]?.liberado !== true;
   const porChave = new Map(alocacoes.map((a) => [`${a.periodoId}|${a.funcionarioId}`, a]));
   return (
     <div className="stx-esc-scroll">
@@ -34,6 +38,7 @@ export default function GradeEscala({ dia, alocacoes, funcionarios, nomes, agora
               <th key={p.id}>
                 {p.nome}
                 <div className="stx-esc-resumo-periodo">{p.inicio}–{p.fim}</div>
+                {naoLiberado(p.id) && <div className="stx-esc-badge exc" data-testid="nao-liberado" title="Plano interno/estimado: só vira escala do chão depois do fechamento físico do período anterior CONFIRMADO">ESTIMADO — NÃO LIBERADO</div>}
               </th>
             ))}
           </tr>
@@ -46,13 +51,14 @@ export default function GradeEscala({ dia, alocacoes, funcionarios, nomes, agora
                 const a = porChave.get(`${p.id}|${fid}`);
                 const estado = estadoDoPeriodo(dia.data, p.inicio, p.fim, agoraMs);
                 if (!a) {
-                  return <td key={p.id}><div className="stx-esc-cell passado"><span className="sem">— ausente / fora da equipe</span></div></td>;
+                  return <td key={p.id}><div className="stx-esc-cell passado" style={naoLiberado(p.id) ? { opacity: 0.55 } : undefined}><span className="sem">— ausente / fora da equipe</span></div></td>;
                 }
                 const clicavel = estado === "futuro";
                 return (
                   <td key={p.id}>
                     <div
                       className={`stx-esc-cell ${estado}`}
+                      style={naoLiberado(p.id) ? { opacity: 0.55, outline: "2px dashed var(--warning)", outlineOffset: -2 } : undefined}
                       role={clicavel ? "button" : undefined}
                       tabIndex={clicavel ? 0 : undefined}
                       title={clicavel ? "Clique para trocar com outro funcionário" : estado === "atual" ? "Período em andamento — congelado" : "Período concluído"}

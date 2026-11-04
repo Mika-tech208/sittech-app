@@ -170,3 +170,16 @@ describe("grade do painel com o fechamento ativo: M2 = exatamente os 12 programa
     expect(g).toHaveLength(13); expect(g.some((m) => m.id === fora.id)).toBe(true);
   });
 });
+
+describe("Produção Real não orienta para período NÃO liberado", () => {
+  const u = { id: "u", papel: "usuario" as const, permissoes: ["escala_fechamento"] };
+  it("período liberado ⇒ 12 postos; NÃO liberado ⇒ nenhum posto (plano estimado não sai); erro ao decidir ⇒ 500 (fail-closed)", async () => {
+    const carregar = async () => estado;
+    const lib = await acaoPostos(carregar, u, "2026-11-04", "m2", async () => true);
+    expect((lib.corpo.postos as unknown[]).length).toBe(12);
+    const nao = await acaoPostos(carregar, u, "2026-11-04", "t1", async () => false);
+    expect(nao.status).toBe(200); expect(nao.corpo.postos).toEqual([]); expect(nao.corpo.naoLiberado).toBe(true);
+    const erro = await acaoPostos(carregar, u, "2026-11-04", "t1", async () => { throw new Error("banco fora"); });
+    expect(erro.status).toBe(500); expect(erro.corpo.postos).toBeUndefined();
+  });
+});

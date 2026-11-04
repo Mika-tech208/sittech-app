@@ -13,6 +13,7 @@ export async function GET(request: Request) {
   if (!auth) return NextResponse.json({ erro: "Não autorizado." }, { status: 401 });
   const url = new URL(request.url);
   const admin = criarClienteAdmin();
-  const r = await acaoPostos((d, p) => carregarPostosProgramados(admin, d, p), auth.usuario, url.searchParams.get("data") ?? "", url.searchParams.get("periodo_id") ?? "");
+  const r = await acaoPostos((d, p) => carregarPostosProgramados(admin, d, p), auth.usuario, url.searchParams.get("data") ?? "", url.searchParams.get("periodo_id") ?? "",
+    async (d, p) => { const r = await admin.rpc("escala_periodo_liberacao", { p_data: d, p_periodo: p }); if (r.error) throw new Error(`escala_periodo_liberacao: ${r.error.message}`); return (r.data as { liberado?: boolean } | null)?.liberado === true; });
   return NextResponse.json(r.corpo, { status: r.status });
 }

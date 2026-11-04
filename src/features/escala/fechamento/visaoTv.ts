@@ -1,7 +1,7 @@
-// Decisão (pura) do que a TV pode mostrar ao chão. Fonte de verdade = fechamento físico CONFIRMADO do período anterior (ver selo.ts → statusLiberacao).
-// Só controla a EXIBIÇÃO: o plano interno/estimado continua existindo no banco, mas não é autorização operacional.
-import { textoTvNaoLiberada, type StatusLiberacao } from "./selo";
-
+// Decisão (pura) do que a TV pode mostrar ao chão. A FONTE DE VERDADE é o banco (escala_periodo_liberacao → snapshot.liberacao da RPC da TV):
+// fechamento do período ANTERIOR CONFIRMADO + plano gerado por ele. Aqui só se traduz isso em tela. FAIL-CLOSED: sem informação ⇒ não mostra.
+export interface LiberacaoPeriodo { liberado: boolean; motivo: string; predecessor?: { data: string; periodo: string; rotulo: string }; confirmado_em?: string | null }
+export type LiberacaoDia = Record<string, LiberacaoPeriodo>;
 export interface PeriodoTvMin { id: string; nome: string }
 export interface BloqueioTv { titulo: string; detalhe: string }
 export interface VisaoLiberacaoTv {
@@ -11,22 +11,28 @@ export interface VisaoLiberacaoTv {
   bannerLiberado: string | null;
 }
 export const JANELA_BANNER_LIBERADO_MS = 120_000;
+const livre = { liberado: true, bloqueio: null };
 
-export function visaoLiberacaoTv(i: { modo: string | null | undefined; liberacao: Record<string, StatusLiberacao> | null | undefined; atual: PeriodoTvMin | null; proximo: PeriodoTvMin | null; agoraMs: number; ignorar?: boolean }): VisaoLiberacaoTv {
-  const livre = { liberado: true, bloqueio: null };
-  if (i.ignorar) return { atual: livre, proximo: livre, bannerLiberado: null };
-  // estado ainda DESCONHECIDO (1ª leitura / API fora): nunca expõe o PRÓXIMO período; o período em execução segue visível (não deixa a fábrica sem tela por falha de rede)
-  if (i.modo === null || i.modo === undefined || i.liberacao === null || i.liberacao === undefined) {
-    return { atual: livre, proximo: i.proximo ? { liberado: false, bloqueio: { titulo: "VERIFICANDO LIBERAÇÃO", detalhe: "Aguardando confirmação da programação." } } : livre, bannerLiberado: null };
+export function textoTvNaoLiberada(st: LiberacaoPeriodo | undefined, rotuloPeriodo: string): BloqueioTv {
+  const ant = st?.predecessor?.rotulo ?? "período anterior";
+  switch (st?.motivo) {
+    case "ERRO_RECALCULO": return { titulo: "PROGRAMAÇÃO NÃO LIBERADA", detalhe: "Estoque salvo. Aguardando correção do recálculo." };
+    case "RECALCULANDO": return { titulo: `RECALCULANDO ${rotuloPeriodo}…`, detalhe: `Fechamento físico de ${ant} concluído. Gerando a programação de ${rotuloPeriodo}.` };
+    case "AGUARDANDO_FECHAMENTO":
+    case "CONFIRMADO_SEM_PLANO": return { titulo: "AGUARDANDO NOVA PROGRAMAÇÃO", detalhe: `${ant} encerrado. Fechamento físico de ${ant} em andamento — aguarde a programação de ${rotuloPeriodo}.` };
+    default: return { titulo: "AGUARDANDO PROGRAMAÇÃO CONFIRMADA", detalhe: "Não foi possível confirmar a programação. Aguarde." };   // sem informação do banco: FAIL-CLOSED
   }
-  if (i.modo !== "ativo") return { atual: livre, proximo: livre, bannerLiberado: null };
+}
+
+export function visaoLiberacaoTv(i: { liberacao: LiberacaoDia | null | undefined; atual: PeriodoTvMin | null; proximo: PeriodoTvMin | null; agoraMs: number; ignorar?: boolean }): VisaoLiberacaoTv {
+  if (i.ignorar) return { atual: livre, proximo: livre, bannerLiberado: null };
   const avalia = (p: PeriodoTvMin | null) => {
     if (!p) return livre;
-    const st = i.liberacao![p.id];
-    if (!st || st.liberado) return livre;
-    return { liberado: false, bloqueio: textoTvNaoLiberada(st, p.nome) };
+    const st = i.liberacao?.[p.id];                       // sem a liberação deste período no snapshot ⇒ BLOQUEADO (fail-closed)
+    return st?.liberado === true ? livre : { liberado: false, bloqueio: textoTvNaoLiberada(st, p.nome) };
   };
-  const stAtual = i.atual ? i.liberacao[i.atual.id] : undefined;
-  const banner = i.atual && stAtual?.liberado && stAtual.motivo === "CONFIRMADO" && stAtual.fechadoEmMs !== null && i.agoraMs >= stAtual.fechadoEmMs && i.agoraMs - stAtual.fechadoEmMs < JANELA_BANNER_LIBERADO_MS ? `${i.atual.nome} LIBERADO` : null;
+  const stAtual = i.atual ? i.liberacao?.[i.atual.id] : undefined;
+  const confMs = stAtual?.confirmado_em ? Date.parse(stAtual.confirmado_em) : NaN;
+  const banner = i.atual && stAtual?.liberado === true && stAtual.motivo === "CONFIRMADO" && Number.isFinite(confMs) && i.agoraMs >= confMs && i.agoraMs - confMs < JANELA_BANNER_LIBERADO_MS ? `${i.atual.nome} LIBERADO` : null;
   return { atual: avalia(i.atual), proximo: avalia(i.proximo), bannerLiberado: banner };
 }
