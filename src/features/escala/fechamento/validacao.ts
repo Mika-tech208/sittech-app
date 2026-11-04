@@ -1,6 +1,6 @@
 // Validações do fechamento (puras): (1) antes de gravar, (2) PORTÃO HARD antes de publicar o plano. Mesmos limites dos CHECKs do banco.
 import type { ContagemFisicaPar } from "@/features/escala/fluxo/tipos";
-import { DIFERENCA_EXIGE_CONFIRMACAO, DIFERENCA_EXIGE_MOTIVO, JANELA_CONTAGEM_ANTES_DO_FIM_MS, TOLERANCIA_FUTURO_MS, type BufferCatalogo, type EntradaConfirmacao, type ErroValidacao, type EstimativaBuffer, type PostoFechamento, type ResultadoValidacao } from "./tipos";
+import { JANELA_CONTAGEM_ANTES_DO_FIM_MS, TOLERANCIA_FUTURO_MS, type BufferCatalogo, type EntradaConfirmacao, type ErroValidacao, type EstimativaBuffer, type PostoFechamento, type ResultadoValidacao } from "./tipos";
 
 export interface ContextoValidacao {
   agoraMs: number;
@@ -11,16 +11,6 @@ export interface ContextoValidacao {
   podeExcecao: boolean;
   periodoJaFechado: boolean;
 }
-
-/** Limite do CHECK do banco (escala_fechamento_buffers_motivo): acima dele o BANCO exige um texto de motivo — o sistema preenche sozinho (motivoAutomatico); a pessoa nunca é perguntada. */
-export const limiteMotivo = (fisico: number) => Math.max(DIFERENCA_EXIGE_MOTIVO.absoluta, DIFERENCA_EXIGE_MOTIVO.relativa * fisico);
-export const MOTIVO_AUTOMATICO = "Contagem física informada (divergência do estimado registrada automaticamente)";
-/** Motivo gravado: o que a pessoa não informa nunca é exigido; só satisfaz o CHECK do banco quando a divergência passa do limite. */
-export const motivoAutomatico = (fisico: number | null, estimado: number | null, motivo: string | null | undefined): string | null => {
-  if (motivo && motivo.trim().length >= 3) return motivo;
-  if (fisico === null || estimado === null) return motivo ?? null;
-  return Math.abs(fisico - estimado) > limiteMotivo(fisico) ? MOTIVO_AUTOMATICO : (motivo ?? null);
-};
 
 export function validarConfirmacao(e: EntradaConfirmacao, c: ContextoValidacao): ResultadoValidacao {
   const erros: ErroValidacao[] = [];

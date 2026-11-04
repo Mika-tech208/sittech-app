@@ -39,9 +39,7 @@ export interface TemposFechamento {
   contexto?: { estado: number; montagem: number; buffers: number; postos: number };
 }
 
-/** Limites (iguais aos CHECKs do banco). */
-export const DIFERENCA_EXIGE_MOTIVO = { absoluta: 500, relativa: 0.15 } as const;
-export const DIFERENCA_EXIGE_CONFIRMACAO = 0.5;
+/** Limites de tempo (o estoque físico NÃO tem limite de plausibilidade: é a verdade). */
 export const JANELA_CONTAGEM_ANTES_DO_FIM_MS = 15 * 60_000;
 export const TOLERANCIA_FUTURO_MS = 30 * 60_000;
 export const VALIDADE_ABERTURA_MIN = 30;

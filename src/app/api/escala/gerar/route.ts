@@ -24,7 +24,18 @@ export async function POST(request: Request) {
   }
 
   try {
-    const resultado = await gerarEscalaDaSemana(criarClienteAdmin(), semana, auth.usuario.id, Date.now());
+    // FECHAMENTO FÍSICO ATIVO: a programação dos períodos seguintes nasce do fechamento do período. A regeração manual por relógio, sem fechamento nem portão HARD, fica bloqueada
+    // (a semana sem plano ainda pode ser criada).
+    const admin = criarClienteAdmin();
+    const modo = await admin.from("escala_parametros").select("valor").eq("chave", "escala_fechamento_fisico_modo").maybeSingle();
+    if (modo.error) throw new Error(`escala_parametros: ${modo.error.message}`);
+    if (modo.data?.valor === "ativo") {
+      const fim = new Date(`${semana}T12:00:00Z`); fim.setUTCDate(fim.getUTCDate() + 6);
+      const dias = await admin.from("escala_producao_dias").select("data", { count: "exact", head: true }).gte("data", semana).lte("data", fim.toISOString().slice(0, 10));
+      if (dias.error) throw new Error(`escala_producao_dias: ${dias.error.message}`);
+      if ((dias.count ?? 0) > 0) return NextResponse.json({ erro: "Com o Fechamento Físico ativo, a programação dos próximos períodos é gerada pelo fechamento do período (tablet). A regeração manual está bloqueada." }, { status: 409 });
+    }
+    const resultado = await gerarEscalaDaSemana(admin, semana, auth.usuario.id, Date.now());
     return NextResponse.json({ ok: true, ...resultado });
   } catch (e) {
     const mensagem = e instanceof Error ? e.message : "Falha ao gerar a Escala.";
