@@ -5,6 +5,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { limiteMotivo } from "@/features/escala/fechamento/validacao";
 import { DIFERENCA_EXIGE_CONFIRMACAO } from "@/features/escala/fechamento/tipos";
+import PostosProgramadosFechamento from "./PostosProgramadosFechamento";
+import { etapaEstoqueLiberada } from "./textos";
 import { abrirFechamentoApi, confirmarFechamentoApi, estadoFechamentoApi, retryFechamentoApi, type AberturaApi, type DiagnosticoApi, type ResultadoApi } from "./api";
 
 const MOTIVOS = ["Contagem anterior errada", "Peças perdidas / refugo", "Estoque movido", "Outro"] as const;
@@ -26,6 +28,7 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
   const [motivos, setMotivos] = useState<Record<string, string>>({});
   const [confirmaGrande, setConfirmaGrande] = useState<string[] | null>(null);
   const [resultado, setResultado] = useState<ResultadoApi | null>(null);
+  const [semPostos, setSemPostos] = useState(false);               // não foi possível carregar os postos programados: volta ao aviso antigo (lançar pelo painel)
   const [excecao, setExcecao] = useState(false);
   const [motivoExcecao, setMotivoExcecao] = useState("");
   const enviando = useRef(false);
@@ -133,14 +136,23 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
         {ab && (fase === "form" || fase === "salvando" || fase === "recalculando") && (
           <>
             <div className="stx-fech-sec">
-              <h3>Apontamentos</h3>
-              {pendentes.length === 0
-                ? <div className="stx-fech-ok">✓ {ab.postos.length}/{ab.postos.length} coletados</div>
-                : <div><div className="stx-fech-warn" role="alert">⚠ {ab.postos.length - pendentes.length}/{ab.postos.length} — faltam: {pendentes.map((p) => p.nome).join(", ")}</div>
-                    <p style={{ fontSize: 13, color: "var(--text-3)", margin: "6px 0" }}>Lance os apontamentos pendentes no painel (fica liberado só para você nesta troca) e toque em Atualizar.</p>
-                    <button type="button" className="stx-ap-btn-secondary" onClick={() => abrir()} disabled={fase !== "form"}>Atualizar</button></div>}
+              {semPostos ? (
+                <>
+                  <h3>Apontamentos</h3>
+                  {pendentes.length === 0
+                    ? <div className="stx-fech-ok">✓ {ab.postos.length}/{ab.postos.length} coletados</div>
+                    : <div><div className="stx-fech-warn" role="alert">⚠ {ab.postos.length - pendentes.length}/{ab.postos.length} — faltam: {pendentes.map((p) => p.nome).join(", ")}</div>
+                        <p style={{ fontSize: 13, color: "var(--text-3)", margin: "6px 0" }}>Lance os apontamentos pendentes no painel (fica liberado só para você nesta troca) e toque em Atualizar.</p>
+                        <button type="button" className="stx-ap-btn-secondary" onClick={() => abrir()} disabled={fase !== "form"}>Atualizar</button></div>}
+                </>
+              ) : (
+                // postos PROGRAMADOS do período, pré-preenchidos pela escala; gravação pelas RPCs legadas do painel
+                <PostosProgramadosFechamento data={data} periodoId={periodoId} rotulo={rotulo} fimMs={ab.periodo.fim_ms} bloqueado={fase !== "form"} onIndisponivel={() => setSemPostos(true)} onSalvo={() => abrir()} />
+              )}
             </div>
 
+            {!etapaEstoqueLiberada(ab.postos) && <p className="stx-fech-sec" style={{ fontSize: 14, color: "var(--text-3)" }} role="status">O estoque físico é pedido depois que todos os postos estiverem resolvidos.</p>}
+            {etapaEstoqueLiberada(ab.postos) && (
             <div className="stx-fech-sec">
               <h3>Estoque intermediário</h3>
               {excecao ? (
@@ -163,6 +175,7 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
                 </div>
               )}
             </div>
+            )}
 
             {ab.alertas.length > 0 && <p style={{ fontSize: 13, color: "var(--warning)", marginTop: 10 }} role="status">[modo sombra] {ab.alertas.length} alerta(s) de cadastro: {ab.pares_sem_buffer.map((p) => `${p.produto} ${p.etapaOrigem}→${p.etapaDestino}`).join("; ")}. Em modo ativo isto BLOQUEARIA o fechamento.</p>}
             {erro && <p className="stx-save-error" role="alert" style={{ marginTop: 12 }}>{erro}</p>}

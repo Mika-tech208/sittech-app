@@ -34,3 +34,8 @@ export const confirmarFechamentoApi = (c: { data: string; periodoId: string; cha
   chamar<ResultadoApi & { erro?: string }>("/api/escala/fechamento/confirmar", { corpo: { data: c.data, periodo_id: c.periodoId, chave: c.chave, buffers: c.buffers, confirmou_diferenca_grande: c.confirmouDiferencaGrande, ...(c.excecaoMotivo ? { excecao_motivo: c.excecaoMotivo } : {}), ...(c.contadoEmMs ? { contado_em_ms: c.contadoEmMs } : {}) } });
 export const retryFechamentoApi = (fechamentoId: string) => chamar<ResultadoApi & { erro?: string }>("/api/escala/fechamento/retry", { corpo: { fechamento_id: fechamentoId } });
 export const estadoFechamentoApi = (data: string, periodoId: string) => chamar<EstadoApi>(`/api/escala/fechamento/estado?data=${data}&periodo_id=${periodoId}`);
+
+// Postos PROGRAMADOS do período (pré-preenchimento dos apontamentos). Somente leitura.
+import type { ApontamentoExistente, Catalogo, PlanejadoPosto } from "@/features/producao-real/apontamento-simplificado/tipos";
+export interface PostosApi { postos: PlanejadoPosto[]; catalogo: Catalogo; existentes: ApontamentoExistente[]; erro?: string }
+export const postosProgramadosApi = (data: string, periodoId: string) => chamar<PostosApi>(`/api/escala/fechamento/postos?data=${data}&periodo_id=${periodoId}`);
