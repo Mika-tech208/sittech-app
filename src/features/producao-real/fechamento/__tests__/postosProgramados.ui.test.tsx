@@ -5,9 +5,10 @@ import { montarEstadoPostos, type DadosBrutosPostos } from "@/lib/escala/fechame
 
 const postosProgramadosApi = vi.fn();
 const abrirFechamentoApi = vi.fn();
+const confirmarFechamentoApi = vi.fn();
 vi.mock("../api", () => ({
   postosProgramadosApi: (...a: unknown[]) => postosProgramadosApi(...a), abrirFechamentoApi: (...a: unknown[]) => abrirFechamentoApi(...a),
-  confirmarFechamentoApi: vi.fn(), retryFechamentoApi: vi.fn(), estadoFechamentoApi: vi.fn(async () => ({ status: 200, corpo: { modo: "ativo", fechado: false } })),
+  confirmarFechamentoApi: (...a: unknown[]) => confirmarFechamentoApi(...a), retryFechamentoApi: vi.fn(), estadoFechamentoApi: vi.fn(async () => ({ status: 200, corpo: { modo: "ativo", fechado: false } })),
 }));
 const rpc = vi.fn();
 vi.mock("@/services/supabase-client", () => ({ supabase: { rpc: (...a: unknown[]) => rpc(...a), auth: { getSession: async () => ({ data: { session: null } }) } } }));
@@ -21,7 +22,7 @@ const FIM_PASSADO = Date.now() - 3_600_000;
 
 beforeEach(() => {
   let n = 9000; vi.stubGlobal("crypto", { randomUUID: () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}` });
-  postosProgramadosApi.mockReset(); rpc.mockReset(); abrirFechamentoApi.mockReset();
+  postosProgramadosApi.mockReset(); rpc.mockReset(); abrirFechamentoApi.mockReset(); confirmarFechamentoApi.mockReset();
   postosProgramadosApi.mockResolvedValue({ status: 200, corpo: ESTADO }); rpc.mockResolvedValue({ error: null, data: {} });
 });
 afterEach(() => cleanup());
@@ -115,5 +116,26 @@ describe("FECHAR M2: postos → só depois o estoque físico", () => {
     expect(botao).toHaveProperty("disabled", true);                    // inventário continua obrigatório
     fireEvent.change(campo, { target: { value: "120" } });
     await waitFor(() => expect(botao).toHaveProperty("disabled", false));
+  });
+});
+
+describe("ESTOQUE FÍSICO: aceita o que foi contado, sem justificativa (regra definitiva)", () => {
+  const ab = () => ({ status: 200, corpo: { ok: true, abertura_id: "a", valido_ate_ms: Date.now() + 1e6, periodo: { data: "2026-11-04", periodo_id: "m2", rotulo: "M2", fim_ms: FIM_PASSADO, proximo: { rotulo: "M3", periodo_id: "m3" } },
+    postos: [{ maquinaId: "x", nome: "Parafusadeira 10", status: "produzindo", produzido: 10, refugo: 0, motivo: null }], tem_pendentes: false,
+    buffers: [{ buffer_id: "b2", rotulo: "Parafusadas aguardando Etiquetar", estimado: 7122, estimado_lo: 7122, estimado_hi: 7122 }, { buffer_id: "b3", rotulo: "Etiquetadas aguardando Embalar", estimado: 3000, estimado_lo: 3000, estimado_hi: 3000 }], pode_excecao: false, pares_sem_buffer: [], alertas: [] } });
+  it("D/E/F: estimado 7.122 e físico 4.800; 0 em outro buffer ⇒ nenhum motivo, diferença, popup ou confirmação; fecha direto e envia motivo vazio", async () => {
+    abrirFechamentoApi.mockResolvedValue(ab());
+    confirmarFechamentoApi.mockResolvedValue({ status: 200, corpo: { ok: true, estado: "CONFIRMADO", fechamentoId: "f", mensagem: "M3 CONFIRMADO", erros: [], exigeConfirmacao: [], tempos: null } });
+    render(<FechamentoPeriodoModal data="2026-11-04" periodoId="m2" onFechar={() => undefined} />);
+    fireEvent.change(await screen.findByLabelText(/Físico: Parafusadas/), { target: { value: "4800" } });
+    fireEvent.change(screen.getByLabelText(/Físico: Etiquetadas/), { target: { value: "0" } });
+    expect(screen.queryByText(/Diferença/)).toBeNull(); expect(screen.queryByText(/motivo/i)).toBeNull(); expect(screen.queryByText(/Contagem anterior errada/)).toBeNull(); expect(screen.queryByRole("alertdialog")).toBeNull();
+    const botao = screen.getByRole("button", { name: /FECHAR M2 E GERAR M3/ });
+    await waitFor(() => expect(botao).toHaveProperty("disabled", false));
+    fireEvent.click(botao);
+    await waitFor(() => expect(confirmarFechamentoApi).toHaveBeenCalledTimes(1));                 // uma única chamada: sem passo de confirmação
+    const c = confirmarFechamentoApi.mock.calls[0][0] as { buffers: { buffer_id: string; fisico: number; motivo: string | null }[]; confirmouDiferencaGrande: boolean };
+    expect(c.buffers).toEqual([{ buffer_id: "b2", fisico: 4800, motivo: null }, { buffer_id: "b3", fisico: 0, motivo: null }]);
+    expect(await screen.findByText("M3 CONFIRMADO")).toBeTruthy();
   });
 });

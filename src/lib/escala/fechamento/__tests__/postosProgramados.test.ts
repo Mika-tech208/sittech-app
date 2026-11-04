@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import fixture from "./__fixtures__/prod-m2-2026-11-04.json";
 import { montarEstadoPostos, type DadosBrutosPostos } from "../postosProgramados";
-import { acaoPostos } from "../httpPostos";
+import { acaoPostos, type IoPostos } from "../httpPostos";
 import { linhasIniciais } from "@/features/producao-real/apontamento-simplificado/prefill";
 import { alteradoDoPlanejado } from "@/features/producao-real/apontamento-simplificado/diff";
 import { editarReal, informarQuantidades, marcarNaoProduziu, escolherMotivo, editarDescricao, operacaoDaLinha } from "@/features/producao-real/apontamento-simplificado/linhas";
 import { problemasDaLinha, linhaPronta, completude } from "@/features/producao-real/apontamento-simplificado/validacao";
 import { MOTIVOS_NAO_PRODUZIU } from "@/features/producao-real/apontamento-simplificado/motivos";
 import { chaveIrma, executarGravacao, modoRpc, planejarGravacao } from "@/features/producao-real/fechamento/gravacao";
-import { etapaEstoqueLiberada, filtrarGradeProgramada } from "@/features/producao-real/fechamento/textos";
+import { estadoDaGrade, etapaEstoqueLiberada, filtrarGradeProgramada, MENSAGEM_POSTOS_NAO_CARREGADOS } from "@/features/producao-real/fechamento/textos";
 import type { LinhaApontamento } from "@/features/producao-real/apontamento-simplificado/tipos";
 
 // DADOS REAIS do M2 de 04/11/2026 (escala ativa f134bd2b + cadastros do PROD, lidos em modo somente leitura)
@@ -145,41 +145,53 @@ describe("gravação pelas RPCs LEGADAS (sem contrato novo)", () => {
   });
 });
 
-describe("rota de leitura", () => {
-  it("exige a permissão do fechamento e valida os parâmetros; somente leitura", async () => {
-    const carregar = async () => estado;
-    expect((await acaoPostos(carregar, { id: "u", papel: "usuario", permissoes: [] }, "2026-11-04", "m2")).status).toBe(403);
-    expect((await acaoPostos(carregar, { id: "u", papel: "usuario", permissoes: ["escala_fechamento"] }, "x", "m2")).status).toBe(400);
-    const r = await acaoPostos(carregar, { id: "u", papel: "usuario", permissoes: ["escala_fechamento"] }, "2026-11-04", "m2");
-    expect(r.status).toBe(200); expect((r.corpo.postos as unknown[]).length).toBe(12);
+
+// ============ REGRAS DEFINITIVAS (04/11) ============
+const io = (o: Partial<IoPostos> = {}): IoPostos => ({ carregar: async () => estado, modo: async () => "ativo", liberado: async () => ({ liberado: true }), ...o });
+const usuarioPainel = { id: "u", papel: "usuario" as const, permissoes: ["producao_real_apontamento"] };
+
+describe("API dos postos: fonte da grade do tablet", () => {
+  it("permissão: quem opera o painel OU fecha o período lê; sem permissão 403; parâmetros inválidos 400", async () => {
+    expect((await acaoPostos(io(), { id: "u", papel: "usuario", permissoes: [] }, "2026-11-04", "m2")).status).toBe(403);
+    expect((await acaoPostos(io(), usuarioPainel, "x", "m2")).status).toBe(400);
+    expect((await acaoPostos(io(), usuarioPainel, "2026-11-04", "m2")).status).toBe(200);
+    expect((await acaoPostos(io(), { id: "u", papel: "usuario", permissoes: ["escala_fechamento"] }, "2026-11-04", "m2")).status).toBe(200);
+  });
+  it("fechamento ATIVO: 12 postos do período; flag desligada/sombra: fluxo anterior (sem postos); período NÃO liberado: nenhum posto (+ predecessor para fechar o anterior)", async () => {
+    const ativo = await acaoPostos(io(), usuarioPainel, "2026-11-04", "m2");
+    expect(ativo.corpo.modo).toBe("ativo"); expect((ativo.corpo.postos as unknown[]).length).toBe(12);
+    for (const m of ["desligado", "sombra"] as const) expect((await acaoPostos(io({ modo: async () => m }), usuarioPainel, "2026-11-04", "m2")).corpo).toMatchObject({ modo: m, postos: [] });
+    const nao = await acaoPostos(io({ liberado: async () => ({ liberado: false, predecessor: { data: "2026-11-04", periodo: "m2", rotulo: "M2" } }) }), usuarioPainel, "2026-11-04", "m3");
+    expect(nao.corpo).toMatchObject({ naoLiberado: true, postos: [], predecessor: { periodo: "m2" } });
+  });
+  it("B: falha ao buscar a escala (carregar, flag ou liberação) ⇒ HTTP 500 sem postos: FAIL CLOSED, nunca as 22 máquinas", async () => {
+    for (const falha of [{ carregar: async () => { throw new Error("banco fora"); } }, { modo: async () => { throw new Error("x"); } }, { liberado: async () => { throw new Error("y"); } }]) {
+      const r = await acaoPostos(io(falha), usuarioPainel, "2026-11-04", "m2");
+      expect(r.status).toBe(500); expect(r.corpo.postos).toBeUndefined();
+    }
   });
 });
 
-describe("grade do painel com o fechamento ativo: M2 = exatamente os 12 programados (não as 22 ativas)", () => {
+describe("TABLET: grade = só os postos programados do período (regra definitiva)", () => {
   const ativas = F.maquinas.filter((m) => m.ativo !== false).map((m) => ({ id: m.id, nome: m.nome.trim(), estadoPeriodo: "pendente" }));
   const programados = new Set(estado.postos.map((p) => p.maquinaId));
-  it("22 máquinas ativas na grade ⇒ 12 cartões, os mesmos postos da escala; falha de carga ⇒ grade completa", () => {
+  it("A: 22 máquinas ativas, 12 programadas ⇒ o tablet mostra 12 (os mesmos da escala)", () => {
     expect(ativas).toHaveLength(22);
     const g = filtrarGradeProgramada(ativas, programados);
     expect(g).toHaveLength(12); expect(g.map((m) => m.id).sort()).toEqual([...programados].sort());
-    expect(filtrarGradeProgramada(ativas, null)).toHaveLength(22);
   });
-  it("máquina fora da escala que JÁ tem apontamento continua visível (não some o que foi lançado)", () => {
+  it("B: falha ao buscar a escala ⇒ estado 'erro' (mensagem clara), nunca 'legado' com as 22", () => {
+    expect(MENSAGEM_POSTOS_NAO_CARREGADOS).toBe("NÃO FOI POSSÍVEL CARREGAR OS POSTOS PROGRAMADOS.");
+    for (const r of [null, { status: 500, corpo: {} }, { status: 401, corpo: {} }, { status: 403, corpo: {} }, { status: 200, corpo: {} }, { status: 200, corpo: { modo: "?" } }]) expect(estadoDaGrade(r)).toBe("erro");
+    expect(estadoDaGrade({ status: 200, corpo: { modo: "ativo", postos: [{}] } })).toBe("programada");
+    expect(estadoDaGrade({ status: 200, corpo: { modo: "ativo", naoLiberado: true, postos: [] } })).toBe("nao_liberada");
+    expect(estadoDaGrade({ status: 200, corpo: { modo: "desligado", postos: [] } })).toBe("legado");   // só com o fechamento desligado o fluxo anterior segue
+  });
+  it("C: máquina fora do plano só aparece por + ADICIONAR APONTAMENTO (exceção explícita) ou se já tiver apontamento", () => {
     const fora = ativas.find((m) => !programados.has(m.id))!;
-    const g = filtrarGradeProgramada(ativas.map((m) => (m.id === fora.id ? { ...m, estadoPeriodo: "apontado" } : m)), programados);
+    expect(filtrarGradeProgramada(ativas, programados).some((m) => m.id === fora.id)).toBe(false);
+    const g = filtrarGradeProgramada(ativas, programados, new Set([fora.id]));
     expect(g).toHaveLength(13); expect(g.some((m) => m.id === fora.id)).toBe(true);
-  });
-});
-
-describe("Produção Real não orienta para período NÃO liberado", () => {
-  const u = { id: "u", papel: "usuario" as const, permissoes: ["escala_fechamento"] };
-  it("período liberado ⇒ 12 postos; NÃO liberado ⇒ nenhum posto (plano estimado não sai); erro ao decidir ⇒ 500 (fail-closed)", async () => {
-    const carregar = async () => estado;
-    const lib = await acaoPostos(carregar, u, "2026-11-04", "m2", async () => true);
-    expect((lib.corpo.postos as unknown[]).length).toBe(12);
-    const nao = await acaoPostos(carregar, u, "2026-11-04", "t1", async () => false);
-    expect(nao.status).toBe(200); expect(nao.corpo.postos).toEqual([]); expect(nao.corpo.naoLiberado).toBe(true);
-    const erro = await acaoPostos(carregar, u, "2026-11-04", "t1", async () => { throw new Error("banco fora"); });
-    expect(erro.status).toBe(500); expect(erro.corpo.postos).toBeUndefined();
+    expect(filtrarGradeProgramada(ativas.map((m) => (m.id === fora.id ? { ...m, estadoPeriodo: "apontado" } : m)), programados)).toHaveLength(13);
   });
 });

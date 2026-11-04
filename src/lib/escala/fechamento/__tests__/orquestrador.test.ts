@@ -92,10 +92,20 @@ describe("fluxo único: fechar → recalcular → confirmar", () => {
     expect(io.log.map((l) => l.estado)).toEqual(["RECALCULANDO", "CONFIRMADO"]);
     expect(io.travas.size).toBe(0);
   });
-  it("inventário muito diferente do estimado: sem confirmação em dois passos NÃO grava nada", async () => {
+  it("D: estimado 7.122, físico 4.800 ⇒ CONFIRMA na hora (sem motivo, sem confirmação extra) e o motor recebe 4.800; estimado × físico ficam registrados", async () => {
     const io = new Fake();
-    const r = await confirmarFechamento(io, entrada({ confirmouDiferencaGrande: false, buffers: [{ bufferId: "b1", fisico: 1200, motivo: "contagem anterior errada" }, { bufferId: "b2", fisico: 750, motivo: "estoque comum Conv+M8" }, { bufferId: "b3", fisico: 9000 }] }), U, relogio);
-    expect(r.ok).toBe(false); expect(r.exigeConfirmacao).toEqual(["b2"]); expect(io.fechamentos.size).toBe(0); expect(io.recalculos).toHaveLength(0);
+    const r = await confirmarFechamento(io, entrada({ confirmouDiferencaGrande: false, buffers: [{ bufferId: "b1", fisico: 1900 }, { bufferId: "b2", fisico: 4800 }, { bufferId: "b3", fisico: 8600 }] }), U, relogio);
+    expect(r).toMatchObject({ ok: true, estado: "CONFIRMADO", exigeConfirmacao: [] });
+    expect(io.recalculos[0].contagens.find((x) => x.produtoId === CV && x.etapaOrigemId === "pf")!.saldo).toBe(4800);
+    const salvo = [...io.fechamentos.values()][0]; expect(salvo.buffers.find((b) => b.bufferId === "b2")!.fisico).toBe(4800);
+    expect(io.ctx.estimativas.find((e) => e.bufferId === "b2")!.estimado - 4800).toBe(2322);   // diferença −2.322 disponível para auditoria/Intelligence
+  });
+  it("E: divergência > 50% (750 contra 7.122) e F: físico = 0 ⇒ aceitos normalmente", async () => {
+    for (const fisicoB2 of [750, 0]) {
+      const io = new Fake();
+      const r = await confirmarFechamento(io, entrada({ confirmouDiferencaGrande: false, chave: `11111111-1111-1111-1111-${String(fisicoB2).padStart(12, "0")}`, buffers: [{ bufferId: "b1", fisico: 0 }, { bufferId: "b2", fisico: fisicoB2 }, { bufferId: "b3", fisico: 0 }] }), U, relogio);
+      expect(r.ok).toBe(true); expect(r.estado).toBe("CONFIRMADO"); expect(io.recalculos[0].contagens.find((x) => x.produtoId === CV && x.etapaOrigemId === "pf")!.saldo).toBe(fisicoB2);
+    }
   });
   it("campo faltando bloqueia antes de gravar", async () => {
     const io = new Fake();

@@ -37,5 +37,5 @@ export const estadoFechamentoApi = (data: string, periodoId: string) => chamar<E
 
 // Postos PROGRAMADOS do período (pré-preenchimento dos apontamentos). Somente leitura.
 import type { ApontamentoExistente, Catalogo, PlanejadoPosto } from "@/features/producao-real/apontamento-simplificado/tipos";
-export interface PostosApi { postos: PlanejadoPosto[]; catalogo: Catalogo; existentes: ApontamentoExistente[]; erro?: string }
+export interface PostosApi { modo?: "desligado" | "sombra" | "ativo"; naoLiberado?: boolean; predecessor?: { data: string; periodo: string; rotulo: string } | null; postos: PlanejadoPosto[]; catalogo: Catalogo | null; existentes: ApontamentoExistente[]; erro?: string }
 export const postosProgramadosApi = (data: string, periodoId: string) => chamar<PostosApi>(`/api/escala/fechamento/postos?data=${data}&periodo_id=${periodoId}`);

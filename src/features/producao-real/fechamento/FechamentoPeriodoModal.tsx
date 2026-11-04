@@ -3,13 +3,10 @@
 // "FECHAR PERÍODO E GERAR PRÓXIMA PROGRAMAÇÃO" — tela única do tablet. Apontamentos + estoque intermediário físico + confirmação + recálculo + publicação.
 // Campo físico SEMPRE nasce vazio (nunca preenchido com o estimado). A janela de troca pertence a quem abriu esta tela (apontamentos do período só por ele).
 import { useEffect, useMemo, useRef, useState } from "react";
-import { limiteMotivo } from "@/features/escala/fechamento/validacao";
-import { DIFERENCA_EXIGE_CONFIRMACAO } from "@/features/escala/fechamento/tipos";
 import PostosProgramadosFechamento from "./PostosProgramadosFechamento";
 import { etapaEstoqueLiberada } from "./textos";
 import { abrirFechamentoApi, confirmarFechamentoApi, estadoFechamentoApi, retryFechamentoApi, type AberturaApi, type DiagnosticoApi, type ResultadoApi } from "./api";
 
-const MOTIVOS = ["Contagem anterior errada", "Peças perdidas / refugo", "Estoque movido", "Outro"] as const;
 const fmt = (n: number) => Math.round(n).toLocaleString("pt-BR");
 const seg = (ms: number) => `${(ms / 1000).toFixed(1).replace(".", ",")} s`;
 
@@ -25,15 +22,11 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
   const [diagnosticos, setDiagnosticos] = useState<DiagnosticoApi[]>([]);
   const [opcoesAbertas, setOpcoesAbertas] = useState(false);
   const [valores, setValores] = useState<Record<string, string>>({}); // vazio por padrão
-  const [motivos, setMotivos] = useState<Record<string, string>>({});
-  const [confirmaGrande, setConfirmaGrande] = useState<string[] | null>(null);
   const [resultado, setResultado] = useState<ResultadoApi | null>(null);
   const [semPostos, setSemPostos] = useState(false);               // não foi possível carregar os postos programados: volta ao aviso antigo (lançar pelo painel)
   const [excecao, setExcecao] = useState(false);
   const [motivoExcecao, setMotivoExcecao] = useState("");
   const enviando = useRef(false);
-  const dialogoRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => { if (confirmaGrande) dialogoRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }, [confirmaGrande]);
 
   const [recarregar, setRecarregar] = useState(0);
   useEffect(() => {
@@ -47,31 +40,28 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
   }, [data, periodoId, recarregar]);
   const abrir = () => setRecarregar((n) => n + 1);
 
+  // O ESTOQUE FÍSICO É A AUTORIDADE: aceita o que a pessoa contou (inclusive 0 e valores muito diferentes do estimado), sem motivo, sem confirmação extra. Só validação objetiva (número inteiro ≥ 0).
   const linhas = useMemo(() => (ab?.buffers ?? []).map((b) => {
     const txt = valores[b.buffer_id] ?? "";
     const fisico = txt.trim() === "" ? null : Number(txt.replace(/\./g, "").replace(",", "."));
     const valido = fisico !== null && Number.isInteger(fisico) && fisico >= 0;
-    const dif = valido && b.estimado !== null ? (fisico as number) - b.estimado : null;
-    const exigeMotivo = valido && dif !== null && Math.abs(dif) > limiteMotivo(fisico as number);
-    const grande = valido && dif !== null && (b.estimado ?? 0) > 0 && Math.abs(dif) / Math.max(b.estimado ?? 1, 1) > DIFERENCA_EXIGE_CONFIRMACAO;
-    return { ...b, txt, fisico: valido ? (fisico as number) : null, valido, dif, exigeMotivo, grande, motivo: motivos[b.buffer_id] ?? "" };
-  }), [ab, valores, motivos]);
+    return { ...b, txt, fisico: valido ? (fisico as number) : null, valido };
+  }), [ab, valores]);
 
   const pendentes = ab?.postos.filter((p) => p.status === "pendente") ?? [];
-  const tudoPreenchido = linhas.every((l) => l.valido && (!l.exigeMotivo || l.motivo.length > 0));
+  const tudoPreenchido = linhas.every((l) => l.valido);
   const pode = ab && pendentes.length === 0 && (excecao ? motivoExcecao.trim().length >= 5 : tudoPreenchido) && fase === "form";
 
-  async function enviar(confirmouGrande: boolean) {
+  async function enviar() {
     if (!ab || enviando.current) return;                              // duplo clique
     enviando.current = true; setFase("salvando"); setErro(null);
     let vivo = true; // resposta atrasada do polling NUNCA pode sobrescrever o estado final (confirmado/erro)
     const timer = setTimeout(() => setFase((f) => (f === "salvando" ? "recalculando" : f)), 700);
     const poll = setInterval(async () => { const e = await estadoFechamentoApi(data, periodoId); if (vivo && e.corpo.estado === "RECALCULANDO") setFase((f) => (f === "salvando" ? "recalculando" : f)); }, 900);
     try {
-      const r = await confirmarFechamentoApi({ data, periodoId, chave, confirmouDiferencaGrande: confirmouGrande, ...(excecao ? { excecaoMotivo: motivoExcecao.trim() } : {}),
-        buffers: excecao ? [] : linhas.map((l) => ({ buffer_id: l.buffer_id, fisico: l.fisico, motivo: l.motivo || null })) });
+      const r = await confirmarFechamentoApi({ data, periodoId, chave, confirmouDiferencaGrande: false, ...(excecao ? { excecaoMotivo: motivoExcecao.trim() } : {}),
+        buffers: excecao ? [] : linhas.map((l) => ({ buffer_id: l.buffer_id, fisico: l.fisico, motivo: null })) });
       const c = r.corpo;
-      if (r.status === 422 && c.exigeConfirmacao?.length) { setConfirmaGrande(c.exigeConfirmacao); setFase("form"); return; }
       if (c.estado === "CONFIRMADO") { setResultado(c); setFase("confirmado"); onConcluido?.(); return; }
       if (c.estado === "ERRO_RECALCULO" || c.estado === "RECALCULANDO") { setResultado(c); setFase("erro_recalculo"); return; }
       setErro(c.erros?.[0]?.mensagem ?? c.mensagem ?? c.erro ?? "Fechamento não aceito."); setFase("form");
@@ -164,8 +154,6 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
                   <div className="est">Estimado pelo sistema: {l.estimado === null ? "—" : fmt(l.estimado)}{l.estimado_lo !== null && l.estimado_hi !== null && l.estimado_lo !== l.estimado_hi ? ` (${fmt(l.estimado_lo)}–${fmt(l.estimado_hi)})` : ""}</div>
                   <input className="stx-fech-in" inputMode="numeric" pattern="[0-9]*" autoComplete="off" aria-label={`Físico: ${l.rotulo}`} placeholder="Físico" value={l.txt === "" ? "" : fmt(Number(l.txt))} disabled={fase !== "form"}
                     onChange={(e) => setValores((v) => ({ ...v, [l.buffer_id]: e.target.value.replace(/[^0-9]/g, "").slice(0, 9) }))} />
-                  {l.dif !== null && <div className={`stx-fech-dif ${l.exigeMotivo ? "alerta" : ""}`}>Diferença: {l.dif > 0 ? "+" : ""}{fmt(l.dif)} peças{l.exigeMotivo ? " — escolha o motivo" : ""}</div>}
-                  {l.exigeMotivo && <div className="stx-fech-chips">{MOTIVOS.map((m) => <button type="button" key={m} className={`stx-fech-chip ${l.motivo === m ? "on" : ""}`} onClick={() => setMotivos((x) => ({ ...x, [l.buffer_id]: m }))}>{m}</button>)}</div>}
                 </div>
               ))}
               {ab.pode_excecao && (
@@ -179,20 +167,10 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
 
             {ab.alertas.length > 0 && <p style={{ fontSize: 13, color: "var(--warning)", marginTop: 10 }} role="status">[modo sombra] {ab.alertas.length} alerta(s) de cadastro: {ab.pares_sem_buffer.map((p) => `${p.produto} ${p.etapaOrigem}→${p.etapaDestino}`).join("; ")}. Em modo ativo isto BLOQUEARIA o fechamento.</p>}
             {erro && <p className="stx-save-error" role="alert" style={{ marginTop: 12 }}>{erro}</p>}
-            {confirmaGrande && (
-              <div ref={dialogoRef} className="stx-fech-buf" role="alertdialog" style={{ borderColor: "var(--warning)" }}>
-                <div className="nome">Confirme os valores</div>
-                {linhas.filter((l) => confirmaGrande.includes(l.buffer_id)).map((l) => <div key={l.buffer_id} className="est">{l.rotulo}: <b>{fmt(l.fisico ?? 0)}</b> em vez de {fmt(l.estimado ?? 0)}</div>)}
-                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                  <button type="button" className="stx-ap-btn-primary" style={{ flex: 1 }} onClick={() => { setConfirmaGrande(null); void enviar(true); }}>Confirmo</button>
-                  <button type="button" className="stx-ap-btn-secondary" style={{ flex: 1 }} onClick={() => setConfirmaGrande(null)}>Corrigir</button>
-                </div>
-              </div>
-            )}
             {(fase === "salvando" || fase === "recalculando") ? (
               <div className="stx-fech-estado" role="status" aria-live="polite">{fase === "salvando" ? "Salvando estado físico…" : `Recalculando ${proximo}…`}</div>
             ) : (
-              <button type="button" className="stx-fech-go" disabled={!pode} onClick={() => void enviar(false)}>FECHAR {rotulo} E GERAR {proximo}</button>
+              <button type="button" className="stx-fech-go" disabled={!pode} onClick={() => void enviar()}>FECHAR {rotulo} E GERAR {proximo}</button>
             )}
           </>
         )}
