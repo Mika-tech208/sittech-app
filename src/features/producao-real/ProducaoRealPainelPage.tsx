@@ -45,6 +45,7 @@ import { dataLocalSP, horaLocalSP } from "@/hooks/useProducaoRealPainel";
 import SeloFechamento from "@/features/escala/fechamento/SeloFechamento";
 import FechamentoPeriodoModal from "@/features/producao-real/fechamento/FechamentoPeriodoModal";
 import { estadoFechamentoApi } from "@/features/producao-real/fechamento/api";
+import { textoApontamentosCompletos } from "@/features/producao-real/fechamento/textos";
 import { formatBRL, setModoPrivadoAtivo } from "@/lib/format";
 import { toISODate, mondayOf } from "@/lib/date";
 import { calcularTotalFixoAtivo, calcularTotalCustoFuncionariosAtivos, calcularMetaFaturamento } from "@/features/custo-hora/calculations";
@@ -169,7 +170,9 @@ export default function ProducaoRealPainelPage() {
   }, [podeFechar, periodoDoFechamento, fechamentoAberto]);
   const minutos = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
   const naJanelaDeTroca = !!periodoDoFechamento && (periodoDoFechamento.data < dataLocalSP() || (periodoDoFechamento.data === dataLocalSP() && minutos(horaLocalSP()) >= minutos(periodoDoFechamento.fim) - 5));
-  const mostrarFechamento = podeFechar && modoFechamento !== "desligado" && !!periodoDoFechamento && naJanelaDeTroca;
+  // apontamentos completos também abrem o fechamento (máquinas já paradas), mesmo antes dos 5 min finais do período
+  const apontamentosCompletos = painel.maquinasView.length > 0 && painel.maquinasView.every((m) => m.estadoPeriodo !== "pendente");
+  const mostrarFechamento = podeFechar && modoFechamento !== "desligado" && !!periodoDoFechamento && (naJanelaDeTroca || apontamentosCompletos);
 
   const totalMaquinas = painel.maquinasView.length;
   const totalFechadas = painel.maquinasView.filter((m) => m.estadoPeriodo !== "pendente").length;
@@ -437,7 +440,7 @@ export default function ProducaoRealPainelPage() {
           )}
 
           {tudoFechado && (
-            <div className="stx-ap-completo-banner">✓ Período fechado — todas as máquinas apontadas</div>
+            <div className="stx-ap-completo-banner">{textoApontamentosCompletos(modoFechamento, estadoFechamento)}</div>
           )}
 
           {painel.erro && <p className="stx-save-error" style={{ marginTop: 16 }}>{painel.erro}</p>}

@@ -102,6 +102,14 @@ describe("fluxo único: fechar → recalcular → confirmar", () => {
     const r = await confirmarFechamento(io, entrada({ buffers: [{ bufferId: "b1", fisico: 1200, motivo: "abc" }, { bufferId: "b3", fisico: 9000 }] }), U, relogio);
     expect(r.ok).toBe(false); expect(r.erros.some((e) => e.codigo === "BUFFER_FALTANDO" && e.bufferId === "b2")).toBe(true); expect(io.fechamentos.size).toBe(0);
   });
+  it("CASO REAL 04/11 M1: 11 postos todos apontados, NENHUM estoque físico, fechamento ATIVO ⇒ não fica CONFIRMADO, não grava, não recalcula, não publica e a tela pede o estoque", async () => {
+    const io = new Fake();
+    io.ctx = ctx0({ postos: Array.from({ length: 11 }, (_, i) => ({ maquinaId: `m${i}`, nome: `Posto ${i + 1}`, status: "produzindo" as const, produzido: 1500, refugo: 0, motivo: null })) });
+    const r = await confirmarFechamento(io, entrada({ buffers: [] }), U, relogio);
+    expect(r.ok).toBe(false); expect(r.estado).toBeNull(); expect(r.hashPlanoNovo).toBeNull();
+    expect(r.erros.filter((e) => e.codigo === "BUFFER_FALTANDO").map((e) => e.bufferId).sort()).toEqual(["b1", "b2", "b3"]);   // a UI mostra "Informe o estoque físico: …"
+    expect(io.fechamentos.size).toBe(0); expect(io.log).toHaveLength(0); expect(io.recalculos).toHaveLength(0);   // nada confirmado, nada publicado
+  });
   it("posto sem apontamento bloqueia o fechamento", async () => {
     const io = new Fake(); io.ctx = ctx0({ postos: [{ maquinaId: "x", nome: "Paf 10", status: "pendente", produzido: 0, refugo: 0, motivo: null }] });
     const r = await confirmarFechamento(io, entrada(), U, relogio);
