@@ -105,6 +105,7 @@ export function mensagemErroOcorrencia(mensagem: string | undefined): string {
 // outras duas pra não confundir "excluir" com "salvar"/"abrir".
 export function mensagemErroExcluirApontamento(mensagem: string | undefined): string {
   const m = mensagem || "";
+  if (m.includes("FECHAMENTO_PERIODO_EM_FECHAMENTO")) return "Este período já está confirmado. Para corrigir, é preciso reabrir o período.";
   if (m.includes("não tem permissão")) return "Você não tem permissão para excluir apontamentos.";
   if (m.includes("não encontrado")) return "Este apontamento já foi excluído ou não existe mais — a tela pode estar desatualizada.";
   if (m.includes("Usuário autenticado")) return "Sua sessão expirou — faça login de novo.";

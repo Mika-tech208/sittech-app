@@ -60,6 +60,26 @@ export async function acaoAbrir(io: FechamentoIO, u: UsuarioFechamento, body: un
   } };
 }
 
+/** REABRIR PERÍODO: abre uma janela de correção (60 min) num período CONFIRMADO para corrigir lançamentos. Exige `escala_fechamento` (ou admin) e um motivo; fica auditado.
+ *  Não recalcula o plano nem tira a liberação do período seguinte (o físico contado no fechamento segue sendo a verdade). */
+export async function acaoReabrir(admin: SupabaseClient, u: UsuarioFechamento, body: unknown): Promise<RespostaHttp> {
+  if (!podeFechar(u)) return { status: 403, corpo: { erro: "Sem permissão para reabrir o período." } };
+  const b = (body ?? {}) as Record<string, unknown>;
+  if (typeof b.data !== "string" || !DATA.test(b.data) || typeof b.periodo_id !== "string" || !/^[a-z0-9_-]{1,12}$/i.test(b.periodo_id)) return { status: 400, corpo: { erro: "data/periodo_id inválidos." } };
+  const motivo = typeof b.motivo === "string" ? b.motivo.trim() : "";
+  if (motivo.length < 3) return { status: 422, corpo: { erro: "Informe o motivo da reabertura." } };
+  const { data, error } = await admin.rpc("escala_fechamento_reabrir", { p_usuario: u.id, p_data: b.data, p_periodo: b.periodo_id, p_motivo: motivo.slice(0, 500), p_ttl_min: 60 });
+  if (error) {
+    const m = error.message ?? "";
+    const codigo = m.match(/REABERTURA_[A-Z_]+/)?.[0];
+    const texto = m.replace(/^.*?REABERTURA_[A-Z_]+:\s*/, "");
+    return { status: codigo ? 422 : 500, corpo: { erro: codigo ? texto : "Não foi possível reabrir o período.", ...(codigo ? { codigo } : {}) } };
+  }
+  const r = (Array.isArray(data) ? data[0] : data) as { abertura_id?: string; valido_ate?: string; renovada?: boolean } | null;
+  if (!r?.abertura_id) return { status: 500, corpo: { erro: "Não foi possível reabrir o período." } };
+  return { status: 200, corpo: { ok: true, abertura_id: r.abertura_id, valido_ate: r.valido_ate, renovada: r.renovada === true } };
+}
+
 export async function acaoConfirmar(io: FechamentoIO, u: UsuarioFechamento, body: unknown, relogio: () => number = Date.now): Promise<RespostaHttp> {
   if (!podeFechar(u)) return { status: 403, corpo: { erro: "Sem permissão para fechar o período." } };
   const lido = lerEntrada(body);
