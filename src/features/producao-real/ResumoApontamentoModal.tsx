@@ -24,6 +24,7 @@ import { MOTIVOS, LABEL_MOTIVO_SEM_PRODUCAO } from "./SemProducaoModal";
 import { mensagemErroRegistrarLancamento, mensagemErroExcluirApontamento, mensagemErroConverterApontamento, calcularPerformance } from "./calculations";
 import ParadasManuaisEditor, { type ParadaManual, type ParadaAutomatica } from "./ParadasManuaisEditor";
 import PerformanceIndicador from "./components/PerformanceIndicador";
+import ReabrirPeriodo, { erroDePeriodoConfirmado } from "./fechamento/ReabrirPeriodo";
 import type { ApontamentoRealizado } from "@/hooks/useApontamentosRealizados";
 
 interface ParadaRow {
@@ -58,6 +59,8 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
   const [erro, setErro] = useState<string | null>(null);
   const [excluindo, setExcluindo] = useState(false);
   const [erroExclusao, setErroExclusao] = useState<string | null>(null);
+  // edição/exclusão recusada porque o período já está CONFIRMADO → oferece REABRIR PERÍODO (janela de correção auditada)
+  const [periodoConfirmado, setPeriodoConfirmado] = useState(false);
 
   // Conversão sem_producao -> produzindo (só quando podeConverterStatus).
   // Reseta pra false sempre que o modal reabre em modo edição, pra nunca
@@ -162,6 +165,7 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
           p_paradas: paradas,
         });
     if (error || !data) {
+      if (erroDePeriodoConfirmado(error?.message)) setPeriodoConfirmado(true);
       setErro(convertendo ? mensagemErroConverterApontamento(error?.message) : mensagemErroRegistrarLancamento(error?.message));
       setSalvando(false);
       return;
@@ -213,6 +217,7 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
       p_descricao_sem_producao: precisaDescricao ? descricao.trim() : null,
     });
     if (error || !data) {
+      if (erroDePeriodoConfirmado(error?.message)) setPeriodoConfirmado(true);
       setErro(mensagemErroRegistrarLancamento(error?.message));
       setSalvando(false);
       return;
@@ -232,6 +237,7 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
       p_apontamento_id: apontamento.id,
     });
     if (error) {
+      if (erroDePeriodoConfirmado(error.message)) setPeriodoConfirmado(true);
       setErroExclusao(mensagemErroExcluirApontamento(error.message));
       setExcluindo(false);
       return;
@@ -310,6 +316,7 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
             </p>
             <p className="stx-ap-modal-eyebrow" style={{ marginTop: 8 }}>Essa ação não pode ser desfeita.</p>
             {erroExclusao && <p className="stx-ap-error">{erroExclusao}</p>}
+            {periodoConfirmado && <ReabrirPeriodo data={apontamento.data} periodoId={apontamento.periodoId} rotuloPeriodo={apontamento.periodoNome} onReaberto={() => { setPeriodoConfirmado(false); setErro(null); setErroExclusao(null); }} />}
             <div className="stx-ap-actions">
               <button type="button" className="stx-ap-btn-danger solido" disabled={excluindo} onClick={excluirApontamento}>
                 {excluindo ? "Excluindo…" : "Sim, excluir apontamento"}
@@ -395,6 +402,7 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
             </div>
 
             {erro && <p className="stx-ap-error">{erro}</p>}
+            {periodoConfirmado && <ReabrirPeriodo data={apontamento.data} periodoId={apontamento.periodoId} rotuloPeriodo={apontamento.periodoNome} onReaberto={() => { setPeriodoConfirmado(false); setErro(null); setErroExclusao(null); }} />}
             {!podeSalvarProducao && !salvando && !motivoAlteracaoPreenchido && (
               <p className="stx-ap-modal-eyebrow">Preencha &quot;Motivo da alteração&quot; para poder salvar.</p>
             )}
@@ -455,6 +463,7 @@ export default function ResumoApontamentoModal({ apontamento, funcionariosAtivos
             </div>
 
             {erro && <p className="stx-ap-error">{erro}</p>}
+            {periodoConfirmado && <ReabrirPeriodo data={apontamento.data} periodoId={apontamento.periodoId} rotuloPeriodo={apontamento.periodoNome} onReaberto={() => { setPeriodoConfirmado(false); setErro(null); setErroExclusao(null); }} />}
             {!podeSalvarSemProducao && !salvando && !motivoAlteracaoPreenchido && (
               <p className="stx-ap-modal-eyebrow">Preencha &quot;Motivo da alteração&quot; para poder salvar.</p>
             )}
