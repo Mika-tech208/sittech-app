@@ -12,11 +12,19 @@ export interface ContextoValidacao {
   periodoJaFechado: boolean;
 }
 
+/** Limite do CHECK do banco (escala_fechamento_buffers_motivo): acima dele o BANCO exige um texto de motivo — o sistema preenche sozinho (motivoAutomatico); a pessoa nunca é perguntada. */
 export const limiteMotivo = (fisico: number) => Math.max(DIFERENCA_EXIGE_MOTIVO.absoluta, DIFERENCA_EXIGE_MOTIVO.relativa * fisico);
+export const MOTIVO_AUTOMATICO = "Contagem física informada (divergência do estimado registrada automaticamente)";
+/** Motivo gravado: o que a pessoa não informa nunca é exigido; só satisfaz o CHECK do banco quando a divergência passa do limite. */
+export const motivoAutomatico = (fisico: number | null, estimado: number | null, motivo: string | null | undefined): string | null => {
+  if (motivo && motivo.trim().length >= 3) return motivo;
+  if (fisico === null || estimado === null) return motivo ?? null;
+  return Math.abs(fisico - estimado) > limiteMotivo(fisico) ? MOTIVO_AUTOMATICO : (motivo ?? null);
+};
 
 export function validarConfirmacao(e: EntradaConfirmacao, c: ContextoValidacao): ResultadoValidacao {
   const erros: ErroValidacao[] = [];
-  const exigeConfirmacao: string[] = [];
+  const exigeConfirmacao: string[] = []; // legado do contrato: nunca preenchido (sem dupla confirmação)
   const add = (codigo: string, mensagem: string, bufferId?: string) => erros.push({ codigo, mensagem, ...(bufferId ? { bufferId } : {}) });
 
   if (c.periodoJaFechado) add("PERIODO_JA_FECHADO", "Este período já foi fechado.");
@@ -44,13 +52,8 @@ export function validarConfirmacao(e: EntradaConfirmacao, c: ContextoValidacao):
     if (typeof inf.fisico !== "number" || !Number.isFinite(inf.fisico)) { add("SALDO_INVALIDO", `Valor inválido em ${b.rotulo}.`, b.id); return; }
     if (inf.fisico < 0) { add("SALDO_NEGATIVO", `${b.rotulo}: o estoque não pode ser negativo.`, b.id); return; }
     if (!Number.isInteger(inf.fisico)) { add("SALDO_NAO_INTEIRO", `${b.rotulo}: informe um número inteiro de peças.`, b.id); return; }
-    const est = c.estimativas.find((x) => x.bufferId === b.id)?.estimado;
-    if (est === undefined) return;
-    const dif = Math.abs(inf.fisico - est);
-    if (dif > limiteMotivo(inf.fisico) && (!inf.motivo || inf.motivo.trim().length < 3)) add("MOTIVO_OBRIGATORIO", `${b.rotulo}: diferença de ${Math.round(dif)} peças em relação ao estimado — informe o motivo.`, b.id);
-    if (est > 0 && dif / Math.max(est, 1) > DIFERENCA_EXIGE_CONFIRMACAO && !e.confirmouDiferencaGrande) exigeConfirmacao.push(b.id);
+    // ESTOQUE FÍSICO É A AUTORIDADE: nenhuma validação de plausibilidade. Divergência em relação ao estimado NÃO pede motivo, NÃO pede confirmação e NÃO bloqueia (fica registrada nos bastidores).
   });
-  if (exigeConfirmacao.length > 0) add("CONFIRMACAO_DIFERENCA_GRANDE", "Há diferença superior a 50% do estimado: confirme os valores.");
   return { ok: erros.length === 0, erros, exigeConfirmacao };
 }
 

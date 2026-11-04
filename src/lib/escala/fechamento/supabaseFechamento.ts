@@ -1,4 +1,5 @@
 // SERVER-ONLY. Implementação Supabase (service_role) do FechamentoIO. Toda regra vive em orquestrador.ts / src/features/escala/fechamento; aqui só IO e medição de tempo.
+import { motivoAutomatico } from "@/features/escala/fechamento/validacao";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { hashAlocacoes } from "@/features/escala/horizonte";
 import { epochMsNoFuso } from "@/features/escala/tempo";
@@ -166,7 +167,7 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
         return { buffer_id: b.id, saldo_estimado: est?.estimado ?? null, estimado_lo: est?.lo ?? null, estimado_hi: est?.hi ?? null, saldo_fisico: null, motivo: null };
       }) : s.entrada.buffers.map((b) => {
         const est = s.contexto.estimativas.find((x) => x.bufferId === b.bufferId);
-        return { buffer_id: b.bufferId, saldo_estimado: est?.estimado ?? null, estimado_lo: est?.lo ?? null, estimado_hi: est?.hi ?? null, saldo_fisico: b.fisico, motivo: b.motivo ?? null };
+        return { buffer_id: b.bufferId, saldo_estimado: est?.estimado ?? null, estimado_lo: est?.lo ?? null, estimado_hi: est?.hi ?? null, saldo_fisico: b.fisico, motivo: motivoAutomatico(b.fisico, est?.estimado ?? null, b.motivo) };
       });
       const { data, error } = await admin.rpc("escala_fechamento_registrar", {
         p_abertura: s.aberturaId, p_semana: s.contexto.semanaInicio, p_data: s.contexto.periodo.data, p_periodo: s.contexto.periodo.periodoId, p_tipo: "periodo",

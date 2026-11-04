@@ -45,7 +45,7 @@ import { dataLocalSP, horaLocalSP } from "@/hooks/useProducaoRealPainel";
 import SeloFechamento from "@/features/escala/fechamento/SeloFechamento";
 import FechamentoPeriodoModal from "@/features/producao-real/fechamento/FechamentoPeriodoModal";
 import { estadoFechamentoApi, postosProgramadosApi } from "@/features/producao-real/fechamento/api";
-import { filtrarGradeProgramada, textoApontamentosCompletos } from "@/features/producao-real/fechamento/textos";
+import { estadoDaGrade, filtrarGradeProgramada, MENSAGEM_POSTOS_NAO_CARREGADOS, textoApontamentosCompletos, type EstadoGrade } from "@/features/producao-real/fechamento/textos";
 import { formatBRL, setModoPrivadoAtivo } from "@/lib/format";
 import { toISODate, mondayOf } from "@/lib/date";
 import { calcularTotalFixoAtivo, calcularTotalCustoFuncionariosAtivos, calcularMetaFaturamento } from "@/features/custo-hora/calculations";
@@ -168,16 +168,33 @@ export default function ProducaoRealPainelPage() {
     void estadoFechamentoApi(periodoDoFechamento.data, periodoDoFechamento.id).then((r) => { if (!vivo) return; setModoFechamento(r.corpo.modo ?? "desligado"); setEstadoFechamento(r.corpo.fechado ? (r.corpo.estado ?? null) : null); }).catch(() => undefined);
     return () => { vivo = false; };
   }, [podeFechar, periodoDoFechamento, fechamentoAberto]);
-  // FECHAMENTO ATIVO: a grade mostra SÓ os postos PROGRAMADOS do período na escala vigente (+ máquinas que já têm apontamento). Máquina sem posto não aparece nem é pedida.
-  // Fonte = /api/escala/fechamento/postos (alocações do plano vigente). Falha ao carregar ⇒ grade completa de antes (nunca trava o apontamento).
-  const [postosProg, setPostosProg] = useState<Set<string> | null>(null);
+  // GRADE DO TABLET — REGRA DEFINITIVA (fechamento físico ATIVO): só os postos PROGRAMADOS do período na escala vigente/liberada (/api/escala/fechamento/postos).
+  // Independe de permissão especial. FAIL CLOSED: se a escala não carregar, NÃO volta para todas as máquinas — mostra o erro. Produção fora da escala = exceção explícita (+ ADICIONAR APONTAMENTO).
+  const chaveGrade = periodoDoFechamento ? `${periodoDoFechamento.data}|${periodoDoFechamento.id}` : null;
+  const [grade, setGrade] = useState<{ chave: string; estado: EstadoGrade; ids: Set<string>; predecessor: { data: string; periodo: string; rotulo: string } | null } | null>(null);
+  const [tentativaGrade, setTentativaGrade] = useState(0);
+  const [extras, setExtras] = useState<{ chave: string; ids: Set<string> } | null>(null);
+  const [adicionando, setAdicionando] = useState(false);
   useEffect(() => {
-    if (!podeFechar || modoFechamento !== "ativo" || !periodoDoFechamento) { setPostosProg(null); return; }
+    if (!periodoDoFechamento || !chaveGrade) return;
     let vivo = true;
-    void postosProgramadosApi(periodoDoFechamento.data, periodoDoFechamento.id).then((r) => { if (vivo) setPostosProg(r.status === 200 && Array.isArray(r.corpo.postos) && r.corpo.postos.length > 0 ? new Set(r.corpo.postos.map((p) => p.maquinaId)) : null); }).catch(() => { if (vivo) setPostosProg(null); });
+    const aplicar = (estado: EstadoGrade, ids: Set<string>, predecessor: { data: string; periodo: string; rotulo: string } | null = null) => { if (vivo) setGrade({ chave: chaveGrade, estado, ids, predecessor }); };
+    void postosProgramadosApi(periodoDoFechamento.data, periodoDoFechamento.id)
+      .then((r) => aplicar(estadoDaGrade(r), new Set((r.corpo.postos ?? []).map((p) => p.maquinaId)), r.corpo.predecessor ?? null))
+      .catch(() => aplicar("erro", new Set()));
     return () => { vivo = false; };
-  }, [podeFechar, modoFechamento, periodoDoFechamento, fechamentoAberto]);
-  const maquinasView = useMemo(() => filtrarGradeProgramada(painel.maquinasView, postosProg), [postosProg, painel.maquinasView]);
+  }, [chaveGrade, periodoDoFechamento, tentativaGrade, fechamentoAberto]);
+  const estadoGrade: EstadoGrade = grade && grade.chave === chaveGrade ? grade.estado : "carregando";   // trocou de período ⇒ não reaproveita a lista do outro
+  const idsExtras = extras && extras.chave === chaveGrade ? extras.ids : undefined;
+  const idsProgramados = estadoGrade === "programada" && grade ? grade.ids : null;
+  const maquinasViewTodas = painel.maquinasView;
+  const maquinasView = useMemo(
+    () => (estadoGrade === "legado" ? maquinasViewTodas                                   // fechamento físico desligado/sombra: fluxo anterior
+      : idsProgramados ? filtrarGradeProgramada(maquinasViewTodas, idsProgramados, idsExtras)
+      : []),                                                                              // carregando / erro / período não liberado: nada de "todas as máquinas"
+    [estadoGrade, idsProgramados, idsExtras, maquinasViewTodas]
+  );
+  const foraDaEscala = useMemo(() => (idsProgramados ? maquinasViewTodas.filter((m) => !maquinasView.some((x) => x.id === m.id)) : []), [idsProgramados, maquinasViewTodas, maquinasView]);
   const minutos = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
   const naJanelaDeTroca = !!periodoDoFechamento && (periodoDoFechamento.data < dataLocalSP() || (periodoDoFechamento.data === dataLocalSP() && minutos(horaLocalSP()) >= minutos(periodoDoFechamento.fim) - 5));
   // apontamentos completos também abrem o fechamento (máquinas já paradas), mesmo antes dos 5 min finais do período
@@ -455,8 +472,29 @@ export default function ProducaoRealPainelPage() {
 
           {painel.erro && <p className="stx-save-error" style={{ marginTop: 16 }}>{painel.erro}</p>}
 
-          {totalMaquinas === 0 ? (
+          {estadoGrade === "carregando" ? (
+            <div className="stx-empty" role="status">Carregando os postos programados…</div>
+          ) : estadoGrade === "erro" ? (
+            <div className="stx-empty" role="alert">
+              <p style={{ fontWeight: 700, margin: "0 0 10px" }}>{MENSAGEM_POSTOS_NAO_CARREGADOS}</p>
+              <button type="button" className="stx-ap-btn-primary" onClick={() => setTentativaGrade((n) => n + 1)}>Tentar de novo</button>
+            </div>
+          ) : estadoGrade === "nao_liberada" ? (
+            <div className="stx-empty" role="status">
+              <p style={{ fontWeight: 700, margin: "0 0 10px" }}>AGUARDANDO NOVA PROGRAMAÇÃO — a programação deste período será liberada depois do fechamento físico do período anterior.</p>
+              {grade?.predecessor && podeFechar && (
+                <button type="button" className="stx-ap-btn-primary" style={{ minHeight: 56 }} onClick={() => setPeriodoSelecionado({ data: grade.predecessor!.data, periodoId: grade.predecessor!.periodo })}>
+                  FECHAR {grade.predecessor.rotulo} (período anterior)
+                </button>
+              )}
+            </div>
+          ) : totalMaquinas === 0 && estadoGrade === "legado" ? (
             <div className="stx-empty">Nenhuma máquina ativa cadastrada.</div>
+          ) : totalMaquinas === 0 ? (
+            <>
+              <div className="stx-empty">Nenhum posto programado neste período.</div>
+              <button type="button" className="stx-ap-btn-secondary" style={{ marginTop: 12 }} onClick={() => setAdicionando(true)}>+ ADICIONAR APONTAMENTO</button>
+            </>
           ) : (
             <>
               <div className="stx-ap-legend-row">
@@ -519,11 +557,35 @@ export default function ProducaoRealPainelPage() {
                   );
                 })}
               </div>
+              {estadoGrade === "programada" && (
+                <div style={{ marginTop: 14 }}>
+                  <button type="button" className="stx-ap-btn-secondary" onClick={() => setAdicionando(true)}>+ ADICIONAR APONTAMENTO</button>
+                  <span className="stx-ap-legend-label" style={{ marginLeft: 10 }}>só para máquina que trabalhou fora da programação</span>
+                </div>
+              )}
             </>
           )}
         </div>
       </div>
 
+      {adicionando && (
+        <div className="stx-modal-backdrop" role="dialog" aria-modal="true" aria-label="Adicionar apontamento fora da escala" onClick={() => setAdicionando(false)}>
+          <div className="stx-ap-modal-card" onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0 }}>Apontamento fora da escala</h2>
+            <p className="stx-ap-legend-label">Escolha a máquina que trabalhou sem estar programada neste período:</p>
+            <div style={{ display: "grid", gap: 8, maxHeight: "50vh", overflowY: "auto", marginTop: 8 }}>
+              {foraDaEscala.length === 0 && <p className="stx-empty">Todas as máquinas ativas já estão na lista.</p>}
+              {foraDaEscala.map((m) => (
+                <button key={m.id} type="button" className="stx-ap-btn-secondary" style={{ minHeight: 52, textAlign: "left" }}
+                  onClick={() => { setExtras((x) => ({ chave: chaveGrade ?? "", ids: new Set([...(x && x.chave === chaveGrade ? x.ids : []), m.id]) })); setAdicionando(false); setMaquinaEmEdicaoId(m.id); setFluxoAtual("escolha"); }}>
+                  {m.nome}
+                </button>
+              ))}
+            </div>
+            <button type="button" className="stx-ap-btn-secondary" style={{ marginTop: 12 }} onClick={() => setAdicionando(false)}>Cancelar</button>
+          </div>
+        </div>
+      )}
       <AccountModal
         usuarioLogado={auth.usuarioLogado}
         aberta={auth.minhaContaAberta}
