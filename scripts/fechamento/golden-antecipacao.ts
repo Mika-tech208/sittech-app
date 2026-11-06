@@ -13,7 +13,7 @@ const URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "", KEY = process.env.SUPABA
 if (URL.includes("qcmottqryawyrghdepel") || !/127\.0\.0\.1|localhost/.test(URL)) throw new Error("ABORTADO: só roda no clone local");
 const admin = createClient(URL, KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 const SEMANA = "2026-11-02";
-const AGORA = epochMsNoFuso("2026-11-06", "12:50"); // T1 de 06/11 ainda não começou
+const AGORA = process.env.AGORA_REAL === "1" ? Date.now() : epochMsNoFuso("2026-11-06", process.env.HORA ?? "12:50"); // padrão: T1 de 06/11 ainda não começou
 
 (async () => {
   const previsaoId = await resolverPrevisaoPorSemana(admin, SEMANA);

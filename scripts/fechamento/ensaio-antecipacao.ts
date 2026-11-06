@@ -64,6 +64,22 @@ async function relatorio(x: Awaited<ReturnType<typeof planejar>>) {
   const agg = new Map<string, number>();
   extras.forEach((l) => { const k = `${pn[l.produtoId] ?? l.produtoId} | ${l.origem} | etapa ${l.etapaIdx}${l.etapaFinal ? " (final)" : ""}`; agg.set(k, (agg.get(k) ?? 0) + l.quantidade); });
   [...agg.entries()].sort().forEach(([k, v]) => console.log(`   ${k}: ${Math.round(v)}`));
+  // POR PRODUTO: demanda atual, produzido, restante, o que o plano faz em T1–T3 (demanda × extra por origem) e capacidade ociosa (máquina×período da Previsão atual sem pessoa)
+  const prods: any[] = registro?.demandaReal?.produtos ?? [];
+  const maqsProd = psql(`select pi.produto_id||'|'||e.ordem||'|'||m.id from previsao_itens pi join previsoes p on p.id=pi.previsao_id join previsao_item_maquinas pim on pim.item_id=pi.id join roteiro_etapas e on e.id=pim.etapa_id join maquinas m on m.id=pim.maquina_id where p.semana_inicio='${SEMANA}' and pi.tipo='previsto'`).split("\n").map((l) => l.split("|"));
+  const usadas = new Set(aloc.filter((a) => a.maquinaId && ["t1", "t2", "t3"].includes(a.periodoId) && a.data === "2026-11-06").map((a) => `${a.periodoId}|${a.maquinaId}`));
+  const fim = (psql(`select 1`), 0); void fim;
+  console.log("\nPor produto (T1–T3 de 06/11):");
+  for (const p of prods) {
+    const nome = pn[p.produtoId] ?? (await nomeDe("produtos", [p.produtoId]))[p.produtoId];
+    const linhasP = aloc.filter((a) => a.produtoId === p.produtoId && a.maquinaId && a.etapaId === p.etapaFinalId && a.data === "2026-11-06" && ["t1", "t2", "t3"].includes(a.periodoId));
+    const totalFinal = linhasP.reduce((s2, a) => s2 + a.pecas, 0);
+    const exFinal = extras.filter((l) => l.produtoId === p.produtoId && l.etapaFinal).reduce((s2, l) => s2 + l.quantidade, 0);
+    const exInter = extras.filter((l) => l.produtoId === p.produtoId && !l.etapaFinal).reduce((s2, l) => s2 + l.quantidade, 0);
+    const maqs = [...new Set(maqsProd.filter((r) => r[0] === p.produtoId).map((r) => r[2]))];
+    const livres = maqs.reduce((n, m) => n + ["t1", "t2", "t3"].filter((per) => !usadas.has(`${per}|${m}`)).length, 0);
+    console.log(`   ${String(nome).padEnd(34)} demanda atual ${String(p.quantidadeFinal).padStart(6)} · produzido ${String(Math.round(p.boasFinais.lo)).padStart(6)} · restante ${String(Math.round(p.restanteEmAPartirDe)).padStart(6)} · T1–T3: demanda ${String(Math.round(totalFinal - exFinal)).padStart(6)} + extra final ${String(Math.round(exFinal)).padStart(6)}${exInter ? ` (+ intermediária ${Math.round(exInter)})` : ""} · máquina×período ociosos (de ${maqs.length * 3}): ${livres}`);
+  }
   const chk = registro?.avaliacaoFluxo?.checagens;
   console.log(`\nChecagens independentes: ${JSON.stringify(chk)}`);
   const diag = (registro?.diagnosticos ?? []).filter((d: any) => /^ANTECIPACAO/.test(d.codigo));

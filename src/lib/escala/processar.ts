@@ -87,8 +87,9 @@ export interface PortaoPublicacaoContexto {
 
 /** Linhas do ledger a partir do que o planejador decidiu produzir ALÉM da demanda + a parte da demanda dos postos mistos. */
 export function registrosParaGravar(semanaOrigem: string, semanaDestino: string, extras: NonNullable<ResultadoCorte["antecipacao"]>["registros"] & object, alocacoes: AlocacaoEscala[], planoHash: string): { semanaOrigem: string; planoHash: string; linhas: AntecipacaoParaGravar[] } {
+  // semanaDestino: ANTECIPAÇÃO = semana cuja demanda foi antecipada; FORMAÇÃO = semana em que o estoque estará disponível (desconto só se decidido)
   const linhas: AntecipacaoParaGravar[] = extras.map((x) => ({
-    origem: x.origem, semanaDestino: x.origem === "ANTECIPACAO_SEMANA_SEGUINTE" ? semanaDestino : null, data: x.data, periodoId: x.periodoId, produtoId: x.produtoId, etapaId: x.etapaId, etapaIdx: x.etapaIdx,
+    origem: x.origem, semanaDestino, data: x.data, periodoId: x.periodoId, produtoId: x.produtoId, etapaId: x.etapaId, etapaIdx: x.etapaIdx,
     etapaFinal: x.etapaFinal, operacaoId: x.operacaoId, maquinaId: x.maquinaId, funcionarioId: x.funcionarioId, quantidade: x.pecas,
   }));
   const extraPorPosto = new Map<string, number>();

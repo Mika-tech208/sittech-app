@@ -234,7 +234,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
             itensF.forEach((i) => {
               const a = por.get(i.produto_id) ?? por.set(i.produto_id, { quantidade: 0, maquinasPorEtapa: {} }).get(i.produto_id)!;
               a.quantidade += Number(i.quantidade);
-              (i.previsao_item_maquinas ?? []).forEach((m) => { (a.maquinasPorEtapa[m.etapa_id] ||= []).includes(m.maquina_id) || a.maquinasPorEtapa[m.etapa_id].push(m.maquina_id); });
+              (i.previsao_item_maquinas ?? []).forEach((m) => { const lista = (a.maquinasPorEtapa[m.etapa_id] ||= []); if (!lista.includes(m.maquina_id)) lista.push(m.maquina_id); });
             });
             forecastDestino = [...por.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([produtoId, v]) => ({ produtoId, quantidade: v.quantidade, maquinasPorEtapa: Object.fromEntries(Object.entries(v.maquinasPorEtapa).map(([e, ms]) => [e, ms.slice().sort()])) }));
           } catch (e) {

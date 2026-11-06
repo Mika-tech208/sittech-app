@@ -99,7 +99,7 @@ describe("ANTECIPAÇÃO no recálculo oficial", () => {
     expect(k.size).toBe(m.alocacoes.length);
   });
 
-  it("política de formação ligada para o produto ⇒ origem FORMACAO_ESTOQUE, passa do Forecast futuro e da demanda atual; sem destino na linha", async () => {
+  it("política de formação ligada para o produto ⇒ origem FORMACAO_ESTOQUE, passa do Forecast futuro e da demanda atual; semana de disponibilidade na linha", async () => {
     const pequeno = [{ produtoId: "pC", quantidade: 800, maquinasPorEtapa: { eC1: ["m4"] } }];
     // sem política: antecipação limitada ao Forecast futuro (800)
     const so = mundo(dadosAnt({ forecastDestino: pequeno }));
@@ -111,7 +111,7 @@ describe("ANTECIPAÇÃO no recálculo oficial", () => {
     const form = ls.filter((l) => l.origem === "FORMACAO_ESTOQUE");
     expect(form.length).toBeGreaterThan(0);
     expect(ls.some((l) => l.origem === "ANTECIPACAO_SEMANA_SEGUINTE")).toBe(false);
-    expect(form.every((l) => l.semanaDestino === null)).toBe(true);
+    expect(form.every((l) => l.semanaDestino === DESTINO)).toBe(true); // semana em que o estoque estará disponível (não é antecipação)
     const total = form.filter((l) => l.etapaFinal).reduce((x, l) => x + l.quantidade, 0);
     expect(total).toBeGreaterThan(800); // acima do Forecast da semana seguinte (800) e usando máquinas da Previsão ATUAL (m4 e m7)
     expect(total).toBeLessThanOrEqual(60000);
@@ -151,7 +151,7 @@ describe("ANTECIPAÇÃO no recálculo oficial", () => {
     expect(dem(400)).toBe(1500);
   });
 
-  it("registro para gravar: extras + parte DEMANDA dos postos mistos; ANTECIPAÇÃO leva a semana de destino, FORMAÇÃO não", () => {
+  it("registro para gravar: extras + parte DEMANDA dos postos mistos; ANTECIPAÇÃO e FORMAÇÃO levam a semana de destino/disponibilidade", () => {
     const aloc: AlocacaoEscala[] = [
       { data: "2026-11-03", periodoId: "t1", funcionarioId: "f1", maquinaId: "m4", produtoId: "pC", etapaId: "eC1", operacaoId: "opEtiq", pecas: 1000, pecasAdicional: 0, motivoSemPosto: null, excecaoRevezamento: false, motivoExcecao: null, origem: "auto" },
       { data: "2026-11-03", periodoId: "t1", funcionarioId: "f2", maquinaId: "m7", produtoId: "pC", etapaId: "eC1", operacaoId: "opEtiq", pecas: 400, pecasAdicional: 0, motivoSemPosto: null, excecaoRevezamento: false, motivoExcecao: null, origem: "auto" },
@@ -160,7 +160,7 @@ describe("ANTECIPAÇÃO no recálculo oficial", () => {
       { data: "2026-11-03", periodoId: "t1", funcionarioId: "f1", maquinaId: "m4", operacaoId: "opEtiq", produtoId: "pC", etapaId: "eC1", etapaIdx: 0, etapaFinal: true, pecas: 700, origem: "ANTECIPACAO_SEMANA_SEGUINTE" },
       { data: "2026-11-03", periodoId: "t1", funcionarioId: "f2", maquinaId: "m7", operacaoId: "opEtiq", produtoId: "pC", etapaId: "eC1", etapaIdx: 0, etapaFinal: true, pecas: 400, origem: "FORMACAO_ESTOQUE" },
     ], aloc, "h1");
-    expect(r.linhas.map((l) => [l.origem, l.semanaDestino, l.quantidade])).toEqual([["ANTECIPACAO_SEMANA_SEGUINTE", DESTINO, 700], ["FORMACAO_ESTOQUE", null, 400], ["DEMANDA_SEMANA", null, 300]]);
+    expect(r.linhas.map((l) => [l.origem, l.semanaDestino, l.quantidade])).toEqual([["ANTECIPACAO_SEMANA_SEGUINTE", DESTINO, 700], ["FORMACAO_ESTOQUE", DESTINO, 400], ["DEMANDA_SEMANA", null, 300]]);
   });
 
   it("desconto na semana de DESTINO: quantidade líquida nos itens; formação só desconta com a decisão explícita; sem registro = mesmos itens", () => {
