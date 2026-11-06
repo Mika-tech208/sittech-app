@@ -12,7 +12,8 @@ import { AVISO_PRIMEIRA_GERACAO, type AlertaEscala, type AlocacaoEscala, type En
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import { alertasRotaIndisponivel, montarEntradaEscala } from "./montarEntrada";
 import { assinaturaAlertas, planosIguais } from "./planoIgual";
-import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento, type SnapshotWipParaGravar } from "./estado";
+import { ConflitoDeVersaoError, type AntecipacaoParaGravar, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento, type SnapshotWipParaGravar } from "./estado";
+import type { ResultadoCorte } from "@/features/escala/fluxo/planoCorte";
 import { mantidoDoPlano, tentarPlanoCorte, VERSAO_PLANEJADOR_CORTE, type PlanejarCorte } from "./fluxo/integracaoCorte";
 import { avaliarFluxoSombra, nucleoFluxo, tentarPlanoFluxo, type GatilhoFluxo, type NucleoFluxo, type RegistroFluxo } from "./fluxo/integracao";
 
@@ -84,6 +85,23 @@ export interface PortaoPublicacaoContexto {
   alocacoes: AlocacaoEscala[];
 }
 
+/** Linhas do ledger a partir do que o planejador decidiu produzir ALÉM da demanda + a parte da demanda dos postos mistos. */
+export function registrosParaGravar(semanaOrigem: string, semanaDestino: string, extras: NonNullable<ResultadoCorte["antecipacao"]>["registros"] & object, alocacoes: AlocacaoEscala[], planoHash: string): { semanaOrigem: string; planoHash: string; linhas: AntecipacaoParaGravar[] } {
+  const linhas: AntecipacaoParaGravar[] = extras.map((x) => ({
+    origem: x.origem, semanaDestino: x.origem === "ANTECIPACAO_SEMANA_SEGUINTE" ? semanaDestino : null, data: x.data, periodoId: x.periodoId, produtoId: x.produtoId, etapaId: x.etapaId, etapaIdx: x.etapaIdx,
+    etapaFinal: x.etapaFinal, operacaoId: x.operacaoId, maquinaId: x.maquinaId, funcionarioId: x.funcionarioId, quantidade: x.pecas,
+  }));
+  const extraPorPosto = new Map<string, number>();
+  extras.forEach((x) => extraPorPosto.set(`${x.data}|${x.periodoId}|${x.maquinaId}`, (extraPorPosto.get(`${x.data}|${x.periodoId}|${x.maquinaId}`) ?? 0) + x.pecas));
+  alocacoes.forEach((a) => {
+    const ex = a.maquinaId ? extraPorPosto.get(`${a.data}|${a.periodoId}|${a.maquinaId}`) : undefined;
+    if (!a.maquinaId || !ex || !a.produtoId || !a.etapaId) return;
+    const dem = a.pecas - ex;
+    if (dem > 0.5) linhas.push({ origem: "DEMANDA_SEMANA", semanaDestino: null, data: a.data, periodoId: a.periodoId, produtoId: a.produtoId, etapaId: a.etapaId, etapaIdx: -1, etapaFinal: false, operacaoId: a.operacaoId, maquinaId: a.maquinaId, funcionarioId: a.funcionarioId, quantidade: dem });
+  });
+  return { semanaOrigem, planoHash, linhas };
+}
+
 export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento): Promise<ResultadoProcessamento> {
   const maxTentativas = opcoes.maxTentativas ?? 3;
   let ultimoConflito: Error | null = null;
@@ -127,6 +145,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
     let corteMotivoFalha: string | null = null;
     let corteHashEntrada: string | null = null;
     let corteChecagens: unknown = null;
+    let corteAntecipacao: NonNullable<ResultadoCorte["antecipacao"]> | undefined;
     if (pcorte) {
       if (pr && ctxFluxo && pr.modoEfetivo === "ativo") {
         const t = tentarPlanoCorte(ctxFluxo, pcorte, opcoes.planejadorCorte);
@@ -137,6 +156,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
           corteUsado = true;
           corteHashEntrada = t.hashEntrada;
           corteChecagens = t.corte.checagens;
+          corteAntecipacao = t.corte.antecipacao;
         } else {
           resultado = t.mantido;
           corteMotivoFalha = t.motivo;
@@ -222,12 +242,17 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
       }
     }
 
+    // REGISTRO da produção extra (antecipação/formação): só quando o planejador de corte produziu um plano NOVO nesta semana com a regra carregada (modo ativo ou registros vigentes).
+    // `registros` undefined (plano vigente mantido) ⇒ o registro não é tocado. Postos mistos recebem também a parte DEMANDA_SEMANA (para o "A × B" do posto).
+    const antecipacoes = corteAntecipacao?.registros && estado.antecipacao ? registrosParaGravar(estado.antecipacao.semanaOrigem, estado.antecipacao.semanaDestino, corteAntecipacao.registros, resultado.alocacoes, hashAlocacoes(resultado.alocacoes)) : undefined;
+
     const payload: PayloadAplicacao = {
       previsaoId: estado.previsaoId,
       dias: diasAplicar,
       aPartirDeData,
       aPartirDePeriodo,
       alocacoes: resultado.alocacoes,
+      ...(antecipacoes ? { antecipacoes } : {}),
       removerDias: montada.removerDias,
       usuarioId: opcoes.usuarioId ?? null,
       eventoIds: opcoes.eventoIds ?? [],

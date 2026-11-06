@@ -2,7 +2,7 @@
 // Tudo aqui é dado puro — o motor (src/features/escala) nunca vê Supabase.
 
 import type { ParametrosEscala } from "@/features/escala/parametros";
-import type { AlertaEscala, AlocacaoEscala, HistoricoEquidadeFuncionario, PeriodoEscala } from "@/features/escala/types";
+import type { AlertaEscala, AlocacaoEscala, DadosAntecipacao, HistoricoEquidadeFuncionario, PeriodoEscala } from "@/features/escala/types";
 import type { ProximaSemana } from "@/features/escala/wip";
 import type { EntradaWip } from "@/features/escala/wipSaldo";
 import type { ContagemFisicaPar, DiagnosticoItem, ParLegado } from "@/features/escala/fluxo/tipos";
@@ -120,6 +120,10 @@ export interface EstadoBruto {
   // PRODUTO ÚNICO (cutover): presente SOMENTE quando a semana é >= `produto_unico_cutover` E existe o modelo canônico. Ausente = comportamento anterior, byte-idêntico.
   // Decidido em UM lugar (cutoverDaSemana + escolherModeloUnico, em supabaseIO). Com ele, a Previsão traz 1 item (produto canônico, 5 etapas, grafo) e o planejador de corte é obrigatório.
   produtoUnico?: { modelo: ModeloCanonico; cutover: string; /** PLANEJAMENTO = plano FUTURO não liberado (nada operacional); OPERACIONAL = semana >= cutover. `cutover` = o início do modo (planejamento_desde ou cutover). */ modo: "PLANEJAMENTO" | "OPERACIONAL" };
+  // ANTECIPAÇÃO / FORMAÇÃO DE ESTOQUE: presente SOMENTE com escala_antecipacao_modo = 'ativo' ou com registros vigentes da semana (para limpar/descontar). Ausente = comportamento anterior, byte-idêntico.
+  antecipacao?: DadosAntecipacao;
+  /** o que o desconto da semana de DESTINO retirou da quantidade da Previsão (ANTECIPAÇÃO sempre; FORMAÇÃO só se `escala_formacao_estoque_desconta_destino`) — para o diagnóstico */
+  antecipacaoDescontos?: { produtoId: string; origem: "ANTECIPACAO_SEMANA_SEGUINTE" | "FORMACAO_ESTOQUE"; pecas: number; aplicado: boolean }[];
   planejadorCorte?: { config: ConfigPlanejadorCorte; vigenteDoPlanejador: boolean; distribuicaoSuportada: boolean; hashEntradaAnterior?: string | null; indisponivel?: string };
 }
 
@@ -150,6 +154,14 @@ export interface SnapshotWipParaGravar {
   saldoAlocado: number;
 }
 
+/** Linha do ledger escala_antecipacoes (ver migration 20261118100000). `semanaDestino` só na ANTECIPAÇÃO. */
+export interface AntecipacaoParaGravar {
+  origem: "DEMANDA_SEMANA" | "ANTECIPACAO_SEMANA_SEGUINTE" | "FORMACAO_ESTOQUE";
+  semanaDestino: string | null;
+  data: string; periodoId: string; produtoId: string; etapaId: string; etapaIdx: number; etapaFinal: boolean;
+  operacaoId: string | null; maquinaId: string; funcionarioId: string | null; quantidade: number;
+}
+
 export interface PayloadAplicacao {
   previsaoId: string;
   dias: DiaParaAplicar[];
@@ -160,6 +172,8 @@ export interface PayloadAplicacao {
   usuarioId: string | null;
   eventoIds: string[];
   resumo: Record<string, unknown>;
+  /** Registro atômico da produção extra (antecipação/formação). Ausente ⇒ a RPC antiga é usada e o registro NÃO é tocado; presente (mesmo vazio) ⇒ substitui as linhas FUTURAS do registro junto com o plano. */
+  antecipacoes?: { semanaOrigem: string; planoHash: string; linhas: AntecipacaoParaGravar[] };
 }
 
 export interface ResultadoProcessamento {

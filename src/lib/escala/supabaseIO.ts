@@ -16,6 +16,8 @@ import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "
 import { processarSemana, type CorteExplicito, type EscalaIO, type OpcoesProcessamento } from "./processar";
 import { carregarContagensDeFechamento, lerModoFechamento } from "./fechamento/leitura";
 import { carregarWipControle, gravarSnapshotsWip } from "./wipIO";
+import { aplicarDescontoNosItens, type RegistroAntecipacao } from "@/features/escala/fluxo/antecipacao";
+import { lerConfigAntecipacao } from "./fluxo/parametrosAntecipacao";
 import { lerConfigFluxo, modoEfetivoFluxo, planejadorCorteNaSemana } from "./fluxo/parametrosFluxo";
 import { carregarApontamentosReais, registrarDiagnosticoFluxo } from "./fluxo/supabaseFluxo";
 import { classificarGeracao, gerarEscalaSemanal, type DepsGeracaoSemanal, type OpcoesGeracaoSemanal, type ResultadoGeracaoSemanal } from "./geracaoSemanal";
@@ -89,6 +91,20 @@ export async function resolverPrevisaoPorSemana(admin: SupabaseClient, semanaIni
   return (data as { id: string } | null)?.id ?? null;
 }
 
+// ---- ANTECIPAÇÃO / FORMAÇÃO DE ESTOQUE: leitura tolerante (a tabela pode não existir num ambiente sem a migration: nesse caso nada muda) ----
+const COLS_ANT = "origem, data, periodo_id, produto_id, etapa_id, etapa_final, quantidade, semana_destino, maquina_id, funcionario_id";
+type LinhaAntBanco = { origem: RegistroAntecipacao["origem"]; data: string; periodo_id: string; produto_id: string; etapa_id: string; etapa_final: boolean; quantidade: number | string; semana_destino: string | null; maquina_id: string; funcionario_id: string | null };
+const paraRegistro = (r: LinhaAntBanco): RegistroAntecipacao => ({ origem: r.origem, data: r.data, periodoId: r.periodo_id, produtoId: r.produto_id, etapaId: r.etapa_id, etapaFinal: r.etapa_final, quantidade: Number(r.quantidade), semanaDestino: r.semana_destino, maquinaId: r.maquina_id, ...(r.funcionario_id ? { funcionarioId: r.funcionario_id } : {}) });
+async function lerRegistrosAntecipacao(admin: SupabaseClient, coluna: "semana_origem" | "semana_destino", semana: string): Promise<RegistroAntecipacao[]> {
+  try {
+    const resp = await admin.from("escala_antecipacoes").select(COLS_ANT).eq(coluna, semana).is("substituida_em", null);
+    if (!resp || resp.error || !Array.isArray(resp.data)) return [];
+    return (resp.data as unknown as LinhaAntBanco[]).map(paraRegistro);
+  } catch {
+    return [];
+  }
+}
+
 export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): EscalaIO {
   return {
     async carregarEstado(agoraMs: number = Date.now(), corte?: CorteExplicito): Promise<EstadoBruto> {
@@ -159,6 +175,12 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
 
       const parametrosRows = ok(params, "escala_parametros") as { chave: string; valor: unknown }[];
       const parametros = lerParametros(parametrosRows);
+      // ANTECIPAÇÃO / FORMAÇÃO DE ESTOQUE. (a) registros da semana como DESTINO descontam a quantidade da Previsão (fato físico: independe do modo ligado/desligado; sem registros nada muda);
+      // (b) registros da semana como ORIGEM + Forecast da semana seguinte alimentam a regra (só com escala_antecipacao_modo = 'ativo' ou para limpar linhas já gravadas).
+      const cfgAnt = lerConfigAntecipacao(parametrosRows);
+      const [regsDestino, regsOrigem] = await Promise.all([lerRegistrosAntecipacao(admin, "semana_destino", prev.semana_inicio), lerRegistrosAntecipacao(admin, "semana_origem", prev.semana_inicio)]);
+      const desconto = aplicarDescontoNosItens(itensBrutos, regsDestino.filter((r) => r.origem !== "DEMANDA_SEMANA"), cfgAnt.descontaFormacao);
+      const itensEfetivos = desconto.itens;
       // Escala Inteligente (fluxo): SÓ com o modo efetivo da semana em sombra/ativo. Desligado = nada é lido, nada muda. Falha na leitura = caminho oficial (log).
       const cfgFluxo = lerConfigFluxo(parametrosRows);
       const modoFluxo = modoEfetivoFluxo(cfgFluxo, prev.semana_inicio);
@@ -199,7 +221,36 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
       // estoque intermediário (Fase 3): só é lido com o WIP ativo; sem controles = undefined (comportamento anterior)
       const wipControle = parametros.wipModo === "ativo" ? await carregarWipControle(admin, prev.semana_inicio) : undefined;
 
+      // ANTECIPAÇÃO / FORMAÇÃO: dados da regra (ver acima). Produto único em PLANEJAMENTO/OPERACIONAL: regra desligada na semana (produto canônico não é desdobrado aqui).
+      let antecipacao: EstadoBruto["antecipacao"];
+      if (!(modeloUnico && cutoverSemana && modoUnico !== "LEGADO") && (cfgAnt.modo === "ativo" || regsOrigem.length > 0)) {
+        let forecastDestino: NonNullable<EstadoBruto["antecipacao"]>["forecastDestino"] = [];
+        if (cfgAnt.modo === "ativo") {
+          try {
+            const resp = await admin.from("previsoes").select("id, previsao_itens(produto_id, quantidade, tipo, previsao_item_maquinas(etapa_id, maquina_id))").eq("semana_inicio", somarDias(prev.semana_inicio, 7)).maybeSingle();
+            if (resp.error) throw new Error(resp.error.message);
+            const itensF = ((resp.data as { previsao_itens: { produto_id: string; quantidade: number; tipo: string; previsao_item_maquinas: { etapa_id: string; maquina_id: string }[] | null }[] | null } | null)?.previsao_itens ?? []).filter((i) => i.tipo === "previsto");
+            const por = new Map<string, { quantidade: number; maquinasPorEtapa: Record<string, string[]> }>();
+            itensF.forEach((i) => {
+              const a = por.get(i.produto_id) ?? por.set(i.produto_id, { quantidade: 0, maquinasPorEtapa: {} }).get(i.produto_id)!;
+              a.quantidade += Number(i.quantidade);
+              (i.previsao_item_maquinas ?? []).forEach((m) => { (a.maquinasPorEtapa[m.etapa_id] ||= []).includes(m.maquina_id) || a.maquinasPorEtapa[m.etapa_id].push(m.maquina_id); });
+            });
+            forecastDestino = [...por.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([produtoId, v]) => ({ produtoId, quantidade: v.quantidade, maquinasPorEtapa: Object.fromEntries(Object.entries(v.maquinasPorEtapa).map(([e, ms]) => [e, ms.slice().sort()])) }));
+          } catch (e) {
+            console.error("escala/antecipação: Forecast da semana seguinte indisponível — sem antecipação (formação de estoque por política segue):", e instanceof Error ? e.message : e);
+          }
+        }
+        const legados = cfgFluxo.paresLegado.flatMap((p) => [p.produtoConvencionalId, p.produtoAutomaticaId]);
+        antecipacao = {
+          modo: cfgAnt.modo, semanaOrigem: prev.semana_inicio, semanaDestino: somarDias(prev.semana_inicio, 7), forecastDestino,
+          politicasFormacao: cfgAnt.modo === "ativo" ? cfgAnt.politicas : [], excluidos: [...new Set(legados)].sort(), registros: regsOrigem,
+        };
+      }
+
       return {
+        ...(antecipacao ? { antecipacao } : {}),
+        ...(desconto.descontos.length > 0 ? { antecipacaoDescontos: desconto.descontos } : {}),
         ...(corte ? { corteExplicito: { data: corte.data, periodoId: corte.periodoId } } : {}),
         previsaoId,
         semanaInicio: prev.semana_inicio,
@@ -211,7 +262,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
           const f = funcRows.find((x) => x.id === r.funcionario_id);
           return { funcionarioId: r.funcionario_id, nome: f?.nome, ativo: f?.ativo ?? false };
         }),
-        itens: itensBrutos,
+        itens: itensEfetivos,
         etapas: etapaRows.map((e) => ({
           id: String(e.id),
           produtoId: String(e.produto_id),
@@ -262,7 +313,12 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
     },
 
     async aplicar(p: PayloadAplicacao) {
-      const { data, error } = await admin.rpc("escala_aplicar_recalculo", {
+      // com registro de produção extra a RPC atômica (plano + ledger na mesma transação); sem ele, a RPC de sempre (caminho byte-idêntico)
+      const { data, error } = await admin.rpc(p.antecipacoes ? "escala_aplicar_recalculo_antecipacao" : "escala_aplicar_recalculo", {
+        ...(p.antecipacoes ? {
+          p_antecipacoes: p.antecipacoes.linhas.map((l) => ({ origem: l.origem, semana_destino: l.semanaDestino, data: l.data, periodo_id: l.periodoId, produto_id: l.produtoId, etapa_id: l.etapaId, etapa_idx: l.etapaIdx, etapa_final: l.etapaFinal, operacao_id: l.operacaoId, maquina_id: l.maquinaId, funcionario_id: l.funcionarioId, quantidade: l.quantidade })),
+          p_plano_hash: p.antecipacoes.planoHash, p_semana_origem: p.antecipacoes.semanaOrigem,
+        } : {}),
         p_previsao_id: p.previsaoId,
         p_dias: p.dias,
         p_a_partir_data: p.aPartirDeData,

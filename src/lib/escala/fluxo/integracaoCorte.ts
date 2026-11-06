@@ -137,6 +137,8 @@ function tentarPlanoCorteBase(ctx: ContextoFluxo, pc: NonNullable<EstadoBruto["p
   // contagem marcada como ESTIMADA (cenário B etc.): o plano é válido, mas o WIP inicial NÃO é físico — fica explícito no registro (decisão 10 de 02/11)
   const estimadas = (ctx.estado.producaoReal?.contagensFisicas ?? []).filter((c) => /estimad/i.test(`${c.informadoPor ?? ""} ${c.observacao ?? ""}`));
   const diagEstimado = estimadas.length > 0 ? [{ codigo: "WIP_INICIAL_ESTIMADO" as const, severidade: "aviso" as const, mensagem: `${estimadas.length} contagem(ns) física(s) marcada(s) como ESTIMADA usada(s) como WIP inicial; recalcular na primeira contagem/apontamento confiável` }] : [];
+  // desconto da semana de DESTINO: o que o estoque/antecipação já produzido retirou da quantidade da Previsão (nunca silencioso)
+  const diagDescontos = (ctx.estado.antecipacaoDescontos ?? []).map((d) => ({ codigo: "ANTECIPACAO_RESUMO" as const, severidade: "info" as const, produtoId: d.produtoId, mensagem: `Semana de destino: ${d.origem} de ${Math.round(d.pecas)} peça(s) finais ${d.aplicado ? "DESCONTADA da quantidade da Previsão (demanda líquida)" : "NÃO descontada (estoque formado visível; desconto é decisão explícita)"}`, detalhes: { origem: d.origem, pecas: Math.round(d.pecas), aplicado: d.aplicado } }));
   let registro: RegistroFluxo;
   try {
     registro = jsonPuro({
@@ -150,7 +152,7 @@ function tentarPlanoCorteBase(ctx: ContextoFluxo, pc: NonNullable<EstadoBruto["p
       },
       diff: { referencia: "vigente", linhasAlteradas: ch.linhasAlteradas, postosAlterados: ch.postosAlterados },
       churn: { linhasAlteradas: ch.linhasAlteradas, postosAlterados: ch.postosAlterados },
-      diagnosticos: [...corte.estado.diagnosticos, ...corte.diagnosticos, ...diagEstimado, { codigo: "PLANEJADOR_CORTE_USADO", severidade: "info", mensagem: `Plano do planejador de corte (${VERSAO_PLANEJADOR_CORTE}) gravado; ${corte.tentativas.length} tentativa(s)` }],
+      diagnosticos: [...corte.estado.diagnosticos, ...corte.diagnosticos, ...diagEstimado, ...diagDescontos, { codigo: "PLANEJADOR_CORTE_USADO", severidade: "info", mensagem: `Plano do planejador de corte (${VERSAO_PLANEJADOR_CORTE}) gravado; ${corte.tentativas.length} tentativa(s)` }],
     });
   } catch (e) {
     return falha(`registro do planejador inválido: ${e instanceof Error ? e.message : String(e)}`, corte);

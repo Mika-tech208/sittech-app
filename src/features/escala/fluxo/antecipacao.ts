@@ -309,3 +309,15 @@ export function montarEntradaAntecipacao(a: {
   });
   return { entrada: { produtos, ...(dados.bufferExtra ? { bufferExtra: dados.bufferExtra } : {}) }, diagnostico };
 }
+
+/** Aplica o desconto da semana de DESTINO nos itens previstos (quantidade líquida). Itens do mesmo produto são reduzidos em ordem; nunca abaixo de 0. Sem registros ⇒ devolve os MESMOS itens. */
+export function aplicarDescontoNosItens<T extends { produtoId: string; quantidade: number }>(itens: T[], regs: RegistroAntecipacao[], descontaFormacao: boolean): { itens: T[]; descontos: { produtoId: string; origem: OrigemExtra; pecas: number; aplicado: boolean }[] } {
+  if (regs.length === 0) return { itens, descontos: [] };
+  const total: Record<string, number> = {};
+  itens.forEach((i) => (total[i.produtoId] = (total[i.produtoId] ?? 0) + i.quantidade));
+  const r = descontarAntecipadoNoDestino(total, regs, descontaFormacao);
+  const faltaTirar: Record<string, number> = {};
+  Object.keys(total).forEach((pid) => { const d = total[pid] - (r.quantidades[pid] ?? total[pid]); if (d > 0) faltaTirar[pid] = d; });
+  if (Object.keys(faltaTirar).length === 0) return { itens, descontos: r.descontos };
+  return { itens: itens.map((i) => { const f = faltaTirar[i.produtoId] ?? 0; if (f <= 0) return i; const t = Math.min(i.quantidade, f); faltaTirar[i.produtoId] = f - t; return { ...i, quantidade: i.quantidade - t }; }), descontos: r.descontos };
+}
