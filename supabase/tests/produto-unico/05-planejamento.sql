@@ -1,7 +1,16 @@
 \i _ok.sql
 \echo == 05 PLANEJAMENTO ANTECIPADO (09/11) — plano futuro NÃO LIBERADO, nada operacional muda (clone; cada bloco em transação com rollback)
+create or replace function pg_temp.snap2() returns text language sql stable as $$
+  select md5((select string_agg(chave||valor::text, '~' order by chave) from escala_parametros) || '|' || (select string_agg(t.id::text||t.ativo::text||t.nome, '~' order by t.id::text) from produtos t) || '|' ||
+             (select coalesce(string_agg(t::text,'~' order by t.id::text),'') from escala_buffer_pares t) || '|' || (select count(*) from escala_plano_versoes)::text || '|' || (select count(*) from escala_producao_eventos)::text) $$;
 begin;
+select pg_temp.snap2() as s0 \gset
 select count(*) as ev0 from escala_producao_eventos \gset
+select id as prev from previsoes where semana_inicio='2026-11-09' \gset
+-- Forecast de hoje: os DOIS itens legados do Conector na Previsão 09/11 (antes de habilitar)
+insert into previsao_itens (id, previsao_id, tipo, produto_id, produto_nome, valor_unitario, quantidade) values ('e2e00000-0000-4000-8000-0000000000a1',:'prev','previsto','27c229d7-f192-41eb-aad1-0c69ece53eba','Conector 3/4"',0.1825,64800), ('e2e00000-0000-4000-8000-0000000000a2',:'prev','previsto','a027ac97-ffd1-4834-8ed0-d3a94aac4aee','Conector 3/4" - Maquina Automatica',0.182,28500);
+insert into previsao_item_maquinas (item_id, etapa_id, maquina_id) select 'e2e00000-0000-4000-8000-0000000000a1', e.id, rem.maquina_id from roteiro_etapas e join roteiro_etapa_maquinas rem on rem.etapa_id=e.id where e.produto_id='27c229d7-f192-41eb-aad1-0c69ece53eba';
+insert into previsao_item_maquinas (item_id, etapa_id, maquina_id) select 'e2e00000-0000-4000-8000-0000000000a2', e.id, rem.maquina_id from roteiro_etapas e join roteiro_etapa_maquinas rem on rem.etapa_id=e.id where e.produto_id='a027ac97-ffd1-4834-8ed0-d3a94aac4aee';
 select public.escala_plano_registrar('6be15af5-9659-4c12-ba33-9c1fae6d4065','baseline') as _ \gset
 select jsonb_agg(public.escala_periodo_liberacao(d::date, p) order by d, p)::text as lib0 from generate_series('2026-11-02'::date,'2026-11-08'::date,'1 day') d, unnest(array['m1','m2','m3','t1','t2','t3']) p \gset
 select pg_temp.ok(public.produto_unico_modo('2026-11-09') = 'LEGADO', 'P0 sem planejamento/cutover: modo LEGADO em toda semana');
@@ -20,11 +29,19 @@ select pg_temp.falha($$insert into apontamentos_producao (status, produto_id, et
 select pg_temp.falha($$insert into escala_fechamento_aberturas (semana_inicio, data, periodo_id, aberto_por, valido_ate) values ('2026-11-09','2026-11-09','m1',(select id from usuarios limit 1), now()+interval '5 min')$$, 'FECHAMENTO_SEMANA_EM_PLANEJAMENTO', 'P10 (4) abertura de fechamento em 09/11 recusada');
 -- 06/11 (LEGADO) continua aceitando as guardas de hoje (nenhum bloqueio fora do planejamento)
 select pg_temp.ok(public.produto_unico_modo('2026-11-06') = 'LEGADO', 'P11 a guarda NÃO se aplica a 06/11');
+-- unificar (soma, remove os 2 legados com backup) e REVERSÃO recusada com item único na Previsão
+select public.produto_unico_converter_previsao(:'prev'::uuid, null, 'teste') as conv \gset
+select pg_temp.ok((:'conv'::jsonb ->> 'quantidade')::numeric = 93300 and not exists (select 1 from previsao_itens where previsao_id=:'prev' and tipo='previsto' and produto_id in ('27c229d7-f192-41eb-aad1-0c69ece53eba','a027ac97-ffd1-4834-8ed0-d3a94aac4aee')), 'P11b unificar: UM item de 93.300 e os 2 legados REMOVIDOS da Previsão (backup guardado)');
+select pg_temp.falha($$select public.produto_unico_desabilitar_planejamento('t')$$, 'DESABILITAR_ABORTADO', 'P12 REVERSÃO recusada enquanto a Previsão tem o item único (nada alterado)');
+select pg_temp.ok(public.produto_unico_modo('2026-11-09')='PLANEJAMENTO' and (select valor @> '"2026-11-09"' from escala_parametros where chave='producao_real_semanas_ativas'), 'P12b após a recusa o planejamento segue habilitado');
+select public.produto_unico_reverter_previsao(:'prev'::uuid, 'teste') as sep \gset
+select pg_temp.ok((select sum(quantidade) from previsao_itens where previsao_id=:'prev' and produto_id in ('27c229d7-f192-41eb-aad1-0c69ece53eba','a027ac97-ffd1-4834-8ed0-d3a94aac4aee')) = 93300, 'P12c separar restaura os 2 itens legados do backup (64.800 + 28.500)');
 -- desabilitar
 select public.produto_unico_desabilitar_planejamento('teste') as des \gset
 select pg_temp.ok((:'des'::jsonb ->> 'planejamento_anterior') = '2026-11-09' and public.produto_unico_modo('2026-11-09')='LEGADO', 'P13 desabilitar: volta a LEGADO');
 select pg_temp.ok(not exists (select 1 from escala_parametros where chave in ('producao_real_semanas_ativas','producao_real_planejador_semanas') and valor @> '"2026-11-09"'), 'P14 desabilitar retira 09/11 das duas listas (só o que o habilitar acrescentou)');
 select pg_temp.ok((select jsonb_agg(public.escala_periodo_liberacao(d::date, p) order by d, p)::text from generate_series('2026-11-02'::date,'2026-11-08'::date,'1 day') d, unnest(array['m1','m2','m3','t1','t2','t3']) p) = :'lib0', 'P15 após desabilitar a liberação volta ao que era');
+select pg_temp.ok(pg_temp.snap2() = :'s0', 'P15b após habilitar -> unificar -> separar -> desabilitar o banco está IDÊNTICO ao de antes (parâmetros, produtos, pares de buffer, versões de plano, eventos)');
 -- (8) precedência absoluta (re-habilita; os UPDATEs vão por último para não deixar eventos de gatilho pendentes antes dos ALTER TABLE internos)
 select public.produto_unico_habilitar_planejamento('2026-11-09','teste2') as hab2 \gset
 -- (8) precedência absoluta: nem escala_liberacao_desde, nem modo do fechamento mudam isso
