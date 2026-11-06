@@ -44,3 +44,36 @@ export function cutoverDaSemana(linhas: { chave: string; valor: unknown }[] | nu
 export function escolherModeloUnico<M extends { rotas: { tipo: string }[] }>(modelos: M[] | null | undefined): M | null {
   return (modelos ?? []).find((m) => m.rotas.some((r) => r.tipo === "convencional") && m.rotas.some((r) => r.tipo === "automatica")) ?? null;
 }
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// SEPARAÇÃO PLANEJAMENTO × CUTOVER OPERACIONAL (decisão de 06/11): UMA decisão central por semana.
+//   LEGADO        semana anterior a tudo: modelo vigente (dois produtos).
+//   PLANEJAMENTO  semana >= `produto_unico_planejamento_desde` e < cutover (ou cutover ausente): o produto único existe para Previsão/Forecast, geração do plano
+//                 (motor novo) e indicadores — o plano é FUTURO e NÃO LIBERADO para produção. NADA operacional muda (apontamento, fechamento, buffers, TV, WIP oficial, escala liberada).
+//   OPERACIONAL   semana >= `produto_unico_cutover`: tudo no produto único (apontamento, fechamento, buffers, liberação, TV).
+// O cutover implica planejamento (planejamento efetivo = o menor entre planejamento_desde e cutover).
+export const CHAVE_PRODUTO_UNICO_PLANEJAMENTO = "produto_unico_planejamento_desde";
+export type ModoProdutoUnico = "LEGADO" | "PLANEJAMENTO" | "OPERACIONAL";
+
+/** Mesma regra do cutover: segunda-feira >= 2026-11-02 em string; qualquer outra coisa = null (sem planejamento antecipado). */
+export function lerPlanejamentoDesde(valor: unknown): string | null { return lerCutover(valor); }
+
+export function lerPlanejamentoDeParametros(linhas: { chave: string; valor: unknown }[] | null | undefined): string | null {
+  const l = (linhas ?? []).find((x) => x.chave === CHAVE_PRODUTO_UNICO_PLANEJAMENTO);
+  return l ? lerPlanejamentoDesde(l.valor) : null;
+}
+
+/** ÚNICA decisão de modo de uma semana (qualquer dia dela). */
+export function modoProdutoUnicoDaSemana(linhas: { chave: string; valor: unknown }[] | null | undefined, semanaInicio: string): ModoProdutoUnico {
+  const segunda = segundaDaSemana(semanaInicio);
+  const cutover = lerCutoverDeParametros(linhas);
+  if (cutover && segunda >= cutover) return "OPERACIONAL";
+  const planejamento = lerPlanejamentoDeParametros(linhas);
+  if (planejamento && segunda >= planejamento) return "PLANEJAMENTO";
+  return "LEGADO";
+}
+
+/** Previsão/Forecast, geração do plano com o motor novo e indicadores usam o produto único? (PLANEJAMENTO ou OPERACIONAL) */
+export const produtoUnicoPlanejavel = (modo: ModoProdutoUnico): boolean => modo !== "LEGADO";
+/** Apontamento, fechamento, buffers, liberação, TV e WIP oficial usam o produto único? (SOMENTE OPERACIONAL) */
+export const produtoUnicoOperacional = (modo: ModoProdutoUnico): boolean => modo === "OPERACIONAL";
