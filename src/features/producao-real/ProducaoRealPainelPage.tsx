@@ -415,9 +415,9 @@ export default function ProducaoRealPainelPage() {
             abaAtiva="producaoRealPainel"
             onAbrirMenu={shell.abrirGaveta}
           />
-          {painel.modoRetroativo && (
+          {(painel.modoRetroativo || podeRegularizar) && (
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <span className="stx-ap-retroativo-badge">Período anterior</span>
+              {painel.modoRetroativo && <span className="stx-ap-retroativo-badge">Período anterior</span>}
               {podeRegularizar && (
                 <button type="button" className="stx-ap-btn-primary" onClick={() => setRegularizacaoAberta(true)}>REGULARIZAR APONTAMENTOS ANTERIORES</button>
               )}
@@ -495,7 +495,7 @@ export default function ProducaoRealPainelPage() {
           ) : estadoGrade === "nao_liberada" ? (
             <div className="stx-empty" role="status">
               <p style={{ fontWeight: 700, margin: "0 0 10px" }}>AGUARDANDO NOVA PROGRAMAÇÃO — a programação deste período será liberada depois do fechamento físico do período anterior.</p>
-              {podeRegularizar && painel.modoRetroativo && (
+              {podeRegularizar && (
                 <button type="button" className="stx-ap-btn-primary" style={{ minHeight: 56, marginRight: 8 }} onClick={() => setRegularizacaoAberta(true)}>REGULARIZAR APONTAMENTOS ANTERIORES</button>
               )}
               {grade?.predecessor && podeFechar && (
