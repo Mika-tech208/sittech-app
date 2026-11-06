@@ -338,3 +338,28 @@ export function aplicarDescontoNosItens<T extends { produtoId: string; quantidad
   if (Object.keys(faltaTirar).length === 0) return { itens, descontos: r.descontos };
   return { itens: itens.map((i) => { const f = faltaTirar[i.produtoId] ?? 0; if (f <= 0) return i; const t = Math.min(i.quantidade, f); faltaTirar[i.produtoId] = f - t; return { ...i, quantidade: i.quantidade - t }; }), descontos: r.descontos };
 }
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// RELATÓRIO META MÍNIMA × PRODUÇÃO PLANEJADA × PRODUÇÃO REAL × FORMAÇÃO DE ESTOQUE (puro; a mesma conta da view SQL escala_meta_estoque_v)
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+export interface LinhaRelatorioMeta {
+  produtoId: string;
+  /** quantidade da Previsão (META MÍNIMA de produção; nunca descontada na exibição) */
+  metaMinima: number;
+  producaoPlanejada: number;
+  producaoReal: number;
+  /** peças finais registradas no ledger como FORMACAO_ESTOQUE */
+  formacaoEstoqueRegistrada: number;
+  /** max(0, planejada − meta): estoque formado ALÉM da meta no plano (intencional: não é erro, excesso nem violação) */
+  alemDaMetaPlanejado: number;
+  /** max(0, real − meta): estoque formado ALÉM da meta até agora */
+  alemDaMetaReal: number;
+  /** quanto falta para a meta mínima segundo o real (0 se atingida) */
+  faltaParaMeta: number;
+}
+export function relatorioMetaEstoque(a: { metas: Record<string, number>; planejada?: Record<string, number>; real?: Record<string, number>; formacao?: Record<string, number> }): LinhaRelatorioMeta[] {
+  return Object.keys(a.metas).sort().map((pid) => {
+    const meta = a.metas[pid], pl = a.planejada?.[pid] ?? 0, re = a.real?.[pid] ?? 0;
+    return { produtoId: pid, metaMinima: meta, producaoPlanejada: pl, producaoReal: re, formacaoEstoqueRegistrada: a.formacao?.[pid] ?? 0, alemDaMetaPlanejado: Math.max(0, pl - meta), alemDaMetaReal: Math.max(0, re - meta), faltaParaMeta: Math.max(0, meta - re) };
+  });
+}

@@ -25,13 +25,20 @@ select pg_temp.reg('plano_hash e versão do dia gravados', 'hashA:true', (select
 
 -- REGRA DE SUBSTITUIÇÃO: nova geração com corte em T2 ⇒ T1 (iniciado) fica; T2/T3 viram 'substituída' e entram as novas
 select public.escala_antecipacao_registrar((select prev_o from ctx), '2026-11-02', '2026-11-06', 't2', (
-  select jsonb_build_array(jsonb_build_object('origem','ANTECIPACAO_SEMANA_SEGUINTE','semana_destino','2026-11-09','data','2026-11-06','periodo_id','t3','produto_id',prod,'etapa_id',et,'etapa_idx',0,'etapa_final',true,'maquina_id',maq,'funcionario_id',func,'quantidade',2000)) from ctx), 'hashB', null);
+  select jsonb_build_array(jsonb_build_object('origem','ANTECIPACAO_SEMANA_SEGUINTE','semana_destino','2026-11-09','data','2026-11-06','periodo_id','t3','produto_id',prod,'etapa_id',et,'etapa_idx',0,'etapa_final',true,'maquina_id',maq,'funcionario_id',func,'quantidade',2000,'meta_minima_producao',108000,'quantidade_alem_da_meta',0)) from ctx), 'hashB', null);
 select pg_temp.reg('T1 (período iniciado) continua vigente (ANT 5000 + DEMANDA 200)', '2', (select count(*)::text from public.escala_antecipacoes where periodo_id='t1' and substituida_em is null));
 select pg_temp.reg('T2/T3 antigas substituídas por hashB', '2', (select count(*)::text from public.escala_antecipacoes where substituida_em is not null and substituida_por_hash='hashB' and periodo_id in ('t2','t3')));
 select pg_temp.reg('vigentes de T2 = 0; de T3 = 1 (2000)', '0:2000', (select (select count(*) from public.escala_antecipacoes where periodo_id='t2' and substituida_em is null)::text||':'||(select quantidade::int from public.escala_antecipacoes where periodo_id='t3' and substituida_em is null)));
-select pg_temp.reg('nada é apagado: histórico completo (5 linhas)', '5', (select count(*)::text from public.escala_antecipacoes));
+select pg_temp.reg('nada é apagado: histórico completo (5 linhas até aqui)', '5', (select count(*)::text from public.escala_antecipacoes));
 -- gravar em período congelado é recusado
 select pg_temp.regp('linha em período congelado (T1 com corte T2) recusada', 'ANTECIPACAO_PERIODO_CONGELADO', pg_temp.tenta($q$select public.escala_antecipacao_registrar((select prev_o from ctx), '2026-11-02', '2026-11-06', 't2', jsonb_build_array(jsonb_build_object('origem','FORMACAO_ESTOQUE','data','2026-11-06','periodo_id','t1','produto_id',(select prod from ctx),'etapa_id',(select et from ctx),'etapa_idx',0,'etapa_final',true,'maquina_id',(select maq from ctx),'quantidade',1)), 'hashC', null)$q$));
+
+-- META MÍNIMA: colunas novas gravadas e lidas; linhas antigas (sem as chaves) ficam NULL/0; a view responde sem erro
+select public.escala_antecipacao_registrar((select prev_o from ctx), '2026-11-02', '2026-11-06', 't3', (
+  select jsonb_build_array(jsonb_build_object('origem','FORMACAO_ESTOQUE','semana_destino','2026-11-09','data','2026-11-06','periodo_id','t3','produto_id',prod,'etapa_id',et,'etapa_idx',0,'etapa_final',true,'maquina_id',maq,'funcionario_id',func,'quantidade',500,'meta_minima_producao',108000,'quantidade_alem_da_meta',500)) from ctx), 'hashD', null);
+select pg_temp.reg('meta mínima e quantidade além da meta gravadas', '108000:500', (select meta_minima_producao::int||':'||quantidade_alem_da_meta::int from public.escala_antecipacoes where plano_hash='hashD' and substituida_em is null));
+select pg_temp.reg('linha sem as chaves novas: meta NULL e além da meta 0', 'true', (select (meta_minima_producao is null and quantidade_alem_da_meta = 0)::text from public.escala_antecipacoes where plano_hash='hashA' limit 1));
+select pg_temp.reg('view escala_meta_estoque_v responde (meta × planejada × real × formação)', 'true', (select (count(*) >= 0)::text from public.escala_meta_estoque_v));
 
 -- APPEND-ONLY
 select pg_temp.regp('DELETE recusado', 'ANTECIPACAO_APPEND_ONLY', pg_temp.tenta('delete from public.escala_antecipacoes'));

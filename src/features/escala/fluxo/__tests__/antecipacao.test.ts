@@ -9,7 +9,7 @@ import type { ProdutoRev, RecursoRev } from "../planoReverso";
 import type { SlotEscala } from "../../types";
 import { MOTIVO_DEMANDA_ESGOTADA } from "../../types";
 import {
-  ORIGEM_ANTECIPACAO, ORIGEM_FORMACAO, SEM_LIMITE_FISICO, descontarAntecipadoNoDestino, montarEntradaAntecipacao, metaFuturaRestante, wipNaoTocado,
+  ORIGEM_ANTECIPACAO, ORIGEM_FORMACAO, SEM_LIMITE_FISICO, descontarAntecipadoNoDestino, montarEntradaAntecipacao, relatorioMetaEstoque, metaFuturaRestante, wipNaoTocado,
   type DadosAntecipacao, type EntradaAntecipacao, type ProdutoAntecipavel, type RegistroAntecipacao,
 } from "../antecipacao";
 
@@ -397,5 +397,87 @@ describe("Fallback de 06/11 13:08 — retentativa aperta TAMBÉM as linhas de pa
     expect(porPessoa.get("p1") ?? 0).toBe(0); // p1 e p2 já fizeram X na tarde
     expect(porPessoa.get("p2") ?? 0).toBe(0);
     expect(porPessoa.get("p5") ?? 0).toBe(0); // ausente
+  });
+});
+
+describe("META MÍNIMA de produção × FORMAÇÃO DE ESTOQUE (a quantidade da Previsão é piso, não teto)", () => {
+  // produto de etapa única com UMA máquina de 1000 peças/período: capacidade da semana = 6.000 (6 períodos)
+  const U = (id: string, maq: string, demanda: number) => prod(id, [etapa(`${id}0`, [maq, 1000])], demanda);
+  const rec2 = (...ms: string[]) => ({ recursos: ms.map(rec) });
+  const finalTotal = (s: SaidaPlanejador, pid: string) => s.linhas.reduce((x, l) => x + (l.produtoId === pid ? l.pecas : 0), 0);
+
+  it("1. meta = capacidade ⇒ produz exatamente a meta (nada além), autorizado ou não", () => {
+    const sem = planejarFuturo(base([U("M", "m0", 6000)], rec2("m0")));
+    const aut = planejarFuturo(base([U("M", "m0", 6000)], { ...rec2("m0"), antecipacao: ant(FOR("M", SEM_LIMITE_FISICO)) }));
+    expect(finalTotal(sem, "M")).toBe(6000);
+    expect(finalTotal(aut, "M")).toBe(6000);
+    expect(aut.antecipacoes).toBeUndefined();
+  });
+
+  it("2. meta < capacidade e produto AUTORIZADO ⇒ passa da meta (a meta é piso); NÃO autorizado ⇒ para na meta", () => {
+    const naoAut = planejarFuturo(base([U("M", "m0", 3000)], rec2("m0")));
+    const aut = planejarFuturo(base([U("M", "m0", 3000)], { ...rec2("m0"), antecipacao: ant(FOR("M", SEM_LIMITE_FISICO)) }));
+    sanidade(aut);
+    expect(finalTotal(naoAut, "M")).toBe(3000);
+    expect(finalTotal(aut, "M")).toBeGreaterThan(3000);
+    expect(finalTotal(aut, "M")).toBeLessThanOrEqual(6000); // limite físico: a máquina
+    expect(somaFin(aut, "M", (o) => o === ORIGEM_FORMACAO)).toBe(finalTotal(aut, "M") - 3000); // tudo além da meta é FORMACAO_ESTOQUE, e só isso
+    expect(aut.antecipacoes!.every((a) => a.origem === ORIGEM_FORMACAO)).toBe(true);
+  });
+
+  it("3. A já atingiu a meta, B ainda abaixo, recurso (pessoa) compartilhado ⇒ B primeiro; A (autorizado) só fica com o que sobra", () => {
+    // 1 pessoa ⇒ 1 posto por bloco com a MESMA operação (A e B compartilham a operação 'op-X'): só 2 postos na semana, e B precisa deles
+    const A = prod("A", [etapa("X", ["ma", 1000])], 0);
+    const B = prod("B", [etapa("X", ["mb", 1000])], 5000);
+    const e = base([A, B], { equipe: [{ id: "p1" }], recursos: ["ma", "mb"].map(rec), antecipacao: ant(FOR("A", SEM_LIMITE_FISICO)) });
+    const s = planejarFuturo(e);
+    sanidade(s);
+    expect(prodTotal(s, "B", "X")).toBe(2000); // os dois postos possíveis vão para B (abaixo da meta)
+    expect(s.antecipacoes).toBeUndefined(); // A não tirou nada de B
+    // com B já na meta, A (autorizado) usa os postos
+    const e2 = base([A, prod("B", [etapa("X", ["mb", 1000])], 0)], { equipe: [{ id: "p1" }], recursos: ["ma", "mb"].map(rec), antecipacao: ant(FOR("A", SEM_LIMITE_FISICO)) });
+    const s2 = planejarFuturo(e2);
+    expect(somaFin(s2, "A")).toBe(2000);
+  });
+
+  it("4. todas as metas atendidas e capacidade livre ⇒ forma estoque dos autorizados (cada um com suas máquinas); não autorizados ficam parados", () => {
+    const s = planejarFuturo(base([U("P", "mp", 1000), U("Q", "mq", 1000), U("N", "mn", 1000)], { ...rec2("mp", "mq", "mn"), equipe: ["p1", "p2", "p3", "p4", "p5", "p6"].map((id) => ({ id })), antecipacao: ant(FOR("P", SEM_LIMITE_FISICO), FOR("Q", SEM_LIMITE_FISICO)) }));
+    sanidade(s);
+    expect(somaFin(s, "P")).toBeGreaterThan(0);
+    expect(somaFin(s, "Q")).toBeGreaterThan(0);
+    expect(finalTotal(s, "N")).toBe(1000); // 5. NÃO autorizado: para na meta
+    expect((s.antecipacoes ?? []).some((a) => a.produtoId === "N")).toBe(false);
+  });
+
+  it("6. cadeia com buffer (etiquetar → montar) acima da meta: lote Tn→Tn+1, buffer nunca negativo nem maior que a capacidade LIVRE do consumidor, HARD gates 0", () => {
+    const Cx = prod("C", [etapa("C0", ["c0", 1000]), etapa("C1", ["c1", 400])], 1500, [0]);
+    const s = planejarFuturo(base([Cx], { antecipacao: ant(FOR("C", SEM_LIMITE_FISICO)) }));
+    sanidade(s);
+    const c0 = s.producao.C.C0, c1 = s.producao.C.C1;
+    let estoque = 0;
+    for (let t = 0; t < H; t++) { expect(c1[t]).toBeLessThanOrEqual(estoque + 1e-6); estoque = Math.max(0, estoque - c1[t]) + c0[t]; expect(estoque).toBeGreaterThanOrEqual(0); }
+    expect(finalTotal(s, "C")).toBeGreaterThanOrEqual(1500); // meta atendida primeiro
+    expect(prodTotal(s, "C", "C1")).toBeGreaterThan(1500); // e continua (consumidor tinha capacidade livre)
+    // nível do buffer nunca passa da capacidade do consumidor (400 × períodos restantes) + o que a meta consome
+    s.wip.C[0].forEach((n) => expect(n).toBeLessThanOrEqual(400 * (H - 1) + 1e-6));
+  });
+
+  it("7. formação de estoque NÃO altera a meta mínima futura: a meta aparece inteira; o desconto só vale se decidido; relatório separa meta × planejada × real × formação", () => {
+    const regs: RegistroAntecipacao[] = [{ origem: ORIGEM_FORMACAO, data: "2026-11-06", periodoId: "t2", produtoId: "pino", etapaId: "e", etapaFinal: true, quantidade: 6500 }];
+    expect(descontarAntecipadoNoDestino({ pino: 108000 }, regs, false).quantidades.pino).toBe(108000);
+    const rel = relatorioMetaEstoque({ metas: { pino: 108000 }, planejada: { pino: 116000 }, real: { pino: 114500 }, formacao: { pino: 6500 } })[0];
+    expect(rel).toEqual({ produtoId: "pino", metaMinima: 108000, producaoPlanejada: 116000, producaoReal: 114500, formacaoEstoqueRegistrada: 6500, alemDaMetaPlanejado: 8000, alemDaMetaReal: 6500, faltaParaMeta: 0 });
+    expect(relatorioMetaEstoque({ metas: { x: 100 }, real: { x: 40 } })[0]).toMatchObject({ faltaParaMeta: 60, alemDaMetaReal: 0, alemDaMetaPlanejado: 0 });
+  });
+
+  it("8. a formação nunca tira posto nem peça da meta: produção da meta com e sem formação é idêntica (cadeia + produtos compartilhando operação)", () => {
+    const prods = [U("P", "mp", 4000), prod("C", [etapa("C0", ["c0", 1000]), etapa("C1", ["c1", 1000])], 2500, [0])];
+    const e = base(prods, { ...rec2("mp", "c0", "c1") });
+    const sem = planejarFuturo(e), com = planejarFuturo({ ...e, antecipacao: ant(FOR("P", SEM_LIMITE_FISICO), FOR("C", SEM_LIMITE_FISICO)) });
+    sanidade(com);
+    for (const [pid, eid] of [["P", "P0"], ["C", "C0"], ["C", "C1"]] as const) {
+      const extra = (com.antecipacoes ?? []).filter((a) => a.produtoId === pid && a.etapaId === eid).reduce((x, a) => x + a.pecas, 0);
+      expect(prodTotal(com, pid, eid) - extra).toBeCloseTo(prodTotal(sem, pid, eid), 6);
+    }
   });
 });
