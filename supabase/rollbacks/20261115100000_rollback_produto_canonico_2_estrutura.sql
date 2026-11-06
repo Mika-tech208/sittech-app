@@ -10,8 +10,8 @@ begin
   if exists (select 1 from public.produto_canonico) then
     raise exception 'ROLLBACK_ESTRUTURA_ABORTADO: ainda há produto canônico — execute antes o rollback 1 (backfill)';
   end if;
-  if public.produto_unico_cutover() is not null then
-    raise exception 'ROLLBACK_ESTRUTURA_ABORTADO: produto_unico_cutover está ativo — reverta o cutover antes';
+  if public.produto_unico_cutover() is not null or public.produto_unico_planejamento_desde() is not null then
+    raise exception 'ROLLBACK_ESTRUTURA_ABORTADO: cutover/planejamento do produto único ativo — reverta (produto_unico_desativar / produto_unico_desabilitar_planejamento) antes';
   end if;
 end
 $rb$;
@@ -25,10 +25,14 @@ drop function if exists public.produto_canonico_de(uuid);
 
 alter table public.escala_parametros disable trigger trg_escala_parametros_evento;
 alter table public.escala_parametros disable trigger trg_escala_plano_versao;
-delete from public.escala_parametros where chave = 'produto_unico_cutover';
+delete from public.escala_parametros where chave in ('produto_unico_cutover', 'produto_unico_planejamento_desde');
 alter table public.escala_parametros enable trigger trg_escala_plano_versao;
 alter table public.escala_parametros enable trigger trg_escala_parametros_evento;
 alter table public.escala_parametros drop constraint if exists escala_parametros_produto_unico_cutover;
+alter table public.escala_parametros drop constraint if exists escala_parametros_produto_unico_planejamento;
+drop function if exists public.produto_unico_modo(date);
+drop function if exists public.produto_unico_planejando(date);
+drop function if exists public.produto_unico_planejamento_desde();
 drop function if exists public.produto_unico_ativo(date);
 drop function if exists public.produto_unico_cutover();
 drop function if exists public.produto_unico_cutover_valido(jsonb);

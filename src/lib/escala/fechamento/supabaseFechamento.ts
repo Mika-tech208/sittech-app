@@ -94,6 +94,10 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
       const tEstado0 = relogio();
       const estado = await base.carregarEstado(agoraMs, periodo.proximo ? { data: periodo.proximo.data, periodoId: periodo.proximo.periodoId, agoraEquidadeMs: periodo.proximo.inicioMs - 1 } : undefined);
       const tEstado = relogio() - tEstado0;
+      // PRODUTO ÚNICO em PLANEJAMENTO: plano futuro não liberado — nenhum fechamento. Contexto vazio (sem catálogo/estimativas/postos); o orquestrador recusa abrir e confirmar.
+      if (estado.produtoUnico?.modo === "PLANEJAMENTO") {
+        return { semanaInicio, previsaoId, periodo, postos: [], obrigatorios: [], estimativas: [], periodoJaFechado: false, fechamentoVigente: null, hashPlanoAnterior: null, resumoProducao: {}, tempoEntradaMs: relogio() - t0, emPlanejamento: true };
+      }
       // semana fora do corte-v1 (ou Produção Real inativa): em `ativo` o orquestrador BLOQUEIA; em sombra segue só para registrar o inventário (sem estimativa nem ensaio)
       const semCorteV1 = !estado.producaoReal || !estado.planejadorCorte;
       if (estado.producaoReal) estado.producaoReal = { ...estado.producaoReal, fechamentoFisicoFimMs: periodo.fimMs };

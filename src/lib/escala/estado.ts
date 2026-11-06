@@ -119,7 +119,7 @@ export interface EstadoBruto {
   // `indisponivel` = pré-condição que falhou (Produção Real ilegível, coluna `distribuicao` ausente): o processador mantém o plano vigente e registra o motivo.
   // PRODUTO ÚNICO (cutover): presente SOMENTE quando a semana é >= `produto_unico_cutover` E existe o modelo canônico. Ausente = comportamento anterior, byte-idêntico.
   // Decidido em UM lugar (cutoverDaSemana + escolherModeloUnico, em supabaseIO). Com ele, a Previsão traz 1 item (produto canônico, 5 etapas, grafo) e o planejador de corte é obrigatório.
-  produtoUnico?: { modelo: ModeloCanonico; cutover: string };
+  produtoUnico?: { modelo: ModeloCanonico; cutover: string; /** PLANEJAMENTO = plano FUTURO não liberado (nada operacional); OPERACIONAL = semana >= cutover. `cutover` = o início do modo (planejamento_desde ou cutover). */ modo: "PLANEJAMENTO" | "OPERACIONAL" };
   planejadorCorte?: { config: ConfigPlanejadorCorte; vigenteDoPlanejador: boolean; distribuicaoSuportada: boolean; hashEntradaAnterior?: string | null; indisponivel?: string };
 }
 

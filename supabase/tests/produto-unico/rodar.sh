@@ -29,7 +29,7 @@ if [ "${1:-}" = "--do-zero" ]; then
   [ "$H0" = "$H1" ] && [ "$N0" = "$N1" ] && [ "$(cat "$SAIDA/reg.txt")" = "(sem nova versao)" ] && echo "PASS · HASH do plano da semana 02/11 idêntico antes/depois (${H1:0:16}…, $N0 versões, nenhuma nova)" || echo "FAIL · hash do plano mudou: $H0 -> $H1 ($N0 -> $N1)"
   p -At -c "select count(*) from escala_producao_eventos where status='pendente'" | grep -q '^0$' && echo "PASS · nenhum evento de recálculo pendente" || echo "FAIL · há evento pendente"
 fi
-for f in 01-estrutura-backfill.sql 02-cutover-buffers.sql 03-apontamentos.sql; do
+for f in 01-estrutura-backfill.sql 02-cutover-buffers.sql 03-apontamentos.sql 05-planejamento.sql; do
   [ -f "$f" ] || continue
   echo "### $f"
   p -At -f "$f" > "$SAIDA/$f.out" 2>&1
@@ -40,7 +40,7 @@ if [ "${1:-}" = "--do-zero" ]; then
   echo "### rollback ESTRUTURAL das 3 migrations + backfill (ordem inversa) e reaplicação"
   RB="$RAIZ/supabase/rollbacks"
   p -At -f fingerprint.sql > "$SAIDA/fp2-antes-rb.txt" 2>&1
-  for f in "$RB/20261115120000_rollback_produto_unico_ativacao.sql" "$RB/20261115110000_rollback_produto_canonico_conversao.sql" "$RB/20261115100000_rollback_produto_canonico_1_backfill.sql" "$RB/20261115100000_rollback_produto_canonico_2_estrutura.sql"; do
+  for f in "$RB/20261116100000_rollback_produto_unico_planejamento_liberacao.sql" "$RB/20261115120000_rollback_produto_unico_ativacao.sql" "$RB/20261115110000_rollback_produto_canonico_conversao.sql" "$RB/20261115100000_rollback_produto_canonico_1_backfill.sql" "$RB/20261115100000_rollback_produto_canonico_2_estrutura.sql"; do
     p -v ON_ERROR_STOP=1 -f "$f" > "$SAIDA/rb.out" 2>&1 && echo "PASS · $(basename "$f") executou" || { echo "FAIL · $(basename "$f")"; grep -E 'ERROR' "$SAIDA/rb.out" | head -3; }
   done
   p -At -f fingerprint.sql > "$SAIDA/fp3-pos-rb.txt" 2>&1

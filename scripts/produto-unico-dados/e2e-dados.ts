@@ -34,6 +34,8 @@ const M8 = "a118f430-f854-4e89-9e3c-ce6fcbbc52cf";
   psql(`insert into previsao_item_maquinas (item_id, etapa_id, maquina_id) select 'e2e00000-0000-4000-8000-000000000002', e.id, rem.maquina_id from roteiro_etapas e join roteiro_etapa_maquinas rem on rem.etapa_id=e.id where e.produto_id='${AUTO}'`);
   ok(Number(psql(`select sum(quantidade) from previsao_itens where previsao_id='${prev}' and produto_id in ('${CONV}','${AUTO}')`)) === 93300, "E1 Previsão 09/11 com itens legados 64.800 + 28.500 (antes do cutover)");
 
+  // ---- E1b: habilitar o PLANEJAMENTO (pré-requisito do cutover) ----
+  psql(`select public.produto_unico_habilitar_planejamento('${S0}','e2e')`);
   // ---- E2: ativar o cutover ----
   const r = JSON.parse(psql(`select public.produto_unico_ativar('${S0}','e2e')::text`));
   ok(r.cutover === S0 && r.estado.buffers_conector34_n === 3, "E2 produto_unico_ativar(2026-11-09): 3 buffers Conector no estado", JSON.stringify({ pares_novos: r.pares_novos, legado_encerrados: r.pares_legado_encerrados }));
@@ -97,6 +99,8 @@ const M8 = "a118f430-f854-4e89-9e3c-ce6fcbbc52cf";
   psql(`delete from previsao_itens where previsao_id='${prev}' and produto_id='${pu}'`);
   const rb2 = JSON.parse(psql(`select public.produto_unico_desativar('e2e')::text`));
   ok(rb2.modo === "preservando_dados" && Number(psql(`select count(*) from apontamentos_producao where produto_id='${pu}'`)) === 5, "E8b rollback com apontamentos do produto único: modo preservando_dados, os 5 apontamentos continuam", JSON.stringify(rb2));
+  const des = JSON.parse(psql(`select public.produto_unico_desabilitar_planejamento('e2e')::text`));
+  ok(des.planejamento_anterior === S0 && psql("select count(*) from escala_parametros where chave in ('producao_real_semanas_ativas','producao_real_planejador_semanas') and valor::text like '%2026-11-09%'") === "0", "E8d desabilitar_planejamento: 09/11 sai das duas listas e o planejamento volta a null", JSON.stringify(des));
   ok(psql("select valor::text from escala_parametros where chave='produto_unico_cutover'") === "null" && tentaAdmin(`insert into previsao_itens (previsao_id, tipo, produto_id, produto_nome, valor_unitario, quantidade) values ('${prev}','previsto','${CONV}','x',0.18,1)`).includes("COMMIT") === false, "E8c cutover = null; legados voltam a aceitar item de Previsão");
   psql(`delete from previsao_itens where produto_nome='x'`);
 

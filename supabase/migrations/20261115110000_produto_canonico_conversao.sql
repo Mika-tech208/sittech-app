@@ -64,18 +64,18 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
-declare v_cut date; v_semana date; v_legado boolean; v_canonico boolean;
+declare v_plan date; v_semana date; v_legado boolean; v_canonico boolean;
 begin
   if current_setting('sittech.produto_unico_bypass', true) = 'on' then return new; end if; -- só as funções de conversão/reversão (set_config local à transação)
-  select (valor #>> '{}')::date into v_cut from public.escala_parametros where chave = 'produto_unico_cutover' and jsonb_typeof(valor) = 'string';
+  v_plan := least(public.produto_unico_planejamento_desde(), public.produto_unico_cutover());   -- PLANEJAMENTO (Previsão/Forecast) começa no menor entre planejamento_desde e cutover
   select exists (select 1 from public.produto_legado_mapa where produto_legado_id = new.produto_id), exists (select 1 from public.produto_canonico where produto_id = new.produto_id) into v_legado, v_canonico;
   if not v_legado and not v_canonico then return new; end if;
   select semana_inicio into v_semana from public.previsoes where id = new.previsao_id;
-  if v_canonico and (v_cut is null or v_semana < v_cut) then
-    raise exception 'PRODUTO_CANONICO_ANTES_DO_CUTOVER: o produto único só vale a partir do cutover (%); semana %', v_cut, v_semana using errcode = 'P0001';
+  if v_canonico and (v_plan is null or v_semana < v_plan) then
+    raise exception 'PRODUTO_CANONICO_ANTES_DO_CUTOVER: o produto único só vale a partir do planejamento/cutover (%); semana %', v_plan, v_semana using errcode = 'P0001';
   end if;
-  if v_legado and new.tipo = 'previsto' and v_cut is not null and v_semana >= v_cut then
-    raise exception 'PRODUTO_LEGADO_APOS_CUTOVER: a semana % usa o produto único (cutover %); atualize a tela e salve de novo', v_semana, v_cut using errcode = 'P0001';
+  if v_legado and new.tipo = 'previsto' and v_plan is not null and v_semana >= v_plan then
+    raise exception 'PRODUTO_LEGADO_APOS_CUTOVER: a semana % usa o produto único (planejamento/cutover %); atualize a tela e salve de novo', v_semana, v_plan using errcode = 'P0001';
   end if;
   return new;
 end;
@@ -140,9 +140,9 @@ begin
   if v_problemas is not null then raise exception 'F2_CANONICO_COM_PROBLEMAS: %', v_problemas; end if;
   v_valor := coalesce(p_valor_unitario, v_valor);
 
-  select (valor #>> '{}')::date into v_cut from public.escala_parametros where chave = 'produto_unico_cutover' and jsonb_typeof(valor) = 'string';
-  if v_cut is null then raise exception 'F2_SEM_CUTOVER: o produto único ainda não foi ativado (produto_unico_ativar)'; end if;
-  if v_cut > v_semana then raise exception 'F2_CUTOVER_POSTERIOR: cutover % é depois da semana %', v_cut, v_semana; end if;
+  v_cut := least(public.produto_unico_planejamento_desde(), public.produto_unico_cutover());   -- início do PLANEJAMENTO efetivo (cutover implica planejamento)
+  if v_cut is null then raise exception 'F2_SEM_CUTOVER: o planejamento do produto único ainda não foi habilitado (produto_unico_habilitar_planejamento)'; end if;
+  if v_cut > v_semana then raise exception 'F2_CUTOVER_POSTERIOR: planejamento/cutover % é depois da semana %', v_cut, v_semana; end if;
 
   if exists (select 1 from public.previsao_itens where previsao_id = p_previsao and produto_id = v_prod and tipo = 'previsto') then
     perform set_config('sittech.produto_unico_bypass', 'off', true);
@@ -230,7 +230,7 @@ begin
   insert into public.previsao_itens select * from jsonb_populate_recordset(null::public.previsao_itens, v_conv.backup -> 'itens');
   insert into public.previsao_item_maquinas select * from jsonb_populate_recordset(null::public.previsao_item_maquinas, v_conv.backup -> 'maquinas');
 
-  select (valor #>> '{}')::date into v_cut from public.escala_parametros where chave = 'produto_unico_cutover' and jsonb_typeof(valor) = 'string';
+  v_cut := least(public.produto_unico_planejamento_desde(), public.produto_unico_cutover());
   insert into public.produto_unico_conversoes (previsao_id, semana_inicio, acao, feito_por, resumo)
     values (p_previsao, v_semana, 'reverter', p_feito_por, jsonb_build_object('conversao_revertida', v_conv.id, 'itens_restaurados', jsonb_array_length(v_conv.backup -> 'itens'), 'cutover_mantido', v_cut));
   insert into public.produto_canonico_ativacoes (acao, cutover, feito_por, detalhes) values ('separar_previsao', v_cut, p_feito_por, jsonb_build_object('previsao_id', p_previsao, 'semana', v_semana));

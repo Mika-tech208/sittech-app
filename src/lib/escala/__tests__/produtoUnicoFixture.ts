@@ -29,7 +29,7 @@ export function mundoUnico(opts: { planejador?: boolean; unico?: boolean; m8?: s
     e.parametros = { ...lerParametros([]), revezamentoModo: "duro", revezamentoEscopo: "bloco", revezamentoPonteM3T1: true };
     e.producaoReal = { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos: [], mesmoPeriodo: false };
     if (opts.planejador !== false) e.planejadorCorte = { config: CFG, vigenteDoPlanejador: false, distribuicaoSuportada: true };
-    if (opts.unico !== false) e.produtoUnico = { modelo: MODELO, cutover: "2026-11-02" };
+    if (opts.unico !== false) e.produtoUnico = { modelo: MODELO, cutover: "2026-11-02", modo: "OPERACIONAL" };
   });
   return m;
 }

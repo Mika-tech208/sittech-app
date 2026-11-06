@@ -39,7 +39,7 @@ function canonico(v: Var = {}): EstadoBruto {
     maquinasIndisponiveisPrevisao: v.indisponiveis ?? [], maquinasInativas: [], ausencias: [], indisponibilidades: [], alocacoes: [],
     nomesOperacao: { opR: "Rosquear", opP: "Parafusar", opM: "Rosquear + Parafusar (M8)", opE: "Etiquetar", opB: "Embalar" },
     parametros: { ...lerParametros([]), revezamentoModo: "duro", revezamentoEscopo: "bloco", revezamentoPonteM3T1: true },
-    produtoUnico: { modelo: MODELO, cutover: "2026-11-02" },
+    produtoUnico: { modelo: MODELO, cutover: "2026-11-02", modo: "OPERACIONAL" as const },
   } as unknown as EstadoBruto;
 }
 const CFG = { objetivo: "EQUILIBRIO" as const, busca: { iter: 40000, reinicios: 1, semente: 1 } };

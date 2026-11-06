@@ -21,6 +21,11 @@ select pg_temp.ok(not public.produto_unico_ativo('2026-11-10'), 'C1 produto_unic
 select pg_temp.falha($$select public.produto_unico_ativar('2026-11-10','t')$$, 'ATIVAR_CUTOVER_INVALIDO', 'C2 ativar numa terça é recusado');
 select pg_temp.falha($$select public.produto_unico_ativar('2026-10-26','t')$$, 'ATIVAR_CUTOVER_INVALIDO', 'C3 ativar antes de 2026-11-02 é recusado');
 select pg_temp.falha($$select public.produto_unico_ativar('2026-11-02','t')$$, 'ATIVAR_ABORTADO', 'C4 ativar numa semana que já tem apontamento legado é recusado');
+select pg_temp.falha($$select public.produto_unico_ativar('2026-11-09','t')$$, 'ATIVAR_SEM_PLANEJAMENTO', 'C4b ativar o cutover exige o PLANEJAMENTO já habilitado');
+select pg_temp.falha($$select public.produto_unico_habilitar_planejamento('2026-11-10','t')$$, 'PLANEJAMENTO_INVALIDO', 'C4c habilitar numa terça é recusado');
+select pg_temp.falha($$select public.produto_unico_habilitar_planejamento('2026-11-02','t')$$, 'PLANEJAMENTO_ABORTADO', 'C4d habilitar numa semana com apontamento legado é recusado');
+select public.produto_unico_habilitar_planejamento('2026-11-09','teste') as hab \gset
+select pg_temp.ok(public.produto_unico_modo('2026-11-09')='PLANEJAMENTO' and public.produto_unico_modo('2026-11-06')='LEGADO' and public.produto_unico_cutover() is null, 'C4e habilitado: 09/11 PLANEJAMENTO, 06/11 LEGADO, cutover null');
 select public.produto_unico_ativar('2026-11-09','teste') as ativ \gset
 select pg_temp.ok((select valor from escala_parametros where chave='produto_unico_cutover') = '"2026-11-09"'::jsonb, 'C5 UMA flag: produto_unico_cutover = 2026-11-09');
 select pg_temp.ok((select ativo from produtos p join produto_canonico c on c.produto_id=p.id), 'C6 produto único ATIVO após ativar');
@@ -56,22 +61,27 @@ select public.produto_unico_ativar('2026-11-09','teste2') as ativ2 \gset
 select pg_temp.ok((:'ativ2'::jsonb ->> 'ja_ativo')::boolean, 'C9 ativar de novo com o mesmo cutover é idempotente');
 select pg_temp.falha($$select public.produto_unico_ativar('2026-11-16','t')$$, 'ATIVAR_JA_ATIVO_COM_OUTRO_CUTOVER', 'C10 ativar com outro cutover exige desativar antes');
 select public.produto_unico_desativar('teste') as des \gset
+select pg_temp.ok(public.produto_unico_modo('2026-11-09')='PLANEJAMENTO', 'RB1c desativar o cutover mantém o PLANEJAMENTO habilitado (09/11 continua plano futuro)');
+select public.produto_unico_desabilitar_planejamento('teste') as desab \gset
 select pg_temp.ok(pg_temp.snap() = :'h0', 'RB2 ROLLBACK sem uso: catálogo de buffers, parâmetro, produto e legados IDÊNTICOS ao de antes (hash)');
 select pg_temp.ok((select count(*) from escala_producao_eventos) = :ev0, 'RB3 rollback não gerou evento de recálculo');
 select pg_temp.ok((:'des'::jsonb ->> 'modo') = 'limpo', 'RB4 modo do rollback = limpo');
 select pg_temp.ok(not public.produto_unico_ativo('2026-11-10') and pg_temp.obrig('2026-11-10', array['27c229d7-f192-41eb-aad1-0c69ece53eba'::uuid]) = 3, 'RB5 após rollback: legados voltam a pedir 3 buffers e a programação usa os legados');
 -- ciclo completo ativar -> desativar -> ativar -> desativar (refaz sem erro)
+select public.produto_unico_habilitar_planejamento('2026-11-09','c0') as h1 \gset
 select public.produto_unico_ativar('2026-11-09','c1') as a1 \gset
 select public.produto_unico_desativar('c1') as d1 \gset
 select public.produto_unico_ativar('2026-11-09','c2') as a2 \gset
 select pg_temp.ok((:'a2'::jsonb ->> 'pares_novos')::int = 3 and pg_temp.obrig('2026-11-09', array[(select produto_id from produto_canonico)]) = 3, 'RB6 ativar -> desativar -> ativar refaz o estado (3 pares, 3 buffers)');
 select public.produto_unico_desativar('c2') as d2 \gset
+select public.produto_unico_desabilitar_planejamento('c2') as d3 \gset
 select pg_temp.ok(pg_temp.snap() = :'h0', 'RB7 ... e desativar de novo volta ao hash original');
 rollback;
 
 \echo -- ROLLBACK COM DADOS NOVOS (fechamento + apontamento do produto único): nada é apagado
 begin;
 select pg_temp.snap() as h0 \gset
+select public.produto_unico_habilitar_planejamento('2026-11-09','teste') as hab \gset
 select public.produto_unico_ativar('2026-11-09','teste') as ativ \gset
 -- fechamento físico simulado sob o produto único (09/11 m1): 3 buffers, buffer parafusadas = 5000
 with f as (
@@ -116,6 +126,7 @@ rollback;
 
 \echo -- VARIANTE p_par_m8 = true (4 pares; buffer 'parafusadas' com 2 contabil): a view entrega o saldo a UM só par
 begin;
+select public.produto_unico_habilitar_planejamento('2026-11-09','teste-4-pares') as hab \gset
 select public.produto_unico_ativar('2026-11-09','teste-4-pares', true) as ativ \gset
 select pg_temp.ok((:'ativ'::jsonb ->> 'pares_novos')::int = 4 and pg_temp.obrig('2026-11-09', array[(select produto_id from produto_canonico)]) = 3
   and (select count(*) from escala_buffer_pares bp join escala_buffers_fisicos b on b.id=bp.buffer_id where b.chave='conector34:parafusadas' and bp.produto_id=(select produto_id from produto_canonico) and bp.papel='contabil')=2, 'P1 variante: 4 pares (parafusadas com 2 contabil, sem zero), 3 buffers');

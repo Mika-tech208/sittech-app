@@ -61,9 +61,124 @@ begin
             join public.roteiro_etapas eo on eo.id = bp.etapa_origem_id join public.operacoes oo on oo.id = eo.operacao_id
             join public.roteiro_etapas es on es.id = bp.etapa_seguinte_id join public.operacoes os on os.id = es.operacao_id
            where b.ativo and b.chave like 'conector34:%' group by b.chave, b.ordem) x;
-  return jsonb_build_object('cutover', v_cut, 'produto_id', v_prod, 'produto_ativo', (select ativo from public.produtos where id = v_prod),
+  return jsonb_build_object('cutover', v_cut, 'planejamento_desde', public.produto_unico_planejamento_desde(), 'modo_semana', public.produto_unico_modo(v_data),
+                            'semanas_ativas', (select valor from public.escala_parametros where chave = 'producao_real_semanas_ativas'),
+                            'planejador_semanas', (select valor from public.escala_parametros where chave = 'producao_real_planejador_semanas'),
+                            'produto_id', v_prod, 'produto_ativo', (select ativo from public.produtos where id = v_prod),
                             'problemas_cadastro', coalesce(v_prob, '[]'::jsonb), 'data_referencia', v_data, 'buffers_conector34', v_obrig,
                             'buffers_conector34_n', jsonb_array_length(v_obrig));
+end;
+$$;
+
+-- =========================================================================
+-- 2b) PLANEJAMENTO (separado do cutover operacional): habilitar / desabilitar
+--     produto_unico_incluir_semana_nas_listas(semana): inclui a semana em producao_real_semanas_ativas E producao_real_planejador_semanas (idempotente). NÃO desliga gatilhos
+--       sozinha: quem chama (habilitar/ativar) já está dentro do bloco com trg_escala_parametros_evento/trg_escala_plano_versao desligados => NENHUM recálculo e NENHUMA versão de plano.
+--     produto_unico_habilitar_planejamento(desde): produto único selecionável no Forecast + plano futuro NÃO LIBERADO; nada operacional muda (buffers, pares, WIP, apontamento, fechamento, TV).
+-- =========================================================================
+create or replace function public.produto_unico_incluir_semana_nas_listas(p_semana date)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare v_add jsonb := '[]'::jsonb; v_chave text; v_val jsonb; v_s text := to_char(p_semana, 'YYYY-MM-DD');
+begin
+  foreach v_chave in array array['producao_real_semanas_ativas', 'producao_real_planejador_semanas'] loop
+    select valor into v_val from public.escala_parametros where chave = v_chave;
+    if not found then continue; end if;   -- lista inexistente: nada a incluir (o planejador/Produção Real não está configurado)
+    if jsonb_typeof(v_val) <> 'array' then raise exception 'PLANEJAMENTO_LISTA_INVALIDA: % não é uma lista', v_chave; end if;
+    if not (v_val @> to_jsonb(v_s)) then
+      update public.escala_parametros set valor = v_val || to_jsonb(v_s), atualizado_em = now() where chave = v_chave;
+      v_add := v_add || to_jsonb(v_chave);
+    end if;
+  end loop;
+  return v_add;
+end;
+$$;
+
+create or replace function public.produto_unico_habilitar_planejamento(p_desde date, p_feito_por text default 'script')
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_prod uuid; v_atual date; v_prob text; v_n int; v_legado_ids uuid[]; v_ativo_antes boolean; v_listas jsonb;
+begin
+  perform pg_advisory_xact_lock(hashtextextended('produto_unico_ativacao', 0));
+  if p_desde is null or extract(isodow from p_desde) <> 1 or p_desde < date '2026-11-02' then
+    raise exception 'PLANEJAMENTO_INVALIDO: informe uma segunda-feira >= 2026-11-02 (recebido: %)', p_desde;
+  end if;
+  select produto_id into v_prod from public.produto_canonico where codigo = 'CONECTOR_3_4_UNICO';
+  if v_prod is null then raise exception 'PLANEJAMENTO_SEM_BACKFILL: rode supabase/ops/produto-unico/10-backfill-conector-unico.sql antes'; end if;
+  select string_agg(p, '; ') into v_prob from public.produto_canonico_problemas(v_prod) p;
+  if v_prob is not null then raise exception 'PLANEJAMENTO_CADASTRO_COM_PROBLEMAS: %', v_prob; end if;
+  v_atual := public.produto_unico_planejamento_desde();
+  if v_atual = p_desde then return jsonb_build_object('ja_habilitado', true, 'planejamento_desde', v_atual); end if;
+  if v_atual is not null then raise exception 'PLANEJAMENTO_JA_HABILITADO_COM_OUTRA_DATA: atual %; desabilite antes', v_atual; end if;
+  select array_agg(produto_legado_id) into v_legado_ids from public.produto_legado_mapa where produto_canonico_id = v_prod;
+  select count(*) into v_n from public.apontamentos_producao where produto_id = any(v_legado_ids) and data >= p_desde;
+  if v_n > 0 then raise exception 'PLANEJAMENTO_ABORTADO: já há % apontamento(s) dos produtos legados em/depois de % (a semana de planejamento não pode ter operação)', v_n, p_desde; end if;
+  select count(*) into v_n from public.escala_fechamentos where data >= p_desde;
+  if v_n > 0 then raise exception 'PLANEJAMENTO_ABORTADO: já há % fechamento(s) físico(s) em/depois de %', v_n, p_desde; end if;
+
+  -- o produto fica ATIVO para a Previsão/Forecast; apontamento continua recusado antes do cutover (guarda APONTAMENTO_CANONICO_ANTES_DO_CUTOVER) e o fechamento/liberação ignoram semanas em planejamento
+  select ativo into v_ativo_antes from public.produtos where id = v_prod;
+  update public.produtos set ativo = true where id = v_prod and not ativo;
+
+  -- nenhum recálculo, nenhuma versão de plano (o hash do plano vigente não pode mudar)
+  alter table public.escala_parametros disable trigger trg_escala_parametros_evento;
+  alter table public.escala_parametros disable trigger trg_escala_plano_versao;
+  update public.escala_parametros set valor = to_jsonb(to_char(p_desde, 'YYYY-MM-DD')), atualizado_em = now() where chave = 'produto_unico_planejamento_desde';
+  v_listas := public.produto_unico_incluir_semana_nas_listas(p_desde);
+  alter table public.escala_parametros enable trigger trg_escala_plano_versao;
+  alter table public.escala_parametros enable trigger trg_escala_parametros_evento;
+
+  insert into public.produto_canonico_ativacoes (acao, cutover, feito_por, detalhes)
+    values ('habilitar_planejamento', p_desde, p_feito_por, jsonb_build_object('produto_canonico_id', v_prod, 'produto_ativo_antes', v_ativo_antes, 'listas_adicionadas', v_listas));
+  return jsonb_build_object('ja_habilitado', false, 'planejamento_desde', p_desde, 'listas_adicionadas', v_listas, 'produto_ativo_antes', v_ativo_antes);
+end;
+$$;
+
+create or replace function public.produto_unico_desabilitar_planejamento(p_feito_por text default 'script')
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_prod uuid; v_des date; v_sem text; v_ativ record; v_det jsonb; v_lista text; v_n_aloc bigint; v_apont bigint;
+begin
+  perform pg_advisory_xact_lock(hashtextextended('produto_unico_ativacao', 0));
+  v_des := public.produto_unico_planejamento_desde();
+  if v_des is null then return jsonb_build_object('ja_desabilitado', true); end if;
+  if public.produto_unico_cutover() is not null then raise exception 'DESABILITAR_ABORTADO: o cutover (%) está ligado; rode antes produto_unico_desativar()', public.produto_unico_cutover(); end if;
+  select produto_id into v_prod from public.produto_canonico where codigo = 'CONECTOR_3_4_UNICO';
+  select string_agg(to_char(p.semana_inicio, 'YYYY-MM-DD'), ', ') into v_sem
+    from public.previsoes p where exists (select 1 from public.previsao_itens i where i.previsao_id = p.id and i.produto_id = v_prod);
+  if v_sem is not null then
+    raise exception 'DESABILITAR_ABORTADO: a Previsão da(s) semana(s) % ainda tem o item do produto único. Use "Separar" (restaura os itens legados do backup) ou exclua o item e repita. Nada foi alterado.', v_sem;
+  end if;
+  select * into v_ativ from public.produto_canonico_ativacoes where acao = 'habilitar_planejamento' and cutover = v_des order by id desc limit 1;
+  v_det := coalesce(v_ativ.detalhes, '{}'::jsonb);
+  select count(*) into v_apont from public.apontamentos_producao where produto_id = v_prod;
+  select count(*) into v_n_aloc from public.escala_producao_alocacoes a join public.produto_canonico_etapas ce on ce.etapa_id = a.etapa_id;
+
+  alter table public.escala_parametros disable trigger trg_escala_parametros_evento;
+  alter table public.escala_parametros disable trigger trg_escala_plano_versao;
+  update public.escala_parametros set valor = 'null'::jsonb, atualizado_em = now() where chave = 'produto_unico_planejamento_desde';
+  -- só retira das listas o que o habilitar acrescentou (a semana pode ter sido incluída por outro motivo antes)
+  for v_lista in select jsonb_array_elements_text(coalesce(v_det -> 'listas_adicionadas', '[]'::jsonb)) loop
+    update public.escala_parametros set valor = coalesce((select jsonb_agg(e) from jsonb_array_elements(valor) e where e <> to_jsonb(to_char(v_des, 'YYYY-MM-DD'))), '[]'::jsonb), atualizado_em = now() where chave = v_lista;
+  end loop;
+  alter table public.escala_parametros enable trigger trg_escala_plano_versao;
+  alter table public.escala_parametros enable trigger trg_escala_parametros_evento;
+  if v_apont = 0 then update public.produtos set ativo = coalesce((v_det ->> 'produto_ativo_antes')::boolean, false) where id = v_prod; end if;
+
+  insert into public.produto_canonico_ativacoes (acao, cutover, feito_por, detalhes)
+    values ('desabilitar_planejamento', v_des, p_feito_por, jsonb_build_object('apontamentos_produto_unico', v_apont, 'alocacoes_canonicas_restantes', v_n_aloc));
+  return jsonb_build_object('ja_desabilitado', false, 'planejamento_anterior', v_des, 'apontamentos_produto_unico', v_apont, 'alocacoes_canonicas_restantes', v_n_aloc);
 end;
 $$;
 
@@ -85,6 +200,7 @@ declare
   v_bufs_aresta jsonb := '[]'::jsonb;
   v_pares_encerrados jsonb;
   v_maq_novas jsonb;
+  v_listas jsonb;
   r record;
 begin
   perform pg_advisory_xact_lock(hashtextextended('produto_unico_ativacao', 0));
@@ -105,8 +221,10 @@ begin
   if v_n > 0 then raise exception 'ATIVAR_ABORTADO: já há % apontamento(s) dos produtos legados em/depois de % (o cutover tem que ser antes de qualquer trabalho da semana)', v_n, p_cutover; end if;
   select count(*) into v_n from public.escala_fechamentos where data >= p_cutover;
   if v_n > 0 then raise exception 'ATIVAR_ABORTADO: já há % fechamento(s) físico(s) em/depois de % (usaram os pares legados)', v_n, p_cutover; end if;
-  select count(*) into v_n from public.previsao_itens i join public.previsoes p on p.id = i.previsao_id where i.produto_id = v_prod;
-  if v_n > 0 then raise exception 'ATIVAR_ABORTADO: o produto único já tem % item(ns) de Previsão (estado inesperado antes do cutover)', v_n; end if;
+  -- PLANEJAMENTO precisa estar habilitado ANTES (produto_unico_habilitar_planejamento): o item único da Previsão e o plano futuro só existem em semanas de planejamento
+  if public.produto_unico_planejamento_desde() is null or public.produto_unico_planejamento_desde() > p_cutover then
+    raise exception 'ATIVAR_SEM_PLANEJAMENTO: habilite o planejamento (produto_unico_habilitar_planejamento) para a semana % antes do cutover (planejamento_desde atual: %)', p_cutover, public.produto_unico_planejamento_desde();
+  end if;
 
   -- pares do produto único a partir do GRAFO canônico (operação origem -> operação destino -> buffer físico)
   for r in
@@ -159,11 +277,13 @@ begin
   alter table public.escala_parametros disable trigger trg_escala_parametros_evento;
   alter table public.escala_parametros disable trigger trg_escala_plano_versao;
   update public.escala_parametros set valor = to_jsonb(to_char(p_cutover, 'YYYY-MM-DD')), atualizado_em = now() where chave = 'produto_unico_cutover';
+  -- a semana do cutover tem que estar nas duas listas da Produção Real/planejador (normalmente já pelo habilitar_planejamento; aqui só garante, idempotente e sem recálculo)
+  v_listas := public.produto_unico_incluir_semana_nas_listas(p_cutover);
   alter table public.escala_parametros enable trigger trg_escala_plano_versao;
   alter table public.escala_parametros enable trigger trg_escala_parametros_evento;
 
   insert into public.produto_canonico_ativacoes (acao, cutover, feito_por, detalhes)
-    values ('ativar', p_cutover, p_feito_por, jsonb_build_object('produto_canonico_id', v_prod, 'produto_ativo_antes', v_ativo_antes, 'pares_novos', v_pares_novos,
+    values ('ativar', p_cutover, p_feito_por, jsonb_build_object('listas_adicionadas', v_listas, 'produto_canonico_id', v_prod, 'produto_ativo_antes', v_ativo_antes, 'pares_novos', v_pares_novos,
                                                                  'pares_legado_encerrados', v_pares_encerrados, 'maquinas_buffer_novas', v_maq_novas, 'par_m8', p_par_m8));
   return jsonb_build_object('ja_ativo', false, 'cutover', p_cutover, 'produto_canonico_id', v_prod, 'pares_novos', jsonb_array_length(v_pares_novos),
                             'pares_legado_encerrados', jsonb_array_length(v_pares_encerrados), 'estado', public.produto_unico_estado(p_cutover));
@@ -246,6 +366,11 @@ $$;
 
 revoke all on function public.produto_unico_ativar(date, text, boolean) from public, anon, authenticated;
 revoke all on function public.produto_unico_desativar(text) from public, anon, authenticated;
+revoke all on function public.produto_unico_incluir_semana_nas_listas(date) from public, anon, authenticated;
+revoke all on function public.produto_unico_habilitar_planejamento(date, text) from public, anon, authenticated;
+revoke all on function public.produto_unico_desabilitar_planejamento(text) from public, anon, authenticated;
+grant execute on function public.produto_unico_habilitar_planejamento(date, text) to service_role;
+grant execute on function public.produto_unico_desabilitar_planejamento(text) to service_role;
 revoke all on function public.produto_unico_estado(date) from public, anon;
 grant execute on function public.produto_unico_ativar(date, text, boolean) to service_role;
 grant execute on function public.produto_unico_desativar(text) to service_role;

@@ -84,7 +84,7 @@ async function gemeo(est: EstadoBruto, modelo: ModeloCanonico): Promise<EstadoBr
     etapas: legados.length > 0 ? [...est.etapas.filter((e) => !etapasLeg.has(e.id)), ...(await etapasCanonicas(CAN))] : est.etapas,
     alocacoes: canonizarAlocacoes(est.alocacoes, modelo),
     nomesProdutos: { ...(est.nomesProdutos ?? {}), [CAN]: "Conector 3/4 (Produto Único)" },
-    produtoUnico: { modelo, cutover: est.semanaInicio },
+    produtoUnico: { modelo, cutover: est.semanaInicio, modo: "OPERACIONAL" as const },
   };
 }
 

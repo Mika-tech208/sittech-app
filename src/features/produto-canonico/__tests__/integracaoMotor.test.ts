@@ -47,7 +47,7 @@ function canonico(v: Var = {}): EstadoBruto {
     { id: "k_m8", produtoId: "pK", operacaoId: "opM", ordem: 0, metas: METAS(400, 340) }, { id: "k_ros", produtoId: "pK", operacaoId: "opR", ordem: 1, metas: METAS(600, 520) },
     { id: "k_par", produtoId: "pK", operacaoId: "opP", ordem: 2, metas: METAS(500, 420) }, { id: "k_eti", produtoId: "pK", operacaoId: "opE", ordem: 3, metas: METAS(...etiq) },
     { id: "k_emb", produtoId: "pK", operacaoId: "opB", ordem: 4, metas: METAS(1200, 1100) },
-  ], v.pessoas), produtoUnico: { modelo: MODELO, cutover: "2026-11-02" } };
+  ], v.pessoas), produtoUnico: { modelo: MODELO, cutover: "2026-11-02", modo: "OPERACIONAL" as const } };
 }
 const MODELO: ModeloCanonico = {
   produtoCanonicoId: "pK", codigo: "CONECTOR_3_4", nomeExibicao: "Conector", rotas: [{ id: "R1", codigo: "CONVENCIONAL", nome: "ROTA 1", tipo: "convencional", ordem: 1, ativa: true }, { id: "R2", codigo: "AUTOMATICA", nome: "ROTA 2", tipo: "automatica", ordem: 2, ativa: true }],

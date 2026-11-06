@@ -10,7 +10,7 @@ if [ "${1:-}" = "--restaurar" ]; then
   "$RAIZ/scripts/fechamento/clone/restaurar-clone.sh" --dump "$DUMP" >/dev/null
 fi
 p() { "$PSQL" -h 127.0.0.1 -p 55433 -U postgres -X -q -v ON_ERROR_STOP=1 sittech_clone "$@"; }
-for f in 20261115100000_produto_canonico_estrutura 20261115110000_produto_canonico_conversao 20261115120000_produto_unico_ativacao; do
+for f in 20261115100000_produto_canonico_estrutura 20261115110000_produto_canonico_conversao 20261115120000_produto_unico_ativacao 20261116100000_produto_unico_planejamento_liberacao ${MIGRATIONS_EXTRA:-}; do
   p -1 -f "$RAIZ/supabase/migrations/$f.sql" >/dev/null
   echo "migration $f aplicada"
 done

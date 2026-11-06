@@ -84,7 +84,7 @@ create index if not exists etapa_legado_mapa_canonica on public.etapa_legado_map
 create table if not exists public.produto_canonico_ativacoes (
   id bigint generated always as identity primary key,
   criado_em timestamptz not null default now(),
-  acao text not null check (acao in ('backfill', 'ativar', 'desativar', 'reverter', 'rollback_backfill', 'unificar_previsao', 'separar_previsao')),
+  acao text not null check (acao in ('backfill', 'ativar', 'desativar', 'reverter', 'rollback_backfill', 'unificar_previsao', 'separar_previsao', 'habilitar_planejamento', 'desabilitar_planejamento')),
   cutover date,
   feito_por text,
   detalhes jsonb not null default '{}'::jsonb
@@ -179,11 +179,16 @@ $$;
 alter table public.escala_parametros drop constraint if exists escala_parametros_produto_unico_cutover;
 alter table public.escala_parametros add constraint escala_parametros_produto_unico_cutover
   check (chave <> 'produto_unico_cutover' or public.produto_unico_cutover_valido(valor));
+-- PLANEJAMENTO antecipado (06/11): mesma validação (segunda-feira >= 2026-11-02 ou null)
+alter table public.escala_parametros drop constraint if exists escala_parametros_produto_unico_planejamento;
+alter table public.escala_parametros add constraint escala_parametros_produto_unico_planejamento
+  check (chave <> 'produto_unico_planejamento_desde' or public.produto_unico_cutover_valido(valor));
 
 alter table public.escala_parametros disable trigger trg_escala_parametros_evento;
 alter table public.escala_parametros disable trigger trg_escala_plano_versao;
 insert into public.escala_parametros (chave, valor, grupo, descricao) values
-  ('produto_unico_cutover', 'null'::jsonb, 'operacional', 'Produto único com rotas (Conector 3/4): segunda-feira ISO (a partir de 2026-11-02) em que a Previsão/Escala/Apontamento passam a usar o produto canônico. Semanas >= cutover usam o canônico; anteriores seguem como registradas (Conv/Auto). null = sem cutover (padrão, comportamento atual). Alterar dispara recálculo (gatilho de parâmetros): só pelo procedimento de ativação.')
+  ('produto_unico_cutover', 'null'::jsonb, 'operacional', 'Produto único com rotas (Conector 3/4): segunda-feira ISO (a partir de 2026-11-02) em que a Previsão/Escala/Apontamento passam a usar o produto canônico. Semanas >= cutover usam o canônico; anteriores seguem como registradas (Conv/Auto). null = sem cutover (padrão, comportamento atual). Alterar dispara recálculo (gatilho de parâmetros): só pelo procedimento de ativação.'),
+  ('produto_unico_planejamento_desde', 'null'::jsonb, 'operacional', 'Produto único (Conector 3/4) — PLANEJAMENTO antecipado: segunda-feira ISO (>= 2026-11-02) a partir da qual a Previsão/Forecast, a geração do plano (motor novo) e os indicadores usam o produto único, SEM mudar nada operacional (apontamento, fechamento, buffers, liberação, TV, WIP oficial seguem o cutover). O plano dessas semanas é FUTURO e NÃO LIBERADO. null = sem planejamento antecipado. Só pelo procedimento produto_unico_habilitar_planejamento.')
 on conflict (chave) do nothing;
 alter table public.escala_parametros enable trigger trg_escala_plano_versao;
 alter table public.escala_parametros enable trigger trg_escala_parametros_evento;
@@ -207,6 +212,38 @@ security definer
 set search_path = public, pg_temp
 as $$
   select coalesce(date_trunc('week', p_data)::date >= public.produto_unico_cutover(), false);
+$$;
+
+-- PLANEJAMENTO: a semana (qualquer data dela) usa o produto único na Previsão/Forecast e na geração do plano? (>= o MENOR entre planejamento_desde e cutover)
+create or replace function public.produto_unico_planejamento_desde()
+returns date
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select case when jsonb_typeof(valor) = 'string' then (valor #>> '{}')::date else null end from public.escala_parametros where chave = 'produto_unico_planejamento_desde';
+$$;
+
+create or replace function public.produto_unico_planejando(p_data date)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce(date_trunc('week', p_data)::date >= least(public.produto_unico_planejamento_desde(), public.produto_unico_cutover()), false);   -- least ignora null
+$$;
+
+-- modo da semana: LEGADO | PLANEJAMENTO (planejando e ainda não operacional) | OPERACIONAL (>= cutover). Espelha modoProdutoUnicoDaSemana (cutover.ts).
+create or replace function public.produto_unico_modo(p_data date)
+returns text
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select case when public.produto_unico_ativo(p_data) then 'OPERACIONAL' when public.produto_unico_planejando(p_data) then 'PLANEJAMENTO' else 'LEGADO' end;
 $$;
 
 -- =========================================================================
@@ -373,6 +410,12 @@ revoke update, delete on public.produto_canonico_ativacoes from service_role;
 
 grant select on public.vw_apontamentos_canonicos, public.vw_alocacoes_canonicas to authenticated, service_role;
 revoke all on function public.produto_unico_cutover() from public, anon;
+revoke all on function public.produto_unico_planejamento_desde() from public, anon;
+revoke all on function public.produto_unico_planejando(date) from public, anon;
+revoke all on function public.produto_unico_modo(date) from public, anon;
+grant execute on function public.produto_unico_planejamento_desde() to authenticated, service_role;
+grant execute on function public.produto_unico_planejando(date) to authenticated, service_role;
+grant execute on function public.produto_unico_modo(date) to authenticated, service_role;
 revoke all on function public.produto_unico_ativo(date) from public, anon;
 grant execute on function public.produto_unico_cutover() to authenticated, service_role;
 grant execute on function public.produto_unico_ativo(date) to authenticated, service_role;
