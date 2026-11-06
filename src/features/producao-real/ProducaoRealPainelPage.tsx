@@ -206,6 +206,9 @@ export default function ProducaoRealPainelPage() {
     [estadoGrade, idsProgramados, idsExtras, maquinasViewTodas, planoFuturoPeriodo, aguardandoModo]
   );
   const foraDaEscala = useMemo(() => (idsProgramados ? maquinasViewTodas.filter((m) => !maquinasView.some((x) => x.id === m.id)) : []), [idsProgramados, maquinasViewTodas, maquinasView]);
+  // MODO MANUAL (fluxo legado): "+ ADICIONAR APONTAMENTO" é um atalho que lista as máquinas ainda SEM apontamento neste período (a grade já traz todas as máquinas ativas).
+  const modoManualGrade = estadoGrade === "legado";
+  const candidatasAdicionar = useMemo(() => (modoManualGrade ? maquinasViewTodas.filter((m) => m.estadoPeriodo === "pendente") : foraDaEscala), [modoManualGrade, maquinasViewTodas, foraDaEscala]);
   const minutos = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
   const naJanelaDeTroca = !!periodoDoFechamento && (periodoDoFechamento.data < dataLocalSP() || (periodoDoFechamento.data === dataLocalSP() && minutos(horaLocalSP()) >= minutos(periodoDoFechamento.fim) - 5));
   // apontamentos completos também abrem o fechamento (máquinas já paradas), mesmo antes dos 5 min finais do período
@@ -582,10 +585,10 @@ export default function ProducaoRealPainelPage() {
                   );
                 })}
               </div>
-              {estadoGrade === "programada" && (
+              {(estadoGrade === "programada" || modoManualGrade) && (
                 <div style={{ marginTop: 14 }}>
-                  <button type="button" className="stx-ap-btn-secondary" onClick={() => (fluxoUnicoDeApontamento ? setFechamentoAberto(true) : setAdicionando(true))}>+ ADICIONAR APONTAMENTO</button>
-                  <span className="stx-ap-legend-label" style={{ marginLeft: 10 }}>só para máquina que trabalhou fora da programação</span>
+                  <button type="button" className={modoManualGrade ? "stx-ap-btn-primary" : "stx-ap-btn-secondary"} onClick={() => (fluxoUnicoDeApontamento ? setFechamentoAberto(true) : setAdicionando(true))}>+ ADICIONAR APONTAMENTO</button>
+                  {!modoManualGrade && <span className="stx-ap-legend-label" style={{ marginLeft: 10 }}>só para máquina que trabalhou fora da programação</span>}
                 </div>
               )}
             </>
@@ -596,11 +599,11 @@ export default function ProducaoRealPainelPage() {
       {adicionando && (
         <div className="stx-modal-backdrop" role="dialog" aria-modal="true" aria-label="Adicionar apontamento fora da escala" onClick={() => setAdicionando(false)}>
           <div className="stx-ap-modal-card" onClick={(e) => e.stopPropagation()}>
-            <h2 style={{ marginTop: 0 }}>Apontamento fora da escala</h2>
-            <p className="stx-ap-legend-label">Escolha a máquina que trabalhou sem estar programada neste período:</p>
+            <h2 style={{ marginTop: 0 }}>{modoManualGrade ? "Adicionar apontamento" : "Apontamento fora da escala"}</h2>
+            <p className="stx-ap-legend-label">{modoManualGrade ? "Escolha a máquina que trabalhou neste período:" : "Escolha a máquina que trabalhou sem estar programada neste período:"}</p>
             <div style={{ display: "grid", gap: 8, maxHeight: "50vh", overflowY: "auto", marginTop: 8 }}>
-              {foraDaEscala.length === 0 && <p className="stx-empty">Todas as máquinas ativas já estão na lista.</p>}
-              {foraDaEscala.map((m) => (
+              {candidatasAdicionar.length === 0 && <p className="stx-empty">{modoManualGrade ? "Todas as máquinas já têm apontamento neste período." : "Todas as máquinas ativas já estão na lista."}</p>}
+              {candidatasAdicionar.map((m) => (
                 <button key={m.id} type="button" className="stx-ap-btn-secondary" style={{ minHeight: 52, textAlign: "left" }}
                   onClick={() => { setExtras((x) => ({ chave: chaveGrade ?? "", ids: new Set([...(x && x.chave === chaveGrade ? x.ids : []), m.id]) })); setAdicionando(false); setMaquinaEmEdicaoId(m.id); setFluxoAtual("escolha"); }}>
                   {m.nome}
