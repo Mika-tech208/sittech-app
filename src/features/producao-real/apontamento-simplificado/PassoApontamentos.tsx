@@ -19,14 +19,17 @@ const num = (v: string): number | null => (v === "" ? null : Number(v));
 export interface PassoApontamentosProps {
   data: string; periodoId: string;
   bloqueado?: boolean;                               // fechamento em andamento: tudo travado
+  /** nomes dos postos programados ainda sem lançamento (vem do fechamento); usado quando o período não foi liberado pela programação automática */
+  pendentesNomes?: string[];
   onModo: (ativo: boolean) => void;                  // false = fluxo de apontamento desligado (a tela BLOQUEIA o fechamento: não há fluxo concorrente)
   onSalvo: () => void;                               // recarrega o contexto do fechamento (postos pendentes)
   onNaoSalvo: (haAlteracoes: boolean) => void;
 }
 
-export default function PassoApontamentos({ data, periodoId, bloqueado, onModo, onSalvo, onNaoSalvo }: PassoApontamentosProps) {
+export default function PassoApontamentos({ data, periodoId, bloqueado, pendentesNomes, onModo, onSalvo, onNaoSalvo }: PassoApontamentosProps) {
   const [carregando, setCarregando] = useState(true);
   const [erroCarga, setErroCarga] = useState<string | null>(null);
+  const [naoLiberado, setNaoLiberado] = useState(false);   // período ainda não liberado pela programação automática (ex.: lançado à mão pela regularização histórica)
   const [cat, setCat] = useState<Catalogo | null>(null);
   const [linhas, setLinhas] = useState<LinhaApontamento[]>([]);
   const [base, setBase] = useState("");                 // fotografia da última carga/salvamento (detecta alterações não salvas)
@@ -46,7 +49,9 @@ export default function PassoApontamentos({ data, periodoId, bloqueado, onModo, 
       setErroCarga(null);
       if (r.status !== 200) { setErroCarga(r.corpo.erro ?? "Não foi possível carregar os apontamentos."); return; }
       if (r.corpo.modo !== "ativo") { onModo(false); return; }
-      if (r.corpo.naoLiberado || !r.corpo.catalogo) { setErroCarga("Programação deste período ainda não liberada."); return; }
+      if (r.corpo.naoLiberado) { setNaoLiberado(true); onModo(true); return; }   // o FECHAMENTO só se completa se todos os postos programados já tiverem lançamento (pendentes bloqueiam no servidor e na tela)
+      setNaoLiberado(false);
+      if (!r.corpo.catalogo) { setErroCarga("Programação deste período ainda não liberada."); return; }
       onModo(true);
       const l = linhasIniciais(r.corpo.postos ?? [], r.corpo.existentes ?? [], r.corpo.vinculos ?? [], () => crypto.randomUUID());
       setCat(r.corpo.catalogo); setLinhas(l); setBase(JSON.stringify(l.map(chaveEstado))); setEditando(new Set());
@@ -81,6 +86,15 @@ export default function PassoApontamentos({ data, periodoId, bloqueado, onModo, 
   }
 
   if (carregando && !cat) return <p className="stx-fech-sec" role="status">Carregando os postos programados…</p>;
+  if (naoLiberado && !cat) return (
+    <div className="stx-fech-sec" role="status">
+      <p style={{ fontWeight: 700, margin: "0 0 6px" }}>PERÍODO LANÇADO FORA DA PROGRAMAÇÃO AUTOMÁTICA</p>
+      <p style={{ fontSize: 14, color: "var(--text-3)", margin: 0 }}>Este período ainda não foi liberado pela programação automática: os apontamentos são lançados por quem regulariza (REGULARIZAR APONTAMENTOS ANTERIORES). Para fechar, todos os postos programados precisam ter lançamento (produção ou sem produção).</p>
+      {pendentesNomes && pendentesNomes.length > 0
+        ? <p className="stx-save-error" role="alert" style={{ marginTop: 8 }}>Faltam lançamentos de: {pendentesNomes.join(", ")}.</p>
+        : <p style={{ fontSize: 14, color: "var(--accent)", marginTop: 8 }}>✓ Todos os postos programados têm lançamento.</p>}
+    </div>
+  );
   if (erroCarga && !cat) return (
     <div className="stx-fech-sec" role="alert">
       <p className="stx-save-error">{MENSAGEM_POSTOS_NAO_CARREGADOS}</p>

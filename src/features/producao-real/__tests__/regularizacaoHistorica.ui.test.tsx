@@ -64,4 +64,14 @@ describe("Regularização histórica (tela)", () => {
     fireEvent.click(screen.getByText("Salvar e adicionar outro"));
     await screen.findByText(/não tem este produto\/operação cadastrado/);
   });
+  it("SEM PRODUÇÃO: marca, escolhe o motivo e chama a RPC própria sem pedir operador/produto/quantidades", async () => {
+    render(<RegularizacaoHistoricaModal onFechar={() => undefined} />);
+    await screen.findByText(/Apontamentos existentes/);
+    fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "mq2" } });
+    fireEvent.click(screen.getByLabelText(/SEM PRODUÇÃO/));
+    expect(screen.queryByText("4. Operador")).toBeNull();
+    fireEvent.change(screen.getAllByRole("combobox")[2], { target: { value: "falta_operador" } });
+    fireEvent.click(screen.getByText("Salvar e adicionar outro"));
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith("regularizar_sem_producao_historico", expect.objectContaining({ p_data: "2026-11-05", p_periodo_id: "m1", p_maquina_id: "mq2", p_motivo: "falta_operador", p_descricao: null, p_apontamento_id: null })));
+  });
 });

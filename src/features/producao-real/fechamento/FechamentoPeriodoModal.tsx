@@ -132,7 +132,7 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
         {ab && (fase === "form" || fase === "salvando" || fase === "recalculando") && (
           <>
             {/* UM ÚNICO fluxo de apontamentos (Frente 2): postos programados pré-preenchidos, planejado × real, NÃO PRODUZIU, + ADICIONAR APONTAMENTO */}
-            <PassoApontamentos data={data} periodoId={periodoId} bloqueado={fase !== "form"} onModo={aoModo} onNaoSalvo={setNaoSalvo} onSalvo={abrir} />
+            <PassoApontamentos data={data} periodoId={periodoId} bloqueado={fase !== "form"} pendentesNomes={pendentes.map((p) => p.nome)} onModo={aoModo} onNaoSalvo={setNaoSalvo} onSalvo={abrir} />
             {simplificado === "desligado" && <p className="stx-save-error" role="alert">APONTAMENTOS DO FECHAMENTO INDISPONÍVEIS: o fluxo de apontamento está desligado. Avise o administrador — o período não pode ser fechado sem ele.</p>}
 
             {!etapaEstoqueLiberada(ab.postos) && <p className="stx-fech-sec" style={{ fontSize: 14, color: "var(--text-3)" }} role="status">O estoque físico é pedido depois que todos os postos estiverem resolvidos.</p>}
