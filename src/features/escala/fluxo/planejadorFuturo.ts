@@ -8,7 +8,7 @@
 import { reatribuirPessoasBloco } from "../estabilidade";
 import type { AlocacaoEscala, SlotEscala } from "../types";
 import { MOTIVO_DEMANDA_ESGOTADA } from "../types";
-import { buscaLocal, linhasComDetalhes, prepararDespacho, despachar, linhasParaOcc, type ConfigDespacho, type LinhaPostoD } from "./postosDespacho";
+import { apertarLinhasAoLimite, buscaLocal, linhasComDetalhes, prepararDespacho, despachar, linhasParaOcc, type ConfigDespacho, type LinhaPostoD } from "./postosDespacho";
 import { validarPlanoCadeia, type ProdutoRev, type RecursoRev } from "./planoReverso";
 import { fase2ComPrimeiras, planejarFase2, type EntradaAntecipacao, type LinhaAntecipada, type LinhaAntecipadaBruta, type OrigemExtra, type ResultadoFase2 } from "./antecipacao";
 
@@ -44,6 +44,8 @@ export interface EntradaPlanejador {
   parar?: () => boolean;
   /** ANTECIPAÇÃO / FORMAÇÃO DE ESTOQUE (fase 2, antecipacao.ts). AUSENTE ⇒ o planejador roda exatamente como antes (saída byte-idêntica). Presente ⇒ roda DEPOIS da demanda, só com o que sobra. */
   antecipacao?: EntradaAntecipacao;
+  /** diagnóstico (somente leitura): chamado a cada tentativa de atribuição de pessoas com os postos que a busca produziu e se a atribuição de revezamento foi viável */
+  diagnosticoAtribuicao?: (info: { linhas: AlocacaoEscala[]; atribuicaoOk: boolean; congeladas: AlocacaoEscala[] }) => void;
 }
 
 export interface SaidaPlanejador {
@@ -136,6 +138,7 @@ export function planejarFuturo(e: EntradaPlanejador): SaidaPlanejador {
   for (let tent = 0; tent < 5 && !resultado; tent++, limiteOp--) {
     if (e.parar?.()) throw new Error(ERRO_ORCAMENTO);
     const cfg: ConfigDespacho = { ...cfgBase, limiteOp };
+    if (tent > 0) iniciais = apertarLinhasAoLimite(cfg, iniciais); // retentativa: a partida também obedece ao limite apertado (senão ele não aperta nada)
     const r = buscaLocal(cfg, iniciais, { iter: e.busca?.iter ?? 400000, reinicios: e.busca?.reinicios ?? 2, semente: e.busca?.semente ?? 1, ...(e.parar ? { parar: e.parar } : {}) });
     if (r.interrompida || e.parar?.()) throw new Error(ERRO_ORCAMENTO);
     const m = montar(e, cfg, r, prodsFuturo, congel, alvo, finaisCongelados, avisos);
@@ -227,6 +230,7 @@ function montar(e: EntradaPlanejador, cfg: ConfigDespacho, r: ReturnType<typeof 
   }
   const reg = reatribuirPessoasBloco(lin, e.linhasCongeladas, e.slots, { escopo: "bloco", ponteM3T1: e.revezamento?.ponteM3T1 ?? true, equivalencias: e.revezamento?.equivalencias }, 600);
   const atribuicaoOk = reg !== null;
+  e.diagnosticoAtribuicao?.({ linhas: lin, atribuicaoOk, congeladas: e.linhasCongeladas });
   const finais = (reg?.linhas ?? lin).map((a): LinhaPlanejada => {
     const t = e.slots.find((s) => s.data === a.data && s.periodoId === a.periodoId)!.indice;
     return { ...a, distribuicao: a.maquinaId ? dist.get(`${t}|${a.maquinaId}`) ?? [] : [] };
@@ -271,7 +275,8 @@ function montar(e: EntradaPlanejador, cfg: ConfigDespacho, r: ReturnType<typeof 
       const prod = e.produtos.find((p) => p.id === b.produtoId) as ProdutoRev;
       const final = b.etapaIdx === prod.etapas.length - 1;
       if (final) finalExtra[b.produtoId] = (finalExtra[b.produtoId] ?? 0) + b.pecas;
-      ant.push({ data: s.data, periodoId: s.periodoId, funcionarioId: lin2.funcionarioId, maquinaId: b.recursoId, operacaoId: b.operacaoId, produtoId: b.produtoId, etapaId: b.etapaId, etapaIdx: b.etapaIdx, etapaFinal: final, pecas: b.pecas, origem: b.origem });
+      const meta = e.antecipacao?.produtos.find((x) => x.produtoId === b.produtoId)?.metaMinima;
+      ant.push({ data: s.data, periodoId: s.periodoId, funcionarioId: lin2.funcionarioId, maquinaId: b.recursoId, operacaoId: b.operacaoId, produtoId: b.produtoId, etapaId: b.etapaId, etapaIdx: b.etapaIdx, etapaFinal: final, pecas: b.pecas, origem: b.origem, ...(meta !== undefined ? { metaMinima: meta } : {}) });
     });
     extras.antecipacoes = ant; extras.finalExtra = finalExtra;
   }

@@ -160,6 +160,10 @@ export interface AntecipacaoParaGravar {
   semanaDestino: string | null;
   data: string; periodoId: string; produtoId: string; etapaId: string; etapaIdx: number; etapaFinal: boolean;
   operacaoId: string | null; maquinaId: string; funcionarioId: string | null; quantidade: number;
+  /** meta mínima de produção (quantidade da Previsão) do produto na semana de origem */
+  metaMinima: number | null;
+  /** quantidade além da meta mínima (FORMACAO_ESTOQUE: toda a linha; demais: 0) */
+  alemDaMeta: number;
 }
 
 export interface PayloadAplicacao {

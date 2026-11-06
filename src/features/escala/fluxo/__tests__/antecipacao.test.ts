@@ -9,7 +9,7 @@ import type { ProdutoRev, RecursoRev } from "../planoReverso";
 import type { SlotEscala } from "../../types";
 import { MOTIVO_DEMANDA_ESGOTADA } from "../../types";
 import {
-  ORIGEM_ANTECIPACAO, ORIGEM_FORMACAO, descontarAntecipadoNoDestino, montarEntradaAntecipacao, tetoLiquidoFuturo, wipNaoTocado,
+  ORIGEM_ANTECIPACAO, ORIGEM_FORMACAO, SEM_LIMITE_FISICO, descontarAntecipadoNoDestino, montarEntradaAntecipacao, metaFuturaRestante, wipNaoTocado,
   type DadosAntecipacao, type EntradaAntecipacao, type ProdutoAntecipavel, type RegistroAntecipacao,
 } from "../antecipacao";
 
@@ -30,8 +30,8 @@ const base = (produtos: ProdutoRev[], extra: Partial<EntradaPlanejador> = {}): E
   operacaoDe: (_p, e) => `op-${e}`, objetivo: "MAX_PECAS_FINAIS", busca: { iter: 40000, reinicios: 1 }, ...extra,
 });
 const ant = (...p: ProdutoAntecipavel[]): EntradaAntecipacao => ({ produtos: p });
-const ANT = (produtoId: string, tetoFinal: number, extra: Partial<ProdutoAntecipavel> = {}): ProdutoAntecipavel => ({ produtoId, origem: ORIGEM_ANTECIPACAO, tetoFinal, ...extra });
-const FOR = (produtoId: string, tetoFinal: number, extra: Partial<ProdutoAntecipavel> = {}): ProdutoAntecipavel => ({ produtoId, origem: ORIGEM_FORMACAO, tetoFinal, ...extra });
+const ANT = (produtoId: string, maxFinal: number, extra: Partial<ProdutoAntecipavel> = {}): ProdutoAntecipavel => ({ produtoId, origem: ORIGEM_ANTECIPACAO, maxFinal, ...extra });
+const FOR = (produtoId: string, maxFinal: number, extra: Partial<ProdutoAntecipavel> = {}): ProdutoAntecipavel => ({ produtoId, origem: ORIGEM_FORMACAO, maxFinal, ...extra });
 const hash = (s: SaidaPlanejador) => createHash("sha256").update(JSON.stringify([s.linhas.map((l) => [l.periodoId, l.funcionarioId, l.maquinaId, l.produtoId, l.etapaId, l.operacaoId, l.pecas, l.distribuicao]), s.producao, s.wip, s.porProduto, s.validacao])).digest("hex");
 const somaFin = (s: SaidaPlanejador, pid: string, filtro: (o: string) => boolean = () => true) => (s.antecipacoes ?? []).filter((a) => a.produtoId === pid && a.etapaFinal && filtro(a.origem)).reduce((x, a) => x + a.pecas, 0);
 const prodTotal = (s: SaidaPlanejador, pid: string, eid: string) => s.producao[pid][eid].reduce((a, b) => a + b, 0);
@@ -96,14 +96,14 @@ describe("ANTECIPAÇÃO — regras obrigatórias", () => {
     com.porProduto.forEach((p) => { const b = sem.porProduto.find((x) => x.produtoId === p.produtoId)!; expect(p.programado - (com.finalExtra?.[p.produtoId] ?? 0)).toBeCloseTo(b.programado, 6); });
   });
 
-  it("4. antecipação que já cobre o Forecast futuro PARA de produzir (tetoLiquidoFuturo)", () => {
-    expect(tetoLiquidoFuturo(54000, 8000)).toBe(46000);
-    expect(tetoLiquidoFuturo(54000, 54000)).toBe(0);
-    expect(tetoLiquidoFuturo(54000, 60000)).toBe(0);
+  it("4. antecipação que já cobre o Forecast futuro PARA de produzir (metaFuturaRestante)", () => {
+    expect(metaFuturaRestante(54000, 8000)).toBe(46000);
+    expect(metaFuturaRestante(54000, 54000)).toBe(0);
+    expect(metaFuturaRestante(54000, 60000)).toBe(0);
     const s1 = planejarFuturo(base([S0(0)], { antecipacao: ant(ANT("S", 1500)) }));
     expect(somaFin(s1, "S")).toBeLessThanOrEqual(1500);
     expect(somaFin(s1, "S")).toBeGreaterThan(0);
-    const s0 = planejarFuturo(base([S0(0)], { antecipacao: ant(ANT("S", tetoLiquidoFuturo(1500, 1500))) }));
+    const s0 = planejarFuturo(base([S0(0)], { antecipacao: ant(ANT("S", metaFuturaRestante(1500, 1500))) }));
     expect(s0.antecipacoes).toBeUndefined();
     expect(s0.linhas.every((l) => !l.maquinaId)).toBe(true);
   });
@@ -188,17 +188,20 @@ describe("ANTECIPAÇÃO — regras obrigatórias", () => {
 describe("FORMAÇÃO DELIBERADA DE ESTOQUE — política por produto, sem teto de Forecast", () => {
   it("política DESLIGADA para o produto ⇒ o teto do Forecast continua; LIGADA ⇒ passa do Forecast futuro e da demanda atual", () => {
     const dadosBase = (politicas: DadosAntecipacao["politicasFormacao"]): DadosAntecipacao => ({
-      modo: "ativo", semanaOrigem: "2026-11-02", semanaDestino: "2026-11-09", politicasFormacao: politicas, excluidos: [], registros: [],
+      modo: "ativo", antecipacaoSolicitada: true, semanaOrigem: "2026-11-02", semanaDestino: "2026-11-09", politicasFormacao: politicas, excluidos: [], registros: [],
       forecastDestino: [{ produtoId: "S", quantidade: 1500, maquinasPorEtapa: { S0: ["s0", "s0b"] } }],
     });
     const pools = [{ produtoId: "S", etapaId: "S0", ordemEtapa: 0, quantidade: 1000, maquinasIds: ["s0", "s0b"] }];
     const comum = { pools, indiceDoSlot: () => 99, aPartirDe: 0 };
     const sem = montarEntradaAntecipacao({ dados: dadosBase([]), ...comum });
-    expect(sem.entrada.produtos).toEqual([{ produtoId: "S", origem: ORIGEM_ANTECIPACAO, tetoFinal: 1500, maquinasPorEtapa: { S0: ["s0", "s0b"] } }]);
+    expect(sem.entrada.produtos).toEqual([{ produtoId: "S", origem: ORIGEM_ANTECIPACAO, maxFinal: 1500, metaMinima: 1000, maquinasPorEtapa: { S0: ["s0", "s0b"] } }]);
+    // sem o opt-in da antecipação, produto não autorizado simplesmente para na meta
+    const optOut = montarEntradaAntecipacao({ dados: { ...dadosBase([]), antecipacaoSolicitada: false }, ...comum });
+    expect(optOut.entrada.produtos).toEqual([]);
     const com = montarEntradaAntecipacao({ dados: dadosBase([{ produtoId: "S" }]), ...comum });
-    expect(com.entrada.produtos).toEqual([{ produtoId: "S", origem: ORIGEM_FORMACAO, tetoFinal: 1500 }]); // teto físico padrão = max(Forecast atual, Forecast futuro): sem teto POR FORECAST
-    const alto = montarEntradaAntecipacao({ dados: dadosBase([{ produtoId: "S", tetoPecas: 40000 }]), ...comum });
-    expect(alto.entrada.produtos[0].tetoFinal).toBe(40000);
+    expect(com.entrada.produtos).toEqual([{ produtoId: "S", origem: ORIGEM_FORMACAO, maxFinal: SEM_LIMITE_FISICO, metaMinima: 1000 }]); // a meta mínima é PISO: sem limite comercial; só o limite físico (capacidade)
+    const alto = montarEntradaAntecipacao({ dados: dadosBase([{ produtoId: "S", limiteFisicoPecas: 40000 }]), ...comum });
+    expect(alto.entrada.produtos[0].maxFinal).toBe(40000);
     // motor: sem política, teto 1500 (Forecast futuro); com política e teto físico 40000, produz bem mais que o Forecast futuro e que a demanda atual (0)
     const sTeto = planejarFuturo(base([S0(0)], { antecipacao: sem.entrada }));
     const sPol = planejarFuturo(base([S0(0)], { antecipacao: alto.entrada }));
@@ -262,13 +265,13 @@ describe("FORMAÇÃO DELIBERADA DE ESTOQUE — política por produto, sem teto d
   });
 
   it("estoque formado do passado e excedente real contam no teto físico (Pino: o excesso já produzido não é corrigido para baixo, mas ocupa o teto)", () => {
-    const dados: DadosAntecipacao = { modo: "ativo", semanaOrigem: "s", semanaDestino: "d", forecastDestino: [], politicasFormacao: [{ produtoId: "S", tetoPecas: 10000 }], excluidos: [], registros: [{ origem: ORIGEM_FORMACAO, data: "2026-11-05", periodoId: "t1", produtoId: "S", etapaId: "S0", etapaFinal: true, quantidade: 3000 }] };
+    const dados: DadosAntecipacao = { modo: "ativo", semanaOrigem: "s", semanaDestino: "d", forecastDestino: [], politicasFormacao: [{ produtoId: "S", limiteFisicoPecas: 10000 }], excluidos: [], registros: [{ origem: ORIGEM_FORMACAO, data: "2026-11-05", periodoId: "t1", produtoId: "S", etapaId: "S0", etapaFinal: true, quantidade: 3000 }] };
     const pools = [{ produtoId: "S", etapaId: "S0", ordemEtapa: 0, quantidade: 43200, maquinasIds: ["s0"] }];
     const idx = (d: string) => (d === "2026-11-05" ? 0 : 5);
     const r = montarEntradaAntecipacao({ dados, pools, indiceDoSlot: idx, aPartirDe: 3, excedenteReal: { S: 8580 } });
-    expect(r.entrada.produtos[0].tetoFinal).toBe(10000 - 8580); // max(formado 3000, excedente 8580)
+    expect(r.entrada.produtos[0].maxFinal).toBe(10000 - 8580); // max(formado 3000, excedente 8580)
     const r2 = montarEntradaAntecipacao({ dados, pools, indiceDoSlot: idx, aPartirDe: 3, excedenteReal: { S: 0 } });
-    expect(r2.entrada.produtos[0].tetoFinal).toBe(7000);
+    expect(r2.entrada.produtos[0].maxFinal).toBe(7000);
   });
 });
 
@@ -302,7 +305,7 @@ describe("Propriedade (sementes fixas): invariantes HARD e prioridade da demanda
         expect(prodTotal(com, p.id, et.id) - extra, `${tag} ${p.id}/${et.id}`).toBeCloseTo(prodTotal(sem, p.id, et.id), 6);
       }
       // tetos: ANTECIPAÇÃO ≤ teto líquido; FORMAÇÃO ≤ teto físico; produto fora da lista não recebe extra
-      for (const ap of antProdutos) expect(somaFin(com, ap.produtoId, (o) => o === ap.origem), tag).toBeLessThanOrEqual(ap.tetoFinal + 1e-6);
+      for (const ap of antProdutos) expect(somaFin(com, ap.produtoId, (o) => o === ap.origem), tag).toBeLessThanOrEqual(ap.maxFinal + 1e-6);
       (com.antecipacoes ?? []).forEach((a) => expect(antProdutos.some((x) => x.produtoId === a.produtoId && x.origem === a.origem), tag).toBe(true));
     }
   }, 120_000);
@@ -310,7 +313,7 @@ describe("Propriedade (sementes fixas): invariantes HARD e prioridade da demanda
 
 describe("Exclusões por construção, desligado byte-idêntico e nenhuma regra por nome", () => {
   const dados = (extra: Partial<DadosAntecipacao>): DadosAntecipacao => ({
-    modo: "ativo", semanaOrigem: "2026-11-02", semanaDestino: "2026-11-09", registros: [], politicasFormacao: [], excluidos: [],
+    modo: "ativo", antecipacaoSolicitada: true, semanaOrigem: "2026-11-02", semanaDestino: "2026-11-09", registros: [], politicasFormacao: [], excluidos: [],
     forecastDestino: [{ produtoId: "pino", quantidade: 54000, maquinasPorEtapa: { e1: ["m20"] } }, { produtoId: "conector", quantidade: 76125, maquinasPorEtapa: { e2: ["m"] } }, { produtoId: "caixa42", quantidade: 5, maquinasPorEtapa: { e3: ["m"] } }], ...extra,
   });
   const pools = [
@@ -344,10 +347,10 @@ describe("Exclusões por construção, desligado byte-idêntico e nenhuma regra 
   it("antecipado em períodos já iniciados (registro) já conta contra o Forecast: continua só com o LÍQUIDO", () => {
     const regs: RegistroAntecipacao[] = [{ origem: ORIGEM_ANTECIPACAO, data: "2026-11-05", periodoId: "t3", produtoId: "pino", etapaId: "e1", etapaFinal: true, quantidade: 8000 }];
     const r = montarEntradaAntecipacao({ dados: dados({ registros: regs }), pools, indiceDoSlot: () => 0, aPartirDe: 2 });
-    expect(r.entrada.produtos.find((p) => p.produtoId === "pino")!.tetoFinal).toBe(46000);
+    expect(r.entrada.produtos.find((p) => p.produtoId === "pino")!.maxFinal).toBe(46000);
     // registro de período FUTURO (será substituído pelo novo plano) não conta
     const r2 = montarEntradaAntecipacao({ dados: dados({ registros: regs }), pools, indiceDoSlot: () => 5, aPartirDe: 2 });
-    expect(r2.entrada.produtos.find((p) => p.produtoId === "pino")!.tetoFinal).toBe(54000);
+    expect(r2.entrada.produtos.find((p) => p.produtoId === "pino")!.maxFinal).toBe(54000);
   });
 
   it("DESLIGADO é byte-idêntico: sem `antecipacao` (ou vazia) a saída do planejador é exatamente a de antes, em vários cenários", () => {
@@ -368,5 +371,31 @@ describe("Exclusões por construção, desligado byte-idêntico e nenhuma regra 
     const arquivos = ["antecipacao.ts", "planejadorFuturo.ts", "postosDespacho.ts"].map((f) => readFileSync(join(process.cwd(), "src/features/escala/fluxo", f), "utf8"));
     const codigo = arquivos.join("\n").split("\n").filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l)).map((l) => l.replace(/\/\/.*$/, "")).join("\n");
     for (const nome of ["Pino", "Plug", "Elizabeth", "Samantha", "Aly", "Sara", "Conector", "Caixa", "4x2", "4x4"]) expect(codigo.includes(nome), nome).toBe(false);
+  });
+});
+
+describe("Fallback de 06/11 13:08 — retentativa aperta TAMBÉM as linhas de partida (revezamento de bloco com ausência no meio da tarde)", () => {
+  it("mais postos da mesma operação do que pessoas elegíveis na tarde: o planejador reduz os postos e fecha um plano válido (antes: 'sem plano executável')", () => {
+    // 5 pessoas; p5 ausente em t2/t3 (a ausência entra depois do começo do dia ⇒ max(pessoas) continua 5); em t1 (congelado) p1 e p2 fizeram a operação X
+    // elegíveis a X em t2+t3 = {p3,p4} (2). Com 4 máquinas de X e demanda grande, a 1ª tentativa (limite 5 − 2 = 3 linhas) pede 3 postos de X ⇒ atribuição impossível; o aperto do limite precisa derrubar linhas de verdade.
+    const X = prod("X", [etapa("X0", ["x0", 1000], ["x1", 1000], ["x2", 1000], ["x3", 1000])], 40000);
+    const congeladas = [
+      { data: "2026-11-06", periodoId: "t1", funcionarioId: "p1", maquinaId: "x0", produtoId: "X", etapaId: "X0", operacaoId: "op-X0", pecas: 1000, pecasAdicional: 0, motivoSemPosto: null, excecaoRevezamento: false, motivoExcecao: null, origem: "auto" as const },
+      { data: "2026-11-06", periodoId: "t1", funcionarioId: "p2", maquinaId: "x1", produtoId: "X", etapaId: "X0", operacaoId: "op-X0", pecas: 1000, pecasAdicional: 0, motivoSemPosto: null, excecaoRevezamento: false, motivoExcecao: null, origem: "auto" as const },
+    ];
+    const e: EntradaPlanejador = {
+      ...base([X], { aPartirDe: 4, equipe: ["p1", "p2", "p3", "p4", "p5"].map((id) => ({ id })), ausentes: { 4: ["p5"], 5: ["p5"] }, linhasCongeladas: congeladas, revezamento: { ponteM3T1: true } }),
+      recursos: ["x0", "x1", "x2", "x3"].map(rec),
+    };
+    const s = planejarFuturo(e);
+    sanidade(s);
+    // elegíveis a X em t2+t3 são só p3 e p4 ⇒ no máximo 2 linhas de X no bloco
+    expect(s.linhas.filter((l) => l.maquinaId && l.operacaoId === "op-X0").length).toBeLessThanOrEqual(2);
+    expect(s.linhas.filter((l) => l.maquinaId).length).toBeGreaterThan(0);
+    const porPessoa = new Map<string, number>();
+    s.linhas.filter((l) => l.maquinaId).forEach((l) => porPessoa.set(l.funcionarioId, (porPessoa.get(l.funcionarioId) ?? 0) + 1));
+    expect(porPessoa.get("p1") ?? 0).toBe(0); // p1 e p2 já fizeram X na tarde
+    expect(porPessoa.get("p2") ?? 0).toBe(0);
+    expect(porPessoa.get("p5") ?? 0).toBe(0); // ausente
   });
 });

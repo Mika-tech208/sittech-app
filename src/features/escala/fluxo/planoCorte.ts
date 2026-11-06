@@ -92,8 +92,8 @@ export interface ChecagensCorte {
   antecipacao?: {
     linhasExtras: number; pecasExtrasFinais: number;
     foraDoDestino: number; // linha de ANTECIPAÇÃO em máquina fora da interseção Previsão atual × Previsão da semana seguinte
-    demandaFuturaUltrapassada: number; // ANTECIPAÇÃO acima do Forecast futuro líquido (nunca pode)
-    tetoFisicoUltrapassado: number; // FORMAÇÃO acima do teto físico explícito do produto
+    antecipacaoAcimaDaMetaFutura: number; // ANTECIPAÇÃO acima do Forecast futuro líquido (nunca pode)
+    limiteFisicoUltrapassado: number; // FORMAÇÃO acima do teto físico explícito do produto
     produtoProibido: number; // extra em produto excluído (Conector/produto único), encerrado ou sem política/Forecast
   };
 }
@@ -298,7 +298,7 @@ export function checarPlanoCorte(entrada: EntradaEscala, linhas: AlocacaoEscala[
 export function checarAntecipacao(entrada: EntradaEscala, saida: SaidaPlanejador, poolPor: Map<string, PoolEscala>): NonNullable<ChecagensCorte["antecipacao"]> {
   const dados = entrada.antecipacao;
   const rows = saida.antecipacoes ?? [];
-  const vazio = { linhasExtras: 0, pecasExtrasFinais: 0, foraDoDestino: 0, demandaFuturaUltrapassada: 0, tetoFisicoUltrapassado: 0, produtoProibido: 0 };
+  const vazio = { linhasExtras: 0, pecasExtrasFinais: 0, foraDoDestino: 0, antecipacaoAcimaDaMetaFutura: 0, limiteFisicoUltrapassado: 0, produtoProibido: 0 };
   if (!dados) return vazio;
   const idx = new Map(entrada.slots.map((x) => [chaveSlot(x), x.indice]));
   const congelados = dados.registros.filter((r) => (idx.get(`${r.data}|${r.periodoId}`) ?? -1) < entrada.aPartirDe);
@@ -325,15 +325,15 @@ export function checarAntecipacao(entrada: EntradaEscala, saida: SaidaPlanejador
     const ps = [...poolPor.values()].filter((p) => p.produtoId === pid);
     const qAtual = ps.length ? ps.reduce((m, p) => (p.ordemEtapa > m.ordemEtapa ? p : m), ps[0]).quantidade : 0;
     const fc = dados.forecastDestino.find((x) => x.produtoId === pid);
-    const lim = pol?.tetoPecas ?? Math.max(qAtual, fc?.quantidade ?? 0);
+    const lim = pol?.limiteFisicoPecas ?? Math.max(qAtual, fc?.quantidade ?? 0);
     if (v + (forCong[pid] ?? 0) > lim + 0.5) teto++;
   });
-  return { linhasExtras: rows.length, pecasExtrasFinais: Math.round(finaisExtras), foraDoDestino: fora, demandaFuturaUltrapassada: ultrapassada, tetoFisicoUltrapassado: teto, produtoProibido: proibido };
+  return { linhasExtras: rows.length, pecasExtrasFinais: Math.round(finaisExtras), foraDoDestino: fora, antecipacaoAcimaDaMetaFutura: ultrapassada, limiteFisicoUltrapassado: teto, produtoProibido: proibido };
 }
 
 export function checagensOk(c: ChecagensCorte): boolean {
   const a = c.antecipacao;
-  if (a && (a.foraDoDestino !== 0 || a.demandaFuturaUltrapassada !== 0 || a.tetoFisicoUltrapassado !== 0 || a.produtoProibido !== 0)) return false;
+  if (a && (a.foraDoDestino !== 0 || a.antecipacaoAcimaDaMetaFutura !== 0 || a.limiteFisicoUltrapassado !== 0 || a.produtoProibido !== 0)) return false;
   return c.cadeiaInvalida === 0 && c.semMaterial === 0 && c.violacoesDuras === 0 && c.maquinaForaDaPrevisao === 0 && c.distribuicaoInvalida === 0 && c.excedePessoas === 0 && c.passadoAlterado === 0 && c.duplicidade === 0;
 }
 
@@ -392,7 +392,7 @@ export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProdu
   // registro da produção extra: `grava` = este plano é NOVO (substitui as linhas futuras do registro); false = plano vigente mantido (registro intocado)
   const antDe = (saida: SaidaPlanejador | null, grava: boolean): { antecipacao?: NonNullable<ResultadoCorte["antecipacao"]> } =>
     entrada.antecipacao ? { antecipacao: { diagnostico: m.antecipacaoDiag ?? [], ...(grava ? { registros: saida?.antecipacoes ?? [] } : {}) } } : {};
-  (m.antecipacaoDiag ?? []).forEach((d) => diagnosticos.push({ codigo: "ANTECIPACAO_PRODUTO", severidade: "info", produtoId: d.produtoId, mensagem: `${d.situacao}: ${d.motivo}`, detalhes: { situacao: d.situacao, ...(d.tetoFinal !== undefined ? { tetoFinal: d.tetoFinal } : {}) } }));
+  (m.antecipacaoDiag ?? []).forEach((d) => diagnosticos.push({ codigo: "ANTECIPACAO_PRODUTO", severidade: "info", produtoId: d.produtoId, mensagem: `${d.situacao}: ${d.motivo}`, detalhes: { situacao: d.situacao, ...(d.maxFinal !== undefined ? { maxFinal: d.maxFinal } : {}) } }));
   if (m.repartidos > 0) diagnosticos.push({ codigo: "APONTAMENTO_LINHA_COMPARTILHADO_REPARTIDO", severidade: "info", mensagem: `${m.repartidos} apontamento(s) de linha compartilhada repartido(s) entre os produtos pela distribuição planejada do período (um apontamento por máquina×período)` });
   const idxSlot = new Map(entrada.slots.map((s) => [chaveSlot(s), s.indice]));
   const vigenteFuturo = planoVigenteBruto.filter((a) => (idxSlot.get(chaveSlot(a)) ?? -1) >= entrada.aPartirDe);

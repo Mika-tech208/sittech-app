@@ -91,6 +91,7 @@ export function registrosParaGravar(semanaOrigem: string, semanaDestino: string,
   const linhas: AntecipacaoParaGravar[] = extras.map((x) => ({
     origem: x.origem, semanaDestino, data: x.data, periodoId: x.periodoId, produtoId: x.produtoId, etapaId: x.etapaId, etapaIdx: x.etapaIdx,
     etapaFinal: x.etapaFinal, operacaoId: x.operacaoId, maquinaId: x.maquinaId, funcionarioId: x.funcionarioId, quantidade: x.pecas,
+    metaMinima: x.metaMinima ?? null, alemDaMeta: x.origem === "FORMACAO_ESTOQUE" ? x.pecas : 0, // FORMAÇÃO = tudo que passa da meta mínima (e a etapa intermediária que a prepara)
   }));
   const extraPorPosto = new Map<string, number>();
   extras.forEach((x) => extraPorPosto.set(`${x.data}|${x.periodoId}|${x.maquinaId}`, (extraPorPosto.get(`${x.data}|${x.periodoId}|${x.maquinaId}`) ?? 0) + x.pecas));
@@ -98,7 +99,7 @@ export function registrosParaGravar(semanaOrigem: string, semanaDestino: string,
     const ex = a.maquinaId ? extraPorPosto.get(`${a.data}|${a.periodoId}|${a.maquinaId}`) : undefined;
     if (!a.maquinaId || !ex || !a.produtoId || !a.etapaId) return;
     const dem = a.pecas - ex;
-    if (dem > 0.5) linhas.push({ origem: "DEMANDA_SEMANA", semanaDestino: null, data: a.data, periodoId: a.periodoId, produtoId: a.produtoId, etapaId: a.etapaId, etapaIdx: -1, etapaFinal: false, operacaoId: a.operacaoId, maquinaId: a.maquinaId, funcionarioId: a.funcionarioId, quantidade: dem });
+    if (dem > 0.5) linhas.push({ origem: "DEMANDA_SEMANA", semanaDestino: null, data: a.data, periodoId: a.periodoId, produtoId: a.produtoId, etapaId: a.etapaId, etapaIdx: -1, etapaFinal: false, operacaoId: a.operacaoId, maquinaId: a.maquinaId, funcionarioId: a.funcionarioId, quantidade: dem, metaMinima: null, alemDaMeta: 0 });
   });
   return { semanaOrigem, planoHash, linhas };
 }

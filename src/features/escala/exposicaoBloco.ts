@@ -79,6 +79,10 @@ export class MemoriaBloco {
   expostas(funcionarioId: string): ReadonlySet<string> {
     return this.por.get(funcionarioId) ?? new Set<string>();
   }
+  /** operações da PONTE M3 → T1 desta pessoa (só valem para o próximo T1) */
+  expostasPonte(funcionarioId: string): ReadonlySet<string> {
+    return this.ponte.get(funcionarioId) ?? new Set<string>();
+  }
 }
 
 export interface SlotRef {

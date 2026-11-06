@@ -190,6 +190,42 @@ export function despachar(C: ConfigDespacho, D: PrepD, occ: Uint8Array[], comple
   return { finais, obj, detalhes, wip, producao, linhasOciosas: ociosas };
 }
 
+/**
+ * Aperta as linhas de PARTIDA ao `limiteOp` corrente: enquanto algum (bloco, operação) tiver mais linhas do que `limiteOp − abatimento` (condição necessária do revezamento de bloco), remove a linha
+ * (não congelada, t ≥ t0) cuja saída menos reduz o objetivo do despacho. A busca local só valida restrições nos períodos que ela TOCA, então sem isto uma partida que já viola o limite novo
+ * permanece como "melhor plano" para sempre e o aperto do limite não aperta nada (causa do fallback de 06/11 13:08). Só é chamada nas RETENTATIVAS (limite apertado): a 1ª tentativa não muda.
+ */
+export function apertarLinhasAoLimite(C: ConfigDespacho, linhas: LinhaPostoD[]): LinhaPostoD[] {
+  const D = prepararDespacho(C);
+  const occ = linhasParaOcc(C, D, linhas);
+  const violacao = (): { bloco: number; op: number } | null => {
+    for (let b = 0; b < C.blocos.length; b++) {
+      const cont = new Array(D.ops.length).fill(0);
+      for (const tt of C.blocos[b]) { if (tt < C.t0) continue; const rw = occ[tt]; for (let r = 0; r < rw.length; r++) if (rw[r]) cont[rw[r] - 1]++; }
+      for (let o = 0; o < cont.length; o++) if (cont[o] > 0 && cont[o] > C.limiteOp - (C.abatimentoOp?.(b, D.ops[o]) ?? 0)) return { bloco: b, op: o + 1 }; // só blocos com linhas LIVRES da operação (o passado já está dado)
+    }
+    return null;
+  };
+  for (let guarda = 0; guarda < 10000; guarda++) {
+    const v = violacao();
+    if (!v) break;
+    let melhor: { t: number; r: number; obj: number } | null = null;
+    for (const tt of C.blocos[v.bloco]) {
+      if (tt < C.t0) continue;
+      for (let r = 0; r < occ[tt].length; r++) {
+        if (occ[tt][r] !== v.op) continue;
+        occ[tt][r] = 0;
+        const obj = despachar(C, D, occ).obj;
+        occ[tt][r] = v.op;
+        if (melhor === null || obj > melhor.obj + 1e-12) melhor = { t: tt, r, obj };
+      }
+    }
+    if (!melhor) break;
+    occ[melhor.t][melhor.r] = 0;
+  }
+  return occParaLinhas(C, D, occ);
+}
+
 /** Quantas linhas por período e por (bloco, operação) — para as restrições duras da busca. */
 export function restricoesOk(C: ConfigDespacho, D: PrepD, occ: Uint8Array[], t: number): boolean {
   let n = 0;

@@ -243,7 +243,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         }
         const legados = cfgFluxo.paresLegado.flatMap((p) => [p.produtoConvencionalId, p.produtoAutomaticaId]);
         antecipacao = {
-          modo: cfgAnt.modo, semanaOrigem: prev.semana_inicio, semanaDestino: somarDias(prev.semana_inicio, 7), forecastDestino,
+          modo: cfgAnt.modo, antecipacaoSolicitada: cfgAnt.antecipacaoSolicitada, semanaOrigem: prev.semana_inicio, semanaDestino: somarDias(prev.semana_inicio, 7), forecastDestino,
           politicasFormacao: cfgAnt.modo === "ativo" ? cfgAnt.politicas : [], excluidos: [...new Set(legados)].sort(), registros: regsOrigem,
         };
       }
@@ -316,7 +316,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
       // com registro de produção extra a RPC atômica (plano + ledger na mesma transação); sem ele, a RPC de sempre (caminho byte-idêntico)
       const { data, error } = await admin.rpc(p.antecipacoes ? "escala_aplicar_recalculo_antecipacao" : "escala_aplicar_recalculo", {
         ...(p.antecipacoes ? {
-          p_antecipacoes: p.antecipacoes.linhas.map((l) => ({ origem: l.origem, semana_destino: l.semanaDestino, data: l.data, periodo_id: l.periodoId, produto_id: l.produtoId, etapa_id: l.etapaId, etapa_idx: l.etapaIdx, etapa_final: l.etapaFinal, operacao_id: l.operacaoId, maquina_id: l.maquinaId, funcionario_id: l.funcionarioId, quantidade: l.quantidade })),
+          p_antecipacoes: p.antecipacoes.linhas.map((l) => ({ origem: l.origem, semana_destino: l.semanaDestino, data: l.data, periodo_id: l.periodoId, produto_id: l.produtoId, etapa_id: l.etapaId, etapa_idx: l.etapaIdx, etapa_final: l.etapaFinal, operacao_id: l.operacaoId, maquina_id: l.maquinaId, funcionario_id: l.funcionarioId, quantidade: l.quantidade, meta_minima_producao: l.metaMinima, quantidade_alem_da_meta: l.alemDaMeta })),
           p_plano_hash: p.antecipacoes.planoHash, p_semana_origem: p.antecipacoes.semanaOrigem,
         } : {}),
         p_previsao_id: p.previsaoId,

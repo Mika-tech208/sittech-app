@@ -1,15 +1,19 @@
-// ANTECIPAÇÃO PARA A SEMANA SEGUINTE e FORMAÇÃO DELIBERADA DE ESTOQUE — FASE 2 DO PLANEJADOR (PURA: sem IO, sem relógio, ids opacos). Ver docs/antecipacao-semana-seguinte.md.
+// FORMAÇÃO DELIBERADA DE ESTOQUE (e ANTECIPAÇÃO opcional para a semana seguinte) — FASE 2 DO PLANEJADOR (PURA: sem IO, sem relógio, ids opacos). Ver docs/antecipacao-semana-seguinte.md.
 //
-// Princípio: a demanda da semana ATUAL tem prioridade ABSOLUTA, POR CONSTRUÇÃO (não por peso):
-//   FASE 1 = o planejador de sempre (planejarFuturo/buscaLocal), sem saber que a fase 2 existe. Define os postos que atendem a demanda atual e o WIP atual.
-//   FASE 2 (este arquivo) = só roda DEPOIS, sobre a capacidade/pessoas que SOBRARAM. As linhas da fase 1 ficam FIXAS (não removidas, não movidas); a fase 2 só ACRESCENTA linhas novas
-//          (que servem só aos produtos-sombra) e usa a fração ociosa das linhas fixas (os pools da demanda produzem primeiro em cada linha). Logo a produção da demanda atual NUNCA diminui.
+// A quantidade da Previsão é a META MÍNIMA DE PRODUÇÃO da semana ("o mínimo que aceito produzir"), NÃO um teto. Prioridades, por construção (não por peso):
+//   1) FASE 1 = o planejador de sempre (planejarFuturo/buscaLocal): leva todos os produtos até as metas mínimas (demanda restante) e consome o WIP atual. Não sabe que a fase 2 existe.
+//      Produto que já atingiu a meta tem demanda restante 0 na fase 1 ⇒ nunca ocupa pessoa/máquina de produto ainda abaixo da meta.
+//   2) FASE 2 (este arquivo) só roda DEPOIS, sobre o que SOBROU. As linhas da fase 1 ficam FIXAS; a fase 2 só ACRESCENTA linhas (que servem só aos produtos-sombra) e usa a fração ociosa das linhas
+//      fixas (os pools da meta produzem primeiro). Logo a produção até a meta NUNCA diminui. Tudo que a fase 2 produz de produto AUTORIZADO é FORMACAO_ESTOQUE (além da meta): não é erro, excesso nem violação.
+// Produto AUTORIZADO = política explícita por produto (escala_formacao_estoque_produtos). Para ele NÃO existe teto comercial baseado na Previsão: o limite é físico/operacional (máquinas da Previsão,
+// pessoas, revezamento, matéria-prima/WIP, lote Tn → Tn+1, buffer limitado pela capacidade LIVRE do consumidor); `limiteFisicoPecas` opcional (espaço) só existe se configurado.
+// Produto NÃO autorizado para ao atingir a meta, como sempre. ANTECIPAÇÃO da meta da semana seguinte (com desconto) é OPT-IN separado (escala_antecipacao_semana_seguinte) e nunca passa do restante da
+// meta mínima da semana seguinte (para não duplicar produção).
 // Cada produto elegível vira um produto-SOMBRA (mesma rota/taxas, máquinas restritas, estoque próprio):
-//   • wipInicial da sombra = o WIP da cadeia que a demanda atual NUNCA toca (mínimo, depois de consumir, do estoque do plano da fase 1) ⇒ o WIP existente conta e não se produz upstream desnecessário;
-//     a soma "demanda + sombra" é uma cadeia válida (cada uma só consome o que tem; o piso da demanda é o que a sombra herdou).
-//   • teto final = ANTECIPAÇÃO: demanda LÍQUIDA do Forecast da semana seguinte (nunca ultrapassa); FORMAÇÃO DE ESTOQUE: teto físico explícito (sem teto de Forecast).
-//   • nível de estoque por ligação ≤ capacidade do consumidor nos períodos restantes (limite físico: sem WIP absurdo); lote de 1 período (Tn → Tn+1) como em todo o despacho.
-// Valor: sombra de ANTECIPAÇÃO pesa 1 × margem; FORMAÇÃO pesa `pesoFormacao` (default 0,25) × margem — estoque especulativo vale menos que demanda confirmada quando disputam pessoas.
+//   • wipInicial da sombra = o WIP da cadeia que a meta atual NUNCA toca (mínimo, depois de consumir, do estoque do plano da fase 1) ⇒ o WIP existente conta e não se produz upstream desnecessário;
+//     a soma "meta + sombra" é uma cadeia válida (cada uma só consome o que tem).
+//   • nível de estoque por ligação ≤ capacidade LIVRE do consumidor nos períodos restantes (sem WIP absurdo); lote de 1 período (Tn → Tn+1) como em todo o despacho.
+// Valor: FORMAÇÃO pesa `PESO_FORMACAO_PADRAO` (0,25) × margem — sempre menor que qualquer meta ainda não atendida, que está na fase 1; ANTECIPAÇÃO opt-in pesa 1.
 // Busca: gulosa determinística (ganho marginal do objetivo do despacho) + poda; só entra linha que PRODUZ algo útil — pessoa sem trabalho fisicamente válido continua sem posto.
 import type { ProdutoRev } from "./planoReverso";
 import { despachar, linhasParaOcc, occParaLinhas, prepararDespacho, restricoesOk, type ConfigDespacho, type LinhaPostoD, type ResultadoDespacho } from "./postosDespacho";
@@ -21,12 +25,16 @@ export type OrigemProducao = typeof ORIGEM_DEMANDA_SEMANA | typeof ORIGEM_ANTECI
 export type OrigemExtra = typeof ORIGEM_ANTECIPACAO | typeof ORIGEM_FORMACAO;
 
 export const PESO_FORMACAO_PADRAO = 0.25;
+/** FORMAÇÃO sem limite físico configurado: o único limite é a capacidade (máquinas × pessoas × períodos do horizonte, buffers, matéria-prima/WIP) */
+export const SEM_LIMITE_FISICO = 1e9;
 
 export interface ProdutoAntecipavel {
   produtoId: string;
   origem: OrigemExtra;
-  /** peças FINAIS que ainda podem ser produzidas (ANTECIPAÇÃO: Forecast futuro líquido restante; FORMAÇÃO: teto físico restante) */
-  tetoFinal: number;
+  /** peças FINAIS ainda permitidas. ANTECIPAÇÃO (opt-in): restante da meta mínima da semana seguinte. FORMAÇÃO: limite FÍSICO explícito restante (`SEM_LIMITE_FISICO` quando nada foi configurado) */
+  maxFinal: number;
+  /** meta mínima de produção da semana atual (quantidade da Previsão), só para o rastreio no ledger */
+  metaMinima?: number;
   /** máquinas permitidas por etapa (id da etapa → ids de máquina). Ausente = as alternativas do produto. Etapa sem máquina permitida ⇒ produto NÃO é elegível. */
   maquinasPorEtapa?: Record<string, string[]>;
   /** multiplicador do valor (default 1 para ANTECIPAÇÃO; PESO_FORMACAO_PADRAO para FORMAÇÃO) */
@@ -39,6 +47,8 @@ export interface EntradaAntecipacao { produtos: ProdutoAntecipavel[]; /** folga 
 export interface LinhaAntecipada {
   data: string; periodoId: string; funcionarioId: string; maquinaId: string; operacaoId: string;
   produtoId: string; etapaId: string; etapaIdx: number; etapaFinal: boolean; pecas: number; origem: OrigemExtra;
+  /** meta mínima de produção (quantidade da Previsão) do produto na semana de origem — rastreio */
+  metaMinima?: number;
 }
 /** linha bruta (antes da atribuição de pessoas) */
 export interface LinhaAntecipadaBruta { t: number; recursoId: string; operacaoId: string; produtoId: string; etapaId: string; etapaIdx: number; pecas: number; origem: OrigemExtra }
@@ -97,16 +107,16 @@ export function planejarFase2(a: {
   for (const ap of a.entrada.produtos) {
     const real = a.produtosFuturo.find((p) => p.id === ap.produtoId);
     if (!real || real.alimenta || a.produtosFuturo.some((p) => p.alimenta?.produtoId === real.id)) continue; // produto único/rotas: nunca
-    if (!(ap.tetoFinal > 0)) continue;
+    if (!(ap.maxFinal > 0)) continue;
     const etapas = real.etapas.map((e) => {
       const perm = ap.maquinasPorEtapa?.[e.id];
       return { ...e, alternativas: e.alternativas.filter((alt) => (perm ? perm.includes(alt.recursoId) : true)) };
     });
     const semMaq = etapas.findIndex((e) => e.alternativas.length === 0);
-    if (semMaq >= 0) { avisos.push(`produto ${real.id}: etapa ${semMaq} sem máquina permitida (Forecast/seleção) — sem ${ap.origem}`); continue; }
+    if (semMaq >= 0) { avisos.push(`produto ${real.id}: etapa ${semMaq} sem máquina permitida (Previsão/seleção) — sem ${ap.origem}`); continue; }
     const sid = real.id + SUFIXO;
     const wipAnt = wipNaoTocado(real, real.wipInicial, a.producaoFase1[real.id] ?? {}, t0, H);
-    const teto = Math.floor(ap.tetoFinal + 1e-6);
+    const teto = Math.floor(ap.maxFinal + 1e-6);
     sombras.push({ id: sid, rotulo: `${real.rotulo} (${ap.origem})`, etapas, demandaFinal: teto, wipInicial: wipAnt, ...(real.valorUnitario !== undefined ? { valorUnitario: real.valorUnitario } : {}) });
     sombraDe.set(sid, { produtoId: real.id, origem: ap.origem });
     alvo[sid] = teto;
@@ -214,14 +224,14 @@ export function finaisRegistrados(regs: RegistroAntecipacao[], origem: OrigemExt
   return out;
 }
 
-/** Teto líquido restante da ANTECIPAÇÃO: Forecast futuro − o já antecipado (períodos congelados). Nunca negativo. */
-export function tetoLiquidoFuturo(forecastFuturo: number, antecipadoCongelado: number): number {
+/** Restante da meta mínima da semana seguinte que a ANTECIPAÇÃO (opt-in) ainda pode adiantar: meta futura − o já antecipado (períodos congelados). Nunca negativo; a meta em si continua exibida inteira. */
+export function metaFuturaRestante(forecastFuturo: number, antecipadoCongelado: number): number {
   return Math.max(0, Math.floor(forecastFuturo - antecipadoCongelado + 1e-6));
 }
 
 /**
- * Desconto da semana de DESTINO: quantidade líquida = Forecast − antecipado registrado (peças finais). ANTECIPAÇÃO sempre desconta (é produção dedicada àquela demanda); FORMAÇÃO_ESTOQUE
- * só desconta com `descontaFormacao` (decisão explícita; padrão false ⇒ o estoque formado fica VISÍVEL no diagnóstico mas não reduz a produção da semana seguinte em silêncio).
+ * Desconto da semana de DESTINO (SÓ para o motor, nunca para a exibição da meta): quantidade líquida = meta mínima − antecipado registrado (peças finais). ANTECIPAÇÃO (opt-in) desconta (é produção
+ * dedicada àquela meta); FORMAÇÃO_ESTOQUE só desconta com `descontaFormacao` (decisão explícita; padrão false ⇒ o estoque formado fica VISÍVEL no diagnóstico e a meta da semana seguinte continua inteira).
  * Devolve a quantidade nova por produto e o que foi descontado (para o diagnóstico).
  */
 export function descontarAntecipadoNoDestino(quantidades: Record<string, number>, regs: RegistroAntecipacao[], descontaFormacao: boolean): { quantidades: Record<string, number>; descontos: { produtoId: string; origem: OrigemExtra; pecas: number; aplicado: boolean }[] } {
@@ -243,16 +253,18 @@ export function descontarAntecipadoNoDestino(quantidades: Record<string, number>
 // ENTRADA DA REGRA (dados lidos do banco → o que o planejador consome). Pura.
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-/** Dados da semana seguinte e do registro, carregados pela camada de IO (EntradaEscala.antecipacao). Nada aqui é inventado: o Forecast futuro é exatamente o salvo na Previsão da semana de destino. */
+/** Dados da semana seguinte e do registro, carregados pela camada de IO (EntradaEscala.antecipacao). Nada aqui é inventado: a meta mínima futura é exatamente a salva na Previsão da semana de destino. */
 export interface DadosAntecipacao {
   /** 'ativo' liga a fase 2; 'desligado' só carrega o registro (descontos/limpeza de linhas já gravadas) */
   modo: "ativo" | "desligado";
   semanaOrigem: string;
   semanaDestino: string;
-  /** Forecast (tipo 'previsto') da semana seguinte por produto, com as máquinas selecionadas por etapa naquela Previsão. Vazio = a semana seguinte não tem Previsão salva ⇒ nenhuma antecipação. */
+  /** ANTECIPAÇÃO da meta da semana seguinte (com desconto) é OPT-IN (escala_antecipacao_semana_seguinte = 'ativo'). Ausente/false: só FORMAÇÃO por política. */
+  antecipacaoSolicitada?: boolean;
+  /** Meta mínima (tipo 'previsto') da semana seguinte por produto, com as máquinas selecionadas por etapa naquela Previsão. Vazio = a semana seguinte não tem Previsão salva ⇒ nenhuma antecipação. */
   forecastDestino: { produtoId: string; quantidade: number; maquinasPorEtapa: Record<string, string[]> }[];
   /** POLÍTICA POR PRODUTO de formação de estoque (escala_formacao_estoque_produtos). Só esses produtos formam estoque; nunca regra global. */
-  politicasFormacao: { produtoId: string; tetoPecas?: number; bufferExtraPecas?: number }[];
+  politicasFormacao: { produtoId: string; limiteFisicoPecas?: number; bufferExtraPecas?: number }[];
   /** produtos que NUNCA antecipam nem formam estoque (pares legados do produto único/Conector e canônico) */
   excluidos: string[];
   /** registros VIGENTES (não substituídos) cuja semana de origem é esta (todas as origens e períodos) */
@@ -260,7 +272,7 @@ export interface DadosAntecipacao {
   bufferExtra?: number;
 }
 
-export interface DiagAntecipacao { produtoId: string; situacao: "ANTECIPA" | "FORMA_ESTOQUE" | "NAO"; motivo: string; tetoFinal?: number }
+export interface DiagAntecipacao { produtoId: string; situacao: "ANTECIPA" | "FORMA_ESTOQUE" | "NAO"; motivo: string; maxFinal?: number }
 
 /** Quantidade de peças finais já registradas (ANTECIPAÇÃO + FORMAÇÃO) em períodos JÁ INICIADOS/congelados (índice < aPartirDe), por produto. */
 export function extraExecutadoPorProduto(regs: RegistroAntecipacao[], indiceDoSlot: (data: string, periodoId: string) => number, aPartirDe: number): Record<string, number> {
@@ -295,21 +307,22 @@ export function montarEntradaAntecipacao(a: {
     const pol = dados.politicasFormacao.find((x) => x.produtoId === pid);
     const fc = dados.forecastDestino.find((x) => x.produtoId === pid);
     if (pol) {
-      const teto = pol.tetoPecas ?? Math.max(qAtual, fc?.quantidade ?? 0);
+      // SEM limite comercial: a quantidade da Previsão é meta MÍNIMA. Só há limite físico se configurado (`limiteFisicoPecas`, p.ex. espaço); o excedente real e o já formado contam nele.
       const formado = Math.max(forCong[pid] ?? 0, a.excedenteReal?.[pid] ?? 0);
-      const tetoFinal = Math.max(0, Math.floor(teto - formado + 1e-6));
-      if (!(tetoFinal > 0)) return nao(`teto físico de estoque (${teto}) já atingido (${Math.round(formado)} formado/excedente)`);
-      produtos.push({ produtoId: pid, origem: ORIGEM_FORMACAO, tetoFinal, ...(pol.bufferExtraPecas ? { bufferExtraPecas: pol.bufferExtraPecas } : {}) });
-      diagnostico.push({ produtoId: pid, situacao: "FORMA_ESTOQUE", motivo: `política de formação de estoque ligada; teto físico ${teto}, já formado/excedente ${Math.round(formado)}`, tetoFinal });
+      const maxFinal = pol.limiteFisicoPecas === undefined ? SEM_LIMITE_FISICO : Math.max(0, Math.floor(pol.limiteFisicoPecas - formado + 1e-6));
+      if (!(maxFinal > 0)) return nao(`limite físico de estoque configurado (${pol.limiteFisicoPecas}) já atingido (${Math.round(formado)} formado/excedente)`);
+      produtos.push({ produtoId: pid, origem: ORIGEM_FORMACAO, maxFinal, metaMinima: qAtual, ...(pol.bufferExtraPecas ? { bufferExtraPecas: pol.bufferExtraPecas } : {}) });
+      diagnostico.push({ produtoId: pid, situacao: "FORMA_ESTOQUE", motivo: `produto autorizado a formar estoque (política); meta mínima ${qAtual} é piso, não teto; ${pol.limiteFisicoPecas === undefined ? "sem limite comercial — o limite é físico (máquinas, pessoas, revezamento, buffers, WIP)" : `limite físico configurado ${pol.limiteFisicoPecas}`}; já formado/excedente ${Math.round(formado)}`, ...(pol.limiteFisicoPecas === undefined ? {} : { maxFinal }) });
       return;
     }
-    if (!fc || !(fc.quantidade > 0)) return nao("sem Forecast confirmado na semana seguinte para este produto e sem política de formação de estoque");
-    const tetoFinal = tetoLiquidoFuturo(fc.quantidade, antCong[pid] ?? 0);
-    if (!(tetoFinal > 0)) return nao(`Forecast futuro (${fc.quantidade}) já coberto pelo antecipado (${Math.round(antCong[pid] ?? 0)})`);
+    if (!dados.antecipacaoSolicitada) return nao("produto não autorizado a formar estoque: para ao atingir a meta mínima (antecipação da semana seguinte não solicitada)");
+    if (!fc || !(fc.quantidade > 0)) return nao("sem meta mínima confirmada na semana seguinte para este produto e sem política de formação de estoque");
+    const maxFinal = metaFuturaRestante(fc.quantidade, antCong[pid] ?? 0);
+    if (!(maxFinal > 0)) return nao(`meta mínima da semana seguinte (${fc.quantidade}) já coberta pelo antecipado (${Math.round(antCong[pid] ?? 0)})`);
     const maquinasPorEtapa: Record<string, string[]> = {};
     for (const p of ps) maquinasPorEtapa[p.etapaId] = p.maquinasIds.filter((m) => (fc.maquinasPorEtapa[p.etapaId] ?? []).includes(m)); // interseção: máquinas selecionadas nas DUAS Previsões
-    produtos.push({ produtoId: pid, origem: ORIGEM_ANTECIPACAO, tetoFinal, maquinasPorEtapa });
-    diagnostico.push({ produtoId: pid, situacao: "ANTECIPA", motivo: `Forecast da semana seguinte ${fc.quantidade}; já antecipado ${Math.round(antCong[pid] ?? 0)}; líquido restante ${tetoFinal}`, tetoFinal });
+    produtos.push({ produtoId: pid, origem: ORIGEM_ANTECIPACAO, maxFinal, metaMinima: qAtual, maquinasPorEtapa });
+    diagnostico.push({ produtoId: pid, situacao: "ANTECIPA", motivo: `antecipação solicitada; meta mínima da semana seguinte ${fc.quantidade} (continua exibida inteira); já antecipado ${Math.round(antCong[pid] ?? 0)}; restante a adiantar ${maxFinal}`, maxFinal });
   });
   return { entrada: { produtos, ...(dados.bufferExtra ? { bufferExtra: dados.bufferExtra } : {}) }, diagnostico };
 }

@@ -88,7 +88,7 @@ describe("ANTECIPAÇÃO no recálculo oficial", () => {
     expect(p.antecipacoes!.semanaOrigem).toBe(SEMANA);
     // checagens independentes do corte: 0 violações da regra
     const chk = (reg(m).avaliacaoFluxo as { checagens: { antecipacao?: Record<string, number>; duplicidade: number; violacoesDuras: number; semMaterial: number } }).checagens;
-    expect(chk.antecipacao).toMatchObject({ foraDoDestino: 0, demandaFuturaUltrapassada: 0, tetoFisicoUltrapassado: 0, produtoProibido: 0 });
+    expect(chk.antecipacao).toMatchObject({ foraDoDestino: 0, antecipacaoAcimaDaMetaFutura: 0, limiteFisicoUltrapassado: 0, produtoProibido: 0 });
     expect(chk.violacoesDuras + chk.duplicidade + chk.semMaterial).toBe(0);
     // a DEMANDA da semana não perdeu nada: cada posto do plano sem antecipação continua no plano com antecipação
     const postos = (x: Mundo) => new Set(x.alocacoes.filter((a) => a.maquinaId).map((a) => `${a.data}|${a.periodoId}|${a.maquinaId}`));
@@ -105,7 +105,7 @@ describe("ANTECIPAÇÃO no recálculo oficial", () => {
     const so = mundo(dadosAnt({ forecastDestino: pequeno }));
     const rs = await recalcular(so, GERA, true);
     expect(rs.payloads[rs.payloads.length - 1].antecipacoes!.linhas.filter((l) => l.etapaFinal).reduce((x, l) => x + l.quantidade, 0)).toBeLessThanOrEqual(800);
-    const m = mundo(dadosAnt({ forecastDestino: pequeno, politicasFormacao: [{ produtoId: "pC", tetoPecas: 60000 }] }));
+    const m = mundo(dadosAnt({ forecastDestino: pequeno, politicasFormacao: [{ produtoId: "pC", limiteFisicoPecas: 60000 }] }));
     const { payloads } = await recalcular(m, GERA, true);
     const ls = payloads[payloads.length - 1].antecipacoes!.linhas;
     const form = ls.filter((l) => l.origem === "FORMACAO_ESTOQUE");
@@ -118,7 +118,7 @@ describe("ANTECIPAÇÃO no recálculo oficial", () => {
     expect(new Set(form.map((l) => l.maquinaId)).size).toBeGreaterThan(1); // sem a interseção com o futuro: m4 e m7
     // a produção do produto na semana passa da demanda atual (1500) — formação NÃO é "demanda ultrapassada": nenhuma violação
     const chk = (reg(m).avaliacaoFluxo as { checagens: { antecipacao?: Record<string, number> } }).checagens;
-    expect(chk.antecipacao).toMatchObject({ demandaFuturaUltrapassada: 0, tetoFisicoUltrapassado: 0, produtoProibido: 0 });
+    expect(chk.antecipacao).toMatchObject({ antecipacaoAcimaDaMetaFutura: 0, limiteFisicoUltrapassado: 0, produtoProibido: 0 });
     // produto excluído (pD) com política: continua sem formar
     const x = mundo(dadosAnt({ politicasFormacao: [{ produtoId: "pD" }], excluidos: ["pD"] }));
     const rx = await recalcular(x, GERA, true);
@@ -185,7 +185,7 @@ describe("ANTECIPAÇÃO no recálculo oficial", () => {
     expect(lerConfigAntecipacao([{ chave: "escala_formacao_estoque_desconta_destino", valor: true }]).descontaFormacao).toBe(true);
     expect(lerConfigAntecipacao([{ chave: "escala_formacao_estoque_desconta_destino", valor: "true" }]).descontaFormacao).toBe(false);
     const id1 = "cace499f-2c0d-4cc5-b8e0-53f692ddbe92", id2 = "fa08e7c6-1a44-4625-a9e4-9b9cebf1031e";
-    expect(lerPoliticasFormacao([id2, { produtoId: id1, tetoPecas: 5000 }, { produtoId: id1 }, "Pino", 7, null, { produtoId: "nome" }, { produtoId: id2, tetoPecas: -1 }])).toEqual([{ produtoId: id1, tetoPecas: 5000 }, { produtoId: id2 }]);
+    expect(lerPoliticasFormacao([id2, { produtoId: id1, limiteFisicoPecas: 5000 }, { produtoId: id1 }, "Pino", 7, null, { produtoId: "nome" }, { produtoId: id2, limiteFisicoPecas: -1 }])).toEqual([{ produtoId: id1, limiteFisicoPecas: 5000 }, { produtoId: id2 }]);
     expect(lerPoliticasFormacao("x")).toEqual([]);
   });
 });
