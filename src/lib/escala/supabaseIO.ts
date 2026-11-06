@@ -5,6 +5,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { agregarHistoricoEquidade, JANELA_EQUIDADE_DIAS } from "@/features/escala/equidade";
 import { lerParametros } from "@/features/escala/parametros";
+import { cutoverDaSemana, escolherModeloUnico } from "@/features/produto-canonico/cutover";
+import { lerModelosCanonicos } from "@/features/produto-canonico/modeloDb";
 import type { AlocacaoEscala, PeriodoEscala } from "@/features/escala/types";
 import { distribuicaoEfetiva, lerDistribuicao } from "@/features/escala/distribuicao";
 import { linhasConsolidadas, type LinhaHistoricoBruta } from "./historicoConsolidado";
@@ -189,6 +191,9 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
           ...(erroProducaoReal ? { indisponivel: `Produção Real indisponível: ${erroProducaoReal}` } : probe.error ? { indisponivel: `coluna distribuicao ausente (migration não aplicada): ${probe.error.message}` } : {}),
         };
       }
+      // PRODUTO ÚNICO: UMA decisão (cutover da semana + modelo canônico existente). Sem cutover/semana anterior NENHUMA consulta extra é feita e o estado é o de sempre.
+      const cutoverSemana = cutoverDaSemana(parametrosRows, prev.semana_inicio);
+      const modeloUnico = cutoverSemana ? escolherModeloUnico(await lerModelosCanonicos(admin)) : null;
       // estoque intermediário (Fase 3): só é lido com o WIP ativo; sem controles = undefined (comportamento anterior)
       const wipControle = parametros.wipModo === "ativo" ? await carregarWipControle(admin, prev.semana_inicio) : undefined;
 
@@ -241,6 +246,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         ...(wipControle ? { wipControle } : {}),
         ...(producaoReal ? { producaoReal } : {}),
         ...(planejadorCorte ? { planejadorCorte } : {}),
+        ...(modeloUnico && cutoverSemana ? { produtoUnico: { modelo: modeloUnico, cutover: cutoverSemana } } : {}),
         proximaSemana: proximaSemanaDe(ok(proxima, "previsoes (próxima semana)") as { previsao_itens: { produto_id: string; quantidade: number; tipo: string }[] | null } | null),
       };
     },
