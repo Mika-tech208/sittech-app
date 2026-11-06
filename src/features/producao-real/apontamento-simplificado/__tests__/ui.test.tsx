@@ -194,12 +194,23 @@ describe("FechamentoPeriodoModal com a flag do apontamento simplificado", () => 
     expect(screen.getByRole("button", { name: /FECHAR M2 E GERAR M3/ })).toHaveProperty("disabled", true);
   });
 
-  it("período NÃO liberado ⇒ a programação não é entregue nem para apontar (fail-closed)", async () => {
+  it("período NÃO liberado: a programação NÃO é entregue para apontar; com postos pendentes o fechamento fica bloqueado e a tela diz quais faltam", async () => {
+    estadoApontamentosApi.mockResolvedValue({ status: 200, corpo: { modo: "ativo", naoLiberado: true, postos: [] } });
+    abrirFechamentoApi.mockResolvedValue(abertura(true));
+    render(<FechamentoPeriodoModal data="2026-11-03" periodoId="m2" onFechar={() => undefined} />);
+    expect(await screen.findByText(/PERÍODO LANÇADO FORA DA PROGRAMAÇÃO AUTOMÁTICA/)).toBeTruthy();
+    expect(screen.getByText(/Faltam lançamentos de: Rosqueadeira 3/)).toBeTruthy();
+    expect(screen.queryByText("NÃO FOI POSSÍVEL CARREGAR OS POSTOS PROGRAMADOS.")).toBeNull();
+    expect(screen.getByRole("button", { name: /FECHAR M2 E GERAR M3/ })).toHaveProperty("disabled", true);
+  });
+
+  it("período NÃO liberado, mas todos os postos já lançados (regularização histórica): o fechamento libera depois do estoque físico", async () => {
     estadoApontamentosApi.mockResolvedValue({ status: 200, corpo: { modo: "ativo", naoLiberado: true, postos: [] } });
     abrirFechamentoApi.mockResolvedValue(abertura(false));
     render(<FechamentoPeriodoModal data="2026-11-03" periodoId="m2" onFechar={() => undefined} />);
-    expect(await screen.findByText("NÃO FOI POSSÍVEL CARREGAR OS POSTOS PROGRAMADOS.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /FECHAR M2 E GERAR M3/ })).toHaveProperty("disabled", true);
+    expect(await screen.findByText(/Todos os postos programados têm lançamento/)).toBeTruthy();
+    fireEvent.change(await screen.findByLabelText(/Físico: Rosqueadas/), { target: { value: "1200" } });
+    expect(screen.getByRole("button", { name: /FECHAR M2 E GERAR M3/ })).toHaveProperty("disabled", false);
   });
 
   it("flag ATIVA: passos 1–6 + apontamentos dentro do modal; o botão de fechar só libera quando os postos estão salvos e o estoque informado", async () => {

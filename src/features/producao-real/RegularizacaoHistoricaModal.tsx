@@ -5,6 +5,7 @@
 // Toda a regra e a auditoria estão no banco (RPCs regularizar_*): esta tela só coleta os dados. Não recalcula escala/inventário/fechamento.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/services/supabase-client";
+import { MOTIVOS, LABEL_MOTIVO_SEM_PRODUCAO } from "./SemProducaoModal";
 
 interface Periodo { id: string; nome: string; inicio: string; fim: string }
 interface Item { id: string; nome: string }
@@ -23,6 +24,8 @@ const MENSAGENS: [string, string][] = [
   ["COMBINACAO_INVALIDA", "Esta máquina não tem este produto/operação cadastrado no roteiro."],
   ["OPERACAO_AMBIGUA", "Há mais de uma operação possível para este produto nesta máquina: escolha a operação."],
   ["META_NAO_CADASTRADA", "Este produto/operação não tem meta cadastrada para este período. Cadastre a meta no roteiro do produto para poder lançar."],
+  ["MOTIVO_INVALIDO", "Informe o motivo da máquina sem produção (o motivo \"Outro\" exige descrição)."],
+  ["PERIODO_NAO_INICIADO", "Este período de hoje ainda não começou."],
   ["REGULARIZACAO_JA_EXISTE", "Já existe apontamento desta máquina neste período. Use Editar na lista."],
   ["QUANTIDADE_INVALIDA", "Confira produzido e refugo (zero ou mais; refugo não pode passar do produzido)."],
   ["FUNCIONARIO_INVALIDO", "Operador inválido ou inativo."],
@@ -56,6 +59,10 @@ export default function RegularizacaoHistoricaModal({ onFechar, dataInicial, per
   const [produzido, setProduzido] = useState("");
   const [refugo, setRefugo] = useState("");
   const [confirmandoExclusao, setConfirmandoExclusao] = useState<string | null>(null);
+  // SEM PRODUÇÃO (máquina programada que não produziu — ex.: realocada): resolve o posto pendente do fechamento
+  const [semProducao, setSemProducao] = useState(false);
+  const [motivoSP, setMotivoSP] = useState("");
+  const [descSP, setDescSP] = useState("");
 
   const buscar = useCallback(async (d: string | null): Promise<{ e?: Estado; erro?: string }> => {
     const { data: r, error } = await supabase.rpc("regularizacao_historica_estado", { p_data: d });
@@ -72,7 +79,7 @@ export default function RegularizacaoHistoricaModal({ onFechar, dataInicial, per
   useEffect(() => { let vivo = true; buscar(null).then((r) => { if (vivo) aplicar(r, true); }); return () => { vivo = false; }; }, [buscar, aplicar]);
   useEffect(() => { if (!data) return; let vivo = true; buscar(data).then((r) => { if (vivo) aplicar(r, false); }); return () => { vivo = false; }; }, [data, buscar, aplicar]);
 
-  function limparFormulario() { setEditandoId(null); setMaquinaId(""); setFuncionarioId(""); setProdutoId(""); setEtapaId(""); setProduzido(""); setRefugo(""); }
+  function limparFormulario() { setSemProducao(false); setMotivoSP(""); setDescSP(""); setEditandoId(null); setMaquinaId(""); setFuncionarioId(""); setProdutoId(""); setEtapaId(""); setProduzido(""); setRefugo(""); }
   function trocarContexto(fn: () => void) { limparFormulario(); setOk(null); setErro(null); fn(); }
 
   const linhasDoPeriodo = useMemo(() => (estado?.apontamentos ?? []).filter((a) => a.periodo_id === periodoId), [estado, periodoId]);
@@ -89,16 +96,21 @@ export default function RegularizacaoHistoricaModal({ onFechar, dataInicial, per
   function editar(l: Linha) {
     setEditandoId(l.id); setMaquinaId(l.maquina_id); setFuncionarioId(l.funcionario_id ?? ""); setProdutoId(l.produto_id ?? ""); setEtapaId(l.etapa_id ?? "");
     setProduzido(String(l.produzido)); setRefugo(String(l.refugo)); setOk(null); setErro(null);
+    setSemProducao(l.status === "sem_producao"); setMotivoSP(l.motivo_sem_producao ?? ""); setDescSP("");
   }
-  const valido = !!data && !!maquinaId && !!funcionarioId && !!produtoId && !!etapaEfetiva && produzido !== "" && Number(produzido) >= 0 && Number(refugo || 0) >= 0 && Number(refugo || 0) <= Number(produzido);
+  const validoProducao = !!data && !!maquinaId && !!funcionarioId && !!produtoId && !!etapaEfetiva && produzido !== "" && Number(produzido) >= 0 && Number(refugo || 0) >= 0 && Number(refugo || 0) <= Number(produzido);
+  const validoSemProducao = !!data && !!maquinaId && !!motivoSP && (motivoSP !== "outro" || descSP.trim().length > 0);
+  const valido = semProducao ? validoSemProducao : validoProducao;
 
   async function salvar() {
     if (!valido || !data || salvando) return;
     setSalvando(true); setErro(null); setOk(null);
-    const { data: r, error } = await supabase.rpc("regularizar_apontamento_historico", {
-      p_data: data, p_periodo_id: periodoId, p_maquina_id: maquinaId, p_funcionario_id: funcionarioId, p_produto_id: produtoId, p_produzido: Number(produzido),
-      p_refugo: Number(refugo || 0), p_etapa_id: etapaEfetiva, p_apontamento_id: editandoId, p_substituir: false,
-    });
+    const { data: r, error } = semProducao
+      ? await supabase.rpc("regularizar_sem_producao_historico", { p_data: data, p_periodo_id: periodoId, p_maquina_id: maquinaId, p_motivo: motivoSP, p_descricao: motivoSP === "outro" ? descSP.trim() : null, p_apontamento_id: editandoId, p_substituir: false })
+      : await supabase.rpc("regularizar_apontamento_historico", {
+          p_data: data, p_periodo_id: periodoId, p_maquina_id: maquinaId, p_funcionario_id: funcionarioId, p_produto_id: produtoId, p_produzido: Number(produzido),
+          p_refugo: Number(refugo || 0), p_etapa_id: etapaEfetiva, p_apontamento_id: editandoId, p_substituir: false,
+        });
     setSalvando(false);
     if (error || !r) { setErro(traduzir(error?.message)); return; }
     const acao = (r as { acao?: string }).acao;
@@ -150,8 +162,8 @@ export default function RegularizacaoHistoricaModal({ onFechar, dataInicial, per
             {linhasDoPeriodo.map((l) => (
               <div key={l.id} style={{ border: "1px solid var(--stx-border, #8884)", borderRadius: 8, padding: 8, marginBottom: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <div style={{ flex: 1, minWidth: 220 }}>
-                  <strong>{l.maquina}</strong> · {l.status === "produzindo" ? `${l.produto ?? "—"} (${l.operacao ?? "—"})` : "Sem produção"}<br />
-                  <span style={{ fontSize: 13 }}>{l.funcionario ?? "—"} · produzido {l.produzido} · refugo {l.refugo}{l.regularizado ? " · REGULARIZADO" : ""}</span>
+                  <strong>{l.maquina}</strong> · {l.status === "produzindo" ? `${l.produto ?? "—"} (${l.operacao ?? "—"})` : `Sem produção — ${LABEL_MOTIVO_SEM_PRODUCAO[l.motivo_sem_producao ?? ""] ?? "motivo não informado"}`}<br />
+                  <span style={{ fontSize: 13 }}>{l.status === "produzindo" ? `${l.funcionario ?? "—"} · produzido ${l.produzido} · refugo ${l.refugo}` : "máquina parada no período"}{l.regularizado ? " · REGULARIZADO" : ""}</span>
                   {l.planejado && <span style={{ fontSize: 12, display: "block", opacity: 0.7 }}>Planejado: {l.planejado.funcionario ?? "—"} / {l.planejado.produto ?? "—"}</span>}
                 </div>
                 <button type="button" className="stx-apr-pill-btn" onClick={() => editar(l)} disabled={salvando}>Editar</button>
@@ -170,6 +182,20 @@ export default function RegularizacaoHistoricaModal({ onFechar, dataInicial, per
             {existenteNaMaquina && !editandoId && (
               <p className="stx-ap-error" style={{ margin: "0 0 8px" }}>Já existe apontamento desta máquina neste período ({existenteNaMaquina.produto ?? "sem produção"}, produzido {existenteNaMaquina.produzido}). <button type="button" className="stx-apr-pill-btn" onClick={() => editar(existenteNaMaquina)}>Editar o existente</button></p>
             )}
+            <label style={{ display: "flex", gap: 8, alignItems: "center", margin: "4px 0 10px" }}>
+              <input type="checkbox" checked={semProducao} onChange={(e) => setSemProducao(e.target.checked)} /> <span>SEM PRODUÇÃO (a máquina não produziu neste período)</span>
+            </label>
+            {semProducao && (
+              <>
+                <label className="stx-ap-field-label">Motivo</label>
+                <select className="stx-ap-select" style={estiloCampo} value={motivoSP} onChange={(e) => setMotivoSP(e.target.value)}>
+                  <option value="">Selecione…</option>
+                  {MOTIVOS.map((m) => <option key={m.valor} value={m.valor}>{m.label}</option>)}
+                </select>
+                {motivoSP === "outro" && <input className="stx-ap-input" style={estiloCampo} placeholder="Descreva o motivo" value={descSP} onChange={(e) => setDescSP(e.target.value)} maxLength={200} />}
+              </>
+            )}
+            {!semProducao && (<>
             <label className="stx-ap-field-label">4. Operador</label>
             <select className="stx-ap-select" style={estiloCampo} value={funcionarioId} onChange={(e) => setFuncionarioId(e.target.value)}>
               <option value="">Selecione…</option>
@@ -188,6 +214,7 @@ export default function RegularizacaoHistoricaModal({ onFechar, dataInicial, per
               <div style={{ flex: 1 }}><label className="stx-ap-field-label">7. Produzido</label><input className="stx-ap-input" style={estiloCampo} type="number" min={0} inputMode="decimal" value={produzido} onChange={(e) => setProduzido(e.target.value)} /></div>
               <div style={{ flex: 1 }}><label className="stx-ap-field-label">8. Refugo</label><input className="stx-ap-input" style={estiloCampo} type="number" min={0} inputMode="decimal" value={refugo} onChange={(e) => setRefugo(e.target.value)} placeholder="0" /></div>
             </div>
+            </>)}
 
             {erro && <p className="stx-ap-error">{erro}</p>}
             {ok && <p className="stx-ap-confirm-check">✓ {ok}</p>}
