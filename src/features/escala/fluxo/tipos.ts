@@ -152,7 +152,11 @@ export type CodigoDiagnosticoFluxo =
   | "PLANEJADOR_AVISO" // (planejador de corte) aviso do planejador puro
   | "PLANEJADOR_CORTE_FALHOU" // (planejador de corte) nenhuma tentativa passou nas checagens independentes: plano vigente MANTIDO (nunca o motor legado)
   | "PLANEJADOR_CORTE_USADO" // (planejador de corte) o plano gravado foi o do planejador de corte
-  | "WIP_INICIAL_ESTIMADO"; // (planejador de corte) contagem física marcada como ESTIMADA (cenário) foi usada como WIP inicial: recalcular na primeira contagem/apontamento confiável
+  | "WIP_INICIAL_ESTIMADO" // (planejador de corte) contagem física marcada como ESTIMADA (cenário) foi usada como WIP inicial: recalcular na primeira contagem/apontamento confiável
+  | "PRODUTO_UNICO_ATIVO" // (produto único com rotas) o planejador tratou Conv + Automática como UM produto final com duas rotas
+  | "ROTA_INDISPONIVEL" // (produto único) rota sem máquina selecionada numa etapa exclusiva: não produz (só consome o WIP que já existe adiante)
+  | "CONTAGEM_COMUM_CONSOLIDADA" // (produto único) contagens das etapas comuns lançadas por produto legado foram consolidadas numa só (sem duplicar peças)
+  | "WIP_ENTRADA_COMUM_DEFICIT_CREDITADO"; // (produto único) consumo da Etiquetadora lançado só numa rota deixou a ligação dela negativa: o déficit foi abatido do estoque pool
 
 export interface DiagnosticoItem {
   codigo: CodigoDiagnosticoFluxo;
