@@ -11,6 +11,8 @@ import { produtosSelecionaveisPrevisao } from "@/features/produto-canonico/guard
 import { agruparEtapasPorRota } from "@/features/produto-canonico/etapasPorRota";
 import type { Produto, Maquina, Previsao, PrevisaoItem, PeriodoComDuracao } from "@/types/domain";
 import type { AnaliseCapacidadeSemanal } from "@/features/capacidade/types";
+import { ehIndisponivel, type Indisponivel } from "@/features/produto-canonico/indicadores";
+import IndicadorIndisponivel from "@/features/produto-canonico/components/IndicadorIndisponivel";
 
 export interface PrevItemFormState {
   produtoId: string;
@@ -37,7 +39,8 @@ export interface ItensPrevistosProps {
   onCancelar: () => void;
   onEditar: (it: PrevisaoItem) => void;
   onExcluir: (id: string) => void;
-  analise: AnaliseCapacidadeSemanal;
+  /** `Indisponivel` = semana com produto de rotas alternativas (gargalos/uso por máquina não calculados) */
+  analise: AnaliseCapacidadeSemanal | Indisponivel;
   valorPrevistoSemana: number;
   // funcionários marcados como produtivos NESTA semana (não o total de ativos)
   equipeProdutivaCount: number;
@@ -71,7 +74,7 @@ export default function ItensPrevistos({
     : null;
 
   const horasPessoaDisponiveis = equipeProdutivaCount * horasPorMaquinaSemana;
-  const horasPessoaDemandadas = analise.maquinas.reduce((s, m) => s + m.horasNecessarias, 0);
+  const horasPessoaDemandadas = ehIndisponivel(analise) ? 0 : analise.maquinas.reduce((s, m) => s + m.horasNecessarias, 0);
   const pctEquipe = horasPessoaDisponiveis > 0 ? (horasPessoaDemandadas / horasPessoaDisponiveis) * 100 : 0;
 
   return (
@@ -199,7 +202,7 @@ export default function ItensPrevistos({
         semana.itens.map((it) => {
           const viab = viabilidadeItemComRotas(it, produtos, periodosComDuracao, horasPorMaquinaSemana, modelosCanonicos);
           const maquinasDoItem = new Set(Object.values(it.maquinasPorEtapa || {}).flat());
-          const gargalosQueAfetam = analise.gargalos.filter((g) => maquinasDoItem.has(g.maquinaId));
+          const gargalosQueAfetam = ehIndisponivel(analise) ? [] : analise.gargalos.filter((g) => maquinasDoItem.has(g.maquinaId));
           const produtoDoItem = produtos.find((p) => p.id === it.produtoId);
           const selecoesInvalidas = produtoDoItem
             ? encontrarSelecoesInvalidas(it.maquinasPorEtapa, produtoDoItem.roteiro || [], maquinas)
@@ -251,7 +254,9 @@ export default function ItensPrevistos({
           <p className="stx-custos-total" style={{ marginTop: 4 }}>
             Funcionários necessários pra essa programação: <b>{calcularFuncionariosTotalSemana(semana.itens)}</b> de {equipeProdutivaCount} produtivos na semana
           </p>
-          {equipeProdutivaCount === 0 ? (
+          {ehIndisponivel(analise) ? (
+            <p className="stx-custos-total" style={{ marginTop: 4 }}><IndicadorIndisponivel titulo="Uso estimado em horas-máquina" /></p>
+          ) : equipeProdutivaCount === 0 ? (
             <p className="stx-custos-total" style={{ marginTop: 4, color: "var(--warning)" }}>
               Nenhum funcionário produtivo marcado nesta semana — o uso da equipe em horas não pode ser calculado.
             </p>

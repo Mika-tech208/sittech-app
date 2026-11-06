@@ -15,6 +15,8 @@ import { calcularCapacidadeProvavelItem, calcularInsumosCompartilhamento } from 
 import { calcularProdutosForaDaPrevisao, calcularEvidenciasSemProducao, calcularRestricoesObservadas } from "@/features/producao-real/validacao-previsao/evidencias";
 import { classificarEstado } from "@/features/producao-real/validacao-previsao/estado";
 import { toISODate } from "@/lib/date";
+import { algumProdutoComRotasAlternativas, idsComRotasAlternativas } from "@/features/produto-canonico/indicadores";
+import type { ModeloCanonico } from "@/features/produto-canonico/tipos";
 import type { ItemValidacaoPrevisao, ResultadoValidacaoPrevisao } from "@/features/producao-real/validacao-previsao/types";
 
 export * from "@/features/producao-real/validacao-previsao/types";
@@ -39,8 +41,12 @@ export function gerarValidacaoPrevisao(
   diasUteisSemana: number,
   apontamentosJanelaHistorica: ApontamentoIndicador[], // já cobre os últimos 14 dias até agora (uma única busca, fatiada aqui)
   paradasJanelaHistorica: ParadaComContexto[],
-  agora: Date = new Date()
+  agora: Date = new Date(),
+  /** modelos canônicos vigentes: produto com rotas alternativas => capacidade/projeção/recursos indisponíveis (sem isto, a função é exatamente a de sempre) */
+  modelosRotas: ModeloCanonico[] = []
 ): ResultadoValidacaoPrevisao {
+  const semanaComRotasAlt = algumProdutoComRotasAlternativas(previsaoSemana.itens.map((it) => it.produtoId), modelosRotas);
+  const idsRotasAlt = idsComRotasAlternativas(modelosRotas);
   const maquinasIndisponiveis = previsaoSemana.maquinasIndisponiveis || [];
   const maquinaNomePorId = new Map(maquinas.map((m) => [m.id, m.nome]));
 
@@ -60,15 +66,16 @@ export function gerarValidacaoPrevisao(
     return { ...it, quantidade: faltaOperacional };
   });
 
-  const capacidadeTeorica = calcularCapacidadeTeoricaRestante(itensComFalta, produtos, maquinas, periodosComDuracao, horasRestantes, maquinasIndisponiveis);
+  // Semana com produto de rotas alternativas: nada abaixo (capacidade linear por ordem, carga por máquina, capacidade provável) é calculado.
+  const capacidadeTeorica = semanaComRotasAlt ? null : calcularCapacidadeTeoricaRestante(itensComFalta, produtos, maquinas, periodosComDuracao, horasRestantes, maquinasIndisponiveis);
 
   // ---- recursos pressionados (visão fábrica) — reaproveita calcularAnaliseCapacidadeSemanal tal como está ----
   const itensFiltradosIndisponiveis = itensComFalta.map((it) => ({
     ...it,
     maquinasPorEtapa: Object.fromEntries(Object.entries(it.maquinasPorEtapa || {}).map(([etapaId, ids]) => [etapaId, (ids || []).filter((id) => !maquinasIndisponiveis.includes(id))])),
   }));
-  const analiseFabrica = calcularAnaliseCapacidadeSemanal(itensFiltradosIndisponiveis, produtos, maquinas, periodosComDuracao, horasRestantes);
-  const recursosPressionados = analiseFabrica.maquinas.map((m) => ({
+  const analiseFabrica = semanaComRotasAlt ? null : calcularAnaliseCapacidadeSemanal(itensFiltradosIndisponiveis, produtos, maquinas, periodosComDuracao, horasRestantes);
+  const recursosPressionados = (analiseFabrica?.maquinas ?? []).map((m) => ({
     maquinaId: m.maquinaId, maquinaNome: m.nome, horasRestantes: m.horasDisponiveis, horasNecessariasRestantes: m.horasNecessarias,
     pctUso: m.pct, gargalo: m.status === "gargalo",
   }));
@@ -77,7 +84,7 @@ export function gerarValidacaoPrevisao(
   // de indisponíveis usados acima pra "recursos pressionados"; base pra
   // capacidade provável EM PEÇAS por máquina, nunca recalcula
   // fatorItem/etapaLimitante/maximoPossivel (isso continua só em capacidadeTeorica.ts).
-  const { porMaquina, fatorReducaoPorMaquina } = calcularInsumosCompartilhamento(itensFiltradosIndisponiveis, produtos, periodosComDuracao, horasRestantes);
+  const insumos = semanaComRotasAlt ? null : calcularInsumosCompartilhamento(itensFiltradosIndisponiveis, produtos, periodosComDuracao, horasRestantes);
 
   const produtosIdsPrevistos = new Set(previsaoSemana.itens.map((it) => it.produtoId));
   const produtosForaDaPrevisao = calcularProdutosForaDaPrevisao(apontamentosSemanaAtual, produtosIdsPrevistos);
@@ -90,6 +97,22 @@ export function gerarValidacaoPrevisao(
     const divergenciaRealizado = calcularDivergenciaRealizado(producaoAcabadaObservada, realizadoOficial);
     const faltaOperacional = calcularFaltaOperacional(it.quantidade, producaoAcabadaObservada);
 
+    const restricoesObservadas = calcularRestricoesObservadas(it.produtoId, it.produtoNome, apontamentosJanelaHistorica, paradasJanelaHistorica, idsRotasAlt);
+    if (semanaComRotasAlt || !capacidadeTeorica || !insumos) {
+      // INDISPONÍVEL: só fatos (previsto, acabado observado, falta operacional) — nenhum número de capacidade, projeção, déficit ou estado de capacidade.
+      return {
+        itemId: it.id, produtoId: it.produtoId, produtoNome: it.produtoNome, semanaInicio: previsaoSemana.semanaInicio,
+        previsto: it.quantidade, realizadoOficial, producaoAcabadaObservada, divergenciaRealizado, faltaOperacional,
+        tempoRestanteHoras: horasRestantes,
+        capacidadeTeoricaRestante: null, capacidadeProvavelRestante: null, fatoresProvaveisUsados: [],
+        projecaoFinal: null, deficitProjetado: null,
+        estado: faltaOperacional <= 0 ? "concluido" : "indisponivel_rotas", confianca: "indisponivel",
+        restricaoTeorica: null, restricoesObservadas, indisponivelRotas: true,
+        wipLimitacaoAplicavel: (produto?.roteiro || []).length > 1,
+        filtrosDrillDown: { dataInicial: previsaoSemana.semanaInicio, dataFinal: hojeISO, produtoId: it.produtoId },
+      };
+    }
+    const { porMaquina, fatorReducaoPorMaquina } = insumos;
     const resultadoCap = capacidadeTeorica.resultadosPorItem.find((r) => r.itemId === it.id);
     const capacidadeTeoricaRestanteItem = resultadoCap ? resultadoCap.maximoPossivel : 0;
     const restricaoTeorica = resultadoCap?.etapaLimitante ? { etapaOuMaquina: resultadoCap.etapaLimitante, fonte: "capacidadeMaximaSemana" as const } : null;
@@ -111,7 +134,6 @@ export function gerarValidacaoPrevisao(
     const performanceAcimaMeta = resultadoProvavel.fatoresUsados.some((f) => f.performanceSustentadaAcimaDeMeta);
     const confianca: ItemValidacaoPrevisao["confianca"] = capacidadeProvavelRestante === null ? "indisponivel" : performanceAcimaMeta ? "estimativa" : "calculado";
 
-    const restricoesObservadas = calcularRestricoesObservadas(it.produtoId, it.produtoNome, apontamentosJanelaHistorica, paradasJanelaHistorica);
 
     return {
       itemId: it.id, produtoId: it.produtoId, produtoNome: it.produtoNome, semanaInicio: previsaoSemana.semanaInicio,
@@ -129,5 +151,6 @@ export function gerarValidacaoPrevisao(
   return {
     semanaInicio: previsaoSemana.semanaInicio, tempoRestanteHoras: horasRestantes, itens, recursosPressionados,
     produtosForaDaPrevisao, evidenciasSemProducao: evidenciasSemProducaoTodas,
+    ...(semanaComRotasAlt ? { recursosPressionadosIndisponivel: true } : {}),
   };
 }

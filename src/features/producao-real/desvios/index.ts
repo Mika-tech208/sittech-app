@@ -41,7 +41,7 @@ function fatiar(
 }
 
 function gerarParaJanelas(
-  apontamentos: ApontamentoIndicador[], paradas: ParadaComContexto[], janelas: ParDeJanelas, origem: "operacional" | "estrutural"
+  apontamentos: ApontamentoIndicador[], paradas: ParadaComContexto[], janelas: ParDeJanelas, origem: "operacional" | "estrutural", idsRotasAlternativas?: ReadonlySet<string>
 ) {
   const { apAtual, apReferencia, pAtual, pReferencia } = fatiar(apontamentos, paradas, janelas);
   return [
@@ -50,7 +50,7 @@ function gerarParaJanelas(
     ...detectarDesviosQualidade(apAtual, apReferencia, pAtual, pReferencia, janelas, origem),
     ...detectarDesviosEconomia(apAtual, apReferencia, pAtual, pReferencia, janelas, origem),
     ...detectarDesviosSemProducao(apAtual, janelas, origem),
-    ...detectarDesviosFluxo(apAtual, janelas, origem),
+    ...detectarDesviosFluxo(apAtual, janelas, origem, idsRotasAlternativas),
   ];
 }
 
@@ -61,14 +61,16 @@ export interface ResultadoDesvios {
 }
 
 export function gerarFilaDesvios(
-  apontamentos: ApontamentoIndicador[], paradas: ParadaComContexto[], hoje: Date = new Date()
+  apontamentos: ApontamentoIndicador[], paradas: ParadaComContexto[], hoje: Date = new Date(),
+  /** produtos com rotas alternativas: sem desvio de 'possível restrição operacional' para eles */
+  idsRotasAlternativas?: ReadonlySet<string>
 ): ResultadoDesvios {
   const janelaOperacional = calcularJanelaOperacional(hoje);
   const janelaEstrutural = calcularJanelaEstrutural(hoje, JANELA_ESTRUTURAL_DIAS);
 
   const todos = [
-    ...gerarParaJanelas(apontamentos, paradas, janelaOperacional, "operacional"),
-    ...gerarParaJanelas(apontamentos, paradas, janelaEstrutural, "estrutural"),
+    ...gerarParaJanelas(apontamentos, paradas, janelaOperacional, "operacional", idsRotasAlternativas),
+    ...gerarParaJanelas(apontamentos, paradas, janelaEstrutural, "estrutural", idsRotasAlternativas),
   ];
 
   const incidentes = priorizarIncidentes(deduplicarDesvios(todos));

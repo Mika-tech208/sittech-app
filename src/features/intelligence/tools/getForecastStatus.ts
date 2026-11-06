@@ -4,6 +4,7 @@
 // dentro do motor reaproveitado.
 
 import { mondayOf, toISODate } from "@/lib/date";
+import { lerModelosVigentes, type ClienteModelosVigentes } from "@/features/produto-canonico/rotasAlternativasDb";
 import { gerarValidacaoPrevisao, JANELA_HISTORICA_DIAS } from "@/features/producao-real/validacao-previsao";
 import {
   buscarApontamentosEParadas, buscarProdutos, buscarMaquinas, buscarPeriodosEDiasUteis, buscarPrevisaoSemana, ehErroConsulta,
@@ -39,13 +40,14 @@ async function handler(ctx: IntelligenceToolContext, params: Params): Promise<In
     return { success: false, tool: "get_forecast_status", code: "sem_dados", message: "Nenhuma previsão lançada para esta semana." };
   }
 
+  const modelosRotas = await lerModelosVigentes(supabase as unknown as ClienteModelosVigentes); // produto com rotas alternativas: capacidade/projeção indisponíveis
   const resultado = gerarValidacaoPrevisao(
     previsaoResolvida,
     produtos as Exclude<typeof produtos, { erro: string }>,
     maquinas as Exclude<typeof maquinas, { erro: string }>,
     (periodos as Exclude<typeof periodos, { erro: string }>).periodosComDuracao,
     (periodos as Exclude<typeof periodos, { erro: string }>).diasUteisSemana,
-    apontamentos, paradas, agora
+    apontamentos, paradas, agora, modelosRotas
   );
 
   let itens = resultado.itens;

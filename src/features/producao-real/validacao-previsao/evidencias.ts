@@ -62,12 +62,14 @@ export function calcularEvidenciasSemProducao(apontamentosSemanaAtual: Apontamen
 // Reaproveita os dois motores já existentes, sem recalcular fórmula.
 export function calcularRestricoesObservadas(
   produtoId: string, produtoNome: string,
-  apontamentos14dias: ApontamentoIndicador[], paradas14dias: ParadaComContexto[]
+  apontamentos14dias: ApontamentoIndicador[], paradas14dias: ParadaComContexto[],
+  /** produtos com rotas alternativas: sem 'possível restrição operacional' (menor volume por etapa não faz sentido com rotas paralelas) */
+  idsRotasAlternativas?: ReadonlySet<string>
 ): Evidencia[] {
   const evidencias: Evidencia[] = [];
 
   const apontamentosDoProduto = apontamentos14dias.filter((ap) => ap.produtoId === produtoId);
-  const restricao = detectarPossivelRestricaoOperacional(apontamentosDoProduto, apontamentos14dias);
+  const restricao = detectarPossivelRestricaoOperacional(apontamentosDoProduto, apontamentos14dias, idsRotasAlternativas);
   if (restricao && restricao.etapaSinalizada) {
     evidencias.push({
       fonte: "detectarPossivelRestricaoOperacional (Motor Econômico V1)",

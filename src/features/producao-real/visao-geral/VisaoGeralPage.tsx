@@ -14,6 +14,7 @@ import { useCadastrosBase } from "@/hooks/useCadastrosBase";
 import { useFuncionarios } from "@/hooks/useFuncionarios";
 import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
+import { useModelosRotasAlternativas } from "@/hooks/useModelosRotasAlternativas";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useIndicadoresJanelaHistorica } from "@/hooks/useIndicadoresJanelaHistorica";
@@ -108,14 +109,15 @@ export default function VisaoGeralPage() {
   // "semanaAtual" acima: sem polling novo, o valor só muda se a página
   // recarregar.
   const [agora] = useState(() => new Date());
+  const modelosRotas = useModelosRotasAlternativas(auth.autenticado && !produtosHook.loading);
 
   const resultado = useMemo(
     () =>
       gerarVisaoGeralProducaoReal(
         janelaHook.apontamentos, janelaHook.paradas, semanaAtualRec, produtos, maquinas, periodosComDuracao,
-        toNumber(diasUteisSemana), ocorrenciasHook.ocorrencias, agora
+        toNumber(diasUteisSemana), ocorrenciasHook.ocorrencias, agora, modelosRotas
       ),
-    [janelaHook.apontamentos, janelaHook.paradas, semanaAtualRec, produtos, maquinas, periodosComDuracao, diasUteisSemana, ocorrenciasHook.ocorrencias, agora]
+    [janelaHook.apontamentos, janelaHook.paradas, semanaAtualRec, produtos, maquinas, periodosComDuracao, diasUteisSemana, ocorrenciasHook.ocorrencias, agora, modelosRotas]
   );
 
   if (auth.emModoRecovery) {
@@ -217,7 +219,7 @@ export default function VisaoGeralPage() {
               <div className="stx-vg-context">
                 <OcorrenciasAbertasCard ocorrencias={resultado.openOccurrences} />
                 <ParadasResumoCard downtime={resultado.downtime} drillDown={resultado.drillDown.paradas} />
-                <RecursoPressionadoCard recurso={resultado.pressuredResource} />
+                <RecursoPressionadoCard recurso={resultado.pressuredResource} indisponivel={resultado.pressuredResourceIndisponivel} />
               </div>
             </div>
           )}

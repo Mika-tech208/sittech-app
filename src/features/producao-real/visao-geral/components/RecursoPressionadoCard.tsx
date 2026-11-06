@@ -7,9 +7,10 @@
 
 import { useRouter } from "next/navigation";
 import type { RecursoPressionadoResumo } from "@/features/producao-real/visao-geral/types";
+import IndicadorIndisponivel from "@/features/produto-canonico/components/IndicadorIndisponivel";
 import { formatarPercentualIndicador } from "@/features/producao-real/indicadores/format";
 
-export default function RecursoPressionadoCard({ recurso }: { recurso: RecursoPressionadoResumo | null }) {
+export default function RecursoPressionadoCard({ recurso, indisponivel = false }: { recurso: RecursoPressionadoResumo | null; indisponivel?: boolean }) {
   const router = useRouter();
 
   return (
@@ -19,7 +20,9 @@ export default function RecursoPressionadoCard({ recurso }: { recurso: RecursoPr
         <button type="button" className="stx-vg-section-link" onClick={() => router.push("/producao-real/validacao-previsao")}>Ver →</button>
       </div>
 
-      {!recurso ? (
+      {indisponivel ? (
+        <IndicadorIndisponivel />
+      ) : !recurso ? (
         <p className="stx-vg-empty">Nenhum recurso pressionado calculado no momento.</p>
       ) : (
         <>

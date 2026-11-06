@@ -1,19 +1,20 @@
 "use client";
 
 import type { CapacidadeMaximaSemana } from "@/features/capacidade/types";
+import { ehIndisponivel, type Indisponivel } from "@/features/produto-canonico/indicadores";
 
 export interface AjustarCapacidadeModalProps {
   aberto: boolean;
   onFechar: () => void;
   onAplicar: () => void;
-  capacidadeMaximaSemana: CapacidadeMaximaSemana;
+  capacidadeMaximaSemana: CapacidadeMaximaSemana | Indisponivel;
   formatBRL: (v: number) => string;
 }
 
 // Modal de confirmação do botão "AJUSTAR PARA CAPACIDADE" — reduz cada item
 // previsto pro máximo que a capacidade da semana permite.
 export default function AjustarCapacidadeModal({ aberto, onFechar, onAplicar, capacidadeMaximaSemana, formatBRL }: AjustarCapacidadeModalProps) {
-  if (!aberto) return null;
+  if (!aberto || ehIndisponivel(capacidadeMaximaSemana)) return null; // rotas alternativas: não há ajuste por capacidade linear
   return (
     <div className="stx-modal-backdrop" onClick={onFechar}>
       <div className="stx-modal-card" onClick={(e) => e.stopPropagation()}>

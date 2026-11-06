@@ -11,6 +11,8 @@ import {
 import { weekLabel } from "@/lib/date";
 import { LOGO_LIGHT } from "@/lib/logos";
 import type { Produto, Maquina, PeriodoComDuracao, Previsao } from "@/types/domain";
+import { algumProdutoComRotasAlternativas, produtoTemRotasAlternativas, MENSAGEM_INDICADOR_INDISPONIVEL } from "@/features/produto-canonico/indicadores";
+import type { ModeloCanonico } from "@/features/produto-canonico/tipos";
 
 const CORES_PRODUTO_PDF = ["#1D9E75", "#7F77DD", "#D85A30", "#D4537E", "#378ADD", "#BA7517"];
 
@@ -26,13 +28,18 @@ export interface GerarProgramacaoParams {
   diasProdutivosSemana: number;
   equipeProdutivaCount: number;
   getLucroHora: (produto: Produto) => number;
+  /** modelos canônicos vigentes: produto com rotas alternativas NÃO tem análise linear no relatório (mensagem de indicador indisponível no lugar) */
+  modelosRotas?: ModeloCanonico[];
 }
 
 export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): string {
   const {
     semanaAtual, semanaAtualRec, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana,
-    duracaoMediaPeriodo, diasProdutivosSemana, equipeProdutivaCount, getLucroHora,
+    duracaoMediaPeriodo, diasProdutivosSemana, equipeProdutivaCount, getLucroHora, modelosRotas = [],
   } = params;
+  // Produto com rotas alternativas: períodos por etapa, atingibilidade, uso por máquina e veredito assumem cadeia linear e ficariam errados => mensagem no lugar. Sem esse produto: relatório idêntico ao de sempre.
+  const semanaComRotasAlt = algumProdutoComRotasAlternativas(semanaAtualRec.itens.map((i) => i.produtoId), modelosRotas);
+  const MSG = MENSAGEM_INDICADOR_INDISPONIVEL;
 
   const analiseCapacidade = calcularAnaliseCapacidadeSemanal(semanaAtualRec.itens, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana);
   const usoMaquinas = calcularUsoPorMaquina(analiseCapacidade, duracaoMediaPeriodo);
@@ -43,6 +50,13 @@ export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): stri
   const pctEquipePDF = horasPessoaDisponiveisPDF > 0 ? (horasPessoaDemandadasPDF / horasPessoaDisponiveisPDF) * 100 : 0;
 
   const linhasItens = semanaAtualRec.itens.map((it) => {
+    if (produtoTemRotasAlternativas(it.produtoId, modelosRotas)) {
+      return `
+      <div class="item">
+        <div class="item-header"><span class="item-nome">${it.produtoNome}</span><span class="status alerta">${MSG}</span></div>
+        <p class="resumo-item">Meta da semana: <b>${it.quantidade}</b> peças</p>
+      </div>`;
+    }
     const produto = produtos.find((p) => p.id === it.produtoId);
     const roteiro = produto?.roteiro || [];
     const viab = calcularViabilidadeItem(it, produtos, periodosComDuracao, horasPorMaquinaSemana);
@@ -166,9 +180,14 @@ export function gerarHtmlProgramacaoSemana(params: GerarProgramacaoParams): stri
     </div>
   </div>
   ${semanaAtualRec.itens.length === 0 ? "<p>Nenhum item lançado pra essa semana.</p>" : linhasItens}
-  ${semanaAtualRec.itens.length > 0 ? `<p class="total">Total geral de funcionários necessários na semana: <b>${totalFuncionarios}</b> de ${equipeProdutivaCount} produtivos na semana</p>
+  ${semanaAtualRec.itens.length > 0 && semanaComRotasAlt ? `<p class="total">Uso estimado em horas-máquina: <b>${MSG}</b></p>` : ""}
+  ${semanaAtualRec.itens.length > 0 && !semanaComRotasAlt ? `<p class="total">Total geral de funcionários necessários na semana: <b>${totalFuncionarios}</b> de ${equipeProdutivaCount} produtivos na semana</p>
   <p style="margin-top:4px; font-size:14px;">Uso estimado em horas-máquina: <b>${pctEquipePDF.toFixed(1)}%</b> <span style="font-weight:400; color:#8a8f94; font-size:12px;">(${horasPessoaDemandadasPDF.toFixed(1)}h demandadas de ${horasPessoaDisponiveisPDF.toFixed(1)}h disponíveis)</span></p>` : ""}
-  ${usoMaquinas.length > 0 ? `
+  ${semanaComRotasAlt ? `
+  <h2 class="secao">Uso de cada máquina essa semana</h2>
+  <p class="secao-sub">${MSG}</p>
+  <h2 class="secao">Resumo final — programação da semana inteira</h2>
+  <div class="resumo-final alerta"><p class="veredito">${MSG}</p></div>` : usoMaquinas.length > 0 ? `
   <h2 class="secao">Uso de cada máquina essa semana</h2>
   <p class="secao-sub">Todas as máquinas com demanda na programação, não só as compartilhadas entre produtos.</p>
   ${linhasMaquinas}

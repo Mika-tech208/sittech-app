@@ -23,6 +23,8 @@ import { gerarFilaDesvios } from "@/features/producao-real/desvios";
 import { gerarValidacaoPrevisao } from "@/features/producao-real/validacao-previsao";
 import { formatarTempoDecorrido } from "@/lib/tempoDecorrido";
 import { toISODate } from "@/lib/date";
+import { idsComRotasAlternativas } from "@/features/produto-canonico/indicadores";
+import type { ModeloCanonico } from "@/features/produto-canonico/tipos";
 import type { OcorrenciaAbertaComMaquina } from "@/hooks/useOcorrenciasAbertas";
 import type {
   ResultadoVisaoGeralProducaoReal, JanelaRotulada, FactoryHealth, ForecastSemana,
@@ -56,8 +58,11 @@ export function gerarVisaoGeralProducaoReal(
   periodosComDuracao: PeriodoComDuracao[],
   diasUteisSemana: number,
   ocorrenciasAbertas: OcorrenciaAbertaComMaquina[],
-  agora: Date = new Date()
+  agora: Date = new Date(),
+  /** modelos canônicos vigentes (produto com rotas alternativas => situação/recurso/atenções de capacidade indisponíveis). Sem eles: exatamente o de sempre. */
+  modelosRotas: ModeloCanonico[] = []
 ): ResultadoVisaoGeralProducaoReal {
+  const idsRotasAlt = idsComRotasAlternativas(modelosRotas);
   // ---- janela "semana atual até agora" — mesma fonte oficial de Desvios V1 ----
   const janelaOperacional = calcularJanelaOperacional(agora).atual;
   const janelaSemanaRotulada: JanelaRotulada = { ...janelaOperacional, rotulo: "Semana atual até agora" };
@@ -83,10 +88,10 @@ export function gerarVisaoGeralProducaoReal(
 
   const temPrevisao = !!previsaoSemanaAtual && previsaoSemanaAtual.itens.length > 0;
   const resultadoValidacao = temPrevisao
-    ? gerarValidacaoPrevisao(previsaoSemanaAtual as Previsao, produtos, maquinas, periodosComDuracao, diasUteisSemana, apontamentos14dias, paradas14dias, agora)
+    ? gerarValidacaoPrevisao(previsaoSemanaAtual as Previsao, produtos, maquinas, periodosComDuracao, diasUteisSemana, apontamentos14dias, paradas14dias, agora, modelosRotas)
     : null;
 
-  const porEstado = { concluido: 0, no_ritmo: 0, atencao: 0, inviavel_teoricamente: 0, sem_estimativa: 0 };
+  const porEstado = { concluido: 0, no_ritmo: 0, atencao: 0, inviavel_teoricamente: 0, sem_estimativa: 0, indisponivel_rotas: 0 };
   let maiorDeficit: ForecastSemana["maiorDeficit"] = null;
   if (resultadoValidacao) {
     resultadoValidacao.itens.forEach((it) => {
@@ -123,7 +128,7 @@ export function gerarVisaoGeralProducaoReal(
   }));
 
   // ---- Faixa 3 — Principais atenções (§9): gerarFilaDesvios já prioriza, top 3 ----
-  const { incidentes } = gerarFilaDesvios(apontamentos28dias, paradas28dias, agora);
+  const { incidentes } = gerarFilaDesvios(apontamentos28dias, paradas28dias, agora, idsRotasAlt);
   const attentionItems = incidentes.slice(0, 3);
 
   // ---- Faixa 5 — Paradas (§10): mesma janela "semana atual", só funções oficiais ----
@@ -171,6 +176,7 @@ export function gerarVisaoGeralProducaoReal(
     attentionItems,
     downtime,
     pressuredResource,
+    pressuredResourceIndisponivel: !!resultadoValidacao?.recursosPressionadosIndisponivel,
     dataQuality: {
       apontamentosSemanaAtual: apontamentosSemana.length > 0,
       previsaoLancada: temPrevisao,

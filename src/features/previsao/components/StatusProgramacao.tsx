@@ -19,19 +19,34 @@
 import { useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
 import type { AnaliseCapacidadeSemanal, CapacidadeMaximaSemana, ObservacaoSetupMaquina } from "@/features/capacidade/types";
+import { ehIndisponivel, type Indisponivel } from "@/features/produto-canonico/indicadores";
+import IndicadorIndisponivel from "@/features/produto-canonico/components/IndicadorIndisponivel";
 
 export interface StatusProgramacaoProps {
-  analise: AnaliseCapacidadeSemanal;
-  capacidadeMaximaSemana: CapacidadeMaximaSemana;
+  /** `Indisponivel` = semana com produto de rotas alternativas: a análise linear não é calculada (mensagem no lugar) */
+  analise: AnaliseCapacidadeSemanal | Indisponivel;
+  capacidadeMaximaSemana: CapacidadeMaximaSemana | Indisponivel;
   observacoesSetup: ObservacaoSetupMaquina[];
   modoSimulacao: boolean;
   onAjustar: () => void;
   formatBRL: (v: number) => string;
 }
 
-export default function StatusProgramacao({
+export default function StatusProgramacao(props: StatusProgramacaoProps) {
+  if (ehIndisponivel(props.analise) || ehIndisponivel(props.capacidadeMaximaSemana)) {
+    return (
+      <div className="stx-prev-status" data-testid="status-programacao-indisponivel">
+        <p className="stx-analise-titulo">Status da programação</p>
+        <IndicadorIndisponivel />
+      </div>
+    );
+  }
+  return <StatusProgramacaoLinear {...props} analise={props.analise} capacidadeMaximaSemana={props.capacidadeMaximaSemana} />;
+}
+
+function StatusProgramacaoLinear({
   analise, capacidadeMaximaSemana, observacoesSetup, modoSimulacao, onAjustar, formatBRL,
-}: StatusProgramacaoProps) {
+}: Omit<StatusProgramacaoProps, "analise" | "capacidadeMaximaSemana"> & { analise: AnaliseCapacidadeSemanal; capacidadeMaximaSemana: CapacidadeMaximaSemana }) {
   const [expandido, setExpandido] = useState(false);
   const atingivel = analise.atingivel;
 
