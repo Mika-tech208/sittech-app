@@ -1,0 +1,15 @@
+# DIAGNÓSTICO do fallback 13:08 (código com a correção; tentativa 0 = a que falhava no PROD)
+# relógio 2026-11-06T17:00:00.000Z · status processado · corte "ok"
+aPartirDe=22 (2026-11-06 t2) · equipe 12 · ausentes {"0":["8e8c1955-377d-4ad2-8fac-104fbe08d475"],"1":["8e8c1955-377d-4ad2-8fac-104fbe08d475"],"2":["8e8c1955-377d-4ad2-8fac-104fbe08d475"],"3":["8e8c1955-377d-4ad2-8fac-104fbe08d475"],"4":["8e8c1955-377d-4ad2-8fac-104fbe08d475"],"5":["8e8c1955-377d-4ad2-8fac-104fbe08d475","17ba2072-894c-4af3-aeb8-d34a0d55d044"],"12":["829a9664-
+
+--- tentativa 0: atribuição heurística FALHOU
+  t2: postos Montagem 19B[Montar Presilha], Etiquetadora 15[Etiquetar], Montagem 14 (Plug)[Parafusar], Parafusadeira 12[Parafusar], Montagem 18[Montar Presilha], Maquina Automatica 8 [Rosquear + Parafusar], Embalagem 17[Embalar], Montagem 18B[Montar Presilha], Montagem 19[Montar Presilha] · pessoas 11
+  t3: postos Montagem 19B[Montar Presilha], Etiquetadora 15[Etiquetar], Montagem 14 (Plug)[Parafusar], Montagem 18[Montar Presilha], Embalagem 17[Embalar], Montagem 18B[Montar Presilha], Montagem 19[Montar Presilha] · pessoas 11
+  reatribuirPessoasBloco(600) = null · busca EXATA = INVIÁVEL (esgotada) (1 ms)
+
+--- tentativa 1: atribuição heurística OK
+  t2: postos Etiquetadora 15[Etiquetar], Montagem 14 (Plug)[Parafusar], Parafusadeira 12[Parafusar], Montagem 18[Montar Presilha], Maquina Automatica 8 [Rosquear + Parafusar], Embalagem 17[Embalar], Montagem 18B[Montar Presilha], Montagem 19[Montar Presilha] · pessoas 11
+  t3: postos Montagem 19B[Montar Presilha], Etiquetadora 15[Etiquetar], Montagem 14 (Plug)[Parafusar], Montagem 18[Montar Presilha], Embalagem 17[Embalar], Montagem 18B[Montar Presilha], Montagem 19[Montar Presilha] · pessoas 11
+  reatribuirPessoasBloco(600) = viável · busca EXATA = VIÁVEL (1 ms)
+    t2: Caroline→Etiquetadora 15[Etiquetar] · Tania→Montagem 14 (Plug)[Parafusar] · Joa→Parafusadeira 12[Parafusar] · Elizabeth→Montagem 18[Montar Presilha] · Damaris→Maquina Automatica 8 [Rosquear + Parafusar] · Karelis→Embalagem 17[Embalar] · Kelly→Montagem 18B[Montar Presilha] · Luana→Montagem 19[Montar Presilha]
+    t3: Caroline→Montagem 19B[Montar Presilha] · Tania→Etiquetadora 15[Etiquetar] · Elizabeth→Montagem 14 (Plug)[Parafusar] · Damaris→Montagem 18[Montar Presilha] · Joa→Embalagem 17[Embalar] · Samantha→Montagem 18B[Montar Presilha] · Sara→Montagem 19[Montar Presilha]
