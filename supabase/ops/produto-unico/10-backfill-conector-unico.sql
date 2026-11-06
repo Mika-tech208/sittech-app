@@ -1,5 +1,5 @@
 -- Sittech — F1: BACKFILL NÃO DESTRUTIVO do produto canônico "Conector 3/4" (Final) + rotas + mapa de legado. NÃO É MIGRATION (dados): executar à mão, DEPOIS de
--- (1) a migration 20261107100000 aplicada e (2) o código com o GUARD (produtos canônicos escondidos das telas) no ar.
+-- (1) as migrations 20261115100000/110000/120000 aplicadas e (2) o código com o GUARD (produto único escondido das telas sem cutover) no ar.
 --
 -- O que faz (uma transação; idempotente — se o canônico CONECTOR_3_4 já existe, só revalida):
 --   • cria o produto canônico INATIVO (ativo=false), com etapas NOVAS copiadas dos legados (metas e máquinas elegíveis idênticas; operação idêntica):
@@ -9,8 +9,8 @@
 -- O que NÃO faz: não toca nos produtos/etapas/apontamentos/alocações/previsão LEGADOS; não ativa nada (produto_unico_cutover continua null); não cria item de Previsão.
 -- ABORTA (sem gravar nada) se: legados ausentes; Etiquetar/Embalar dos dois legados divergirem em operação, máquinas ou metas (as etapas comuns têm que ser equivalentes — mesma regra de
 -- fusão do motor); algum legado já mapeado para outro canônico; o grafo/cadastro canônico tiver problema.
--- Preço: valor_unitario do canônico = o do Convencional (0,1825). O da Automática é 0,182 — DECISÃO DO USUÁRIO (preço único); ajustar aqui antes de rodar se for outro.
--- Rollback: supabase/rollbacks/20261107100000_rollback_produto_canonico.sql (parte B).
+-- Preço: valor_unitario do produto único = o do Convencional (0,1825). O da Automática é 0,182 (diferença de R$ 0,0005/peça) — DECISÃO DO USUÁRIO (preço único); ajustar aqui antes de rodar se for outro.
+-- Rollback: supabase/rollbacks/20261115100000_rollback_produto_canonico_1_backfill.sql.
 
 do $backfill$
 declare
@@ -29,8 +29,8 @@ declare
   c_m8 uuid; c_ros uuid; c_par uuid; c_eti uuid; c_emb uuid;
   v_problemas text;
 begin
-  if exists (select 1 from public.produto_canonico where codigo = 'CONECTOR_3_4') then
-    select produto_id into v_prod from public.produto_canonico where codigo = 'CONECTOR_3_4';
+  if exists (select 1 from public.produto_canonico where codigo = 'CONECTOR_3_4_UNICO') then
+    select produto_id into v_prod from public.produto_canonico where codigo = 'CONECTOR_3_4_UNICO';
     select string_agg(p, '; ') into v_problemas from public.produto_canonico_problemas(v_prod) p;
     if v_problemas is not null then raise exception 'canônico já existe mas com problemas: %', v_problemas; end if;
     raise notice 'backfill: CONECTOR_3_4 já existe (%), nada a fazer (revalidado: íntegro)', v_prod;
@@ -68,9 +68,9 @@ begin
 
   -- produto canônico (INATIVO)
   insert into public.produtos (nome, referencia, valor_unitario, ativo, prioridade)
-    values ('Conector 3/4" (Final)', v_ref, v_preco, false, v_prio) returning id into v_prod;
+    values ('Conector 3/4" (Produto Único)', v_ref, v_preco, false, v_prio) returning id into v_prod;
   insert into public.produto_canonico (produto_id, codigo, nome_exibicao, observacao)
-    values (v_prod, 'CONECTOR_3_4', 'Conector 3/4"', 'Produto final único com rotas Convencional/Automática (cutover por produto_unico_cutover)');
+    values (v_prod, 'CONECTOR_3_4_UNICO', 'Conector 3/4"', 'Produto único Conector 3/4 com 2 rotas (Convencional/Automática); ativado só por produto_unico_ativar');
   insert into public.produto_rotas (produto_id, codigo, nome, tipo, ordem) values (v_prod, 'CONVENCIONAL', 'ROTA 1 — Convencional', 'convencional', 1) returning id into v_rota1;
   insert into public.produto_rotas (produto_id, codigo, nome, tipo, ordem) values (v_prod, 'AUTOMATICA', 'ROTA 2 — Automática', 'automatica', 2) returning id into v_rota2;
 

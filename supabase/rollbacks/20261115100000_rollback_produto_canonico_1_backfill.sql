@@ -1,4 +1,4 @@
--- ROLLBACK F1 (dados) — desfaz o BACKFILL do produto canônico (supabase/ops/produto-canonico/10-backfill-conector.sql). NÃO é migration; executar à mão (orquestrador).
+-- ROLLBACK F1 (dados) — desfaz o BACKFILL do produto canônico (supabase/ops/produto-unico/10-backfill-conector-unico.sql). NÃO é migration; executar à mão (orquestrador).
 -- Remove SOMENTE o que o backfill criou: produto canônico + etapas + máquinas elegíveis + rotas + grafo + mapas. NUNCA toca nos produtos/etapas/apontamentos/alocações/previsões legados.
 -- RECUSA (aborta sem apagar nada) se QUALQUER dado de negócio já referencia o canônico ou suas etapas: apontamento, alocação (inclusive dentro de `distribuicao`), item de Previsão
 -- (e máquinas/adicional), controle de WIP, ocorrência de máquina, ou parâmetro JSON (contagens físicas/margens) que cite os ids. Nesse caso o canônico já foi USADO: reverta primeiro o cutover
@@ -14,9 +14,9 @@ declare
   v_usos text := '';
   v_n bigint;
 begin
-  select produto_id into v_prod from public.produto_canonico where codigo = 'CONECTOR_3_4';
+  select produto_id into v_prod from public.produto_canonico where codigo = 'CONECTOR_3_4_UNICO';
   if v_prod is null then
-    raise notice 'rollback backfill: não há produto canônico CONECTOR_3_4 — nada a fazer';
+    raise notice 'rollback backfill: não há produto canônico CONECTOR_3_4_UNICO — nada a fazer';
     return;
   end if;
   select coalesce(array_agg(id), '{}') into v_etapas from public.roteiro_etapas where produto_id = v_prod;
@@ -27,6 +27,7 @@ begin
   select count(*) into v_n from public.previsao_item_maquinas where etapa_id = any(v_etapas);                                                            if v_n > 0 then v_usos := v_usos || format(' previsao_item_maquinas=%s', v_n); end if;
   select count(*) into v_n from public.previsao_item_adicional_etapa where etapa_id = any(v_etapas);                                                     if v_n > 0 then v_usos := v_usos || format(' previsao_item_adicional_etapa=%s', v_n); end if;
   select count(*) into v_n from public.wip_controle where produto_id = v_prod or etapa_origem_id = any(v_etapas) or etapa_seguinte_id = any(v_etapas);  if v_n > 0 then v_usos := v_usos || format(' wip_controle=%s', v_n); end if;
+  select count(*) into v_n from public.escala_buffer_pares where produto_id = v_prod;                                                             if v_n > 0 then v_usos := v_usos || format(' escala_buffer_pares=%s', v_n); end if;
   select count(*) into v_n from public.ocorrencias_maquina where produto_id = v_prod or etapa_id = any(v_etapas);                                       if v_n > 0 then v_usos := v_usos || format(' ocorrencias_maquina=%s', v_n); end if;
   select count(*) into v_n from public.escala_parametros where chave <> 'produto_unico_cutover' and valor::text like '%' || v_prod::text || '%';          if v_n > 0 then v_usos := v_usos || format(' escala_parametros=%s', v_n); end if;
   if public.produto_unico_cutover() is not null then v_usos := v_usos || ' produto_unico_cutover_ativo'; end if;

@@ -1,5 +1,6 @@
--- Sittech — F2 (PREPARAÇÃO DO CUTOVER) do produto canônico: conversão transacional da Previsão, reversão, guardas e visões de produção por rota/final.
--- Depende de 20261107100000_produto_canonico_estrutura. INERTE enquanto `produto_unico_cutover` for null e não existir produto canônico (backfill F1 não rodado):
+-- Sittech — F2 (PREPARAÇÃO DO CUTOVER) do produto canônico: ação EXPLÍCITA de unificar/separar a Previsão, guardas e visões de produção por rota/final.
+-- (renumerada de 20261107110000 para ficar DEPOIS das migrations já aplicadas em PROD até 20261114120000; revisada em 06/11 para o PROD atual)
+-- Depende de 20261115100000_produto_canonico_estrutura. INERTE enquanto `produto_unico_cutover` for null e não existir produto canônico (backfill F1 não rodado):
 --   • as 2 funções de conversão/reversão só rodam quando CHAMADAS (service_role; sem gatilho, sem agendador);
 --   • os 2 gatilhos de guarda (previsao_itens, apontamentos_producao) saem imediatamente sem efeito quando não há cutover (1 SELECT em tabela pequena);
 --   • as 2 visões são somente leitura.
@@ -8,7 +9,9 @@
 -- Por que a Previsão e a Escala "viram juntas": a reconciliação (escala_divergencias_cadastro_maquinas) exige que (produto, etapa, máquina) de cada linha esteja em previsao_item_maquinas.
 -- A conversão NÃO toca em alocações: o recálculo do motor (evento gerado pela própria conversão) grava as linhas no produto canônico. Se o recálculo falhar, as alocações continuam
 -- legadas e a reversão (que restaura os itens legados do backup) devolve um estado coerente; se o recálculo já gravou linhas canônicas, a reversão RECUSA até o plano legado ser restaurado.
--- Reversão do que esta migration cria: supabase/rollbacks/20261107110000_rollback_produto_canonico_conversao.sql
+-- Reversão do que esta migration cria: supabase/rollbacks/20261115110000_rollback_produto_canonico_conversao.sql
+-- MUDANÇA (06/11): a conversão NÃO liga nem desliga o cutover e NÃO ativa o produto (isso é só produto_unico_ativar/produto_unico_desativar, migration 20261115120000). Converter exige cutover já ligado e semana >= cutover.
+-- A soma de itens legados (64.800 + 28.500 = 93.300) só acontece por ação explícita do usuário (produto_unico_unificar_previsao), nunca automática.
 
 -- =========================================================================
 -- 1) Visões de produção por rota (upstream) e final — leitura do histórico SEM atribuir peças finais a produto/rota
@@ -138,7 +141,8 @@ begin
   v_valor := coalesce(p_valor_unitario, v_valor);
 
   select (valor #>> '{}')::date into v_cut from public.escala_parametros where chave = 'produto_unico_cutover' and jsonb_typeof(valor) = 'string';
-  if v_cut is not null and v_cut > v_semana then raise exception 'F2_CUTOVER_POSTERIOR: cutover % é depois da semana %', v_cut, v_semana; end if;
+  if v_cut is null then raise exception 'F2_SEM_CUTOVER: o produto único ainda não foi ativado (produto_unico_ativar)'; end if;
+  if v_cut > v_semana then raise exception 'F2_CUTOVER_POSTERIOR: cutover % é depois da semana %', v_cut, v_semana; end if;
 
   if exists (select 1 from public.previsao_itens where previsao_id = p_previsao and produto_id = v_prod and tipo = 'previsto') then
     perform set_config('sittech.produto_unico_bypass', 'off', true);
@@ -178,18 +182,14 @@ begin
   get diagnostics v_n_maq = row_count;
   delete from public.previsao_itens i using public.produto_legado_mapa m where i.previsao_id = p_previsao and i.tipo = 'previsto' and i.produto_id = m.produto_legado_id;
 
-  if v_cut is null then
-    update public.escala_parametros set valor = to_jsonb(to_char(v_semana, 'YYYY-MM-DD')), atualizado_em = now() where chave = 'produto_unico_cutover';
-  end if;
-  -- o produto canônico passa a ser selecionável/apontável (registrar_apontamento_producao exige produto ativo); os legados NÃO são desativados (apontamento retroativo de datas antigas continua válido; os seletores escondem por data)
-  update public.produtos set ativo = true where id = v_prod and not ativo;
+  -- (o produto já está ativo desde produto_unico_ativar; os legados NÃO são desativados: apontamento retroativo de datas antigas continua válido; os seletores escondem por data)
 
   insert into public.produto_unico_conversoes (previsao_id, semana_inicio, acao, feito_por, resumo, backup)
     values (p_previsao, v_semana, 'converter', p_feito_por,
-            jsonb_build_object('produto_canonico_id', v_prod, 'item_canonico_id', v_item, 'quantidade', v_qtd, 'valor_unitario', v_valor, 'itens_legado_removidos', v_n_itens, 'maquinas_canonicas', v_n_maq, 'cutover', coalesce(v_cut, v_semana)), v_backup);
-  insert into public.produto_canonico_ativacoes (acao, cutover, feito_por, detalhes) values ('ativar', coalesce(v_cut, v_semana), p_feito_por, jsonb_build_object('previsao_id', p_previsao, 'semana', v_semana, 'quantidade', v_qtd));
+            jsonb_build_object('produto_canonico_id', v_prod, 'item_canonico_id', v_item, 'quantidade', v_qtd, 'valor_unitario', v_valor, 'itens_legado_removidos', v_n_itens, 'maquinas_canonicas', v_n_maq, 'cutover', v_cut), v_backup);
+  insert into public.produto_canonico_ativacoes (acao, cutover, feito_por, detalhes) values ('unificar_previsao', v_cut, p_feito_por, jsonb_build_object('previsao_id', p_previsao, 'semana', v_semana, 'quantidade', v_qtd));
   perform set_config('sittech.produto_unico_bypass', 'off', true);
-  return jsonb_build_object('ja_convertida', false, 'semana', v_semana, 'item_canonico_id', v_item, 'quantidade', v_qtd, 'itens_legado_removidos', v_n_itens, 'maquinas_canonicas', v_n_maq, 'cutover', coalesce(v_cut, v_semana));
+  return jsonb_build_object('ja_convertida', false, 'semana', v_semana, 'item_canonico_id', v_item, 'quantidade', v_qtd, 'itens_legado_removidos', v_n_itens, 'maquinas_canonicas', v_n_maq, 'cutover', v_cut);
 end;
 $$;
 
@@ -210,7 +210,6 @@ declare
   v_usos text := '';
   v_n bigint;
   v_cut date;
-  v_restantes int;
 begin
   perform set_config('sittech.produto_unico_bypass', 'on', true);
   select semana_inicio into v_semana from public.previsoes where id = p_previsao for update;
@@ -231,19 +230,12 @@ begin
   insert into public.previsao_itens select * from jsonb_populate_recordset(null::public.previsao_itens, v_conv.backup -> 'itens');
   insert into public.previsao_item_maquinas select * from jsonb_populate_recordset(null::public.previsao_item_maquinas, v_conv.backup -> 'maquinas');
 
-  select count(*) into v_restantes from public.previsao_itens where produto_id = v_prod and tipo = 'previsto';
   select (valor #>> '{}')::date into v_cut from public.escala_parametros where chave = 'produto_unico_cutover' and jsonb_typeof(valor) = 'string';
-  if v_restantes = 0 and v_cut is not null and v_cut >= v_semana then
-    update public.escala_parametros set valor = 'null'::jsonb, atualizado_em = now() where chave = 'produto_unico_cutover';
-  end if;
-  if v_restantes = 0 then
-    update public.produtos set ativo = false where id = v_prod and ativo;
-  end if;
   insert into public.produto_unico_conversoes (previsao_id, semana_inicio, acao, feito_por, resumo)
-    values (p_previsao, v_semana, 'reverter', p_feito_por, jsonb_build_object('conversao_revertida', v_conv.id, 'itens_restaurados', jsonb_array_length(v_conv.backup -> 'itens'), 'cutover_zerado', v_restantes = 0 and v_cut is not null and v_cut >= v_semana));
-  insert into public.produto_canonico_ativacoes (acao, cutover, feito_por, detalhes) values ('reverter', v_cut, p_feito_por, jsonb_build_object('previsao_id', p_previsao, 'semana', v_semana));
+    values (p_previsao, v_semana, 'reverter', p_feito_por, jsonb_build_object('conversao_revertida', v_conv.id, 'itens_restaurados', jsonb_array_length(v_conv.backup -> 'itens'), 'cutover_mantido', v_cut));
+  insert into public.produto_canonico_ativacoes (acao, cutover, feito_por, detalhes) values ('separar_previsao', v_cut, p_feito_por, jsonb_build_object('previsao_id', p_previsao, 'semana', v_semana));
   perform set_config('sittech.produto_unico_bypass', 'off', true);
-  return jsonb_build_object('semana', v_semana, 'itens_restaurados', jsonb_array_length(v_conv.backup -> 'itens'), 'cutover_zerado', v_restantes = 0 and v_cut is not null and v_cut >= v_semana);
+  return jsonb_build_object('semana', v_semana, 'itens_restaurados', jsonb_array_length(v_conv.backup -> 'itens'), 'cutover_mantido', v_cut);
 end;
 $$;
 
@@ -253,5 +245,58 @@ grant execute on function public.produto_unico_converter_previsao(uuid, numeric,
 grant execute on function public.produto_unico_reverter_previsao(uuid, text) to service_role;
 revoke all on function public.produto_unico_trg_guarda_previsao_item() from public, anon, authenticated;
 revoke all on function public.produto_unico_trg_guarda_apontamento() from public, anon, authenticated;
+
+-- =========================================================================
+-- 6) AÇÃO EXPLÍCITA do usuário (botão "Unificar em Conector 3/4" na Previsão): soma 64.800 + 28.500 = 93.300 SÓ quando o usuário pede. Nunca automática.
+--    Mesma conversão transacional/reversível acima; a permissão é a da Previsão. Recusa se não houver cutover ligado ou se a semana for anterior a ele.
+-- =========================================================================
+create or replace function public.produto_unico_unificar_previsao(p_previsao uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare v_nome text;
+begin
+  if not (public.is_admin() or public.has_permissao('previsao')) then raise exception 'PRODUTO_UNICO_SEM_PERMISSAO: sem permissão para alterar a Previsão'; end if;
+  select nome into v_nome from public.usuarios where auth_user_id = auth.uid() and ativo = true;
+  return public.produto_unico_converter_previsao(p_previsao, null, 'usuario:' || coalesce(v_nome, '?'));
+end;
+$$;
+create or replace function public.produto_unico_separar_previsao(p_previsao uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare v_nome text;
+begin
+  if not (public.is_admin() or public.has_permissao('previsao')) then raise exception 'PRODUTO_UNICO_SEM_PERMISSAO: sem permissão para alterar a Previsão'; end if;
+  select nome into v_nome from public.usuarios where auth_user_id = auth.uid() and ativo = true;
+  return public.produto_unico_reverter_previsao(p_previsao, 'usuario:' || coalesce(v_nome, '?'));
+end;
+$$;
+revoke all on function public.produto_unico_unificar_previsao(uuid) from public, anon;
+revoke all on function public.produto_unico_separar_previsao(uuid) from public, anon;
+grant execute on function public.produto_unico_unificar_previsao(uuid) to authenticated, service_role;
+grant execute on function public.produto_unico_separar_previsao(uuid) to authenticated, service_role;
+
+-- Adicional POR ETAPA não é suportado no produto único na v1 (a ordem do roteiro não é o caminho: M8 e Rosquear/Parafusar são rotas paralelas): recusa em vez de gerar plano errado.
+create or replace function public.produto_unico_trg_guarda_adicional_etapa()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if exists (select 1 from public.previsao_itens i join public.produto_canonico c on c.produto_id = i.produto_id where i.id = new.item_id) then
+    raise exception 'PRODUTO_UNICO_ADICIONAL_ETAPA_NAO_SUPORTADO: carga adicional por etapa não é suportada no Conector 3/4 (produto único); use a quantidade do item' using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists trg_produto_unico_guarda_adicional_etapa on public.previsao_item_adicional_etapa;
+create trigger trg_produto_unico_guarda_adicional_etapa before insert on public.previsao_item_adicional_etapa for each row execute function public.produto_unico_trg_guarda_adicional_etapa();
+revoke all on function public.produto_unico_trg_guarda_adicional_etapa() from public, anon, authenticated;
 grant select on public.vw_producao_rota_semana, public.vw_producao_final_semana to authenticated, service_role;
 notify pgrst, 'reload schema';
