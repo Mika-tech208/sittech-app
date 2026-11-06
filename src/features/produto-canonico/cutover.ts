@@ -33,3 +33,14 @@ export function produtoUnicoAtivo(dataIso: string, cutover: string | null): bool
   if (!cutover) return false;
   return segundaDaSemana(dataIso) >= cutover;
 }
+
+/** ÚNICA decisão de cutover do recálculo/fechamento: a semana (qualquer dia) usa o produto único? Devolve o cutover vigente da semana ou null. Sem parâmetro/inválido/semana anterior => null (comportamento legado). */
+export function cutoverDaSemana(linhas: { chave: string; valor: unknown }[] | null | undefined, semanaInicio: string): string | null {
+  const c = lerCutoverDeParametros(linhas);
+  return c && produtoUnicoAtivo(semanaInicio, c) ? c : null;
+}
+
+/** Escolhe o modelo canônico com as duas rotas (convencional + automática). Outros modelos (ou nenhum) => null. */
+export function escolherModeloUnico<M extends { rotas: { tipo: string }[] }>(modelos: M[] | null | undefined): M | null {
+  return (modelos ?? []).find((m) => m.rotas.some((r) => r.tipo === "convencional") && m.rotas.some((r) => r.tipo === "automatica")) ?? null;
+}

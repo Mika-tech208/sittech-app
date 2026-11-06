@@ -1,1 +1,0 @@
-Teste de integracao com o planejador da Frente E (opcao produtoUnico). Depende de feat/conector-unico-motor: depois do merge dela, mover para ../__tests__/integracaoMotor.test.ts (renomear .txt). Resultado do ensaio na branch local scratch/m-e-integ: 9/9 passam; paridade exata legado x canonico.

@@ -41,13 +41,13 @@ function legado(v: Var = {}): EstadoBruto {
 // canônico: M8 ordem 0 (como o backfill), Rosquear 1, Parafusar 2, Etiquetar 3, Embalar 4
 function canonico(v: Var = {}): EstadoBruto {
   const etiq = v.etiq ?? [900, 800], total = v.total ?? 10000;
-  return base([
+  return { ...base([
     { produtoId: "pK", quantidade: total, quantidadeAdicional: 0, valorUnitario: 1, maquinasPorEtapa: { k_ros: v.r1 ?? ["r1"], k_par: v.p1 ?? ["p1"], k_m8: v.m8 ?? ["m8"], k_eti: ["e1"], k_emb: ["b1"] } },
   ], [
     { id: "k_m8", produtoId: "pK", operacaoId: "opM", ordem: 0, metas: METAS(400, 340) }, { id: "k_ros", produtoId: "pK", operacaoId: "opR", ordem: 1, metas: METAS(600, 520) },
     { id: "k_par", produtoId: "pK", operacaoId: "opP", ordem: 2, metas: METAS(500, 420) }, { id: "k_eti", produtoId: "pK", operacaoId: "opE", ordem: 3, metas: METAS(...etiq) },
     { id: "k_emb", produtoId: "pK", operacaoId: "opB", ordem: 4, metas: METAS(1200, 1100) },
-  ], v.pessoas);
+  ], v.pessoas), produtoUnico: { modelo: MODELO, cutover: "2026-11-02" } };
 }
 const MODELO: ModeloCanonico = {
   produtoCanonicoId: "pK", codigo: "CONECTOR_3_4", nomeExibicao: "Conector", rotas: [{ id: "R1", codigo: "CONVENCIONAL", nome: "ROTA 1", tipo: "convencional", ordem: 1, ativa: true }, { id: "R2", codigo: "AUTOMATICA", nome: "ROTA 2", tipo: "automatica", ordem: 2, ativa: true }],

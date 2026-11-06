@@ -8,6 +8,7 @@ import type { EntradaWip } from "@/features/escala/wipSaldo";
 import type { ContagemFisicaPar, DiagnosticoItem, ParLegado } from "@/features/escala/fluxo/tipos";
 import type { ApontamentoReal } from "@/features/escala/producaoReal";
 import type { ConfigPlanejadorCorte } from "@/features/escala/fluxo/planoCorte";
+import type { ModeloCanonico } from "@/features/produto-canonico/tipos";
 
 export interface AvisoMontagem {
   tipo: "etapa_sem_maquina" | "etapa_sem_origem" | "sem_pools" | "sem_funcionarios_produtivos" | "selecao_maquina_invalida";
@@ -116,6 +117,9 @@ export interface EstadoBruto {
   producaoReal?: EstadoProducaoReal;
   // PLANEJADOR DE CORTE: presente SOMENTE quando a semana está em producao_real_planejador_semanas (com o modo efetivo "ativo"). Nesta semana o motor legado NUNCA recalcula.
   // `indisponivel` = pré-condição que falhou (Produção Real ilegível, coluna `distribuicao` ausente): o processador mantém o plano vigente e registra o motivo.
+  // PRODUTO ÚNICO (cutover): presente SOMENTE quando a semana é >= `produto_unico_cutover` E existe o modelo canônico. Ausente = comportamento anterior, byte-idêntico.
+  // Decidido em UM lugar (cutoverDaSemana + escolherModeloUnico, em supabaseIO). Com ele, a Previsão traz 1 item (produto canônico, 5 etapas, grafo) e o planejador de corte é obrigatório.
+  produtoUnico?: { modelo: ModeloCanonico; cutover: string };
   planejadorCorte?: { config: ConfigPlanejadorCorte; vigenteDoPlanejador: boolean; distribuicaoSuportada: boolean; hashEntradaAnterior?: string | null; indisponivel?: string };
 }
 
