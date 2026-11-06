@@ -37,6 +37,15 @@ export interface ConfigDespacho {
   /** ESTOQUE DE SAÍDA útil (para a semana seguinte): por produto, teto de peças em cada ligação no fim do horizonte que ainda têm valor; `saidaPeso` × margem × (fração do roteiro já feita) por peça. Sem isto, produção sem destino dentro do horizonte seria indiferente. */
   saidaTeto?: Record<string, number>;
   saidaPeso?: number;
+  // ---- ANTECIPAÇÃO / FORMAÇÃO DE ESTOQUE (antecipacao.ts). Todos AUSENTES no planejamento normal ⇒ nenhum ramo abaixo é executado (comportamento idêntico). ----
+  /** ids de produtos-SOMBRA (cadeia de antecipação/estoque; estoque próprio, prioridade mais baixa em cada linha) */
+  sombra?: Set<string>;
+  /** fixas[t][r] = 1 ⇒ linha do plano da DEMANDA (fase 1): fica como está e os pools da demanda produzem nela normalmente. Nas DEMAIS linhas só pools-sombra produzem (a demanda nunca é alterada pela fase 2). */
+  fixas?: Uint8Array[];
+  /** teto FÍSICO de nível de estoque por produto e ligação (peças que podem estar paradas no buffer ao fim de um período) — limite do estoque de saída pela capacidade do consumidor */
+  tetoNivel?: Record<string, number[]>;
+  /** teto usado SÓ no crédito de estoque de saída do objetivo (default: saidaTeto) */
+  saidaTetoObj?: Record<string, number>;
 }
 export interface ResultadoDespacho {
   finais: Record<string, number>;
@@ -47,7 +56,7 @@ export interface ResultadoDespacho {
   linhasOciosas: LinhaPostoD[]; // linhas que não produziram nada (sem material / sem demanda)
 }
 
-interface PoolD { pid: string; k: number; n: number; etapaId: string; op: string; prio: number; rate: Map<number, number[]> /* recIdx -> taxa por t */ }
+interface PoolD { pid: string; k: number; n: number; etapaId: string; op: string; prio: number; sombra?: boolean; rate: Map<number, number[]> /* recIdx -> taxa por t */ }
 
 export function prepararDespacho(C: ConfigDespacho) {
   const H = C.pessoas.length;
@@ -56,7 +65,7 @@ export function prepararDespacho(C: ConfigDespacho) {
   C.produtos.forEach((p) => p.etapas.forEach((e, k) => {
     const rate = new Map<number, number[]>();
     e.alternativas.forEach((a) => rate.set(recIdx.get(a.recursoId) as number, a.pecasPorPosto));
-    pools.push({ pid: p.id, k, n: p.etapas.length, etapaId: e.id, op: C.operacaoDe(p.id, e.id), prio: Math.max(0, C.prioridade.indexOf(p.id)), rate });
+    pools.push({ pid: p.id, k, n: p.etapas.length, etapaId: e.id, op: C.operacaoDe(p.id, e.id), prio: Math.max(0, C.prioridade.indexOf(p.id)), rate, ...(C.sombra?.has(p.id) ? { sombra: true } : {}) });
   }));
   const ops = [...new Set(pools.map((p) => p.op))];
   const opIdx = new Map(ops.map((o, i) => [o, i]));
@@ -148,10 +157,12 @@ export function despachar(C: ConfigDespacho, D: PrepD, occ: Uint8Array[], comple
       for (const pl of lista) {
         const rate = pl.rate.get(r)?.[t] ?? 0;
         if (rate <= 0 || frac <= EPS) continue;
+        if (C.fixas && !pl.sombra && !C.fixas[t][r]) continue; // fase 2: linha NOVA só serve pools-sombra
         const pi = D.prodIdx.get(pl.pid) as number;
         const mat = pl.k === 0 ? Number.POSITIVE_INFINITY : stock[pi][pl.k - 1];
         const head = D.haFeeders ? cabecaComRotas(pi, pl) : pl.k === pl.n - 1 ? (C.alvo[pl.pid] ?? 0) - fin[pi] : D.capUp[pi][pl.k] - cum[pi][pl.k];
-        const q = Math.min(rate * frac, mat, head);
+        const tn = C.tetoNivel?.[pl.pid]?.[pl.k];
+        const q = Math.min(rate * frac, mat, tn !== undefined && pl.k < pl.n - 1 ? Math.min(head, tn - stock[pi][pl.k] - arr[pi][pl.k]) : head);
         if (q <= EPS) continue;
         if (pl.k > 0) stock[pi][pl.k - 1] -= q;
         cum[pi][pl.k] += q;
@@ -175,7 +186,7 @@ export function despachar(C: ConfigDespacho, D: PrepD, occ: Uint8Array[], comple
     falta += Math.max(0, (C.piso?.[p.id] ?? 0) - fin[i]);
   });
   obj -= (C.penalPiso ?? 1) * falta;
-  if (C.saidaTeto) C.produtos.forEach((p, i) => stock[i].forEach((v, j) => { obj += (C.saidaPeso ?? 0.25) * (C.margem[p.id] ?? 0) * ((j + 1) / p.etapas.length) * Math.min(v, C.saidaTeto?.[p.id] ?? 0); }));
+  if (C.saidaTeto) C.produtos.forEach((p, i) => stock[i].forEach((v, j) => { obj += (C.saidaPeso ?? 0.25) * (C.margem[p.id] ?? 0) * ((j + 1) / p.etapas.length) * Math.min(v, C.saidaTetoObj?.[p.id] ?? C.saidaTeto?.[p.id] ?? 0); }));
   return { finais, obj, detalhes, wip, producao, linhasOciosas: ociosas };
 }
 

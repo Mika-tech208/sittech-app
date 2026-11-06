@@ -16,6 +16,7 @@ import { maquinaDisponivelNoSlot } from "../disponibilidade";
 import type { ApontamentoReal } from "../producaoReal";
 import { MOTIVO_DEMANDA_ESGOTADA, chavePool, type AlertaEscala, type AlocacaoEscala, type EntradaEscala, type PoolEscala, type ResultadoEscala } from "../types";
 import { simularCadeia } from "./cadeia";
+import { ORIGEM_ANTECIPACAO, ORIGEM_FORMACAO, extraExecutadoPorProduto, finaisRegistrados, montarEntradaAntecipacao, type DiagAntecipacao, type EntradaAntecipacao, type LinhaAntecipada } from "./antecipacao";
 import { montarEstado, prepararFluxo, type CtxFluxo } from "./estado";
 import { ERRO_ORCAMENTO, planejarFuturo, type EntradaPlanejador, type ObjetivoPlanejador, type SaidaPlanejador } from "./planejadorFuturo";
 import type { ProdutoRev, RecursoRev } from "./planoReverso";
@@ -70,6 +71,8 @@ export interface ResultadoCorte {
   mantidoPorEntradaIgual: boolean;
   /** só com `cfg.produtoUnico`: o produto único com rotas (info + resumo por rota/estoque unificado) */
   unico?: { info: InfoUnico; resumo: ResumoUnico | null };
+  /** só com antecipação/formação ativa: o que o planejador decidiu produzir ALÉM da demanda. `registros` undefined ⇒ NÃO tocar no registro persistido (plano vigente mantido). */
+  antecipacao?: { diagnostico: DiagAntecipacao[]; registros?: LinhaAntecipada[] };
 }
 
 /** Resultado das verificações INDEPENDENTES aplicadas ao plano do planejador (todas precisam passar para `ok`). */
@@ -85,6 +88,14 @@ export interface ChecagensCorte {
   excedePessoas: number; // slots com mais postos que pessoas
   passadoAlterado: number;
   duplicidade: number; // pessoa em 2 postos ou máquina com 2 pessoas
+  /** só com antecipação/formação de estoque ATIVA nesta semana (ausente = regra desligada). Todos os contadores de violação devem ser 0. */
+  antecipacao?: {
+    linhasExtras: number; pecasExtrasFinais: number;
+    foraDoDestino: number; // linha de ANTECIPAÇÃO em máquina fora da interseção Previsão atual × Previsão da semana seguinte
+    demandaFuturaUltrapassada: number; // ANTECIPAÇÃO acima do Forecast futuro líquido (nunca pode)
+    tetoFisicoUltrapassado: number; // FORMAÇÃO acima do teto físico explícito do produto
+    produtoProibido: number; // extra em produto excluído (Conector/produto único), encerrado ou sem política/Forecast
+  };
 }
 
 const soma = (v: number[]) => v.reduce((a, b) => a + b, 0);
@@ -130,6 +141,7 @@ interface ProblemaMontado {
   poolPor: Map<string, PoolEscala>;
   repartidos: number;
   unico?: PreparoUnico;
+  antecipacaoDiag?: DiagAntecipacao[];
 }
 
 /** `cfg.produtoUnico` ⇒ configuração do produto único (ou null = desligado / sem par aplicável). */
@@ -167,11 +179,22 @@ export function montarProblemaCorte(entrada: EntradaEscala, dados: DadosProducao
   porProduto.forEach((ps) => ps.sort((a, b) => a.ordemEtapa - b.ordemEtapa));
   const poolPor = unico ? unico.poolPor : new Map(entrada.pools.map((p) => [chavePool(p.produtoId, p.etapaId), p]));
   const restante = new Map(estado.produtos.map((p) => [p.produtoId, p.restanteEmAPartirDe]));
+  // ANTECIPAÇÃO/FORMAÇÃO já EXECUTADA (períodos iniciados, registro persistido): o apontamento não distingue a peça extra da peça da demanda, então ela é DEVOLVIDA ao restante da semana atual
+  // (senão a peça extra mascararia falta de demanda atual). Sem registros = nenhum ajuste (idêntico ao anterior). Conservador: com restante 0 usa só as boas confirmadas (não as comprometidas).
+  const indiceDoSlot = (d: string, p: string) => entrada.slots.find((x) => x.data === d && x.periodoId === p)?.indice ?? -1;
+  const extraExec = entrada.antecipacao ? extraExecutadoPorProduto(entrada.antecipacao.registros, indiceDoSlot, entrada.aPartirDe) : {};
+  const restanteDe = (pid: string, q: number): number => {
+    const base = restante.get(pid) ?? q;
+    const ex = extraExec[pid] ?? 0;
+    if (!(ex > 0)) return base;
+    const boasLo = estado.produtos.find((p) => p.produtoId === pid)?.boasFinais.lo ?? 0;
+    return base > 0 ? Math.min(q, base + ex) : Math.min(q, Math.max(0, q - boasLo + ex));
+  };
   const idsDoUnico = new Set(unico ? [...(uCfg as ProdutoUnicoConfig).rotas.map((r) => r.produtoId)] : []);
   const produtosComuns: ProdutoRev[] = [...porProduto.entries()].filter(([pid]) => !idsDoUnico.has(pid)).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([pid, ps]) => {
     const wip = ps.slice(0, -1).map((p) => Math.round(estado.projecao.wip[chavePool(pid, p.etapaId)]?.lo ?? 0));
     return {
-      id: pid, rotulo: pid, demandaFinal: Math.max(0, Math.round(restante.get(pid) ?? ps[ps.length - 1].quantidade)), valorUnitario: ps[0].valorUnitario,
+      id: pid, rotulo: pid, demandaFinal: Math.max(0, Math.round(restanteDe(pid, ps[ps.length - 1].quantidade))), valorUnitario: ps[0].valorUnitario,
       recorrentePorPeriodo: ps[ps.length - 1].quantidade / Math.max(1, H), wipInicial: wip,
       etapas: ps.map((p) => ({ id: p.etapaId, rotulo: p.operacaoId, alternativas: p.maquinasIds.map((m) => ({ recursoId: m, pecasPorPosto: entrada.slots.map((s) => p.metas[s.periodoId] ?? 0) })) })),
     };
@@ -186,8 +209,22 @@ export function montarProblemaCorte(entrada: EntradaEscala, dados: DadosProducao
   });
   const operacaoDe = (pid: string, eid: string) => (poolPor.get(chavePool(pid, eid)) as PoolEscala).operacaoId;
   const wipInicio = Object.fromEntries(produtos.map((p) => [p.id, p.wipInicial]));
+  // ANTECIPAÇÃO/FORMAÇÃO (fase 2): só com `entrada.antecipacao.modo === 'ativo'`, fora do produto único. Ver docs/antecipacao-semana-seguinte.md.
+  let antPlan: EntradaAntecipacao | undefined;
+  let antecipacaoDiag: DiagAntecipacao[] | undefined;
+  if (entrada.antecipacao && entrada.antecipacao.modo === "ativo" && !unico) {
+    const excedenteReal: Record<string, number> = {};
+    estado.produtos.forEach((p) => { excedenteReal[p.produtoId] = Math.max(0, p.boasFinais.lo - p.quantidadeFinal); });
+    const r = montarEntradaAntecipacao({ dados: entrada.antecipacao, pools: entrada.pools, indiceDoSlot, aPartirDe: entrada.aPartirDe, excedenteReal });
+    antecipacaoDiag = r.diagnostico;
+    if (r.entrada.produtos.length > 0) antPlan = r.entrada;
+  }
+  // linhas do vigente que existem SÓ por causa de produção extra não partem a busca da demanda (a fase 1 não pode herdar postos de antecipação)
+  const extraPorPosto = new Map<string, number>();
+  (entrada.antecipacao?.registros ?? []).forEach((r) => { if (r.origem === ORIGEM_ANTECIPACAO || r.origem === ORIGEM_FORMACAO) extraPorPosto.set(`${r.data}|${r.periodoId}|${r.maquinaId ?? ""}`, (extraPorPosto.get(`${r.data}|${r.periodoId}|${r.maquinaId ?? ""}`) ?? 0) + r.quantidade); });
+  const soDeExtra = (a: AlocacaoEscala) => extraPorPosto.size > 0 && (extraPorPosto.get(`${a.data}|${a.periodoId}|${a.maquinaId ?? ""}`) ?? 0) >= a.pecas - 0.5;
   const linhasIniciais = cfg.partirDoVigente
-    ? planoVigenteBruto.filter((a) => a.maquinaId && a.operacaoId && (entrada.slots.find((s) => chaveSlot(s) === chaveSlot(a))?.indice ?? -1) >= entrada.aPartirDe).map((a) => ({ t: (entrada.slots.find((s) => chaveSlot(s) === chaveSlot(a)) as { indice: number }).indice, recursoId: a.maquinaId as string, operacaoId: a.operacaoId as string }))
+    ? planoVigenteBruto.filter((a) => a.maquinaId && a.operacaoId && !soDeExtra(a) && (entrada.slots.find((s) => chaveSlot(s) === chaveSlot(a))?.indice ?? -1) >= entrada.aPartirDe).map((a) => ({ t: (entrada.slots.find((s) => chaveSlot(s) === chaveSlot(a)) as { indice: number }).indice, recursoId: a.maquinaId as string, operacaoId: a.operacaoId as string }))
     : undefined;
   const entradaPlanejador: EntradaPlanejador = {
     slots: entrada.slots, aPartirDe: entrada.aPartirDe, recursos, produtos, equipe: entrada.funcionarios.map((f) => ({ id: f.id })), ausentes,
@@ -200,8 +237,9 @@ export function montarProblemaCorte(entrada: EntradaEscala, dados: DadosProducao
     revezamento: { ponteM3T1: entrada.revezamentoPonteM3T1 === true, ...(entrada.equivalenciaOperacoes ? { equivalencias: entrada.equivalenciaOperacoes } : {}) },
     busca: linhasIniciais && linhasIniciais.length > 0 ? cfg.buscaComVigente ?? cfg.busca : cfg.busca,
     verificarDuras: (linhas) => verificarRestricoesDuras(entrada, linhas.filter((l) => (entrada.slots.find((s) => chaveSlot(s) === chaveSlot(l))?.indice ?? 0) >= entrada.aPartirDe), { somenteLinhasNovas: true }).length,
+    ...(antPlan ? { antecipacao: antPlan } : {}),
   };
-  return { entradaPlanejador, estado, ctx, produtos, poolPor, repartidos: rep.repartidos, ...(unico ? { unico } : {}) };
+  return { entradaPlanejador, estado, ctx, produtos, poolPor, repartidos: rep.repartidos, ...(unico ? { unico } : {}), ...(antecipacaoDiag ? { antecipacaoDiag } : {}) };
 }
 
 /** Linhas do planejador → AlocacaoEscala gravável (distribuição só quando ≥ 2 produtos; produto da linha = dominante). */
@@ -251,11 +289,51 @@ export function checarPlanoCorte(entrada: EntradaEscala, linhas: AlocacaoEscala[
     checagens: {
       cadeiaInvalida: saida.validacao.violacoesCadeia, cadeiaCapacidadeExcedida: cadeiaProd, semMaterial: Math.round(saida.validacao.semMaterial), violacoesDuras: violacoes.length, maquinaForaDaPrevisao: foraPrevisao, distribuicaoInvalida: distInvalida,
       maxPostosSimultaneos: Math.max(0, ...postosPorSlot.values()), pessoasMin: pessoasSlot.length ? Math.min(...pessoasSlot) : 0, excedePessoas: excede, passadoAlterado: passado, duplicidade,
+      ...(entrada.antecipacao && entrada.antecipacao.modo === "ativo" ? { antecipacao: checarAntecipacao(entrada, saida, poolPor) } : {}),
     },
   };
 }
 
+/** Verificação INDEPENDENTE da produção extra (ANTECIPAÇÃO/FORMAÇÃO): máquina do Forecast, nunca acima do Forecast futuro líquido, teto físico, produtos proibidos. */
+export function checarAntecipacao(entrada: EntradaEscala, saida: SaidaPlanejador, poolPor: Map<string, PoolEscala>): NonNullable<ChecagensCorte["antecipacao"]> {
+  const dados = entrada.antecipacao;
+  const rows = saida.antecipacoes ?? [];
+  const vazio = { linhasExtras: 0, pecasExtrasFinais: 0, foraDoDestino: 0, demandaFuturaUltrapassada: 0, tetoFisicoUltrapassado: 0, produtoProibido: 0 };
+  if (!dados) return vazio;
+  const idx = new Map(entrada.slots.map((x) => [chaveSlot(x), x.indice]));
+  const congelados = dados.registros.filter((r) => (idx.get(`${r.data}|${r.periodoId}`) ?? -1) < entrada.aPartirDe);
+  const antCong = finaisRegistrados(congelados, ORIGEM_ANTECIPACAO), forCong = finaisRegistrados(congelados, ORIGEM_FORMACAO);
+  const excl = new Set(dados.excluidos);
+  let fora = 0, proibido = 0, finaisExtras = 0;
+  const finAnt: Record<string, number> = {}, finFor: Record<string, number> = {};
+  rows.forEach((r) => {
+    const fc = dados.forecastDestino.find((x) => x.produtoId === r.produtoId);
+    const pol = dados.politicasFormacao.find((x) => x.produtoId === r.produtoId);
+    const ps = [...poolPor.values()].filter((p) => p.produtoId === r.produtoId);
+    const qAtual = ps.length ? ps.reduce((m, p) => (p.ordemEtapa > m.ordemEtapa ? p : m), ps[0]).quantidade : 0;
+    if (excl.has(r.produtoId) || !(qAtual > 0)) proibido++;
+    if (r.origem === ORIGEM_ANTECIPACAO) {
+      if (!fc || !(fc.maquinasPorEtapa[r.etapaId] ?? []).includes(r.maquinaId) || !poolPor.get(chavePool(r.produtoId, r.etapaId))?.maquinasIds.includes(r.maquinaId)) fora++;
+      if (pol) proibido++; // com política o produto forma estoque, não antecipa
+    } else if (!pol) proibido++; // FORMAÇÃO sem política explícita do produto
+    if (r.etapaFinal) { finaisExtras += r.pecas; const alvo = r.origem === ORIGEM_ANTECIPACAO ? finAnt : finFor; alvo[r.produtoId] = (alvo[r.produtoId] ?? 0) + r.pecas; }
+  });
+  let ultrapassada = 0, teto = 0;
+  Object.entries(finAnt).forEach(([pid, v]) => { const fc = dados.forecastDestino.find((x) => x.produtoId === pid); if (!fc || v + (antCong[pid] ?? 0) > fc.quantidade + 0.5) ultrapassada++; });
+  Object.entries(finFor).forEach(([pid, v]) => {
+    const pol = dados.politicasFormacao.find((x) => x.produtoId === pid);
+    const ps = [...poolPor.values()].filter((p) => p.produtoId === pid);
+    const qAtual = ps.length ? ps.reduce((m, p) => (p.ordemEtapa > m.ordemEtapa ? p : m), ps[0]).quantidade : 0;
+    const fc = dados.forecastDestino.find((x) => x.produtoId === pid);
+    const lim = pol?.tetoPecas ?? Math.max(qAtual, fc?.quantidade ?? 0);
+    if (v + (forCong[pid] ?? 0) > lim + 0.5) teto++;
+  });
+  return { linhasExtras: rows.length, pecasExtrasFinais: Math.round(finaisExtras), foraDoDestino: fora, demandaFuturaUltrapassada: ultrapassada, tetoFisicoUltrapassado: teto, produtoProibido: proibido };
+}
+
 export function checagensOk(c: ChecagensCorte): boolean {
+  const a = c.antecipacao;
+  if (a && (a.foraDoDestino !== 0 || a.demandaFuturaUltrapassada !== 0 || a.tetoFisicoUltrapassado !== 0 || a.produtoProibido !== 0)) return false;
   return c.cadeiaInvalida === 0 && c.semMaterial === 0 && c.violacoesDuras === 0 && c.maquinaForaDaPrevisao === 0 && c.distribuicaoInvalida === 0 && c.excedePessoas === 0 && c.passadoAlterado === 0 && c.duplicidade === 0;
 }
 
@@ -265,17 +343,19 @@ export function hashEntradaPlanejador(e: EntradaPlanejador): string {
     slots: e.slots.map((s) => [s.data, s.periodoId, s.indice]), aPartirDe: e.aPartirDe, recursos: e.recursos, produtos: e.produtos, equipe: e.equipe.map((x) => x.id).sort(), ausentes: e.ausentes ?? {},
     congeladas: e.linhasCongeladas.map((a) => [a.data, a.periodoId, a.funcionarioId, a.maquinaId, a.operacaoId]), wip: e.wipNoInicioDeAPartirDe ?? {}, objetivo: e.objetivo, margem: e.margemPorPeca ?? {},
     cobertura: e.coberturaMinima ?? null, piso: e.pisoPorProduto ?? {}, prioridade: e.prioridade ?? [], revezamento: e.revezamento ?? null,
+    ...(e.antecipacao ? { antecipacao: e.antecipacao } : {}),
   });
 }
 
 /** Resultado da escala a partir das LINHAS (a fonte única das peças): corte = demanda restante − produção da etapa final planejada. Determinístico: mesmas linhas ⇒ mesmos alertas (base do NO-OP). */
-function resultadoDe(entrada: EntradaEscala, linhas: AlocacaoEscala[], produtos: ProdutoRev[]): ResultadoEscala {
+function resultadoDe(entrada: EntradaEscala, linhas: AlocacaoEscala[], produtos: ProdutoRev[], finalExtra: Record<string, number> = {}): ResultadoEscala {
   const alertas: AlertaEscala[] = [];
   const pecasRestantes: Record<string, number> = {};
   const porProd = expandirPorProduto(linhas);
   produtos.filter((prod) => !prod.alimenta).forEach((prod) => {
     const ultima = prod.etapas[prod.etapas.length - 1];
-    const programado = porProd.filter((a) => a.produtoId === prod.id && a.etapaId === ultima.id).reduce((x, a) => x + a.pecas, 0);
+    // a produção EXTRA (antecipação/estoque) não cobre demanda da semana: o corte é medido só com o que serve à demanda
+    const programado = porProd.filter((a) => a.produtoId === prod.id && a.etapaId === ultima.id).reduce((x, a) => x + a.pecas, 0) - (finalExtra[prod.id] ?? 0);
     // `demandaFinal` aqui é a RESTANTE em aPartirDe (enquadramento de recomeço): cortado = o que não cabe fisicamente com as pessoas/máquinas
     const cortado = Math.max(0, Math.round(prod.demandaFinal - programado));
     pecasRestantes[chavePool(prod.id, ultima.id)] = cortado;
@@ -309,6 +389,10 @@ export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProdu
   if (m.unico) diagnosticos.push(...m.unico.diagnosticos);
   const ctxChk = m.unico ? undefined : m.ctx; // validador de capacidade por produto (informativo) não se aplica ao produto único: as etapas comuns existem uma vez
   const comUnico = (saida: SaidaPlanejador | null): { unico?: { info: InfoUnico; resumo: ResumoUnico | null } } => (m.unico ? { unico: { info: m.unico.info, resumo: saida && Object.keys(saida.producao).length > 0 ? resumirUnico(saida, m.unico.info, m.produtos) : null } } : {});
+  // registro da produção extra: `grava` = este plano é NOVO (substitui as linhas futuras do registro); false = plano vigente mantido (registro intocado)
+  const antDe = (saida: SaidaPlanejador | null, grava: boolean): { antecipacao?: NonNullable<ResultadoCorte["antecipacao"]> } =>
+    entrada.antecipacao ? { antecipacao: { diagnostico: m.antecipacaoDiag ?? [], ...(grava ? { registros: saida?.antecipacoes ?? [] } : {}) } } : {};
+  (m.antecipacaoDiag ?? []).forEach((d) => diagnosticos.push({ codigo: "ANTECIPACAO_PRODUTO", severidade: "info", produtoId: d.produtoId, mensagem: `${d.situacao}: ${d.motivo}`, detalhes: { situacao: d.situacao, ...(d.tetoFinal !== undefined ? { tetoFinal: d.tetoFinal } : {}) } }));
   if (m.repartidos > 0) diagnosticos.push({ codigo: "APONTAMENTO_LINHA_COMPARTILHADO_REPARTIDO", severidade: "info", mensagem: `${m.repartidos} apontamento(s) de linha compartilhada repartido(s) entre os produtos pela distribuição planejada do período (um apontamento por máquina×período)` });
   const idxSlot = new Map(entrada.slots.map((s) => [chaveSlot(s), s.indice]));
   const vigenteFuturo = planoVigenteBruto.filter((a) => (idxSlot.get(chaveSlot(a)) ?? -1) >= entrada.aPartirDe);
@@ -316,7 +400,7 @@ export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProdu
   const base = { saida: null as SaidaPlanejador | null, violacoes: [] as ViolacaoDura[], diagnosticos, estado: m.estado, entradaPlanejador: m.entradaPlanejador as EntradaPlanejador | null, hashEntrada: hashEntrada as string | null, mantidoPorEntradaIgual: false };
   const falha = (motivo: string): ResultadoCorte => ({ ...base, ok: false, motivo, resultado: null, checagens: vazias, tentativas });
 
-  if (m.produtos.every((p) => p.demandaFinal <= 0)) {
+  if (m.produtos.every((p) => p.demandaFinal <= 0) && !m.entradaPlanejador.antecipacao) {
     // nada a produzir: demanda final atendida — todos sem posto (plano válido e vazio)
     const linhas: AlocacaoEscala[] = [];
     entrada.slots.filter((s) => s.indice >= entrada.aPartirDe).forEach((s) => {
@@ -327,7 +411,7 @@ export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProdu
     const chk = checarPlanoCorte(entrada, linhas, saidaVazia, m.poolPor, ctxChk);
     tentativas.push({ rotulo: "demanda atendida", ok: checagensOk(chk.checagens), motivo: null });
     diagnosticos.push({ codigo: "DEMANDA_FINAL_ATENDIDA", severidade: "info", mensagem: "Demanda restante zerada em todos os produtos: nenhuma produção a planejar" });
-    return { ...base, ok: checagensOk(chk.checagens), motivo: null, resultado: resultadoDe(entrada, linhas, m.produtos), saida: saidaVazia, violacoes: chk.violacoes, checagens: chk.checagens, tentativas, ...comUnico(null) };
+    return { ...base, ok: checagensOk(chk.checagens), motivo: null, resultado: resultadoDe(entrada, linhas, m.produtos), saida: saidaVazia, violacoes: chk.violacoes, checagens: chk.checagens, tentativas, ...comUnico(null), ...antDe(null, true) };
   }
 
   // 0) entrada idêntica ⇒ o plano vigente do planejador continua sendo O plano (se ainda válido)
@@ -338,7 +422,7 @@ export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProdu
       const chk = checarPlanoCorte(entrada, vigenteFuturo, sv, m.poolPor, ctxChk);
       const ok = checagensOk(chk.checagens);
       tentativas.push({ rotulo: "entrada idêntica: plano vigente mantido", ok, motivo: ok ? null : `vigente inválido: ${JSON.stringify(chk.checagens)}` });
-      if (ok) return { ...base, ok: true, motivo: null, resultado: resultadoDe(entrada, vigenteFuturo.map((a) => ({ ...a })), m.produtos), saida: sv, violacoes: chk.violacoes, checagens: chk.checagens, tentativas, mantidoPorEntradaIgual: true, ...comUnico(sv) };
+      if (ok) return { ...base, ok: true, motivo: null, resultado: resultadoDe(entrada, vigenteFuturo.map((a) => ({ ...a })), m.produtos, sv.finalExtra), saida: sv, violacoes: chk.violacoes, checagens: chk.checagens, tentativas, mantidoPorEntradaIgual: true, ...comUnico(sv), ...antDe(sv, false) };
     } catch (e) {
       tentativas.push({ rotulo: "entrada idêntica: plano vigente mantido", ok: false, motivo: e instanceof Error ? e.message : String(e) });
     }
@@ -377,7 +461,12 @@ export function planejarSemanaComCorte(entrada: EntradaEscala, dados: DadosProdu
         }
       }
       tentativas.push({ rotulo: g.rotulo, ok, motivo: ok ? null : `checagens: ${JSON.stringify(chk.checagens)}`, ms: relogio() - tg });
-      if (ok) return { ...base, ok: true, motivo: null, resultado: resultadoDe(entrada, linhas, m.produtos), saida, violacoes: chk.violacoes, checagens: chk.checagens, tentativas, diagnosticos: [...diagnosticos, ...saida.avisos.map((a) => ({ codigo: "PLANEJADOR_AVISO" as const, severidade: "info" as const, mensagem: a }))], ...comUnico(saida) };
+      if (ok && entrada.antecipacao) {
+        const porOrigem: Record<string, number> = {};
+        (saida.antecipacoes ?? []).forEach((r) => { if (r.etapaFinal) porOrigem[r.origem] = (porOrigem[r.origem] ?? 0) + r.pecas; });
+        diagnosticos.push({ codigo: "ANTECIPACAO_RESUMO", severidade: "info", mensagem: `Produção extra (além da demanda da semana): ${(saida.antecipacoes ?? []).length} registro(s) de posto; peças finais ${JSON.stringify(porOrigem)}`, detalhes: { registros: (saida.antecipacoes ?? []).length, ...Object.fromEntries(Object.entries(porOrigem).map(([k, v]) => [k, Math.round(v)])) } });
+      }
+      if (ok) return { ...base, ok: true, motivo: null, resultado: resultadoDe(entrada, linhas, m.produtos, saida.finalExtra), saida, violacoes: chk.violacoes, checagens: chk.checagens, tentativas, diagnosticos: [...diagnosticos, ...saida.avisos.map((a) => ({ codigo: "PLANEJADOR_AVISO" as const, severidade: "info" as const, mensagem: a }))], ...comUnico(saida), ...antDe(saida, true) };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       tentativas.push({ rotulo: g.rotulo, ok: false, motivo: msg, ms: relogio() - tg });

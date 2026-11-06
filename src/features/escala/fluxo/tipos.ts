@@ -156,7 +156,9 @@ export type CodigoDiagnosticoFluxo =
   | "PRODUTO_UNICO_ATIVO" // (produto único com rotas) o planejador tratou Conv + Automática como UM produto final com duas rotas
   | "ROTA_INDISPONIVEL" // (produto único) rota sem máquina selecionada numa etapa exclusiva: não produz (só consome o WIP que já existe adiante)
   | "CONTAGEM_COMUM_CONSOLIDADA" // (produto único) contagens das etapas comuns lançadas por produto legado foram consolidadas numa só (sem duplicar peças)
-  | "WIP_ENTRADA_COMUM_DEFICIT_CREDITADO"; // (produto único) consumo da Etiquetadora lançado só numa rota deixou a ligação dela negativa: o déficit foi abatido do estoque pool
+  | "WIP_ENTRADA_COMUM_DEFICIT_CREDITADO" // (produto único) consumo da Etiquetadora lançado só numa rota deixou a ligação dela negativa: o déficit foi abatido do estoque pool
+  | "ANTECIPACAO_PRODUTO" // (antecipação/formação de estoque) decisão por produto: antecipa / forma estoque / não (motivo); produção extra NÃO é demanda ultrapassada nem violação
+  | "ANTECIPACAO_RESUMO" // (antecipação/formação de estoque) totais da produção extra do plano gravado, por origem
 
 export interface DiagnosticoItem {
   codigo: CodigoDiagnosticoFluxo;

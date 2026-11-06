@@ -10,6 +10,7 @@ import type { AlocacaoEscala, SlotEscala } from "../types";
 import { MOTIVO_DEMANDA_ESGOTADA } from "../types";
 import { buscaLocal, linhasComDetalhes, prepararDespacho, despachar, linhasParaOcc, type ConfigDespacho, type LinhaPostoD } from "./postosDespacho";
 import { validarPlanoCadeia, type ProdutoRev, type RecursoRev } from "./planoReverso";
+import { fase2ComPrimeiras, planejarFase2, type EntradaAntecipacao, type LinhaAntecipada, type LinhaAntecipadaBruta, type OrigemExtra, type ResultadoFase2 } from "./antecipacao";
 
 export type ObjetivoPlanejador = "EQUILIBRIO" | "MAX_PECAS_FINAIS" | "MAX_RESULTADO_ECONOMICO";
 export interface DistribuicaoQuantidade { produtoId: string; etapaId: string; pecas: number }
@@ -41,6 +42,8 @@ export interface EntradaPlanejador {
   busca?: { iter?: number; reinicios?: number; semente?: number };
   /** ORÇAMENTO DE TEMPO (injetado; o planejador não lê relógio): verdadeiro ⇒ aborta com Error("ORCAMENTO_DE_TEMPO_ESTOURADO") — nunca devolve plano parcial */
   parar?: () => boolean;
+  /** ANTECIPAÇÃO / FORMAÇÃO DE ESTOQUE (fase 2, antecipacao.ts). AUSENTE ⇒ o planejador roda exatamente como antes (saída byte-idêntica). Presente ⇒ roda DEPOIS da demanda, só com o que sobra. */
+  antecipacao?: EntradaAntecipacao;
 }
 
 export interface SaidaPlanejador {
@@ -52,6 +55,10 @@ export interface SaidaPlanejador {
   validacao: { cadeiaValida: boolean; violacoesCadeia: number; violacoesDuras: number | null; maxPostosSimultaneos: number; semMaterial: number; atribuicaoOk: boolean };
   avisos: string[];
   objetivoValor: number;
+  /** só com `antecipacao` e produção extra: o que cada posto produziu ALÉM da demanda da semana (origem ANTECIPACAO_SEMANA_SEGUINTE | FORMACAO_ESTOQUE). A linha em `linhas` soma demanda + extra. */
+  antecipacoes?: LinhaAntecipada[];
+  /** só com `antecipacao`: peças FINAIS extras por produto (já incluídas em `porProduto[].programado`; `programadoDemanda` = programado − extra) */
+  finalExtra?: Record<string, number>;
 }
 
 export const ERRO_ORCAMENTO = "ORCAMENTO_DE_TEMPO_ESTOURADO";
@@ -132,13 +139,34 @@ export function planejarFuturo(e: EntradaPlanejador): SaidaPlanejador {
     const r = buscaLocal(cfg, iniciais, { iter: e.busca?.iter ?? 400000, reinicios: e.busca?.reinicios ?? 2, semente: e.busca?.semente ?? 1, ...(e.parar ? { parar: e.parar } : {}) });
     if (r.interrompida || e.parar?.()) throw new Error(ERRO_ORCAMENTO);
     const m = montar(e, cfg, r, prodsFuturo, congel, alvo, finaisCongelados, avisos);
-    if (m.atribuicaoOk) resultado = m; else { avisos.push(`atribuição de pessoas falhou com limite ${limiteOp} linhas/operação/bloco; apertando para ${limiteOp - 1}`); iniciais = r.linhas; }
+    if (m.atribuicaoOk) resultado = e.antecipacao && e.antecipacao.produtos.length > 0 ? comFase2(e, cfg, r, prodsFuturo, congel, alvo, finaisCongelados, avisos, m) : m; else { avisos.push(`atribuição de pessoas falhou com limite ${limiteOp} linhas/operação/bloco; apertando para ${limiteOp - 1}`); iniciais = r.linhas; }
   }
   if (!resultado) throw new Error("planejarFuturo: sem plano executável com as pessoas disponíveis (revezamento)");
   return resultado.saida;
 }
 
-function montar(e: EntradaPlanejador, cfg: ConfigDespacho, r: ReturnType<typeof buscaLocal>, prodsFuturo: ProdutoRev[], congel: Record<string, number[][]>, alvo: Record<string, number>, finaisCongelados: Record<string, number>, avisos: string[]) {
+type Montado = ReturnType<typeof montar>;
+/** FASE 2 (antecipação/formação de estoque). Qualquer falha (atribuição de pessoas, cadeia, material, restrição dura) reduz as linhas acrescentadas até o conjunto valer; no limite devolve o plano da fase 1 inalterado. */
+function comFase2(e: EntradaPlanejador, cfg: ConfigDespacho, r: ReturnType<typeof buscaLocal>, prodsFuturo: ProdutoRev[], congel: Record<string, number[][]>, alvo: Record<string, number>, finaisCongelados: Record<string, number>, avisos: string[], m1: Montado): Montado {
+  const avisosF2: string[] = [];
+  let f2: ResultadoFase2 | null = null;
+  try { f2 = planejarFase2({ entrada: e.antecipacao as EntradaAntecipacao, produtosFuturo: prodsFuturo, cfg, linhasFase1: r.linhas, producaoFase1: m1.saida.producao, avisos: avisosF2, ...(e.parar ? { parar: e.parar } : {}) }); } catch (err) { if (err instanceof Error && err.message === ERRO_ORCAMENTO) throw err; avisosF2.push(`fase 2 falhou: ${err instanceof Error ? err.message : String(err)}`); }
+  avisosF2.forEach((x) => avisos.push(`antecipação: ${x}`));
+  if (!f2) return m1;
+  for (let n = f2.adicionadas.length; n >= 0; n--) {
+    if (e.parar?.()) throw new Error(ERRO_ORCAMENTO);
+    const cand = n === f2.adicionadas.length ? f2 : fase2ComPrimeiras(f2, n);
+    const av: string[] = [];
+    const m = montar(e, cand.cfg, { ...r, linhas: cand.linhas, desp: cand.desp }, cand.produtos, congel, alvo, finaisCongelados, av, cand.sombraDe, r.desp.obj);
+    const v = m.saida.validacao;
+    const ok = m.atribuicaoOk && v.cadeiaValida && v.semMaterial === 0 && (v.violacoesDuras === null || v.violacoesDuras <= (m1.saida.validacao.violacoesDuras ?? 0)) && (m.saida.antecipacoes?.length ?? 0) > 0;
+    if (ok) { avisos.push(...av); if (n < f2.adicionadas.length) avisos.push(`antecipação: ${f2.adicionadas.length - n} linha(s) nova(s) descartada(s) (revezamento/cadeia/restrição dura)`); return m; }
+  }
+  avisos.push("antecipação: nenhuma produção extra fisicamente válida — plano da demanda mantido");
+  return m1;
+}
+
+function montar(e: EntradaPlanejador, cfg: ConfigDespacho, r: ReturnType<typeof buscaLocal>, prodsFuturo: ProdutoRev[], congel: Record<string, number[][]>, alvo: Record<string, number>, finaisCongelados: Record<string, number>, avisos: string[], sombraDe?: Map<string, { produtoId: string; origem: OrigemExtra }>, objetivoValor?: number) {
   const H = e.slots.length, t0 = e.aPartirDe;
   const lcd = linhasComDetalhes(cfg, r.linhas, r.desp);
   type Row = { t: number; recursoId: string; operacaoId: string; dets: { produtoId: string; etapaId: string; etapaIdx: number; pecas: number }[] };
@@ -162,6 +190,20 @@ function montar(e: EntradaPlanejador, cfg: ConfigDespacho, r: ReturnType<typeof 
       }
     }
     prodsFuturo.forEach((p) => chega[p.id].forEach((v, k) => { if (k < p.etapas.length - 1) estoque[p.id][k] += v; }));
+  }
+  // ANTECIPAÇÃO / FORMAÇÃO: as dets dos produtos-SOMBRA são guardadas à parte (rastreio por posto) e FUNDIDAS no produto real (uma entrada por produto × etapa na linha e na produção)
+  const antBrutas: LinhaAntecipadaBruta[] = [];
+  if (sombraDe && sombraDe.size > 0) {
+    rows.forEach((r2) => {
+      const merged = new Map<string, Row["dets"][number]>();
+      r2.dets.forEach((d) => {
+        const s = sombraDe.get(d.produtoId);
+        if (s && d.pecas > 0) antBrutas.push({ t: r2.t, recursoId: r2.recursoId, operacaoId: r2.operacaoId, produtoId: s.produtoId, etapaId: d.etapaId, etapaIdx: d.etapaIdx, pecas: d.pecas, origem: s.origem });
+        const pid = s ? s.produtoId : d.produtoId, k = `${pid}|${d.etapaId}`, ja = merged.get(k);
+        if (ja) ja.pecas += d.pecas; else merged.set(k, { ...d, produtoId: pid });
+      });
+      r2.dets = [...merged.values()];
+    });
   }
   // produção total (congelado + futuro) por produto × etapa × slot
   const producao: Record<string, Record<string, number[]>> = {};
@@ -218,12 +260,27 @@ function montar(e: EntradaPlanejador, cfg: ConfigDespacho, r: ReturnType<typeof 
     return { produtoId: p.id, demanda: p.demandaFinal, programado, cortado: Math.max(0, p.demandaFinal - programado), futuro };
   });
   void alvo; void prepararDespacho; void despachar; void linhasParaOcc;
+  const extras: Pick<SaidaPlanejador, "antecipacoes" | "finalExtra"> = {};
+  if (sombraDe && sombraDe.size > 0) {
+    const ant: LinhaAntecipada[] = [];
+    const finalExtra: Record<string, number> = {};
+    antBrutas.forEach((b) => {
+      const s = e.slots[b.t];
+      const lin2 = finais.find((l) => l.data === s.data && l.periodoId === s.periodoId && l.maquinaId === b.recursoId);
+      if (!lin2) return;
+      const prod = e.produtos.find((p) => p.id === b.produtoId) as ProdutoRev;
+      const final = b.etapaIdx === prod.etapas.length - 1;
+      if (final) finalExtra[b.produtoId] = (finalExtra[b.produtoId] ?? 0) + b.pecas;
+      ant.push({ data: s.data, periodoId: s.periodoId, funcionarioId: lin2.funcionarioId, maquinaId: b.recursoId, operacaoId: b.operacaoId, produtoId: b.produtoId, etapaId: b.etapaId, etapaIdx: b.etapaIdx, etapaFinal: final, pecas: b.pecas, origem: b.origem });
+    });
+    extras.antecipacoes = ant; extras.finalExtra = finalExtra;
+  }
   return {
     atribuicaoOk,
     saida: {
       linhas: finais, linhasPostos: r.linhas, porProduto, wip, producao,
       validacao: { cadeiaValida: violCadeia === 0, violacoesCadeia: violCadeia, violacoesDuras: dur, maxPostosSimultaneos: maxPostos, semMaterial: semMat, atribuicaoOk },
-      avisos: [...avisos], objetivoValor: r.desp.obj,
+      avisos: [...avisos], objetivoValor: objetivoValor ?? r.desp.obj, ...extras,
     } as SaidaPlanejador,
   };
 }

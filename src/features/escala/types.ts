@@ -109,6 +109,8 @@ export interface HistoricoEquidadeFuncionario {
   porMaquina: Record<string, number>;
 }
 
+import type { DadosAntecipacao } from "./fluxo/antecipacao";
+export type { DadosAntecipacao };
 export interface EntradaEscala {
   slots: SlotEscala[]; // todos os slots produtivos da semana, em ordem
   aPartirDe: number; // primeiro slot MUTÁVEL (os anteriores estão congelados)
@@ -166,6 +168,8 @@ export interface EntradaEscala {
   // `bonusContinuidade`: bônus (em peças finais equivalentes) somado ao valor marginal do posto (máquina, pool) que já está ocupado no plano
   // vigente (índice do slot -> "maquinaId|produto|etapa" -> bônus). Só tem efeito junto com `ordemPostos`.
   bonusContinuidade?: Record<string, Record<string, number>>;
+  // ANTECIPAÇÃO PARA A SEMANA SEGUINTE / FORMAÇÃO DE ESTOQUE (fase 2 do planejador de corte; docs/antecipacao-semana-seguinte.md). Ausente = comportamento anterior, byte-idêntico.
+  antecipacao?: DadosAntecipacao;
 }
 
 export type TipoAlerta =
