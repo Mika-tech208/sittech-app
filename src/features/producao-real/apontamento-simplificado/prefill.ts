@@ -1,5 +1,5 @@
 // PASSO 1 — pré-preenchimento pela escala: só os postos PROGRAMADOS no período (plano oficial), agrupados por máquina. Funções puras.
-import type { AlocacaoPlano, ApontamentoExistente, Catalogo, LinhaApontamento, PlanejadoPosto, VinculoSalvo } from "./tipos";
+import type { AlocacaoPlano, ApontamentoExistente, Catalogo, LinhaApontamento, PlanejadoPosto, PostoRealInformado, VinculoSalvo } from "./tipos";
 import { motivoDoBanco } from "./motivos";
 
 const nome = (lista: { id: string; nome: string }[], id: string | null) => lista.find((x) => x.id === id)?.nome.trim() ?? "—";
@@ -41,7 +41,8 @@ function doApontamento(base: LinhaApontamento, ap: ApontamentoExistente, v: Vinc
  * Apontamento já gravado por este fluxo volta editável (SALVA_FLUXO); o lançado no painel volta bloqueado (EXISTENTE_PAINEL).
  * `novaChave` gera a chave de cada linha nova (injetável para teste).
  */
-export function linhasIniciais(postos: PlanejadoPosto[], existentes: ApontamentoExistente[], vinculos: VinculoSalvo[], novaChave: () => string): LinhaApontamento[] {
+export function linhasIniciais(postos: PlanejadoPosto[], existentes: ApontamentoExistente[], vinculos: VinculoSalvo[], novaChave: () => string, execucaoReal?: PostoRealInformado[]): LinhaApontamento[] {
+  if (execucaoReal && execucaoReal.length > 0) return linhasDaExecucaoReal(postos, execucaoReal, existentes, vinculos, novaChave);
   const usados = new Set<string>();
   const vinc = new Map(vinculos.map((v) => [v.apontamentoId, v]));
   const linhas: LinhaApontamento[] = postos.map((p) => {
@@ -63,6 +64,36 @@ export function linhasIniciais(postos: PlanejadoPosto[], existentes: Apontamento
     if (usados.has(ap.id)) continue;
     const v = vinc.get(ap.id);
     linhas.push(doApontamento({ ...linhaVazia(novaChave()), origem: "POSTO_NAO_PLANEJADO" }, ap, v));
+  }
+  return linhas;
+}
+
+/**
+ * EXECUÇÃO REAL do período (regularização operacional do período atual): 1 linha por posto que REALMENTE trabalhou, pré-preenchida com o REAL (máquina, operador, produto).
+ * Quando a máquina também estava no plano oficial: origem PROGRAMADO com o planejado preservado (o banco registra planejado × real e as divergências); senão POSTO_NAO_PLANEJADO.
+ * Postos do plano que não aconteceram NÃO viram linha (não se exige "sem produção" de posto que foi simplesmente trocado). Apontamentos já gravados voltam como nas demais telas.
+ */
+export function linhasDaExecucaoReal(postos: PlanejadoPosto[], real: PostoRealInformado[], existentes: ApontamentoExistente[], vinculos: VinculoSalvo[], novaChave: () => string): LinhaApontamento[] {
+  const usados = new Set<string>();
+  const vinc = new Map(vinculos.map((v) => [v.apontamentoId, v]));
+  const linhas: LinhaApontamento[] = real.map((r) => {
+    const plano = postos.find((p) => p.maquinaId === r.maquinaId) ?? null;
+    const base: LinhaApontamento = {
+      chave: novaChave(), origem: plano ? "PROGRAMADO" : "POSTO_NAO_PLANEJADO", situacao: "NOVA", planejado: plano ? congelar(plano) : null,
+      real: { maquinaId: r.maquinaId, funcionarioId: r.funcionarioId, produtoId: r.produtoId }, produzido: null, refugo: null, naoProduziu: false, motivo: null, descricao: "", apontamentoId: null, exigida: true,
+    };
+    const v = vinculos.find((x) => x.maquinaPlanejadaId === r.maquinaId);
+    const apV = v ? existentes.find((a) => a.id === v.apontamentoId) : undefined;
+    if (apV) { usados.add(apV.id); return doApontamento(base, apV, v); }
+    const apP = existentes.find((a) => a.maquinaId === r.maquinaId && !usados.has(a.id) && !vinc.has(a.id));
+    if (apP) { usados.add(apP.id); return doApontamento(base, apP, undefined); }
+    const apR = existentes.find((a) => a.maquinaId === r.maquinaId && !usados.has(a.id));
+    if (apR) { usados.add(apR.id); return doApontamento(base, apR, vinc.get(apR.id)); }
+    return base;
+  });
+  for (const ap of existentes) {
+    if (usados.has(ap.id)) continue;
+    linhas.push(doApontamento({ ...linhaVazia(novaChave()), origem: "POSTO_NAO_PLANEJADO" }, ap, vinc.get(ap.id)));
   }
   return linhas;
 }

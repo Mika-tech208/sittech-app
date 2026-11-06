@@ -1,14 +1,16 @@
 // SERVER-ONLY. Postos PROGRAMADOS do período (plano oficial) para pré-preencher os apontamentos do fechamento. SOMENTE LEITURA, só tabelas já existentes em PROD
 // (escala_producao_alocacoes, cadastros, roteiro, apontamentos via RPC existente). Nenhuma tabela/flag/migration nova. A gravação continua nas RPCs legadas, pelo navegador.
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AlocacaoPlano, ApontamentoExistente, Catalogo, ElegibilidadeItem, PlanejadoPosto } from "@/features/producao-real/apontamento-simplificado/tipos";
+import type { AlocacaoPlano, ApontamentoExistente, Catalogo, ElegibilidadeItem, PlanejadoPosto, PostoRealInformado } from "@/features/producao-real/apontamento-simplificado/tipos";
 import { postosProgramados } from "@/features/producao-real/apontamento-simplificado/prefill";
 import { carregarApontamentosBanco } from "../fluxo/supabaseFluxo";
 
-export interface EstadoPostos { postos: PlanejadoPosto[]; catalogo: Catalogo; existentes: ApontamentoExistente[] }
+/** `postos` = plano OFICIAL do período (nunca alterado); `execucaoReal` = postos que realmente trabalharam (só quando registrados; o fechamento passa a esperar ESTES). */
+export interface EstadoPostos { postos: PlanejadoPosto[]; catalogo: Catalogo; existentes: ApontamentoExistente[]; execucaoReal?: PostoRealInformado[] }
+export interface ExecucaoRealRow { maquina_id: string; funcionario_id: string; produto_id: string; etapa_id: string | null; operacao_id: string | null }
 type Cad = { id: string; nome: string; ativo?: boolean };
 export interface DadosBrutosPostos {
-  alocacoes: Record<string, unknown>[]; maquinas: Cad[]; funcionarios: Cad[]; produtos: Cad[]; operacoes: { id: string; nome: string }[];
+  alocacoes: Record<string, unknown>[]; execucaoReal?: ExecucaoRealRow[]; maquinas: Cad[]; funcionarios: Cad[]; produtos: Cad[]; operacoes: { id: string; nome: string }[];
   etapas: { id: string; produto_id: string; operacao_id: string }[]; etapaMaquinas: { etapa_id: string; maquina_id: string }[];
   apontamentos: { maquinaId: string | null; funcionarioId: string | null; produtoId: string | null; operacaoId: string | null; quantidadeProduzida: number; quantidadeRefugo: number; status: string; motivo: string | null }[];
 }
@@ -25,9 +27,10 @@ export function montarEstadoPostos(b: DadosBrutosPostos): EstadoPostos {
     maquinaId: a.maquina_id as string, funcionarioId: a.funcionario_id as string, produtoId: (a.produto_id as string | null) ?? null, etapaId: (a.etapa_id as string | null) ?? null, operacaoId: (a.operacao_id as string | null) ?? null,
     pecas: Number(a.pecas ?? 0), pecasAdicional: Number(a.pecas_adicional ?? 0),
   }));
-  const usadosFun = new Set([...alocacoes.map((a) => a.funcionarioId), ...b.apontamentos.map((a) => a.funcionarioId).filter(Boolean) as string[]]);
-  const usadosProd = new Set([...alocacoes.map((a) => a.produtoId).filter(Boolean) as string[], ...b.apontamentos.map((a) => a.produtoId).filter(Boolean) as string[]]);
-  const usadosMaq = new Set([...alocacoes.map((a) => a.maquinaId).filter(Boolean) as string[], ...b.apontamentos.map((a) => a.maquinaId as string)]);
+  const real = b.execucaoReal ?? [];
+  const usadosFun = new Set([...real.map((r) => r.funcionario_id), ...alocacoes.map((a) => a.funcionarioId), ...b.apontamentos.map((a) => a.funcionarioId).filter(Boolean) as string[]]);
+  const usadosProd = new Set([...real.map((r) => r.produto_id), ...alocacoes.map((a) => a.produtoId).filter(Boolean) as string[], ...b.apontamentos.map((a) => a.produtoId).filter(Boolean) as string[]]);
+  const usadosMaq = new Set([...real.map((r) => r.maquina_id), ...alocacoes.map((a) => a.maquinaId).filter(Boolean) as string[], ...b.apontamentos.map((a) => a.maquinaId as string)]);
   const lista = (rows: Cad[], usados: Set<string>) => rows.filter((r) => r.ativo !== false || usados.has(r.id)).map((r) => ({ id: r.id, nome: String(r.nome).trim() })).sort((x, y) => x.nome.localeCompare(y.nome, "pt-BR", { numeric: true }));
   const etapaPorId = new Map(b.etapas.map((e) => [e.id, e]));
   const elegibilidade = b.etapaMaquinas.flatMap((r): ElegibilidadeItem[] => {
@@ -42,7 +45,16 @@ export function montarEstadoPostos(b: DadosBrutosPostos): EstadoPostos {
     id: `maq:${a.maquinaId}`, maquinaId: a.maquinaId as string, funcionarioId: a.funcionarioId, produtoId: a.produtoId, operacaoId: a.operacaoId,
     produzido: a.quantidadeProduzida, refugo: a.quantidadeRefugo, status: a.status === "sem_producao" ? "sem_producao" : "produzindo", motivoSemProducao: a.motivo, descricaoSemProducao: null,
   }));
-  return { postos: postosProgramados(alocacoes, catalogo), catalogo, existentes };
+  const etapaDeReal = (r: ExecucaoRealRow) => r.etapa_id ?? elegibilidade.find((e) => e.maquinaId === r.maquina_id && e.produtoId === r.produto_id)?.etapaId ?? null;
+  const execucaoReal: PostoRealInformado[] = real.map((r): PostoRealInformado => {
+    const etapaId = etapaDeReal(r);
+    const operacaoId = r.operacao_id ?? (etapaId ? etapaPorId.get(etapaId)?.operacao_id ?? null : null);
+    return {
+      maquinaId: r.maquina_id, maquinaNome: String(b.maquinas.find((m) => m.id === r.maquina_id)?.nome ?? "—").trim(), funcionarioId: r.funcionario_id, funcionarioNome: String(b.funcionarios.find((f) => f.id === r.funcionario_id)?.nome ?? "—").trim(),
+      produtoId: r.produto_id, produtoNome: String(b.produtos.find((p) => p.id === r.produto_id)?.nome ?? "—").trim(), etapaId, operacaoId, operacaoNome: operacaoId ? catalogo.operacoes[operacaoId] ?? "—" : "—",
+    };
+  }).sort((x, y) => x.maquinaNome.localeCompare(y.maquinaNome, "pt-BR", { numeric: true }));
+  return { postos: postosProgramados(alocacoes, catalogo), catalogo, existentes, ...(execucaoReal.length > 0 ? { execucaoReal } : {}) };
 }
 
 function ok<T>(resp: { data: T | null; error: { message: string } | null }, onde: string): T {
@@ -50,14 +62,26 @@ function ok<T>(resp: { data: T | null; error: { message: string } | null }, onde
   return (resp.data ?? ([] as unknown)) as T;
 }
 
+/** Execução real registrada do período (AJUSTE_OPERACIONAL). Tabela ausente (migration ainda não aplicada) = nenhuma; qualquer outro erro propaga (nunca esconde silenciosamente). */
+export async function lerExecucaoReal(admin: SupabaseClient, data: string, periodoId: string): Promise<ExecucaoRealRow[]> {
+  const r = await admin.from("escala_execucao_real_periodo").select("maquina_id, funcionario_id, produto_id, etapa_id, operacao_id").eq("data", data).eq("periodo_id", periodoId);
+  if (r.error) {
+    const e = r.error as { code?: string; message: string };
+    if (e.code === "42P01" || e.code === "PGRST205" || /does not exist|schema cache/i.test(e.message)) return [];
+    throw new Error(`escala_execucao_real_periodo: ${e.message}`);
+  }
+  return (r.data ?? []) as ExecucaoRealRow[];
+}
+
 export async function carregarPostosProgramados(admin: SupabaseClient, data: string, periodoId: string): Promise<EstadoPostos> {
-  const [aloc, maq, fun, prod, ops, etapas, rem, apont] = await Promise.all([
+  const [aloc, maq, fun, prod, ops, etapas, rem, apont, execReal] = await Promise.all([
     admin.from("escala_producao_alocacoes").select("maquina_id, funcionario_id, produto_id, etapa_id, operacao_id, pecas, pecas_adicional").eq("data", data).eq("periodo_id", periodoId).not("maquina_id", "is", null),
     admin.from("maquinas").select("id, nome, ativo"), admin.from("funcionarios").select("id, nome, ativo"), admin.from("produtos").select("id, nome, ativo"),
     admin.from("operacoes").select("id, nome"), admin.from("roteiro_etapas").select("id, produto_id, operacao_id"), admin.from("roteiro_etapa_maquinas").select("etapa_id, maquina_id"),
-    carregarApontamentosBanco(admin, segundaDe(data)),
+    carregarApontamentosBanco(admin, segundaDe(data)), lerExecucaoReal(admin, data, periodoId),
   ]);
   return montarEstadoPostos({
+    execucaoReal: execReal,
     alocacoes: ok(aloc, "escala_producao_alocacoes") as Record<string, unknown>[], maquinas: ok(maq, "maquinas") as Cad[], funcionarios: ok(fun, "funcionarios") as Cad[], produtos: ok(prod, "produtos") as Cad[],
     operacoes: ok(ops, "operacoes") as { id: string; nome: string }[], etapas: ok(etapas, "roteiro_etapas") as { id: string; produto_id: string; operacao_id: string }[],
     etapaMaquinas: ok(rem, "roteiro_etapa_maquinas") as { etapa_id: string; maquina_id: string }[],

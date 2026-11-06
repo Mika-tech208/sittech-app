@@ -2,16 +2,18 @@
 //  - leitura: service_role (plano oficial do período, catálogos, apontamentos via RPC existente, vínculos planejado×real);
 //  - gravação: SEMPRE com a sessão do usuário (supabaseAsUser) chamando a RPC `registrar_apontamentos_fechamento` (criado_por = quem está no fechamento; o gatilho do fechamento físico valida a janela).
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ApontamentoExistente, Catalogo, Divergencia, LinhaRpc, MotivoNaoProduziu, OrigemLinha, PlanejadoPosto, VinculoSalvo } from "@/features/producao-real/apontamento-simplificado/tipos";
+import type { ApontamentoExistente, Catalogo, Divergencia, LinhaRpc, MotivoNaoProduziu, OrigemLinha, PlanejadoPosto, PostoRealInformado, VinculoSalvo } from "@/features/producao-real/apontamento-simplificado/tipos";
 import { CHAVE_MODO_APONTAMENTO_SIMPLIFICADO, lerModoApontamentoSimplificado, type ModoApontamentoSimplificado } from "@/features/producao-real/apontamento-simplificado/modo";
 import type { PostoFechamento } from "@/features/escala/fechamento/tipos";
-import { carregarPostosProgramados, segundaDe as segundaDeSemana } from "./postosProgramados";
+import { carregarPostosProgramados, lerExecucaoReal, segundaDe as segundaDeSemana } from "./postosProgramados";
 
-export interface EstadoApontamentos { postos: PlanejadoPosto[]; catalogo: Catalogo; existentes: ApontamentoExistente[]; vinculos: VinculoSalvo[] }
+export interface EstadoApontamentos { postos: PlanejadoPosto[]; catalogo: Catalogo; existentes: ApontamentoExistente[]; vinculos: VinculoSalvo[]; execucaoReal?: PostoRealInformado[] }
 export interface ResultadoSalvar { substituidas: number; linhas: { chave: string; apontamentoId: string; origem: OrigemLinha; divergencias: Divergencia[]; naoProduziu: boolean }[] }
 export interface ApontamentosIO {
   modo(): Promise<ModoApontamentoSimplificado>;
   liberado(data: string, periodoId: string): Promise<boolean>;
+  /** o período tem EXECUÇÃO REAL registrada (regularização operacional do período atual)? Só consultado quando o período NÃO está liberado. */
+  temExecucaoReal(data: string, periodoId: string): Promise<boolean>;
   carregar(data: string, periodoId: string): Promise<EstadoApontamentos>;
   salvar(data: string, periodoId: string, linhas: LinhaRpc[]): Promise<ResultadoSalvar>;
 }
@@ -46,8 +48,10 @@ export function criarApontamentosIO(admin: SupabaseClient, comoUsuario: Supabase
         apontamentoId: chaveApontamento(v.maquina_real_id), origem: v.origem, maquinaPlanejadaId: v.maquina_planejada_id, divergencias: v.divergencias, naoProduziu: v.nao_produziu, motivo: v.motivo_nao_produziu,
         linhaChave: v.linha_chave, descricaoInformada: v.real?.descricao_informada ?? "",
       }));
-      return { postos: estado.postos, catalogo: estado.catalogo, existentes: estado.existentes, vinculos };
+      return { postos: estado.postos, catalogo: estado.catalogo, existentes: estado.existentes, vinculos, ...(estado.execucaoReal ? { execucaoReal: estado.execucaoReal } : {}) };
     },
+
+    async temExecucaoReal(data, periodoId) { return (await lerExecucaoReal(admin, data, periodoId)).length > 0; },
 
     /** decide no banco (escala_periodo_liberacao). Período NÃO liberado ⇒ a programação dele não é entregue (nem para apontar). */
     async liberado(data, periodoId) {

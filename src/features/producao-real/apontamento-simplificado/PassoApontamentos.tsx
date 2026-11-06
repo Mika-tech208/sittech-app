@@ -29,6 +29,7 @@ export interface PassoApontamentosProps {
 export default function PassoApontamentos({ data, periodoId, bloqueado, pendentesNomes, onModo, onSalvo, onNaoSalvo }: PassoApontamentosProps) {
   const [carregando, setCarregando] = useState(true);
   const [erroCarga, setErroCarga] = useState<string | null>(null);
+  const [execReal, setExecReal] = useState(0);        // nº de postos da EXECUÇÃO REAL registrada (regularização operacional do período atual); 0 = fluxo normal
   const [naoLiberado, setNaoLiberado] = useState(false);   // período ainda não liberado pela programação automática (ex.: lançado à mão pela regularização histórica)
   const [cat, setCat] = useState<Catalogo | null>(null);
   const [linhas, setLinhas] = useState<LinhaApontamento[]>([]);
@@ -53,7 +54,8 @@ export default function PassoApontamentos({ data, periodoId, bloqueado, pendente
       setNaoLiberado(false);
       if (!r.corpo.catalogo) { setErroCarga("Programação deste período ainda não liberada."); return; }
       onModo(true);
-      const l = linhasIniciais(r.corpo.postos ?? [], r.corpo.existentes ?? [], r.corpo.vinculos ?? [], () => crypto.randomUUID());
+      const l = linhasIniciais(r.corpo.postos ?? [], r.corpo.existentes ?? [], r.corpo.vinculos ?? [], () => crypto.randomUUID(), r.corpo.execucaoReal);
+      setExecReal(r.corpo.execucaoReal?.length ?? 0);
       setCat(r.corpo.catalogo); setLinhas(l); setBase(JSON.stringify(l.map(chaveEstado))); setEditando(new Set());
     }).catch(() => { if (vivo) setErroCarga("Falha de rede ao carregar os apontamentos."); })
       .finally(() => { if (vivo) setCarregando(false); });
@@ -193,17 +195,22 @@ export default function PassoApontamentos({ data, periodoId, bloqueado, pendente
         .stx-apx-barra{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}.stx-apx-barra button{padding:12px 18px;min-height:48px;font-weight:700;border-radius:10px}
         @media (max-width:640px){.stx-apx-grade{grid-template-columns:1fr}}
       `}</style>
-      <h3>Apontamentos do período</h3>
-      {resumo.pendentes.length === 0 && resumo.comProblema.length === 0
+      <h3>{execReal > 0 ? `EXECUÇÃO REAL DO ${periodoId.toUpperCase()} — ${execReal} POSTOS` : "Apontamentos do período"}</h3>
+      {execReal > 0 && <p className="stx-apx-dica" role="status" data-testid="execucao-real" style={{ margin: "0 0 8px" }}>Programação original alterada durante o período. Estes são os postos que realmente trabalharam (informados pelo supervisor); o plano original fica guardado para auditoria. Informe só o produzido e o refugo.</p>}
+      {execReal > 0
+        ? (resumo.pendentes.length === 0 && resumo.comProblema.length === 0
+          ? <div className="stx-fech-ok">✓ {linhas.filter((l) => l.exigida).length}/{linhas.filter((l) => l.exigida).length} postos reais lançados</div>
+          : <div className="stx-fech-warn" role="status">⚠ {linhas.filter((l) => l.exigida).length - resumo.pendentes.length}/{linhas.filter((l) => l.exigida).length} postos reais lançados — falta: {resumo.pendentes.map((l) => l.planejado?.maquinaNome ?? cat.maquinas.find((m) => m.id === l.real.maquinaId)?.nome).join(", ") || "corrigir os campos marcados"}</div>)
+        : resumo.pendentes.length === 0 && resumo.comProblema.length === 0
         ? <div className="stx-fech-ok">✓ {programadas.length}/{programadas.length} postos programados resolvidos</div>
         : <div className="stx-fech-warn" role="status">⚠ {resolvidas}/{programadas.length} postos resolvidos — falta: {resumo.pendentes.map((l) => l.planejado?.maquinaNome).join(", ") || "corrigir os campos marcados"}</div>}
       <p className="stx-apx-dica" style={{ margin: "4px 0 10px" }}>Os postos vêm da escala deste período. Informe o produzido e o refugo (ou NÃO PRODUZIU). Pode alterar máquina, operador e produto — o que foi programado fica guardado ao lado do que aconteceu.</p>
 
-      {programadas.map(cartao)}
+      {execReal > 0 ? linhas.map(cartao) : (<>{programadas.map(cartao)}
 
       <h3 style={{ marginTop: 16 }}>Apontamento extra (fora da escala) — opcional</h3>
       {extras.length === 0 && <p className="stx-apx-dica">Nenhum. Use o botão abaixo só se uma máquina produziu sem estar programada.</p>}
-      {extras.map(cartao)}
+      {extras.map(cartao)}</>)}
       <div className="stx-apx-barra">
         <button type="button" className="stx-ap-btn-secondary" disabled={travado} onClick={() => setLinhas((ls) => adicionarExtra(ls, crypto.randomUUID()))}>+ ADICIONAR APONTAMENTO</button>
         <button type="button" className="stx-ap-btn-primary" disabled={travado || !alterado} onClick={() => void salvar()}>{salvando ? "Salvando…" : "SALVAR APONTAMENTOS"}</button>

@@ -80,6 +80,7 @@ function fakeApIO(o: Partial<ApontamentosIO> & { modoAtual?: "ativo" | "desligad
   const io: ApontamentosIO = {
     modo: async () => o.modoAtual ?? "ativo",
     liberado: o.liberado ?? (async () => o.liberadoAtual ?? true),
+    temExecucaoReal: o.temExecucaoReal ?? (async () => { chamadas.push("temExecucaoReal"); return false; }),
     carregar: o.carregar ?? (async () => { chamadas.push("carregar"); return { postos: [], catalogo: { maquinas: [], funcionarios: [], produtos: [], operacoes: {}, elegibilidade: [] }, existentes: [], vinculos: [] }; }),
     salvar: o.salvar ?? (async (_d, _p, ls) => { chamadas.push(`salvar:${ls.length}`); return { substituidas: 0, linhas: [] }; }),
   };
@@ -91,7 +92,7 @@ describe("HTTP do apontamento simplificado", () => {
   it("estado: período NÃO liberado => fail-closed, a programação dele não é entregue (nada é carregado)", async () => {
     const { io, chamadas } = fakeApIO({ liberadoAtual: false });
     expect(await acaoApontamentosEstado(io, FECHA, "2026-11-04", "t1")).toEqual({ status: 200, corpo: { modo: "ativo", naoLiberado: true, postos: [] } });
-    expect(chamadas).toEqual([]);
+    expect(chamadas).toEqual(["temExecucaoReal"]);      // só verifica se há execução real registrada; a programação NÃO é carregada nem entregue
   });
   it("estado: fluxo desligado => só { modo } (a tela BLOQUEIA o fechamento, sem fluxo concorrente) e nada é carregado", async () => {
     const { io, chamadas } = fakeApIO({ modoAtual: "desligado" });

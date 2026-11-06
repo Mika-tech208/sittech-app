@@ -16,9 +16,19 @@ export interface PlanejadoPosto {
   readonly pecas: number;
 }
 
+/** Posto da EXECUÇÃO REAL do período (regularização operacional do período atual): o que realmente trabalhou, quando diverge do plano oficial. */
+export interface PostoRealInformado {
+  readonly maquinaId: string; readonly maquinaNome: string;
+  readonly funcionarioId: string; readonly funcionarioNome: string;
+  readonly produtoId: string; readonly produtoNome: string;
+  readonly etapaId: string | null; readonly operacaoId: string | null; readonly operacaoNome: string;
+}
+
 export interface RealPosto { maquinaId: string | null; funcionarioId: string | null; produtoId: string | null }
 
 export interface LinhaApontamento {
+  /** execução real do período: a linha é um posto que REALMENTE trabalhou (mesmo sem plano) e precisa estar resolvida para fechar */
+  exigida?: boolean;
   chave: string;                          // uuid local: vira linha_chave/idempotência no banco
   origem: OrigemLinha;
   situacao: SituacaoLinha;

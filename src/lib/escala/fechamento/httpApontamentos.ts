@@ -16,7 +16,12 @@ export async function acaoApontamentosEstado(io: ApontamentosIO, u: UsuarioFecha
   try {
     const modo = await io.modo();
     if (modo !== "ativo") return { status: 200, corpo: { modo } };          // fluxo desligado: a tela BLOQUEIA o fechamento (sem fluxo concorrente)
-    if (!(await io.liberado(data, periodoId))) return { status: 200, corpo: { modo, naoLiberado: true, postos: [] } };   // fail-closed: período não liberado não entrega programação
+    if (!(await io.liberado(data, periodoId))) {
+      // fail-closed: período não liberado não entrega programação. ÚNICA exceção: o período tem EXECUÇÃO REAL registrada (regularização operacional do período atual, AJUSTE_OPERACIONAL):
+      // entrega só os postos que realmente trabalharam para o fechamento deste período. A liberação em si (escala_periodo_liberacao) NÃO é alterada.
+      if (await io.temExecucaoReal(data, periodoId)) return { status: 200, corpo: { modo, ...(await io.carregar(data, periodoId)) } };
+      return { status: 200, corpo: { modo, naoLiberado: true, postos: [] } };
+    }
     return { status: 200, corpo: { modo, ...(await io.carregar(data, periodoId)) } };
   } catch (e) { return { status: 500, corpo: { erro: e instanceof Error ? e.message : "Falha ao carregar os apontamentos." } }; }
 }

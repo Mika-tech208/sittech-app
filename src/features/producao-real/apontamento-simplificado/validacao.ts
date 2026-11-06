@@ -57,7 +57,7 @@ export interface ResumoCompletude {
 /** Completude de TELA (antes de gravar). A completude OFICIAL é a do servidor (postos esperados lidos do banco no fechamento). */
 export function completude(linhas: LinhaApontamento[], cat: Catalogo): ResumoCompletude {
   const comProblema = linhas.map((l) => ({ chave: l.chave, problemas: problemasDaLinha(l, cat) })).filter((x) => x.problemas.length > 0);
-  const pendentes = linhas.filter((l) => l.origem === "PROGRAMADO" && l.situacao !== "EXISTENTE_PAINEL" && !linhaPronta(l, cat));
+  const pendentes = linhas.filter((l) => (l.origem === "PROGRAMADO" || l.exigida === true) && l.situacao !== "EXISTENTE_PAINEL" && !linhaPronta(l, cat));
   const conjunto = problemasDoConjunto(linhas);
   return { pendentes, comProblema, conjunto, completo: pendentes.length === 0 && comProblema.length === 0 && conjunto.length === 0 };
 }
