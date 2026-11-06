@@ -75,7 +75,31 @@ export function prepararDespacho(C: ConfigDespacho) {
     for (let j = k; j < p.wipInicial.length; j++) alem += p.wipInicial[j];
     return Math.max(0, (C.alvo[p.id] ?? 0) + (C.saidaTeto?.[p.id] ?? 0) - alem);
   }));
-  return { H, recIdx, pools, ops, opIdx, poolsDe, opsDoRec, blocoDe, prodIdx, capUp };
+  // PRODUTO ÚNICO COM ROTAS (ProdutoRev.alimenta). Sem alimentadoras (caso de hoje) nada disto é usado: `haFeeders=false` mantém o caminho anterior, idêntico.
+  const alemK = C.produtos.map((p) => p.etapas.map((_, k) => { let a = 0; for (let j = k; j < p.wipInicial.length; j++) a += p.wipInicial[j]; return a; }));
+  const feed = C.produtos.map((p, pi) => {
+    if (!p.alimenta) return null;
+    const ti = prodIdx.get(p.alimenta.produtoId);
+    return ti === undefined || ti === pi ? null : { ti, lig: p.alimenta.ligacao };
+  });
+  const feedersDe: number[][] = C.produtos.map(() => []);
+  feed.forEach((f, pi) => { if (f) feedersDe[f.ti].push(pi); });
+  const haFeeders = feed.some((f) => f !== null);
+  // TETO DE ABSORÇÃO do estoque de entrada comum (backward simplificado): o que entra na ligação `lig` (da principal + alimentadoras) não passa de
+  // estoque inicial + o que a etapa seguinte consegue consumir até o fim do horizonte (Σ taxa × unidades de TODAS as suas máquinas, períodos t0+1…, lote de 1 período) + saída útil.
+  const tetoAbsorcao: (number | undefined)[][] = C.produtos.map(() => []);
+  C.produtos.forEach((p, pi) => {
+    if (feedersDe[pi].length === 0) return;
+    for (const f of feedersDe[pi]) {
+      const lig = (feed[f] as { lig: number }).lig;
+      if (tetoAbsorcao[pi][lig] !== undefined) continue;
+      const pl = pools.find((x) => x.pid === p.id && x.k === lig + 1);
+      let absorve = 0;
+      if (pl) pl.rate.forEach((taxa, r) => { for (let t = C.t0 + 1; t < H; t++) absorve += (taxa[t] ?? 0) * (C.recursos[r].unidades[t] ?? 0); });
+      tetoAbsorcao[pi][lig] = (p.wipInicial[lig] ?? 0) + absorve + (C.saidaTeto?.[p.id] ?? 0);
+    }
+  });
+  return { H, recIdx, pools, ops, opIdx, poolsDe, opsDoRec, blocoDe, prodIdx, capUp, alemK, feed, feedersDe, haFeeders, tetoAbsorcao };
 }
 export type PrepD = ReturnType<typeof prepararDespacho>;
 
@@ -92,6 +116,26 @@ export function despachar(C: ConfigDespacho, D: PrepD, occ: Uint8Array[], comple
   if (completo) C.produtos.forEach((p, i) => { producao[p.id] = p.etapas.map(() => new Array(H).fill(0)); wip[p.id] = p.wipInicial.map((w) => { const a = new Array(H + 1).fill(NaN); a[C.t0] = w; return a; }); void i; });
   const ociosas: LinhaPostoD[] = [];
   const arr = C.produtos.map((p) => new Array(p.etapas.length).fill(0));
+  // Teto de produção (cabeça) com ROTAS ALTERNATIVAS. A alimentadora e a cadeia principal DIVIDEM o mesmo orçamento "peças que ainda podem virar produto final (+ saída útil)":
+  //  • alimentadora: cabeça = orçamento da ligação de entrega − o que a cadeia principal já passou por ela − o que as alimentadoras já entregaram − o que esta já tem em curso;
+  //  • etapa final da principal: demanda restante única − finais; etapas anteriores até a ligação: teto de WIP útil − o que as alimentadoras já comprometeram (em curso + entregue).
+  const cabecaComRotas = (pi: number, pl: PoolD): number => {
+    const fd = D.feed[pi];
+    if (fd) {
+      let entregue = 0;
+      for (const f of D.feedersDe[fd.ti]) entregue += cum[f][C.produtos[f].etapas.length - 1];
+      const nf = C.produtos[pi].etapas.length;
+      const pend = D.alemK[pi][pl.k] + cum[pi][pl.k] - cum[pi][nf - 1];
+      const absorcao = (D.tetoAbsorcao[fd.ti][fd.lig] ?? Number.POSITIVE_INFINITY) - cum[fd.ti][fd.lig] - entregue - pend;
+      return Math.min(D.capUp[fd.ti][fd.lig] - cum[fd.ti][fd.lig] - entregue - pend, absorcao);
+    }
+    if (pl.k === pl.n - 1) return (C.alvo[pl.pid] ?? 0) - fin[pi];
+    let h = D.capUp[pi][pl.k] - cum[pi][pl.k];
+    for (const f of D.feedersDe[pi]) if (pl.k <= (D.feed[f] as { lig: number }).lig) h -= D.alemK[f][0] + cum[f][0];
+    // etapa que escreve na ligação de entrega comum (Parafusar): também limitada pela absorção da etapa seguinte
+    for (const f of D.feedersDe[pi]) { const lg = (D.feed[f] as { lig: number }).lig; if (pl.k === lg && D.tetoAbsorcao[pi][lg] !== undefined) { let ent = 0; for (const g of D.feedersDe[pi]) ent += cum[g][C.produtos[g].etapas.length - 1]; h = Math.min(h, (D.tetoAbsorcao[pi][lg] as number) - cum[pi][lg] - ent); break; } }
+    return h;
+  };
   for (let t = C.t0; t < H; t++) {
     for (let i = 0; i < np; i++) arr[i].fill(0);
     const row = occ[t];
@@ -106,12 +150,12 @@ export function despachar(C: ConfigDespacho, D: PrepD, occ: Uint8Array[], comple
         if (rate <= 0 || frac <= EPS) continue;
         const pi = D.prodIdx.get(pl.pid) as number;
         const mat = pl.k === 0 ? Number.POSITIVE_INFINITY : stock[pi][pl.k - 1];
-        const head = pl.k === pl.n - 1 ? (C.alvo[pl.pid] ?? 0) - fin[pi] : D.capUp[pi][pl.k] - cum[pi][pl.k];
+        const head = D.haFeeders ? cabecaComRotas(pi, pl) : pl.k === pl.n - 1 ? (C.alvo[pl.pid] ?? 0) - fin[pi] : D.capUp[pi][pl.k] - cum[pi][pl.k];
         const q = Math.min(rate * frac, mat, head);
         if (q <= EPS) continue;
         if (pl.k > 0) stock[pi][pl.k - 1] -= q;
         cum[pi][pl.k] += q;
-        if (pl.k === pl.n - 1) fin[pi] += q; else arr[pi][pl.k] += q;
+        if (pl.k === pl.n - 1) { const fd = D.haFeeders ? D.feed[pi] : null; if (fd) arr[fd.ti][fd.lig] += q; else fin[pi] += q; } else arr[pi][pl.k] += q;
         frac -= q / rate;
         if (completo) { det.push({ produtoId: pl.pid, etapaId: pl.etapaId, etapaIdx: pl.k, pecas: q }); producao[pl.pid][pl.k][t] += q; }
       }
@@ -122,7 +166,14 @@ export function despachar(C: ConfigDespacho, D: PrepD, occ: Uint8Array[], comple
   }
   let obj = 0, falta = 0;
   const finais: Record<string, number> = {};
-  C.produtos.forEach((p, i) => { finais[p.id] = fin[i]; obj += (C.margem[p.id] ?? 0) * fin[i]; falta += Math.max(0, (C.piso?.[p.id] ?? 0) - fin[i]); });
+  C.produtos.forEach((p, i) => {
+    finais[p.id] = fin[i];
+    const fd = D.haFeeders ? D.feed[i] : null;
+    // alimentadora: `margem` é o DELTA de margem da rota sobre a principal, creditado só até o total de finais da principal (peça que não vira final não rende)
+    if (fd) obj += (C.margem[p.id] ?? 0) * Math.min(cum[i][p.etapas.length - 1], fin[fd.ti]);
+    else obj += (C.margem[p.id] ?? 0) * fin[i];
+    falta += Math.max(0, (C.piso?.[p.id] ?? 0) - fin[i]);
+  });
   obj -= (C.penalPiso ?? 1) * falta;
   if (C.saidaTeto) C.produtos.forEach((p, i) => stock[i].forEach((v, j) => { obj += (C.saidaPeso ?? 0.25) * (C.margem[p.id] ?? 0) * ((j + 1) / p.etapas.length) * Math.min(v, C.saidaTeto?.[p.id] ?? 0); }));
   return { finais, obj, detalhes, wip, producao, linhasOciosas: ociosas };

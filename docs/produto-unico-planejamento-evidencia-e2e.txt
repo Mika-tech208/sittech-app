@@ -1,0 +1,51 @@
+# E2E PLANEJAMENTO · produto único · clone · 2026-11-06T14:23:02.076Z
+PASS  0 clone migrado, cutover = null
+PASS  0 impressão digital operacional de hoje coletada — 23 componentes · TV 06/11: 0 alocações liberadas
+PASS  0b antes de habilitar: 06/11 e 09/11 em modo LEGADO
+PASS  2 habilitar_planejamento(09/11): semana incluída nas DUAS listas — ["producao_real_semanas_ativas","producao_real_planejador_semanas"]
+PASS  2b 09/11 em producao_real_semanas_ativas e producao_real_planejador_semanas — producao_real_planejador_semanas=["2026-11-02", "2026-11-09"] ; producao_real_semanas_ativas=["2026-10-26", "2026-11-02", "2026-11-09"]
+PASS  2c nenhum evento de recálculo foi enfileirado
+PASS  2d idempotente (segunda chamada = ja_habilitado)
+PASS  2e 06/11 LEGADO; 09/11 e 16/11 PLANEJAMENTO; cutover segue null
+PASS  2f produto único ATIVO (selecionável no Forecast)
+PASS  A1 habilitar NÃO altera nada operacional de hoje (apontamentos, fechamentos, plano <09/11, buffers/pares, WIP, versões de plano, liberação, parâmetros) — 23 componentes idênticos
+PASS  C0 em semana de PLANEJAMENTO salvar a Previsão com item legado é recusado (guarda) — ERRO: ERROR:  PRODUTO_LEGADO_APOS_CUTOVER: a semana 2026-11-09 usa o produto único (planejamento/cutover 2026-11-09); at
+PASS  C1 'Unificar em Conector 3/4': soma 64.800+28.500 = UM item de 93.300 e REMOVE os dois itens legados da Previsão — {"semana":"2026-11-09","cutover":"2026-11-09","quantidade":93300,"ja_convertida":false,"item_canonico_id":"04d4caaf-b152-490d-a82d-7bd893ab95eb","maquinas_canonicas":11,"itens_legado_removidos":2}
+PASS  C2 backup (undo) dos 2 itens legados guardado em produto_unico_conversoes
+PASS  C3 upsert_previsao_semana (RPC do app) salva o item único (quantidade única) + os outros itens da semana — {"sub" : "f0c30e9b-68b6-4529-ad1e-3a1887dcdebe", "role" : "authenticated"}
+0fc0eed9-573c-4b61-a4ff-7
+PASS  B semana 09/11 mostra o produto único (93.300) e mais 3 itens; nenhum legado
+PASS  D as duas rotas selecionáveis: M8 na etapa 'Rosquear + Parafusar'; Rosquear/Parafusar/Etiquetar/Embalar com máquinas — Embalar=1, Etiquetar=2, Parafusar=4, Rosquear=3, Rosquear + Parafusar=1
+PASS  E motor gera o plano de 09/11 com o planejador de corte e o produto único — processado · corte usado=true · 390 linhas · 10682 ms · 
+PASS  F nenhum id legado do Conector no plano de 09/11; só o produto único — legado=0 canônico=163 linhas com posto
+   divisão entre as rotas (peças por operação): Embalar=93300 · Etiquetar=96645 · Parafusar=60800 · Rosquear=64800 · Rosquear + Parafusar=35610
+PASS  A2/G depois de unificar, salvar a Previsão e GERAR o plano de 09/11: apontamentos, fechamentos, plano <09/11, buffers/pares/máquinas, WIP (controle/ajustes/confirmações/saldo), versões de plano e liberação de hoje IDÊNTICOS — 23 componentes idênticos
+PASS  A3 hash do plano da semana 02/11 (e 06/11) inalterado — 6ae041bb4e75f28489d7963d047787f6
+PASS  A4 TV de 06/11 entrega o MESMO que antes — 0 → 0
+PASS  A5 06/11 continua LEGADO
+PASS  (7) [plano gerado, sem fechamento do T3] escala_periodo_liberacao = NÃO LIBERADO nos 30 períodos de 09–13/11 — PLANO_FUTURO_AGUARDANDO_CUTOVER
+PASS  (1) [plano gerado, sem fechamento do T3] TV (escala_tv_snapshot) não recebe NENHUM posto de 09–13/11 — 0/0/0/0/0
+PASS  (2) [plano gerado, sem fechamento do T3] Produção Real: /postos e /apontamentos devolvem naoLiberado e 0 postos para 09/11
+PASS  (4) [plano gerado, sem fechamento do T3] fechamento físico: abrir e confirmar de 09/11 recusados (PERIODO_EM_PLANEJAMENTO) — abrir 422 · confirmar 422
+PASS  (3a) INSERT de apontamento em 09/11 recusado para QUALQUER produto (Pino) — guarda no banco — ERRO: ERROR:  APONTAMENTO_SEMANA_EM_PLANEJAMENTO: a semana de 2026-11-09 está em PLANEJAMENTO do produto único (plano futuro, não liberado);
+PASS  (3b) registrar_apontamento_producao_core com data de 09/11 recusado — ERRO: ERROR:  APONTAMENTO_SEMANA_EM_PLANEJAMENTO: a semana de 2026-11-09 está em PLANEJAMENTO do produto único (plano fu
+PASS  (3c) [semana simulada em planejamento, data passada] registrar_apontamento_producao_core recusado — ERRO: ERROR:  APONTAMENTO_SEMANA_EM_PLANEJAMENTO: a semana de 2026-11-03 está em PLANEJAMENTO do produto único (plano futuro, não 
+PASS  (3d) idem registrar_apontamentos_fechamento recusado — ERRO: ERROR:  LINHA[11111111-1111-4111-8111-111111111111]: APONTAMENTO_SEMANA_EM_PLANEJAMENTO: a semana de 2026-11-03 está em PLAN
+PASS  (3e) idem regularizar_apontamento_historico recusado — ERRO: ERROR:  REGULARIZACAO_DATA_NAO_LIBERADA: a data 2026-11-03 não está liberada para regularização histórica
+PASS  (4b) INSERT de abertura de fechamento em 09/11 recusado no banco — ERRO: ERROR:  FECHAMENTO_SEMANA_EM_PLANEJAMENTO: a semana de 2026-11-09 está em PLANEJAMENTO do produto único (plano futuro, não l
+PASS  (8) escala_liberacao_desde = 2026-11-02 m1: 09/11 continua NÃO LIBERADO (planejamento tem precedência sobre TRANSICAO/vínculo/VIRADA)
+PASS  (8) escala_liberacao_desde = 2026-11-09 m1: 09/11 continua NÃO LIBERADO (planejamento tem precedência sobre TRANSICAO/vínculo/VIRADA)
+PASS  (8) escala_liberacao_desde = 2026-11-20 m1: 09/11 continua NÃO LIBERADO (planejamento tem precedência sobre TRANSICAO/vínculo/VIRADA)
+PASS  (7/8) sexta 06/11: T3 CONFIRMADO com contagem física (A=4321, B=5432, C=6543); semana 02/11 fechada de ponta a ponta — Período fechado (último da semana).
+PASS  (7) T3 de 06/11 segue o fluxo normal (semana LEGADO)
+PASS  (7) [T3 da sexta CONFIRMADO; plano gerado ANTES do fechamento] escala_periodo_liberacao = NÃO LIBERADO nos 30 períodos de 09–13/11 — PLANO_FUTURO_AGUARDANDO_CUTOVER
+PASS  (1) [T3 da sexta CONFIRMADO; plano gerado ANTES do fechamento] TV (escala_tv_snapshot) não recebe NENHUM posto de 09–13/11 — 0/0/0/0/0
+PASS  (2) [T3 da sexta CONFIRMADO; plano gerado ANTES do fechamento] Produção Real: /postos e /apontamentos devolvem naoLiberado e 0 postos para 09/11
+PASS  (4) [T3 da sexta CONFIRMADO; plano gerado ANTES do fechamento] fechamento físico: abrir e confirmar de 09/11 recusados (PERIODO_EM_PLANEJAMENTO) — abrir 422 · confirmar 422
+PASS  regerar 09/11 depois do fechamento do T3 — sem_alteracao 
+PASS  (7) [T3 CONFIRMADO; plano regerado DEPOIS do fechamento] escala_periodo_liberacao = NÃO LIBERADO nos 30 períodos de 09–13/11 — PLANO_FUTURO_AGUARDANDO_CUTOVER
+PASS  (1) [T3 CONFIRMADO; plano regerado DEPOIS do fechamento] TV (escala_tv_snapshot) não recebe NENHUM posto de 09–13/11 — 0/0/0/0/0
+PASS  (2) [T3 CONFIRMADO; plano regerado DEPOIS do fechamento] Produção Real: /postos e /apontamentos devolvem naoLiberado e 0 postos para 09/11
+PASS  (4) [T3 CONFIRMADO; plano regerado DEPOIS do fechamento] fechamento físico: abrir e confirmar de 09/11 recusados (PERIODO_EM_PLANEJAMENTO) — abrir 422 · confirmar 422
+
+RESULTADO: TUDO PASS

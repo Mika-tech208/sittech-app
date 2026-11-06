@@ -1,5 +1,7 @@
 // Decisão (pura) do que a TV pode mostrar ao chão. A FONTE DE VERDADE é o banco (escala_periodo_liberacao → snapshot.liberacao da RPC da TV):
 // fechamento do período ANTERIOR CONFIRMADO + plano gerado por ele. Aqui só se traduz isso em tela. FAIL-CLOSED: sem informação ⇒ não mostra.
+import { EXPLICACAO_PLANO_FUTURO, TEXTO_PLANO_FUTURO_CURTO } from "@/features/produto-canonico/planoFuturo";
+
 export interface LiberacaoPeriodo { liberado: boolean; motivo: string; predecessor?: { data: string; periodo: string; rotulo: string }; confirmado_em?: string | null }
 export type LiberacaoDia = Record<string, LiberacaoPeriodo>;
 export interface PeriodoTvMin { id: string; nome: string }
@@ -24,7 +26,9 @@ export function textoTvNaoLiberada(st: LiberacaoPeriodo | undefined, rotuloPerio
   }
 }
 
-export function visaoLiberacaoTv(i: { liberacao: LiberacaoDia | null | undefined; atual: PeriodoTvMin | null; proximo: PeriodoTvMin | null; agoraMs: number; ignorar?: boolean }): VisaoLiberacaoTv {
+export function visaoLiberacaoTv(i: { liberacao: LiberacaoDia | null | undefined; atual: PeriodoTvMin | null; proximo: PeriodoTvMin | null; agoraMs: number; ignorar?: boolean; planoFuturo?: boolean }): VisaoLiberacaoTv {
+  // semana em PLANEJAMENTO do produto único: o plano é FUTURO e NÃO LIBERADO, não importa o que a liberação do snapshot diga (nem a simulação de relógio)
+  if (i.planoFuturo) { const b = { liberado: false, bloqueio: { titulo: TEXTO_PLANO_FUTURO_CURTO, detalhe: EXPLICACAO_PLANO_FUTURO } }; return { atual: b, proximo: b, bannerLiberado: null }; }
   if (i.ignorar) return { atual: livre, proximo: livre, bannerLiberado: null };
   const avalia = (p: PeriodoTvMin | null) => {
     if (!p) return livre;

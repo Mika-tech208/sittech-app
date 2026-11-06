@@ -11,6 +11,7 @@ const LABELS: { key: ResultadoValidacaoPrevisao["itens"][number]["estado"]; labe
   { key: "atencao", label: "Atenção", classe: "atencao" },
   { key: "inviavel_teoricamente", label: "Inviável teoricamente", classe: "critico" },
   { key: "sem_estimativa", label: "Sem estimativa", classe: "indisponivel" },
+  { key: "indisponivel_rotas", label: "Indicador indisponível", classe: "indisponivel" },
 ];
 
 export default function ResumoSemanaCards({ resultado }: { resultado: ResultadoValidacaoPrevisao }) {

@@ -58,13 +58,35 @@ export const ERRO_ORCAMENTO = "ORCAMENTO_DE_TEMPO_ESTOURADO";
 const soma = (v: number[]) => v.reduce((a, b) => a + b, 0);
 
 /** Estoque por ligação no início de cada slot, simulando a produção efetiva congelada (consumo = produção da etapa seguinte; lote de 1 período). */
+/** Peças que as cadeias ALIMENTADORAS (rotas alternativas, `ProdutoRev.alimenta`) entregam no período `t` ao estoque da ligação `k` da cadeia `pid`. Sem alimentadoras = 0. */
+export function entregaAlimentadoras(prods: ProdutoRev[], producao: Record<string, Record<string, number[]>>, pid: string, k: number, t: number): number {
+  let v = 0;
+  for (const f of prods) if (f.alimenta && f.alimenta.produtoId === pid && f.alimenta.ligacao === k) v += producao[f.id]?.[f.etapas[f.etapas.length - 1].id]?.[t] ?? 0;
+  return v;
+}
+
+/** Validação de cadeia (lote de 1 período) da cadeia principal com alimentadoras: consumo da etapa k+1 no período t ≤ estoque do INÍCIO de t da ligação k (inicial + entradas dos períodos < t − consumos < t). */
+export function validarCadeiaComRotas(prods: ProdutoRev[], p: ProdutoRev, producao: Record<string, Record<string, number[]>>): { violacoes: number; semMaterial: number } {
+  let violacoes = 0, semMaterial = 0;
+  const H = producao[p.id]?.[p.etapas[0].id]?.length ?? 0;
+  for (let k = 0; k + 1 < p.etapas.length; k++) {
+    let est = p.wipInicial[k] ?? 0;
+    for (let t = 0; t < H; t++) {
+      const sai = producao[p.id][p.etapas[k + 1].id][t] ?? 0;
+      if (sai > est + 1e-6) { violacoes++; semMaterial += sai - est; }
+      est = Math.max(0, est - sai) + (producao[p.id][p.etapas[k].id][t] ?? 0) + entregaAlimentadoras(prods, producao, p.id, k, t);
+    }
+  }
+  return { violacoes, semMaterial };
+}
+
 export function simularCongelado(prods: ProdutoRev[], producao: Record<string, Record<string, number[]>>, ate: number): Record<string, number[][]> {
   const out: Record<string, number[][]> = {};
   prods.forEach((p) => {
     const L = p.etapas.length - 1;
     const st = p.wipInicial.map((w) => [w]);
     for (let t = 0; t < ate; t++) for (let k = 0; k < L; k++) {
-      const entra = producao[p.id]?.[p.etapas[k].id]?.[t] ?? 0, sai = producao[p.id]?.[p.etapas[k + 1].id]?.[t] ?? 0;
+      const entra = (producao[p.id]?.[p.etapas[k].id]?.[t] ?? 0) + entregaAlimentadoras(prods, producao, p.id, k, t), sai = producao[p.id]?.[p.etapas[k + 1].id]?.[t] ?? 0;
       st[k].push(Math.max(0, st[k][t] + entra - sai));
     }
     out[p.id] = st;
@@ -77,14 +99,15 @@ export function planejarFuturo(e: EntradaPlanejador): SaidaPlanejador {
   const avisos: string[] = [];
   const congel = simularCongelado(e.produtos, e.producaoCongelada, t0);
   const finaisCongelados: Record<string, number> = {};
-  e.produtos.forEach((p) => (finaisCongelados[p.id] = soma((e.producaoCongelada[p.id]?.[p.etapas[p.etapas.length - 1].id] ?? []).slice(0, t0))));
+  e.produtos.forEach((p) => (finaisCongelados[p.id] = p.alimenta ? 0 : soma((e.producaoCongelada[p.id]?.[p.etapas[p.etapas.length - 1].id] ?? []).slice(0, t0))));
   const prodsFuturo: ProdutoRev[] = e.produtos.map((p) => ({ ...p, wipInicial: e.wipNoInicioDeAPartirDe?.[p.id] ?? congel[p.id].map((s) => s[t0]) }));
-  const alvo = Object.fromEntries(e.produtos.map((p) => [p.id, Math.max(0, p.demandaFinal - finaisCongelados[p.id])]));
+  const alvo = Object.fromEntries(e.produtos.map((p) => [p.id, p.alimenta ? 0 : Math.max(0, p.demandaFinal - finaisCongelados[p.id])]));
   const pessoas = e.slots.map((_, t) => e.equipe.length - (e.ausentes?.[t]?.length ?? 0));
-  const margem = Object.fromEntries(e.produtos.map((p) => [p.id, e.objetivo === "MAX_PECAS_FINAIS" ? 1 : e.margemPorPeca?.[p.id] ?? p.valorUnitario ?? 1]));
+  // alimentadora (rota alternativa): `margem` = DELTA de margem da rota sobre a principal (0 se não informado; 0 em MAX_PECAS_FINAIS)
+  const margem = Object.fromEntries(e.produtos.map((p) => [p.id, p.alimenta ? (e.objetivo === "MAX_PECAS_FINAIS" ? 0 : e.margemPorPeca?.[p.id] ?? 0) : e.objetivo === "MAX_PECAS_FINAIS" ? 1 : e.margemPorPeca?.[p.id] ?? p.valorUnitario ?? 1]));
   const cob = e.coberturaMinima ?? 0.45;
   const piso = e.objetivo === "MAX_PECAS_FINAIS" || e.objetivo === "MAX_RESULTADO_ECONOMICO" ? undefined
-    : Object.fromEntries(e.produtos.map((p) => [p.id, Math.min(alvo[p.id], Math.max(0, (e.pisoPorProduto?.[p.id] ?? cob * p.demandaFinal) - finaisCongelados[p.id]))]));
+    : Object.fromEntries(e.produtos.filter((p) => !p.alimenta).map((p) => [p.id, Math.min(alvo[p.id], Math.max(0, (e.pisoPorProduto?.[p.id] ?? cob * p.demandaFinal) - finaisCongelados[p.id]))]));
   // blocos manhã/tarde de cada dia (índices de slot)
   const blocos: number[][] = [];
   e.slots.forEach((s, i) => { const k = `${s.data}|${s.periodoId.startsWith("m") ? "m" : "t"}`; const u = blocos[blocos.length - 1]; if (u && `${e.slots[u[0]].data}|${e.slots[u[0]].periodoId.startsWith("m") ? "m" : "t"}` === k) u.push(i); else blocos.push([i]); });
@@ -135,6 +158,7 @@ function montar(e: EntradaPlanejador, cfg: ConfigDespacho, r: ReturnType<typeof 
         ds.forEach((d, i) => { const q = i === ds.length - 1 ? resto : Math.min(resto, Math.floor((d.pecas / bruto) * alvoInt)); d.pecas = q; resto -= q; });
         if (k > 0) estoque[p.id][k - 1] -= alvoInt;
         if (k < p.etapas.length - 1) chega[p.id][k] += alvoInt;
+        else if (p.alimenta && chega[p.alimenta.produtoId]) chega[p.alimenta.produtoId][p.alimenta.ligacao] += alvoInt; // rota alternativa entrega no estoque da cadeia principal
       }
     }
     prodsFuturo.forEach((p) => chega[p.id].forEach((v, k) => { if (k < p.etapas.length - 1) estoque[p.id][k] += v; }));
@@ -168,6 +192,12 @@ function montar(e: EntradaPlanejador, cfg: ConfigDespacho, r: ReturnType<typeof 
   // validação de cadeia da semana inteira
   let violCadeia = 0, semMat = 0;
   e.produtos.forEach((p) => {
+    if (e.produtos.some((f) => f.alimenta?.produtoId === p.id)) {
+      // cadeia principal com ROTAS: o estoque da ligação de entrega recebe a produção da etapa anterior + a entregue pelas alimentadoras (lote de 1 período); o validador linear não representa isso
+      const r = validarCadeiaComRotas(e.produtos, p, producao);
+      violCadeia += r.violacoes; semMat += r.semMaterial;
+      return;
+    }
     const sim = validarPlanoCadeia({ etapas: p.etapas.map((x) => ({ id: x.id, rotulo: x.rotulo })), wipInicial: p.wipInicial, periodos: e.slots.map((s) => ({ rotulo: `${s.data} ${s.periodoId}`, duracaoMin: s.fimMin - s.inicioMin })) }, producao[p.id]);
     violCadeia += sim.violacoes.length;
     sim.nos.forEach((n) => (semMat += soma(n.semMaterial)));
@@ -179,7 +209,7 @@ function montar(e: EntradaPlanejador, cfg: ConfigDespacho, r: ReturnType<typeof 
   e.produtos.forEach((p) => {
     const L = p.etapas.length - 1;
     const st: number[][] = Array.from({ length: L }, (_, k) => [p.wipInicial[k]]);
-    for (let t = 0; t < H; t++) for (let k = 0; k < L; k++) st[k].push(Math.max(0, st[k][t] + (producao[p.id][p.etapas[k].id][t] ?? 0) - (producao[p.id][p.etapas[k + 1].id][t] ?? 0)));
+    for (let t = 0; t < H; t++) for (let k = 0; k < L; k++) st[k].push(Math.max(0, st[k][t] + (producao[p.id][p.etapas[k].id][t] ?? 0) + entregaAlimentadoras(e.produtos, producao, p.id, k, t) - (producao[p.id][p.etapas[k + 1].id][t] ?? 0)));
     wip[p.id] = st;
   });
   const porProduto = e.produtos.map((p) => {

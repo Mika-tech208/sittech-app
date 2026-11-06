@@ -618,12 +618,12 @@ export function detectarDesviosSemProducao(apontamentosAtual: ApontamentoIndicad
 // base pra empilhar outro nível de certeza em cima dela).
 // ---------------------------------------------------------------------
 
-export function detectarDesviosFluxo(apontamentosAtual: ApontamentoIndicador[], janelas: ParDeJanelas, origemJanela: "operacional" | "estrutural"): DesvioDetectado[] {
+export function detectarDesviosFluxo(apontamentosAtual: ApontamentoIndicador[], janelas: ParDeJanelas, origemJanela: "operacional" | "estrutural", idsRotasAlternativas?: ReadonlySet<string>): DesvioDetectado[] {
   const desvios: DesvioDetectado[] = [];
   const gruposProduto = agruparPorProduto(apontamentosAtual, []);
 
   gruposProduto.forEach((g) => {
-    const resultado = detectarPossivelRestricaoOperacional(g.apontamentos, apontamentosAtual);
+    const resultado = detectarPossivelRestricaoOperacional(g.apontamentos, apontamentosAtual, idsRotasAlternativas); // rotas alternativas: sem etapa sinalizada => nenhum desvio de fluxo (ausência, não número errado)
     if (!resultado || !resultado.etapaSinalizada) return;
 
     const etapa = resultado.etapaSinalizada;

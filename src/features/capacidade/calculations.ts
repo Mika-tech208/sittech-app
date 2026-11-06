@@ -104,7 +104,7 @@ export function encontrarSelecoesInvalidas(
 // Tempo médio (em horas) pra produzir 1 peça numa etapa, derivado das metas
 // por período do roteiro do produto. Repetido em várias das funções abaixo
 // no código original — fatorado aqui, mesma fórmula em todo lugar.
-function tempoPorPecaEtapa(etapa: Pick<RoteiroEtapa, "metas">, periodosComDuracao: PeriodoComDuracao[]): number {
+export function tempoPorPecaEtapa(etapa: Pick<RoteiroEtapa, "metas">, periodosComDuracao: PeriodoComDuracao[]): number {
   const metas = (etapa.metas || {}) as unknown as Record<string, number>;
   let totalPecasMeta = 0;
   let totalHorasMeta = 0;

@@ -44,6 +44,8 @@ import { temPermissao } from "@/lib/permissoes";
 import { dataLocalSP, horaLocalSP } from "@/hooks/useProducaoRealPainel";
 import SeloFechamento from "@/features/escala/fechamento/SeloFechamento";
 import FechamentoPeriodoModal from "@/features/producao-real/fechamento/FechamentoPeriodoModal";
+import { useModoProdutoUnico } from "@/hooks/useModoProdutoUnico";
+import BloqueioPlanoFuturo from "@/features/produto-canonico/components/BloqueioPlanoFuturo";
 import RegularizacaoHistoricaModal from "@/features/producao-real/RegularizacaoHistoricaModal";
 import { estadoFechamentoApi, postosProgramadosApi } from "@/features/producao-real/fechamento/api";
 import { estadoDaGrade, filtrarGradeProgramada, MENSAGEM_POSTOS_NAO_CARREGADOS, textoApontamentosCompletos, type EstadoGrade } from "@/features/producao-real/fechamento/textos";
@@ -166,12 +168,16 @@ export default function ProducaoRealPainelPage() {
   const [estadoFechamento, setEstadoFechamento] = useState<string | null>(null);
   const [fechamentoAberto, setFechamentoAberto] = useState(false);
   const periodoDoFechamento = painel.periodoAtual;
+  // PLANO FUTURO (semana em PLANEJAMENTO do produto único): o período exibido não tem postos, apontamento nem fechamento. Fail-closed até os parâmetros carregarem.
+  const modoUnico = useModoProdutoUnico(auth.autenticado);
+  const planoFuturoPeriodo = !!periodoDoFechamento && modoUnico.carregado && modoUnico.planoFuturo(periodoDoFechamento.data);
+  const aguardandoModo = !!periodoDoFechamento && !modoUnico.carregado;
   useEffect(() => {
-    if (!podeFechar || !periodoDoFechamento) return;
+    if (!podeFechar || !periodoDoFechamento || planoFuturoPeriodo || aguardandoModo) return;
     let vivo = true;
     void estadoFechamentoApi(periodoDoFechamento.data, periodoDoFechamento.id).then((r) => { if (!vivo) return; setModoFechamento(r.corpo.modo ?? "desligado"); setEstadoFechamento(r.corpo.fechado ? (r.corpo.estado ?? null) : null); }).catch(() => undefined);
     return () => { vivo = false; };
-  }, [podeFechar, periodoDoFechamento, fechamentoAberto]);
+  }, [podeFechar, periodoDoFechamento, fechamentoAberto, planoFuturoPeriodo, aguardandoModo]);
   // GRADE DO TABLET — REGRA DEFINITIVA (fechamento físico ATIVO): só os postos PROGRAMADOS do período na escala vigente/liberada (/api/escala/fechamento/postos).
   // Independe de permissão especial. FAIL CLOSED: se a escala não carregar, NÃO volta para todas as máquinas — mostra o erro. Produção fora da escala = exceção explícita (+ ADICIONAR APONTAMENTO).
   const chaveGrade = periodoDoFechamento ? `${periodoDoFechamento.data}|${periodoDoFechamento.id}` : null;
@@ -180,30 +186,31 @@ export default function ProducaoRealPainelPage() {
   const [extras, setExtras] = useState<{ chave: string; ids: Set<string> } | null>(null);
   const [adicionando, setAdicionando] = useState(false);
   useEffect(() => {
-    if (!periodoDoFechamento || !chaveGrade) return;
+    if (!periodoDoFechamento || !chaveGrade || planoFuturoPeriodo || aguardandoModo) return;
     let vivo = true;
     const aplicar = (estado: EstadoGrade, ids: Set<string>, predecessor: { data: string; periodo: string; rotulo: string } | null = null) => { if (vivo) setGrade({ chave: chaveGrade, estado, ids, predecessor }); };
     void postosProgramadosApi(periodoDoFechamento.data, periodoDoFechamento.id)
       .then((r) => aplicar(estadoDaGrade(r), new Set((r.corpo.postos ?? []).map((p) => p.maquinaId)), r.corpo.predecessor ?? null))
       .catch(() => aplicar("erro", new Set()));
     return () => { vivo = false; };
-  }, [chaveGrade, periodoDoFechamento, tentativaGrade, fechamentoAberto]);
+  }, [chaveGrade, periodoDoFechamento, tentativaGrade, fechamentoAberto, planoFuturoPeriodo, aguardandoModo]);
   const estadoGrade: EstadoGrade = grade && grade.chave === chaveGrade ? grade.estado : "carregando";   // trocou de período ⇒ não reaproveita a lista do outro
   const idsExtras = extras && extras.chave === chaveGrade ? extras.ids : undefined;
-  const idsProgramados = estadoGrade === "programada" && grade ? grade.ids : null;
+  const idsProgramados = !planoFuturoPeriodo && estadoGrade === "programada" && grade ? grade.ids : null;
   const maquinasViewTodas = painel.maquinasView;
   const maquinasView = useMemo(
-    () => (estadoGrade === "legado" ? maquinasViewTodas                                   // fechamento físico desligado/sombra: fluxo anterior
+    () => (planoFuturoPeriodo || aguardandoModo ? []
+      : estadoGrade === "legado" ? maquinasViewTodas                                   // fechamento físico desligado/sombra: fluxo anterior
       : idsProgramados ? filtrarGradeProgramada(maquinasViewTodas, idsProgramados, idsExtras)
       : []),                                                                              // carregando / erro / período não liberado: nada de "todas as máquinas"
-    [estadoGrade, idsProgramados, idsExtras, maquinasViewTodas]
+    [estadoGrade, idsProgramados, idsExtras, maquinasViewTodas, planoFuturoPeriodo, aguardandoModo]
   );
   const foraDaEscala = useMemo(() => (idsProgramados ? maquinasViewTodas.filter((m) => !maquinasView.some((x) => x.id === m.id)) : []), [idsProgramados, maquinasViewTodas, maquinasView]);
   const minutos = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
   const naJanelaDeTroca = !!periodoDoFechamento && (periodoDoFechamento.data < dataLocalSP() || (periodoDoFechamento.data === dataLocalSP() && minutos(horaLocalSP()) >= minutos(periodoDoFechamento.fim) - 5));
   // apontamentos completos também abrem o fechamento (máquinas já paradas), mesmo antes dos 5 min finais do período
   const apontamentosCompletos = maquinasView.length > 0 && maquinasView.every((m) => m.estadoPeriodo !== "pendente");
-  const mostrarFechamento = podeFechar && modoFechamento !== "desligado" && !!periodoDoFechamento && (naJanelaDeTroca || apontamentosCompletos);
+  const mostrarFechamento = !planoFuturoPeriodo && podeFechar && modoFechamento !== "desligado" && !!periodoDoFechamento && (naJanelaDeTroca || apontamentosCompletos);
 
   const totalMaquinas = maquinasView.length;
   const totalFechadas = maquinasView.filter((m) => m.estadoPeriodo !== "pendente").length;
@@ -262,7 +269,7 @@ export default function ProducaoRealPainelPage() {
   // agora também a partir do card, não só da lista.
   // FECHAMENTO ATIVO: quem fecha o período lança os apontamentos pelo FLUXO ÚNICO (postos programados já pré-preenchidos: máquina, operador, produto, operação, período).
   // O passo-a-passo antigo (escolher máquina/operador/produto à mão) só resta para quem não fecha período e para períodos retroativos.
-  const fluxoUnicoDeApontamento = modoFechamento === "ativo" && estadoGrade === "programada" && podeFechar && !!periodoDoFechamento && !periodoSelecionado;
+  const fluxoUnicoDeApontamento = !planoFuturoPeriodo && modoFechamento === "ativo" && estadoGrade === "programada" && podeFechar && !!periodoDoFechamento && !periodoSelecionado;
   function abrirEscolha(m: (typeof painel.maquinasView)[number]) {
     if (m.estadoPeriodo === "pendente") {
       if (fluxoUnicoDeApontamento) { setFechamentoAberto(true); return; }
@@ -415,10 +422,10 @@ export default function ProducaoRealPainelPage() {
             abaAtiva="producaoRealPainel"
             onAbrirMenu={shell.abrirGaveta}
           />
-          {(painel.modoRetroativo || podeRegularizar) && (
+          {(painel.modoRetroativo || (podeRegularizar && !planoFuturoPeriodo)) && (
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               {painel.modoRetroativo && <span className="stx-ap-retroativo-badge">Período anterior</span>}
-              {podeRegularizar && (
+              {podeRegularizar && !planoFuturoPeriodo && (
                 <button type="button" className="stx-ap-btn-primary" onClick={() => setRegularizacaoAberta(true)}>REGULARIZAR APONTAMENTOS ANTERIORES</button>
               )}
             </div>
@@ -459,7 +466,7 @@ export default function ProducaoRealPainelPage() {
               )}
             </div>
 
-            {podeOcorrencia && (
+            {podeOcorrencia && !planoFuturoPeriodo && (
               <button type="button" className="stx-ap-btn-ocorrencia" onClick={() => setAbrirOcorrenciaAberto(true)}>
                 <AlertTriangle size={18} />
                 Informar máquina parada
@@ -485,7 +492,9 @@ export default function ProducaoRealPainelPage() {
 
           {painel.erro && <p className="stx-save-error" style={{ marginTop: 16 }}>{painel.erro}</p>}
 
-          {estadoGrade === "carregando" ? (
+          {planoFuturoPeriodo ? (
+            <BloqueioPlanoFuturo />
+          ) : aguardandoModo || estadoGrade === "carregando" ? (
             <div className="stx-empty" role="status">Carregando os postos programados…</div>
           ) : estadoGrade === "erro" ? (
             <div className="stx-empty" role="alert">
@@ -702,8 +711,10 @@ export default function ProducaoRealPainelPage() {
       {seletorPeriodoAberto && (
         <PeriodoSeletorModal
           periodos={cadastrosBase.periodos}
+          dataBloqueada={modoUnico.planoFuturo}
           onFechar={() => setSeletorPeriodoAberto(false)}
           onSelecionar={(data, periodoId) => {
+            if (modoUnico.planoFuturo(data)) return; // defesa: semana em PLANEJAMENTO nunca abre para lançamento
             setPeriodoSelecionado({ data, periodoId });
             setSeletorPeriodoAberto(false);
           }}

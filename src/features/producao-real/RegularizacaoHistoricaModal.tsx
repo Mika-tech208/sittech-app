@@ -6,6 +6,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import { MOTIVOS, LABEL_MOTIVO_SEM_PRODUCAO } from "./SemProducaoModal";
+import { useModoProdutoUnico } from "@/hooks/useModoProdutoUnico";
+import BloqueioPlanoFuturo from "@/features/produto-canonico/components/BloqueioPlanoFuturo";
 
 interface Periodo { id: string; nome: string; inicio: string; fim: string }
 interface Item { id: string; nome: string }
@@ -43,8 +45,10 @@ function traduzir(msg: string | undefined): string {
 const dataBr = (d: string) => d.split("-").reverse().join("/");
 
 export default function RegularizacaoHistoricaModal({ onFechar, dataInicial, periodoInicial }: { onFechar: () => void; dataInicial?: string; periodoInicial?: string }) {
+  // datas de semana em PLANEJAMENTO do produto único (plano futuro): nunca podem ser regularizadas; fail-closed até os parâmetros carregarem
+  const modoUnico = useModoProdutoUnico(true);
   const [estado, setEstado] = useState<Estado | null>(null);
-  const [data, setData] = useState<string | null>(null);
+  const [dataSel, setData] = useState<string | null>(null);
   const [periodoId, setPeriodoId] = useState<string>(periodoInicial ?? "m1");
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -63,6 +67,11 @@ export default function RegularizacaoHistoricaModal({ onFechar, dataInicial, per
   const [semProducao, setSemProducao] = useState(false);
   const [motivoSP, setMotivoSP] = useState("");
   const [descSP, setDescSP] = useState("");
+
+  const datasOk = useMemo(() => (modoUnico.carregado ? (estado?.datas ?? []).filter((d) => !modoUnico.planoFuturo(d)) : []), [estado, modoUnico]);
+  // data efetiva: a escolhida só vale se NÃO for de semana em PLANEJAMENTO (senão cai na primeira data permitida)
+  const data = dataSel && datasOk.includes(dataSel) ? dataSel : (datasOk[0] ?? null);
+  const dataEmPlanoFuturo = !!dataSel && modoUnico.carregado && modoUnico.planoFuturo(dataSel) && data !== dataSel;
 
   const buscar = useCallback(async (d: string | null): Promise<{ e?: Estado; erro?: string }> => {
     const { data: r, error } = await supabase.rpc("regularizacao_historica_estado", { p_data: d });
@@ -103,7 +112,7 @@ export default function RegularizacaoHistoricaModal({ onFechar, dataInicial, per
   const valido = semProducao ? validoSemProducao : validoProducao;
 
   async function salvar() {
-    if (!valido || !data || salvando) return;
+    if (!valido || !data || salvando || dataEmPlanoFuturo) return;
     setSalvando(true); setErro(null); setOk(null);
     const { data: r, error } = semProducao
       ? await supabase.rpc("regularizar_sem_producao_historico", { p_data: data, p_periodo_id: periodoId, p_maquina_id: maquinaId, p_motivo: motivoSP, p_descricao: motivoSP === "outro" ? descSP.trim() : null, p_apontamento_id: editandoId, p_substituir: false })
@@ -119,6 +128,7 @@ export default function RegularizacaoHistoricaModal({ onFechar, dataInicial, per
     await recarregar(data);
   }
   async function excluir(id: string) {
+    if (dataEmPlanoFuturo) return;
     setSalvando(true); setErro(null); setOk(null);
     const { error } = await supabase.rpc("regularizar_excluir_apontamento_historico", { p_apontamento_id: id });
     setSalvando(false); setConfirmandoExclusao(null);
@@ -139,12 +149,12 @@ export default function RegularizacaoHistoricaModal({ onFechar, dataInicial, per
         <p className="stx-ap-modal-eyebrow" style={{ margin: "4px 0 12px" }}>Registre o que realmente aconteceu. Não depende da escala planejada e vale mesmo com o período confirmado. Cada inclusão, alteração ou exclusão fica auditada (origem REGULARIZACAO_HISTORICA). Não recalcula nem altera a escala, o inventário ou o fechamento de hoje.</p>
 
         {carregando && !estado && <p>Carregando…</p>}
-        {estado && estado.datas.length === 0 && <p className="stx-ap-error">Nenhuma data está liberada para regularização.</p>}
-        {estado && estado.datas.length > 0 && (
+        {estado && datasOk.length === 0 && (estado.datas.length === 0 ? <p className="stx-ap-error">Nenhuma data está liberada para regularização.</p> : <BloqueioPlanoFuturo comExplicacao={false} />)}
+        {estado && datasOk.length > 0 && (
           <>
             <label className="stx-ap-field-label">1. Data</label>
             <select className="stx-ap-select" style={estiloCampo} value={data ?? ""} onChange={(e) => trocarContexto(() => setData(e.target.value))}>
-              {estado.datas.map((d) => <option key={d} value={d}>{dataBr(d)}</option>)}
+              {datasOk.map((d) => <option key={d} value={d}>{dataBr(d)}</option>)}
             </select>
 
             <label className="stx-ap-field-label">2. Período</label>

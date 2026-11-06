@@ -13,6 +13,7 @@
 import { useRouter } from "next/navigation";
 import type { ForecastSemana } from "@/features/producao-real/visao-geral/types";
 import type { EstadoValidacao } from "@/features/producao-real/validacao-previsao/types";
+import IndicadorIndisponivel from "@/features/produto-canonico/components/IndicadorIndisponivel";
 import { formatarPecas } from "@/features/producao-real/indicadores/format";
 
 const ESTADO: Record<EstadoValidacao, { label: string; cor: string }> = {
@@ -21,6 +22,7 @@ const ESTADO: Record<EstadoValidacao, { label: string; cor: string }> = {
   atencao: { label: "Atenção", cor: "var(--warning)" },
   inviavel_teoricamente: { label: "Inviável teoricamente", cor: "var(--danger)" },
   sem_estimativa: { label: "Sem estimativa", cor: "var(--text-3)" },
+  indisponivel_rotas: { label: "Indicador indisponível", cor: "var(--text-3)" },
 };
 
 export default function SituacaoSemanaCard({ forecast }: { forecast: ForecastSemana }) {
@@ -46,6 +48,7 @@ export default function SituacaoSemanaCard({ forecast }: { forecast: ForecastSem
             <span className="num">Estado</span>
           </div>
           {forecast.itens.map((it) => {
+            const indisponivel = it.estado === "indisponivel_rotas";
             const pct = it.previsto > 0 ? (it.producaoAcabadaObservada / it.previsto) * 100 : null;
             const estado = ESTADO[it.estado];
             return (
@@ -58,7 +61,7 @@ export default function SituacaoSemanaCard({ forecast }: { forecast: ForecastSem
                   </span>
                   <span className="stx-vg-bar-pct">{pct !== null ? `${pct.toFixed(1)}%` : "N/A"}</span>
                 </span>
-                <span className="stx-vg-estado" style={{ color: estado.cor }}>{estado.label}</span>
+                <span className="stx-vg-estado" style={{ color: estado.cor }}>{indisponivel ? <IndicadorIndisponivel inline /> : estado.label}</span>
               </button>
             );
           })}

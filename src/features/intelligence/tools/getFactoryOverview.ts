@@ -5,6 +5,8 @@
 // primeira tool de uma investigação em camadas).
 
 import { mondayOf, toISODate } from "@/lib/date";
+import { lerModelosVigentes, type ClienteModelosVigentes } from "@/features/produto-canonico/rotasAlternativasDb";
+import { idsComRotasAlternativas } from "@/features/produto-canonico/indicadores";
 import { gerarVisaoGeralProducaoReal } from "@/features/producao-real/visao-geral";
 import {
   buscarApontamentosEParadas, buscarProdutos, buscarMaquinas, buscarPeriodosEDiasUteis, buscarPrevisaoSemana, buscarOcorrenciasAbertas, ehErroConsulta,
@@ -33,6 +35,7 @@ async function handler(ctx: IntelligenceToolContext): Promise<IntelligenceToolRe
   }
   const { apontamentos, paradas } = apEParadas as Exclude<typeof apEParadas, { erro: string }>;
 
+  const modelosRotas = await lerModelosVigentes(supabase as unknown as ClienteModelosVigentes); // produto com rotas alternativas: capacidade/atenção de fluxo indisponíveis
   const resultado = gerarVisaoGeralProducaoReal(
     apontamentos, paradas,
     previsao as Exclude<typeof previsao, { erro: string }>,
@@ -41,7 +44,7 @@ async function handler(ctx: IntelligenceToolContext): Promise<IntelligenceToolRe
     (periodos as Exclude<typeof periodos, { erro: string }>).periodosComDuracao,
     (periodos as Exclude<typeof periodos, { erro: string }>).diasUteisSemana,
     ocorrencias as Exclude<typeof ocorrencias, { erro: string }>,
-    agora
+    agora, modelosRotas
   );
 
   const evidences: IntelligenceEvidence[] = [

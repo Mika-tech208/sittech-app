@@ -8,6 +8,9 @@ import { hashAlocacoes } from "@/features/escala/horizonte";
 import { planejarSemanaComCorte, type ConfigPlanejadorCorte, type ResultadoCorte } from "@/features/escala/fluxo/planoCorte";
 import type { AlertaEscala, AlocacaoEscala, ResultadoEscala } from "@/features/escala/types";
 import type { EstadoBruto } from "../estado";
+import { recomporAlocacoes, type Desdobramento } from "@/features/produto-canonico/adaptadorMotor";
+import type { ModeloCanonico } from "@/features/produto-canonico/tipos";
+import { virtualizar } from "./produtoUnicoVirtual";
 import { dadosProducaoReal, hashDaEntrada, insumosFluxo, jsonPuro, registroBase, regiaoRecalculavel, type ContextoFluxo, type RegistroFluxo } from "./integracao";
 
 export const VERSAO_PLANEJADOR_CORTE = "corte-v1";
@@ -43,7 +46,54 @@ function churnContra(vigente: AlocacaoEscala[], novo: AlocacaoEscala[]): { linha
   return { linhasAlteradas: linhas, postosAlterados: alt };
 }
 
+/**
+ * PRODUTO ÚNICO (cutover). Único ponto do recálculo que sabe do produto único: `ctx.estado.produtoUnico` (decidido UMA vez em supabaseIO) liga este caminho; ausente = `tentarPlanoCorteBase` direto (byte-idêntico).
+ * O planejador de corte pensa em "rotas = cadeias de produto" (planoReverso/ProdutoRev.alimenta): aqui o produto canônico (1 item, 5 etapas, grafo) é DESDOBRADO em memória em duas cadeias
+ * de PLANEJAMENTO (adaptadorMotor), o plano volta RECOMPOSTO em ids canônicos e nada virtual é gravado. Dados reais ainda em ids legados são canonizados na leitura (idempotente).
+ */
 export function tentarPlanoCorte(ctx: ContextoFluxo, pc: NonNullable<EstadoBruto["planejadorCorte"]>, planejar: PlanejarCorte = planejarSemanaComCorte): TentativaPlanoCorte {
+  const pu = ctx.estado.produtoUnico;
+  if (!pu) return tentarPlanoCorteBase(ctx, pc, planejar);
+  return tentarPlanoCorteProdutoUnico(ctx, pc, planejar, pu.modelo);
+}
+
+function tentarPlanoCorteProdutoUnico(ctx: ContextoFluxo, pc: NonNullable<EstadoBruto["planejadorCorte"]>, planejar: PlanejarCorte, modelo: ModeloCanonico): TentativaPlanoCorte {
+  const estado = ctx.estado;
+  const mantidoC = (motivo: string) => mantidoDoPlano(estado, ctx.entrada.aPartirDe, ctx.entrada.slots, motivo);
+  const falha = (motivo: string): TentativaPlanoCorte => ({ ok: false, motivo, registro: null, mantido: mantidoC(motivo) });
+  let ctxV: ContextoFluxo, d: Desdobramento, pcV: typeof pc;
+  try {
+    const v = virtualizar(estado, ctx.entrada, ctx.agoraMs, modelo);
+    if ("erro" in v) return falha(`produto único: ${v.erro}`);
+    d = v.d;
+    ctxV = { ...ctx, entrada: v.entradaV, estado: v.estadoV };
+    // margem por peça (snapshot congelado em producao_real_planejador_config). Os OUTROS produtos mantêm a margem deles (senão o objetivo reponderia a Escala inteira). Para o produto único:
+    // base (rota convencional) = chave da ROTA convencional (produto_rotas.id) > chave do produto canônico > margem do produto LEGADO mapeado para a rota convencional; rota automática = chave da rota >
+    // margem do produto legado mapeado para ela > base (delta 0). A automática entra no planejador pelo DELTA sobre a base. Sem nenhuma margem do Conector no snapshot, nada é inventado (valorUnitario).
+    const m0 = pc.config.margemPorPeca;
+    const rotaConv = modelo.rotas.find((r) => r.tipo === "convencional"), rotaAuto = modelo.rotas.find((r) => r.tipo === "automatica");
+    const doLegado = (rotaId?: string) => Object.entries(modelo.produtosLegado).filter(([, v]) => v.rotaId === rotaId).map(([id]) => m0?.[id]).find((x) => x !== undefined);
+    const baseM = m0 ? (rotaConv ? m0[rotaConv.id] : undefined) ?? m0[modelo.produtoCanonicoId] ?? doLegado(rotaConv?.id) : undefined;
+    const autoM = m0 ? (rotaAuto ? m0[rotaAuto.id] : undefined) ?? doLegado(rotaAuto?.id) : undefined;
+    const legados = new Set(Object.keys(modelo.produtosLegado));
+    const outros = m0 ? Object.fromEntries(Object.entries(m0).filter(([k]) => !legados.has(k) && k !== modelo.produtoCanonicoId && k !== rotaConv?.id && k !== rotaAuto?.id)) : undefined;
+    const margem = m0 ? { ...outros, ...(baseM !== undefined ? { [d.vConv]: baseM, [d.vAuto]: autoM ?? baseM } : {}) } : undefined;
+    const { margemPorPeca: _m, ...cfgSem } = pc.config;
+    void _m;
+    pcV = { ...pc, config: { ...cfgSem, ...(margem ? { margemPorPeca: margem } : {}), produtoUnico: true } };
+  } catch (e) {
+    return falha(`produto único: preparação falhou: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const t = tentarPlanoCorteBase(ctxV, pcV, planejar);
+  const paraC = (r: ResultadoEscala): ResultadoEscala => ({
+    ...r, alocacoes: recomporAlocacoes(r.alocacoes, d),
+    alertas: r.alertas.map((a) => { const c = d.paraCanonico(a.produtoId ?? null, a.etapaId ?? null); return { ...a, ...(a.produtoId ? { produtoId: c.produtoId as string } : {}), ...(a.etapaId ? { etapaId: c.etapaId as string } : {}) }; }),
+  });
+  if (!t.ok) return { ...t, mantido: mantidoC(t.motivo) };
+  return { ...t, resultado: paraC(t.resultado) };
+}
+
+function tentarPlanoCorteBase(ctx: ContextoFluxo, pc: NonNullable<EstadoBruto["planejadorCorte"]>, planejar: PlanejarCorte = planejarSemanaComCorte): TentativaPlanoCorte {
   const mantido = (motivo: string) => mantidoDoPlano(ctx.estado, ctx.entrada.aPartirDe, ctx.entrada.slots, motivo);
   // TUDO que pode lançar fica dentro de try: exceção na preparação do estado real ⇒ plano vigente MANTIDO + alerta `planejador_corte_falhou` (nunca evento em erro silencioso, nunca legado)
   let dados: ReturnType<typeof dadosProducaoReal>;

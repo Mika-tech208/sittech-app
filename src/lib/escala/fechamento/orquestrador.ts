@@ -27,13 +27,17 @@ export interface ContextoFechamento {
   /** A semana não está sob o planejador corte-v1 (ou a Produção Real não está ativa): em `ativo` BLOQUEIA o fechamento. */
   semCorteV1?: boolean;
   temposContexto?: { estado: number; montagem: number; buffers: number; postos: number };
+  /** PRODUTO ÚNICO em PLANEJAMENTO (semana >= planejamento_desde e < cutover): plano FUTURO não liberado. Nenhum fechamento (nem abrir, nem confirmar) é permitido; o contexto vem vazio. */
+  emPlanejamento?: boolean;
 }
 
+export const MENSAGEM_PLANEJAMENTO = "Semana em PLANEJAMENTO do produto único (plano futuro, não liberado): o fechamento físico só existe depois do cutover.";
 export const MENSAGEM_SEM_CORTE_V1 = "Fechamento físico automático disponível apenas para semanas com corte-v1 ativo.";
 
 /** Bloqueios do modo ATIVO (em sombra viram alertas no log). Cada par sem buffer vira um erro BUFFER_FISICO_NAO_CADASTRADO com produto, rota, etapas, semana e período. */
 export function bloqueiosDoModoAtivo(c: ContextoFechamento): ErroValidacao[] {
   const erros: ErroValidacao[] = [];
+  if (c.emPlanejamento) erros.push({ codigo: "PERIODO_EM_PLANEJAMENTO", mensagem: MENSAGEM_PLANEJAMENTO });
   if (c.semCorteV1) erros.push({ codigo: "SEMANA_SEM_CORTE_V1", mensagem: MENSAGEM_SEM_CORTE_V1 });
   (c.paresSemBuffer ?? []).forEach((p) => erros.push({
     codigo: "BUFFER_FISICO_NAO_CADASTRADO",
@@ -107,6 +111,7 @@ export async function abrirFechamento(io: FechamentoIO, a: { data: string; perio
   const modo = await io.modo();
   if (modo === "desligado") return { ok: false, erro: "Fechamento físico desligado." };
   const contexto = await io.contexto(a.data, a.periodoId, relogio());
+  if (contexto.emPlanejamento) return { ok: false, contexto, erro: MENSAGEM_PLANEJAMENTO, erros: [{ codigo: "PERIODO_EM_PLANEJAMENTO", mensagem: MENSAGEM_PLANEJAMENTO }] };   // vale em QUALQUER modo do fechamento
   const jaOficial = contexto.periodoJaFechado && !(modo === "ativo" && contexto.fechamentoVigente?.sombra);
   if (jaOficial && !a.forcar) return { ok: false, contexto, erro: "Este período já foi fechado." };
   // MODO ATIVO: catálogo incompleto ou semana fora do corte-v1 BLOQUEIA (nada de fechamento "confirmado" omitindo estoque); em sombra só alerta
@@ -133,7 +138,7 @@ export async function confirmarFechamento(io: FechamentoIO, entrada: EntradaConf
   }
   const contexto = await io.contexto(entrada.data, entrada.periodoId, t0);
   // MODO ATIVO: bloqueio ANTES de gravar qualquer coisa (inclusive na exceção: sem catálogo completo e sem corte-v1 não há fechamento oficial)
-  const bloqueios = modo === "ativo" ? bloqueiosDoModoAtivo(contexto) : [];
+  const bloqueios = contexto.emPlanejamento || modo === "ativo" ? bloqueiosDoModoAtivo(contexto) : [];   // planejamento bloqueia em QUALQUER modo
   if (bloqueios.length > 0) return vazio({ erros: bloqueios, mensagem: bloqueios[0].mensagem });
   const podeExcecao = entrada.excecao ? await io.podeExcecao(usuarioId) : false;
   const agoraMs = relogio();

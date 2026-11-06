@@ -24,6 +24,9 @@ import CargaAdicionalEtapas from "@/features/previsao/components/CargaAdicionalE
 import { CartoesCoberturaAtingibilidade, DetalheAtingibilidade, ESTILOS_ATINGIBILIDADE, RecomendacaoMaquinaGlobal } from "@/features/previsao/components/AtingibilidadePrevisto";
 import { ROTULO_STATUS } from "@/features/previsao/atingibilidadeTexto";
 import { useWipModo } from "@/hooks/useWipModo";
+import { algumProdutoComRotasAlternativas } from "@/features/produto-canonico/indicadores";
+import IndicadorIndisponivel from "@/features/produto-canonico/components/IndicadorIndisponivel";
+import type { ModeloCanonico } from "@/features/produto-canonico/tipos";
 import {
   acabadoDe,
   alterado as rascunhoEtapasAlterado,
@@ -103,9 +106,11 @@ export interface CoberturaEquipeProps {
   salvando: boolean;
   onSalvarAdicional: (adicionalPorItemId: Record<string, number>, adicionalPorEtapaPorItemId?: Record<string, Record<string, number>>) => Promise<boolean>;
   produtos?: Produto[]; // roteiro de cada produto (etapas do adicional por etapa)
+  /** modelos canônicos vigentes: com produto de rotas alternativas nos itens a simulação (motor linear) NÃO é consultada e a tela mostra a mensagem de indicador indisponível */
+  modelosRotas?: ModeloCanonico[];
 }
 
-export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, salvando, onSalvarAdicional, produtos = [] }: CoberturaEquipeProps) {
+export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, salvando, onSalvarAdicional, produtos = [], modelosRotas = [] }: CoberturaEquipeProps) {
   // Adicional por etapa (acabado + estoque intermediário): só quando o parâmetro wip_modo está "ativo". Desligado = tela anterior.
   const modoWip = useWipModo(true);
   const etapasDe = useCallback(
@@ -276,6 +281,16 @@ export default function CoberturaEquipe({ semanaInicio, itens, modoSimulacao, sa
   else if (cob.minutosSemPosto === 0) resumoCab = "100% ✓";
   else resumoCab = `${pct(cob.percentual)} · ${duracao(cob.minutosSemPosto)} sem posto`;
   if (cob && analise && cob.minutosDisponiveis > 0) resumoCab += ` · Previsto: ${ROTULO_STATUS[analise.atingibilidade.status]}`;
+
+  // Produto com rotas alternativas: a simulação (gerarEscala por ordem) e as sugestões de adicional/WIP/máquina não valem. Nada é consultado; o bloco só mostra a mensagem.
+  if (algumProdutoComRotasAlternativas(itens.map((i) => i.produtoId), modelosRotas)) {
+    return (
+      <div className="stx-panel" data-testid="cobertura-indisponivel">
+        <p className="stx-panel-title">Cobertura da equipe</p>
+        <IndicadorIndisponivel />
+      </div>
+    );
+  }
 
   return (
     <div className="stx-panel">

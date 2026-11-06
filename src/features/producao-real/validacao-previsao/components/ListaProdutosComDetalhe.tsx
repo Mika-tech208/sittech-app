@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ItemValidacaoPrevisao } from "@/features/producao-real/validacao-previsao/types";
+import IndicadorIndisponivel from "@/features/produto-canonico/components/IndicadorIndisponivel";
 import { formatarPecas, formatarPercentualIndicador } from "@/features/producao-real/indicadores/format";
 
 const LABEL_ESTADO: Record<ItemValidacaoPrevisao["estado"], { label: string; classe: string }> = {
@@ -14,6 +15,7 @@ const LABEL_ESTADO: Record<ItemValidacaoPrevisao["estado"], { label: string; cla
   atencao: { label: "Atenção", classe: "atencao" },
   inviavel_teoricamente: { label: "Inviável teoricamente", classe: "critico" },
   sem_estimativa: { label: "Sem estimativa", classe: "indisponivel" },
+  indisponivel_rotas: { label: "Indicador indisponível", classe: "indisponivel" },
 };
 
 function qsDe(filtros: ItemValidacaoPrevisao["filtrosDrillDown"]): string {
@@ -44,9 +46,11 @@ export default function ListaProdutosComDetalhe({ itens }: { itens: ItemValidaca
                 <p className="stx-panel-sub">
                   Previsto {formatarPecas(it.previsto)} · Acabado {formatarPecas(it.producaoAcabadaObservada)} · Falta {formatarPecas(it.faltaOperacional)}
                 </p>
+                {it.indisponivelRotas ? <IndicadorIndisponivel titulo="Capacidade e projeção" /> : (
                 <p className="stx-panel-sub">
                   Capacidade teórica restante {formatarPecas(it.capacidadeTeoricaRestante)} · provável {it.capacidadeProvavelRestante !== null ? formatarPecas(it.capacidadeProvavelRestante) : "indisponível"}
                 </p>
+                )}
               </div>
               <button type="button" className="stx-btn-secondary" onClick={() => setExpandidoId(expandido ? null : it.itemId)}>
                 {expandido ? "Ocultar" : "Ver detalhe"}
@@ -65,7 +69,9 @@ export default function ListaProdutosComDetalhe({ itens }: { itens: ItemValidaca
                   <p className="stx-panel-sub"><strong>Restrição teórica</strong> (motor de capacidade): {it.restricaoTeorica.etapaOuMaquina}</p>
                 )}
 
-                {it.projecaoFinal !== null ? (
+                {it.indisponivelRotas ? (
+                  <IndicadorIndisponivel titulo="Projeção" />
+                ) : it.projecaoFinal !== null ? (
                   <>
                     <p className="stx-panel-sub" style={{ marginTop: 6 }}>
                       <strong>Projeção estimada</strong> — se o comportamento recente se mantiver: acabado {formatarPecas(it.producaoAcabadaObservada)} + provável restante {formatarPecas(it.capacidadeProvavelRestante)} ≈ {formatarPecas(it.projecaoFinal)}
@@ -76,7 +82,7 @@ export default function ListaProdutosComDetalhe({ itens }: { itens: ItemValidaca
                   <p className="stx-panel-sub">Projeção indisponível — amostra insuficiente para capacidade provável neste(s) contexto(s).</p>
                 )}
 
-                {it.wipLimitacaoAplicavel && (
+                {it.wipLimitacaoAplicavel && !it.indisponivelRotas && (
                   <p className="stx-panel-sub" style={{ marginTop: 6 }}>
                     Limitação conhecida (V1): a capacidade considera o roteiro completo a partir do início — peças já em etapas intermediárias não são rastreadas, então esta leitura é conservadora (pode subestimar quanto falta).
                   </p>

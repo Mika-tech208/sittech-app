@@ -6,6 +6,8 @@
 // refaz a detecção com outra janela.
 
 import { toISODate } from "@/lib/date";
+import { lerModelosVigentes, type ClienteModelosVigentes } from "@/features/produto-canonico/rotasAlternativasDb";
+import { idsComRotasAlternativas } from "@/features/produto-canonico/indicadores";
 import { gerarFilaDesvios } from "@/features/producao-real/desvios";
 import { rotuloContexto } from "@/features/producao-real/desvios/contexto";
 import { buscarApontamentosEParadas, buscarMaquinas, buscarProdutos, ehErroConsulta } from "@/features/intelligence/dataFetchers";
@@ -54,7 +56,7 @@ async function handler(ctx: IntelligenceToolContext, params: Params): Promise<In
     produtoFiltro = { id: r.id, nome: r.nome };
   }
 
-  const { incidentes } = gerarFilaDesvios(apontamentos, paradas, agora);
+  const { incidentes } = gerarFilaDesvios(apontamentos, paradas, agora, idsComRotasAlternativas(await lerModelosVigentes(ctx.supabase as unknown as ClienteModelosVigentes)));
   const filtrados = incidentes.filter((inc) => {
     if (maquinaFiltro && inc.contexto.maquinaId !== maquinaFiltro.id) return false;
     if (produtoFiltro && inc.contexto.produtoId !== produtoFiltro.id) return false;

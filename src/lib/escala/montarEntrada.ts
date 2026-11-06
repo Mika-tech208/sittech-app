@@ -133,6 +133,10 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
   // Sem etapa sem máquina (caso normal) nada disto roda: comportamento idêntico.
   const primeiraSemMaquina = new Map<string, number>(); // produtoId → menor ordem de etapa sem máquina
   semMaquina.forEach((p, k) => { if (!pools.has(k)) primeiraSemMaquina.set(p.produtoId, Math.min(primeiraSemMaquina.get(p.produtoId) ?? Number.POSITIVE_INFINITY, p.ordemEtapa)); });
+  // PRODUTO ÚNICO (cutover): a ordem do roteiro canônico NÃO é linear (M8 e Rosquear→Parafusar convergem em Etiquetar), então a regra por `ordem` acima não vale para ele e destruiria o trecho comum
+  // (M8 tem ordem 0). O planejador de produto único trata a etapa sem máquina diretamente (rota sem máquina não produz; a jusante só consome estoque físico existente — nunca material infinito).
+  const canonicoId = estado.produtoUnico?.modelo.produtoCanonicoId;
+  if (canonicoId) primeiraSemMaquina.delete(canonicoId);
   if (primeiraSemMaquina.size > 0) {
     [...pools.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).forEach(([k, p]) => {
       const o = primeiraSemMaquina.get(p.produtoId);
@@ -141,6 +145,18 @@ export function montarEntradaEscala(estado: EstadoBruto, agoraMs: number): Entra
       semMaquina.set(k, { ...p, maquinasIds: [] });
       avisos.push({ tipo: "etapa_sem_origem", produtoId: p.produtoId, etapaId: p.etapaId });
     });
+  }
+  // produto único: NENHUMA rota disponível (M8 e a convencional com alguma etapa exclusiva sem máquina) => demanda não atendida registrada (nunca silenciosa). Com uma rota viva não há demanda perdida.
+  if (estado.produtoUnico) {
+    const m = estado.produtoUnico.modelo;
+    const sem = (etapaId: string) => semMaquina.has(`${m.produtoCanonicoId}|${etapaId}`) && !pools.has(`${m.produtoCanonicoId}|${etapaId}`);
+    const temItem = estado.itens.some((i) => i.produtoId === m.produtoCanonicoId);
+    const rotas = m.rotas.filter((r) => r.tipo === "convencional" || r.tipo === "automatica");
+    const indisponivel = (rotaId: string) => m.etapas.filter((e) => e.rotaId === rotaId).some((e) => sem(e.etapaId));
+    if (temItem && rotas.length > 0 && rotas.every((r) => indisponivel(r.id))) {
+      const e = m.etapas.find((x) => x.rotaId !== null && sem(x.etapaId));
+      avisos.push({ tipo: "etapa_sem_origem", produtoId: m.produtoCanonicoId, ...(e ? { etapaId: e.etapaId } : {}) });
+    }
   }
   if (pools.size === 0) avisos.push({ tipo: "sem_pools" });
 

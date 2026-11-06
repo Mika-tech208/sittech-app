@@ -10,6 +10,7 @@
 import type { ProdutoProgramado, ProdutoNaoPrevisto, ResumoProgramacaoPecas } from "@/features/previsao/progressoSemana";
 import { formatQtd } from "@/lib/format";
 import { formatPct } from "@/features/previsao/formatPct";
+import IndicadorIndisponivel from "@/features/produto-canonico/components/IndicadorIndisponivel";
 
 export interface ProdutosProgramadosProps {
   produtos: ProdutoProgramado[];
@@ -45,7 +46,7 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
           <div className="stx-prev-table-row" key={p.itemId}>
             <span>{p.produtoNome}</span>
             <span className="num">{formatQtd(p.previsto)}</span>
-            <span className="num">{formatQtd(p.possivel)}</span>
+            <span className="num">{qtdOuTraco(p.possivel)}</span>
             <span className="num" style={{ color: "var(--accent)" }}>
               {p.apontadoAmbiguoPecas > 0 && (
                 <span title={`${formatQtd(p.apontadoAmbiguoPecas)} peças de apontamentos feitos antes de uma alteração do roteiro NÃO foram contadas (não dá para saber com segurança se eram da etapa final).`} style={{ color: "var(--warning)", marginRight: 4, cursor: "help" }}>⚠</span>
@@ -66,11 +67,13 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
         );
       })}
 
+      {produtos.some((p) => p.possivel === null) && <IndicadorIndisponivel titulo="Possível" />}
+
       {resumoPecas.totalPrevisto > 0 && (
         <div className="stx-prev-table-row total">
           <span>Total</span>
           <span className="num">{formatQtd(resumoPecas.totalPrevisto)}</span>
-          <span className="num">{formatQtd(resumoPecas.totalPossivel)}</span>
+          <span className="num">{qtdOuTraco(resumoPecas.totalPossivel)}</span>
           <span className="num">{qtdOuTraco(resumoPecas.totalApontadoReal)}</span>
           <span className="num">{qtdOuTraco(resumoPecas.totalFalta)}</span>
           <span className="num">{formatPct(resumoPecas.concluidoPct)}</span>

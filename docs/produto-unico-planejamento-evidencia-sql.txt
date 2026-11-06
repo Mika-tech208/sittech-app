@@ -1,0 +1,129 @@
+PASS · 3 migrations + backfill aplicados no clone (0 erros)
+PASS · fingerprint idêntico (funções, triggers, colunas, constraints, dados e hashes existentes; objetos novos excluídos)
+PASS · só a linha TRIGGERS difere (3 guardas inertes com cutover null)
+PASS · HASH do plano da semana 02/11 idêntico antes/depois (bea8cdb731986157…, 117 versões, nenhuma nova)
+PASS · nenhum evento de recálculo pendente
+### 01-estrutura-backfill.sql
+PASS · S1 8 tabelas novas existem
+PASS · S2 produto_unico_cutover = null (sem cutover)
+PASS · S3 produto CONECTOR_3_4_UNICO criado (1)
+PASS · S4 produto único nasce INATIVO (invisível a apontamento/previsão até o cutover)
+PASS · S5 id NOVO (não reutiliza ids legados)
+PASS · S6 etapas: M8 "Rosquear + Parafusar" 0, Rosquear 1, Parafusar 2, Etiquetar 3, Embalar 4 (Etiquetar/Embalar UMA vez) — Rosquear + Parafusar:0,Rosquear:1,Parafusar:2,Etiquetar:3,Embalar:4
+PASS · S7 metas copiadas e máquinas elegíveis por etapa IGUAIS às dos legados (5/5 etapas)
+PASS · S8 2 rotas (CONVENCIONAL, AUTOMATICA) e 4 arestas do grafo
+PASS · S9 grafo: Rosquear>Parafusar>Etiquetar, M8>Etiquetar, Etiquetar>Embalar
+PASS · S10 mapa legado->canônico: 2 produtos, 7 etapas
+PASS · S11 produto_canonico_problemas vazio (máquina em 1 etapa só, grafo íntegro)
+PASS · S12 legados intactos e ainda ativos (só histórico/retroativo)
+PASS · S13 backfill/migrations não geraram evento de recálculo
+PASS · B1 backfill reexecutado é idempotente (mesmo id, nenhuma linha nova)
+PASS · R0 nenhuma máquina elegível em 2 etapas do produto único
+PASS · R1 M8 -> etapa "Rosquear + Parafusar"
+PASS · R2 Parafusadeira 9 -> etapa "Parafusar"
+PASS · R3 Etiquetadora 15 -> Etiquetar; Embalagem 17 -> Embalar
+PASS · N1 cutover que não é segunda-feira é recusado — new row for relation "escala_parametros" violates check constraint "escala_parametros_prod
+PASS · N2 trilha de ativações é append-only — produto_canonico_ativacoes é append-only
+PASS · N3 produto único referenciado não pode ser excluído (RESTRICT) — update or delete on table "produtos" violates foreign key constraint "produto_canonico_pro
+### 02-cutover-buffers.sql
+PASS · C0 ANTES do cutover: legados pedem 3 buffers Conector; produto único não pede nenhum
+PASS · C1 produto_unico_ativo(2026-11-10) = false com cutover null
+PASS · C2 ativar numa terça é recusado — ATIVAR_CUTOVER_INVALIDO: informe uma segunda-feira >= 2026-11-02 (recebido: 2026-11-10)
+PASS · C3 ativar antes de 2026-11-02 é recusado — ATIVAR_CUTOVER_INVALIDO: informe uma segunda-feira >= 2026-11-02 (recebido: 2026-10-26)
+PASS · C4 ativar numa semana que já tem apontamento legado é recusado — ATIVAR_ABORTADO: já há 93 apontamento(s) dos produtos legados em/depois de 2026-11-02 (o c
+PASS · C4b ativar o cutover exige o PLANEJAMENTO já habilitado — ATIVAR_SEM_PLANEJAMENTO: habilite o planejamento (produto_unico_habilitar_planejamento) pa
+PASS · C4c habilitar numa terça é recusado — PLANEJAMENTO_INVALIDO: informe uma segunda-feira >= 2026-11-02 (recebido: 2026-11-10)
+PASS · C4d habilitar numa semana com apontamento legado é recusado — PLANEJAMENTO_ABORTADO: já há 93 apontamento(s) dos produtos legados em/depois de 2026-11-0
+PASS · C4e habilitado: 09/11 PLANEJAMENTO, 06/11 LEGADO, cutover null
+PASS · C5 UMA flag: produto_unico_cutover = 2026-11-09
+PASS · C6 produto único ATIVO após ativar
+PASS · C7 ativar NÃO dispara evento de recálculo
+PASS · C7b nenhum evento pendente
+PASS · C7c HASH do plano da semana 02/11 idêntico com o cutover LIGADO (semana anterior não muda: nenhuma versão nova)
+PASS · C8 produto_unico_ativo: 09/11..15/11 true, 08/11 false
+PASS · D1 3 pares do produto único (1 por buffer, padrão), todos contabil, vigente_de = cutover, nenhum par zero nem par da M8
+PASS · D2 5 pares legados encerrados na véspera (vigente_ate = 2026-11-08), nada apagado
+PASS · D3 FECHAMENTO do produto único (09/11) pede EXATAMENTE 3 buffers Conector — conector34:rosqueadas, conector34:parafusadas, conector34:etiquetadas
+PASS · D4 legados: 0 buffers em 09/11 (escondidos), 3 em 06/11 (semana anterior segue como hoje)
+PASS · D5 1 par por buffer (Rosquear>Parafusar, Parafusar>Etiquetar, Etiquetar>Embalar); a M8 entra no buffer comum SEM par próprio (compatível com a guarda do fechamento)
+PASS · D6 escala_buffer_maquinas coerente (parafusadas: M8+Parafusadeiras 9-12 produzem; total conector34 = 17 linhas, as mesmas de hoje)
+PASS · G1 item LEGADO "previsto" na semana 09/11 é recusado após o cutover — PRODUTO_LEGADO_APOS_CUTOVER: a semana 2026-11-09 usa o produto único (planejamento/cutover
+PASS · G2 item do produto único na semana 02/11 é recusado — PRODUTO_CANONICO_ANTES_DO_CUTOVER: o produto único só vale a partir do planejamento/cutove
+PASS · G3 semana 02/11 continua com os 2 itens legados (histórico intacto)
+PASS · G4 item único 93.300 aceito na semana 09/11
+PASS · RB1 desativar recusa enquanto a Previsão tem o item do produto único (nada alterado) — DESATIVAR_ABORTADO: a Previsão da(s) semana(s) 2026-11-09 ainda tem o item do produto únic
+PASS · RB1b após a recusa o cutover continua ligado (nada foi apagado)
+PASS · C9 ativar de novo com o mesmo cutover é idempotente
+PASS · C10 ativar com outro cutover exige desativar antes — ATIVAR_JA_ATIVO_COM_OUTRO_CUTOVER: cutover atual 2026-11-09; desative antes (produto_unico
+PASS · RB1c desativar o cutover mantém o PLANEJAMENTO habilitado (09/11 continua plano futuro)
+PASS · RB2 ROLLBACK sem uso: catálogo de buffers, parâmetro, produto e legados IDÊNTICOS ao de antes (hash)
+PASS · RB3 rollback não gerou evento de recálculo
+PASS · RB4 modo do rollback = limpo
+PASS · RB5 após rollback: legados voltam a pedir 3 buffers e a programação usa os legados
+PASS · RB6 ativar -> desativar -> ativar refaz o estado (3 pares, 3 buffers)
+PASS · RB7 ... e desativar de novo volta ao hash original
+PASS · V1 view de contagens do motor: buffer "parafusadas" entrega 5.000 UMA vez (não 10.000) — Rosquear=3000, Parafusar=5000, Etiquetar=2000
+PASS · V2 o par Parafusar>Etiquetar leva o saldo; não existe par da M8
+PASS · V3 rosqueadas=3.000 e etiquetadas=2.000 (A, B, C físicos)
+PASS · RB8 com fechamento sob o produto único: modo preservando_dados, legados reabrem em 10/11
+PASS · RB9 fechamentos e contagens novas PRESERVADOS
+PASS · RB10 pares do produto único NÃO apagados: encerrados em 09/11 (último fechamento)
+PASS · RB11 buffers: 09/11 ainda pelo produto único (3); a partir de 10/11 pelos legados (3)
+PASS · RB12 cutover = null e legados de volta à programação
+PASS · RB13 contagem do fechamento de 09/11 segue entregue ao motor (3 pares)
+PASS · V0 view escala_contagens_fechamento_para_motor devolve as MESMAS linhas que a original (7 linhas, dados reais de PROD)
+PASS · P1 variante: 4 pares (parafusadas com 2 contabil, sem zero), 3 buffers
+PASS · P2 variante: a view entrega 5.000 ao par Parafusar>Etiquetar e 0 ao par M8>Etiquetar (nunca 10.000)
+### 03-apontamentos.sql
+PASS · A1 apontamento com produto LEGADO em data >= cutover é recusado (novos apontamentos só no produto único) — LINHA[5d5e8e05-89fe-4ab7-a6e2-4f3cfdd13f2c]: APONTAMENTO_LEGADO_APOS_CUTOVER: data 2026-11
+PASS · A2 RPC do fluxo único lançou 5 apontamentos do produto único (M8, Parafusadeira 9, Rosqueadeira 3, Etiquetadora 15, Embalagem 17)
+PASS · A3 operação resolvida por máquina: M8 -> "Rosquear + Parafusar"; Parafusadeira -> Parafusar; Rosqueadeira -> Rosquear; Etiquetadora -> Etiquetar; Embalagem -> Embalar — Embalagem 17=Embalar; Etiquetadora 15=Etiquetar; Maquina Automatica 8 =Rosquea
+PASS · A4 etapa_id dos 5 apontamentos pertence ao produto único; vínculo planejado×real criado (5)
+PASS · A5 meta do período e valor unitário vigentes preenchidos (R$ 0,1825)
+PASS · A6 produção final do produto único = só Embalagem (1.400); M8/Rosquear/Parafusar/Etiquetar não contam como final
+PASS · A7 a rota é identificável pela máquina: M8 = AUTOMATICA, Parafusadeira/Rosqueadeira = CONVENCIONAL
+PASS · A8 reenvio do período substitui os 5 (histórico guardado), sem duplicar
+PASS · F1 período confirmado: apontamento NÃO permitido sem reabertura
+PASS · F2 reenvio do período confirmado é recusado — FECHAMENTO_PERIODO_EM_FECHAMENTO: o período t3 de 2026-11-05 já está confirmado; para corr
+PASS · F3 REABRIR período (60 min): apontamento volta a ser permitido
+PASS · F4 após REABRIR o produto único é re-lançado normalmente (5 substituídos)
+PASS · H1 regularização histórica com produto LEGADO após o cutover é recusada — APONTAMENTO_LEGADO_APOS_CUTOVER: data 2026-11-04 usa o produto único (cutover 2026-11-02);
+PASS · H2 regularização histórica de M8 com o produto único (04/11 t3) aceita
+PASS · H3 ... resolvida para a operação "Rosquear + Parafusar"
+PASS · H4 produto único em data ANTERIOR ao cutover é recusado (histórico fica nos legados) — APONTAMENTO_CANONICO_ANTES_DO_CUTOVER: data 2026-10-30 é anterior ao cutover (2026-11-02);
+PASS · H5 legado continua recusado em 04/11 com cutover 02/11 — APONTAMENTO_LEGADO_APOS_CUTOVER: data 2026-11-04 usa o produto único (cutover 2026-11-02);
+PASS · H6 sem cutover (rollback) o produto único não recebe apontamento novo — APONTAMENTO_CANONICO_ANTES_DO_CUTOVER: data 2026-11-04 é anterior ao cutover (<NULL>); lan
+### 05-planejamento.sql
+PASS · P0 sem planejamento/cutover: modo LEGADO em toda semana
+PASS · P1 habilitar numa terça é recusado — PLANEJAMENTO_INVALIDO: informe uma segunda-feira >= 2026-11-02 (recebido: 2026-11-10)
+PASS · P2 habilitar inclui 09/11 nas DUAS listas — {"ja_habilitado": false, "listas_adicionadas": ["producao_real_semanas_ativas", "producao_real_planejador_semanas"], "planejamento_desde": "2026-11-09", "produto_ativo_antes": false}
+PASS · P2b as duas listas contêm 2026-11-09
+PASS · P3 nenhum evento de recálculo (nem versão de plano)
+PASS · P3b hash do plano da semana 02/11 idêntico
+PASS · P4 06/11 LEGADO; 09/11–15/11 PLANEJAMENTO; não operacional
+PASS · P5 liberação de 02–08/11 IDÊNTICA antes/depois de habilitar
+PASS · P6 (7) 30 períodos de 09–13/11: NÃO LIBERADO / PLANO_FUTURO_AGUARDANDO_CUTOVER
+PASS · P9 (3) apontamento em 09/11 recusado para QUALQUER produto — APONTAMENTO_SEMANA_EM_PLANEJAMENTO: a semana de 2026-11-09 está em PLANEJAMENTO do produto
+PASS · P10 (4) abertura de fechamento em 09/11 recusada — FECHAMENTO_SEMANA_EM_PLANEJAMENTO: a semana de 2026-11-09 está em PLANEJAMENTO do produto 
+PASS · P11 a guarda NÃO se aplica a 06/11
+PASS · P11b unificar: UM item de 93.300 e os 2 legados REMOVIDOS da Previsão (backup guardado)
+PASS · P12 REVERSÃO recusada enquanto a Previsão tem o item único (nada alterado) — DESABILITAR_ABORTADO: a Previsão da(s) semana(s) 2026-11-09 ainda tem o item do produto ún
+PASS · P12b após a recusa o planejamento segue habilitado
+PASS · P12c separar restaura os 2 itens legados do backup (64.800 + 28.500)
+PASS · P13 desabilitar: volta a LEGADO
+PASS · P14 desabilitar retira 09/11 das duas listas (só o que o habilitar acrescentou)
+PASS · P15 após desabilitar a liberação volta ao que era
+PASS · P15b após habilitar -> unificar -> separar -> desabilitar o banco está IDÊNTICO ao de antes (parâmetros, produtos, pares de buffer, versões de plano, eventos)
+PASS · P7 (8) escala_liberacao_desde movido para antes: 09/11 segue NÃO LIBERADO
+PASS · P8 (8) fechamento físico desligado: 09/11 segue NÃO LIBERADO (nada de MODO_NAO_ATIVO)
+### rollback ESTRUTURAL das 3 migrations + backfill (ordem inversa) e reaplicação
+PASS · 20261116100000_rollback_produto_unico_planejamento_liberacao.sql executou
+PASS · 20261115120000_rollback_produto_unico_ativacao.sql executou
+PASS · 20261115110000_rollback_produto_canonico_conversao.sql executou
+PASS · 20261115100000_rollback_produto_canonico_1_backfill.sql executou
+PASS · 20261115100000_rollback_produto_canonico_2_estrutura.sql executou
+PASS · após o rollback estrutural o banco é IDÊNTICO ao baseline (fingerprint)
+PASS · nenhum gatilho do produto único restou
+PASS · migrations + backfill REAPLICADOS após o rollback (0 erros)
+PASS · estado reaplicado = estado migrado original
+RESUMO: 118 PASS · 0 FAIL · 0 erros SQL

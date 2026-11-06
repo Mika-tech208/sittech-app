@@ -14,6 +14,7 @@ import { autenticarRequisicaoIntelligence } from "@/features/intelligence/auth";
 import { temPermissao } from "@/lib/permissoes";
 import { criarEscalaIO, resolverPrevisaoPorSemana } from "@/lib/escala/supabaseIO";
 import { aplicarRascunhoItens, RascunhoInvalidoError, simularCobertura } from "@/lib/escala/simularCobertura";
+import { INDISPONIVEL } from "@/features/produto-canonico/indicadores";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -42,6 +43,9 @@ export async function POST(request: Request) {
         throw e;
       }
     }
+
+    // Semana com o produto único (rotas alternativas): o simulador usa o motor LEGADO (cadeia linear por ordem) e daria número enganoso. Preferimos ausência de indicador a indicador errado.
+    if (estado.produtoUnico) return NextResponse.json({ ok: true, indisponivel: true, mensagem: INDISPONIVEL.mensagem });
 
     const resultado = simularCobertura(estado, Date.now(), { sugerir: body.sugerir === true });
     return NextResponse.json({ ok: true, ...resultado });

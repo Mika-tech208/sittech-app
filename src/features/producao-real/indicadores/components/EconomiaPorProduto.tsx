@@ -11,6 +11,7 @@
 // como badge repetido em cada número.
 
 import { useState } from "react";
+import IndicadorIndisponivel from "@/features/produto-canonico/components/IndicadorIndisponivel";
 import type { EconomicoProduto } from "@/features/producao-real/indicadores/economico";
 import { formatarBRLIndicador, formatarPecas, formatarPercentualIndicador } from "@/features/producao-real/indicadores/format";
 
@@ -59,7 +60,9 @@ export default function EconomiaPorProduto({ itens }: { itens: EconomicoProduto[
               {aberto && (
                 <div className="stx-ind-drilldown">
                   <p className="stx-analise-secao-titulo" style={{ margin: "0 0 6px 0" }}>Possível restrição operacional (estimativa) — {item.produtoNome}</p>
-                  {!item.restricao ? (
+                  {item.restricao?.indisponivelRotas ? (
+                    <IndicadorIndisponivel />
+                  ) : !item.restricao ? (
                     <p className="stx-panel-sub">Não há dados suficientes (produto com uma única etapa apontada no período, ou sem apontamentos produzindo).</p>
                   ) : (
                     <>
