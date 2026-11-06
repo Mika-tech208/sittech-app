@@ -285,7 +285,7 @@ export function montarEntradaAntecipacao(a: {
   [...porProduto.keys()].sort().forEach((pid) => {
     const ps = (porProduto.get(pid) as typeof a.pools).slice().sort((x, y) => x.ordemEtapa - y.ordemEtapa);
     const nao = (motivo: string) => diagnostico.push({ produtoId: pid, situacao: "NAO", motivo });
-    if (excl.has(pid)) return nao("produto excluído por segurança (Conector 3/4 legado / produto único): nunca antecipa nem forma estoque");
+    if (excl.has(pid)) return nao("produto excluído por segurança (legado do produto único em cutover): nunca antecipa nem forma estoque");
     const qAtual = ps[ps.length - 1].quantidade;
     if (!(qAtual > 0)) return nao("produto encerrado na semana atual (quantidade 0): nenhuma antecipação nem estoque");
     const pol = dados.politicasFormacao.find((x) => x.produtoId === pid);
