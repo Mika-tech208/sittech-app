@@ -24,7 +24,7 @@ const CFG = { objetivo: "EQUILIBRIO" as const, busca: { iter: 30000, reinicios: 
 const METAS = (a: number, b: number) => ({ m1: a, m2: b, m3: a, t1: b, t2: a, t3: b });
 
 /** hash do plano do mundo legado (estadoDeTeste) gerado pela MAIN de 06/11 (bd62630); se mudar, o comportamento sem cutover mudou. */
-export const HASH_GOLDEN_LEGADO = "__GOLDEN__";
+export const HASH_GOLDEN_LEGADO = "5e9778b57bff051ba6d07a4e04850b665b213287dae715c47e6ac5a326fb1291";
 
 function mundoLegado() {
   const m = new Mundo(estadoDeTeste(SEMANA, DIAS, { pessoas: 10 }));
