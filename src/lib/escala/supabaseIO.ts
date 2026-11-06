@@ -15,6 +15,7 @@ import { historicoDeSituacao } from "./situacaoFuncionario";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "./estado";
 import { processarSemana, type CorteExplicito, type EscalaIO, type OpcoesProcessamento } from "./processar";
 import { carregarContagensDeFechamento, lerModoFechamento } from "./fechamento/leitura";
+import { CHAVES_COMANDO_OPERACIONAL, MOTIVO_OPERACAO_MANUAL, lerOperacaoManual } from "./modoManual";
 import { carregarWipControle, gravarSnapshotsWip } from "./wipIO";
 import { lerConfigFluxo, modoEfetivoFluxo, planejadorCorteNaSemana } from "./fluxo/parametrosFluxo";
 import { carregarApontamentosReais, registrarDiagnosticoFluxo } from "./fluxo/supabaseFluxo";
@@ -245,6 +246,7 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
         historicoEquidade,
         ultimaAssinaturaAlertas,
         parametros,
+        ...(lerOperacaoManual(parametrosRows) ? { operacaoManual: true } : {}),
         ...(wipControle ? { wipControle } : {}),
         ...(producaoReal ? { producaoReal } : {}),
         ...(planejadorCorte ? { planejadorCorte } : {}),
@@ -334,8 +336,8 @@ export async function processarEventosPendentes(admin: SupabaseClient, agoraMs: 
           } else if (r.status === "gerada" || r.status === "ja_existe") {
             await admin.rpc("escala_concluir_eventos", { p_ids: [ev.id], p_status: "processado", p_erro: null });
             resumo.processadas++;
-          } else if (r.status === "semana_nao_atual" || r.status === "fora_da_janela") {
-            await admin.rpc("escala_concluir_eventos", { p_ids: [ev.id], p_status: "ignorado", p_erro: r.status });
+          } else if (r.status === "semana_nao_atual" || r.status === "fora_da_janela" || r.status === "desativada") {
+            await admin.rpc("escala_concluir_eventos", { p_ids: [ev.id], p_status: "ignorado", p_erro: r.status === "desativada" ? r.motivo : r.status });
             resumo.ignoradas++;
           } else {
             await admin.rpc("escala_concluir_eventos", { p_ids: [ev.id], p_status: "erro", p_erro: r.mensagem });
@@ -461,6 +463,10 @@ export async function gerarEscalaSemanalDoServidor(
   agoraMs: number,
   opcoes: OpcoesGeracaoSemanal & { eventoId?: string } = {}
 ): Promise<ResultadoGeracaoSemanal> {
+  // MODO MANUAL: o cron de segunda (06:30) e os eventos 'geracao_semanal' retomados NÃO geram semana alguma (nem registram erro de "sem Previsão"). Planejamento: gerar por ação explícita em /gerar.
+  const flags = await admin.from("escala_parametros").select("chave, valor").in("chave", [...CHAVES_COMANDO_OPERACIONAL]);
+  if (flags.error) throw new Error(`escala_parametros: ${flags.error.message}`);
+  if (lerOperacaoManual(flags.data as { chave: string; valor: unknown }[])) return { status: "desativada", motivo: MOTIVO_OPERACAO_MANUAL };
   const deps: DepsGeracaoSemanal = {
     resolverPrevisao: (semana) => resolverPrevisaoPorSemana(admin, semana),
     async semanaTemEscala(previsaoId) {

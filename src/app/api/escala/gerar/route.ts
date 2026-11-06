@@ -7,6 +7,7 @@ import { criarClienteAdmin } from "@/lib/supabase-admin";
 import { autenticarRequisicaoIntelligence } from "@/features/intelligence/auth";
 import { temPermissao } from "@/lib/permissoes";
 import { gerarEscalaDaSemana } from "@/lib/escala/supabaseIO";
+import { MOTIVO_OPERACAO_MANUAL } from "@/lib/escala/modoManual";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // recálculo da semana (planejador de corte ~3–6 s + consultas); sem isto a rota herdaria o teto curto do plano
@@ -36,6 +37,10 @@ export async function POST(request: Request) {
       if ((dias.count ?? 0) > 0) return NextResponse.json({ erro: "Com o Fechamento Físico ativo, a programação dos próximos períodos é gerada pelo fechamento do período (tablet). A regeração manual está bloqueada." }, { status: 409 });
     }
     const resultado = await gerarEscalaDaSemana(admin, semana, auth.usuario.id, Date.now());
+    // MODO MANUAL: resposta explícita (nada de "ok" silencioso). Semana em PLANEJAMENTO do produto único continua gerável (plano futuro, nunca vai ao chão).
+    if (resultado.status === "ignorado" && resultado.motivoIgnorado === MOTIVO_OPERACAO_MANUAL) {
+      return NextResponse.json({ erro: `${MOTIVO_OPERACAO_MANUAL} Para gerar programação, a escala automática precisa ser religada por configuração.` }, { status: 409 });
+    }
     return NextResponse.json({ ok: true, ...resultado });
   } catch (e) {
     const mensagem = e instanceof Error ? e.message : "Falha ao gerar a Escala.";
