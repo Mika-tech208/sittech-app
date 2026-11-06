@@ -116,7 +116,48 @@ export function dadosParaVirtual(dados: DadosProducaoReal, d: Desdobramento): Da
     if (c.etapaOrigemId === m8 && c.etapaSeguinteId === primeiraComum) return { ...c, produtoId: d.vAuto, etapaOrigemId: m8, etapaSeguinteId: `${primeiraComum}${SUFIXO_AUTO}` };
     return { ...c, produtoId: virt.produtoId ?? c.produtoId };
   };
-  return { ...dados, apontamentos: dados.apontamentos.map(ap), planoVigente: dados.planoVigente.map(linha), ...(dados.contagensFisicas ? { contagensFisicas: dados.contagensFisicas.map(contagem) } : {}) };
+  const virtuais = dados.contagensFisicas ? dados.contagensFisicas.map(contagem) : null;
+  return { ...dados, apontamentos: dados.apontamentos.map(ap), planoVigente: dados.planoVigente.map(linha), ...(virtuais ? { contagensFisicas: [...virtuais, ...zerosDoBufferComum(dados.contagensFisicas as ContagemFisicaPar[], d)] } : {}) };
+}
+
+const JANELA_MESMO_INSTANTE_MS = 60_000;
+
+/**
+ * BUFFER COMUM (Parafusadas aguardando Etiquetar): no modelo canônico é UM estoque físico (Parafusar convencional + saída da M8), contado UMA vez (par Parafusar→Etiquetar). Na representação
+ * INTERNA do planejador há dois pares (Parafusar→Etiquetar e M8→Etiquetar@A) que somam. Para o físico vencer (nunca somar a pilha contada com o saldo ESTIMADO da M8), uma contagem do par principal
+ * sem contagem do par M8 no mesmo instante gera, só em memória, o par M8 = 0 naquele instante. Nada disso é gravado nem pedido ao operador; não existe adapter Conv/Auto no catálogo.
+ */
+export function zerosDoBufferComum(contagens: ContagemFisicaPar[], d: Desdobramento): ContagemFisicaPar[] {
+  const m8 = d.etapas.m8, primeira = d.etapas.comuns[0], antes = d.etapas.exclusivasConv[d.etapas.exclusivasConv.length - 1];
+  const doPrincipal = contagens.filter((c) => c.etapaOrigemId === antes && c.etapaSeguinteId === primeira && (c.produtoId === d.vConv || c.produtoId === d.paraCanonico(d.vConv, null).produtoId));
+  const doM8 = contagens.filter((c) => c.etapaOrigemId === m8 && c.etapaSeguinteId === primeira);
+  const out: ContagemFisicaPar[] = [];
+  for (const c of doPrincipal) {
+    if (doM8.some((x) => Math.abs(x.contadoEmMs - c.contadoEmMs) <= JANELA_MESMO_INSTANTE_MS)) continue;
+    out.push({ produtoId: d.vAuto, etapaOrigemId: m8, etapaSeguinteId: `${primeira}${SUFIXO_AUTO}`, saldo: 0, contadoEmMs: c.contadoEmMs, informadoPor: c.informadoPor, observacao: "buffer comum: físico vence (par M8 zerado, interno)" });
+  }
+  return out;
+}
+
+export interface ParCanonico { produtoId: string; etapaOrigemId: string; etapaSeguinteId: string; wip: { lo: number; hi: number }; negativo?: boolean }
+
+/**
+ * Pares de estoque do planejador (ids virtuais) -> pares CANÔNICOS, somando os que caem no mesmo par (M8→Etiquetar@A entra em Parafusar→Etiquetar: é o MESMO buffer físico). Só os 3 buffers
+ * aparecem: Rosquear→Parafusar, Parafusar→Etiquetar (comum), Etiquetar→Embalar. Idempotente em ids já canônicos.
+ */
+export function paresParaCanonico<T extends ParCanonico>(pares: T[], d: Desdobramento): ParCanonico[] {
+  const m8 = d.etapas.m8, primeira = d.etapas.comuns[0], antes = d.etapas.exclusivasConv[d.etapas.exclusivasConv.length - 1];
+  const mapa = new Map<string, ParCanonico>();
+  for (const p of pares) {
+    const o = d.paraCanonico(p.produtoId, p.etapaOrigemId), s = d.paraCanonico(p.produtoId, p.etapaSeguinteId);
+    let origem = o.etapaId as string;
+    if (origem === m8 && s.etapaId === primeira) origem = antes; // saída da M8 = o mesmo buffer comum
+    const k = `${o.produtoId}|${origem}|${s.etapaId}`;
+    const a = mapa.get(k);
+    const neg = p.negativo === true;
+    mapa.set(k, a ? { ...a, wip: { lo: a.wip.lo + p.wip.lo, hi: a.wip.hi + p.wip.hi }, ...(a.negativo || neg ? { negativo: true } : {}) } : { produtoId: o.produtoId as string, etapaOrigemId: origem, etapaSeguinteId: s.etapaId as string, wip: { lo: p.wip.lo, hi: p.wip.hi }, ...(neg ? { negativo: true } : {}) });
+  }
+  return [...mapa.values()];
 }
 
 /** Saída do planejador (linhas virtuais) -> linhas do produto canônico, sem `distribuicao`. Idempotente; linhas de outros produtos passam intactas. */

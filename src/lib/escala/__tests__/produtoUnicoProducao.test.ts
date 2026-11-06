@@ -14,14 +14,13 @@ import { hashAlocacoes } from "@/features/escala/horizonte";
 import { lerParametros } from "@/features/escala/parametros";
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import { cutoverDaSemana, escolherModeloUnico } from "@/features/produto-canonico/cutover";
-import type { ModeloCanonico } from "@/features/produto-canonico/tipos";
 import { Mundo, estadoDeTeste } from "./bancoMemoria";
+import { MODELO, mundoUnico } from "./produtoUnicoFixture";
 
 const SEMANA = "2026-11-02";
 const DIAS = ["2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06"];
 const GERA = epochMsNoFuso("2026-11-02", "18:00");
 const CFG = { objetivo: "EQUILIBRIO" as const, busca: { iter: 30000, reinicios: 1, semente: 1 }, buscaComVigente: { iter: 15000, reinicios: 1, semente: 1 } };
-const METAS = (a: number, b: number) => ({ m1: a, m2: b, m3: a, t1: b, t2: a, t3: b });
 
 /** hash do plano do mundo legado (estadoDeTeste) gerado pela MAIN de 06/11 (bd62630); se mudar, o comportamento sem cutover mudou. */
 export const HASH_GOLDEN_LEGADO = "5e9778b57bff051ba6d07a4e04850b665b213287dae715c47e6ac5a326fb1291";
@@ -32,32 +31,6 @@ function mundoLegado() {
     e.parametros = { ...lerParametros([]), revezamentoModo: "duro", revezamentoEscopo: "bloco", revezamentoPonteM3T1: true };
     e.producaoReal = { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos: [], mesmoPeriodo: false };
     e.planejadorCorte = { config: CFG, vigenteDoPlanejador: false, distribuicaoSuportada: true };
-  });
-  return m;
-}
-
-const MODELO: ModeloCanonico = {
-  produtoCanonicoId: "pK", codigo: "CONECTOR_3_4_UNICO", nomeExibicao: "Conector 3/4",
-  rotas: [{ id: "R1", codigo: "CONVENCIONAL", nome: "ROTA 1", tipo: "convencional", ordem: 1, ativa: true }, { id: "R2", codigo: "AUTOMATICA", nome: "ROTA 2", tipo: "automatica", ordem: 2, ativa: true }],
-  etapas: [{ etapaId: "k_m8", papel: "ROTA", rotaId: "R2" }, { etapaId: "k_ros", papel: "ROTA", rotaId: "R1" }, { etapaId: "k_par", papel: "ROTA", rotaId: "R1" }, { etapaId: "k_eti", papel: "COMUM", rotaId: null }, { etapaId: "k_emb", papel: "FINAL", rotaId: null }],
-  arestas: [{ origemEtapaId: "k_ros", destinoEtapaId: "k_par" }, { origemEtapaId: "k_par", destinoEtapaId: "k_eti" }, { origemEtapaId: "k_m8", destinoEtapaId: "k_eti" }, { origemEtapaId: "k_eti", destinoEtapaId: "k_emb" }],
-  produtosLegado: {}, etapasLegado: {},
-};
-
-function mundoUnico(opts: { planejador?: boolean; unico?: boolean; m8?: string[]; total?: number } = {}) {
-  const m = new Mundo(estadoDeTeste(SEMANA, DIAS, { pessoas: 8 }));
-  m.editar((e) => {
-    e.itens = [{ produtoId: "pK", quantidade: opts.total ?? 9000, quantidadeAdicional: 0, valorUnitario: 1, maquinasPorEtapa: { k_ros: ["r1"], k_par: ["p1"], k_m8: opts.m8 ?? ["m8"], k_eti: ["e1"], k_emb: ["b1"] } }];
-    e.etapas = [
-      { id: "k_m8", produtoId: "pK", operacaoId: "opM", ordem: 0, metas: METAS(400, 340) }, { id: "k_ros", produtoId: "pK", operacaoId: "opR", ordem: 1, metas: METAS(600, 520) },
-      { id: "k_par", produtoId: "pK", operacaoId: "opP", ordem: 2, metas: METAS(500, 420) }, { id: "k_eti", produtoId: "pK", operacaoId: "opE", ordem: 3, metas: METAS(900, 800) },
-      { id: "k_emb", produtoId: "pK", operacaoId: "opB", ordem: 4, metas: METAS(1200, 1100) },
-    ];
-    e.nomesOperacao = { opR: "Rosquear", opP: "Parafusar", opM: "M8", opE: "Etiquetar", opB: "Embalar" };
-    e.parametros = { ...lerParametros([]), revezamentoModo: "duro", revezamentoEscopo: "bloco", revezamentoPonteM3T1: true };
-    e.producaoReal = { modoEfetivo: "ativo", limiar: null, paresLegado: [], apontamentos: [], mesmoPeriodo: false };
-    if (opts.planejador !== false) e.planejadorCorte = { config: CFG, vigenteDoPlanejador: false, distribuicaoSuportada: true };
-    if (opts.unico !== false) e.produtoUnico = { modelo: MODELO, cutover: "2026-11-02" };
   });
   return m;
 }

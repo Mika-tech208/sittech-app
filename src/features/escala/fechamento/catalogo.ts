@@ -37,3 +37,23 @@ export function contagensDoInventario(buffers: BufferCatalogo[], informados: Buf
 export function somaPorBuffer(buffers: BufferCatalogo[], contagens: ContagemFisicaPar[]): Record<string, number> {
   return Object.fromEntries(buffers.map((b) => [b.id, b.pares.reduce((s, p) => s + (contagens.find((c) => c.produtoId === p.produtoId && c.etapaOrigemId === p.etapaOrigemId && c.etapaSeguinteId === p.etapaSeguinteId)?.saldo ?? 0), 0)]));
 }
+
+/**
+ * PRODUTO ÚNICO: o catálogo do produto canônico tem EXATAMENTE os 3 buffers físicos, cada um com UM par contábil (Rosquear→Parafusar, Parafusar→Etiquetar [comum, recebe também a M8],
+ * Etiquetar→Embalar), e NENHUM par `zero` nem par da M8 (não existe adapter Conv=total/Auto=0). Devolve os problemas ([] = ok). Puro.
+ */
+export function verificarCatalogoUnico(
+  catalogo: BufferCatalogo[],
+  modelo: { produtoCanonicoId: string; etapas: { etapaId: string; papel: string; rotaId: string | null }[]; arestas: { origemEtapaId: string; destinoEtapaId: string }[]; rotas: { id: string; tipo: string }[] },
+): string[] {
+  const CAN = modelo.produtoCanonicoId;
+  const problemas: string[] = [];
+  const doProduto = catalogo.flatMap((b) => b.pares.filter((p) => p.produtoId === CAN).map((p) => ({ b, p })));
+  const auto = modelo.rotas.find((r) => r.tipo === "automatica");
+  const m8 = auto ? modelo.etapas.find((e) => e.rotaId === auto.id)?.etapaId : undefined;
+  if (doProduto.some(({ p }) => p.papel !== "contabil")) problemas.push("par `zero` no catálogo do produto único (adapter Conv/Auto proibido)");
+  if (m8 && doProduto.some(({ p }) => p.etapaOrigemId === m8 || p.etapaSeguinteId === m8)) problemas.push("par da Máquina 8 no catálogo: a saída da M8 é o buffer comum (Parafusar→Etiquetar), sem par próprio");
+  const buffers = new Set(doProduto.map(({ b }) => b.id));
+  if (doProduto.length > 0 && (buffers.size !== 3 || doProduto.length !== 3)) problemas.push(`o produto único deve ter exatamente 3 buffers com 1 par cada (encontrado: ${buffers.size} buffer(s), ${doProduto.length} par(es))`);
+  return problemas;
+}

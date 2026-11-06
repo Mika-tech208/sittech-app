@@ -4,10 +4,12 @@ import { hashAlocacoes } from "@/features/escala/horizonte";
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import { estadoDaProducao } from "@/features/escala/fluxo";
 import type { ContagemFisicaPar } from "@/features/escala/fluxo/tipos";
-import { buffersObrigatorios, estimarBuffers } from "@/features/escala/fechamento/catalogo";
+import { buffersObrigatorios, estimarBuffers, verificarCatalogoUnico } from "@/features/escala/fechamento/catalogo";
 import { portaoHard } from "@/features/escala/fechamento/validacao";
 import { VALIDADE_ABERTURA_MIN, VALIDADE_TRAVA_S, type BufferCatalogo, type EstadoFechamento, type ModoFechamento, type ParSemBuffer, type PostoFechamento } from "@/features/escala/fechamento/tipos";
+import { desdobrarCanonico, paresParaCanonico, type ParCanonico } from "@/features/produto-canonico/adaptadorMotor";
 import { montarEntradaEscala } from "../montarEntrada";
+import { paresCanonicosDoEstado } from "../fluxo/produtoUnicoVirtual";
 import { dadosProducaoReal, insumosFluxo, regiaoRecalculavel } from "../fluxo/integracao";
 import { carregarApontamentosBanco } from "../fluxo/supabaseFluxo";
 import type { EstadoBruto } from "../estado";
@@ -101,11 +103,16 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
       const tMont0 = relogio();
       const montada = montarEntradaEscala(estado, agoraMs);
       const { entrada, opcoes: opcoesFluxo } = insumosFluxo(estado, montada.entrada, agoraMs);
-      const pares = estado.producaoReal ? estadoDaProducao(entrada, dadosProducaoReal(estado, agoraMs), opcoesFluxo).pares : [];
+      // PRODUTO ÚNICO (cutover): pares dos 3 buffers em ids canônicos (M8 entra no buffer comum); o físico vence. Sem `produtoUnico` no estado: caminho de sempre, byte-idêntico.
+      const pares = !estado.producaoReal ? [] : estado.produtoUnico ? paresCanonicosDoEstado(estado, montada.entrada, agoraMs, estado.produtoUnico.modelo) : estadoDaProducao(entrada, dadosProducaoReal(estado, agoraMs), opcoesFluxo).pares;
       const tMontagem = relogio() - tMont0;
       const tBuf0 = relogio();
       const produtosAtivos = new Set(estado.itens.filter((i) => i.quantidade + (i.quantidadeAdicional ?? 0) > 0).map((i) => i.produtoId));
       const [catalogo, dispensas] = await Promise.all([carregarCatalogo(data), admin.from("escala_buffer_dispensas").select("produto_id, etapa_origem_id, etapa_seguinte_id, vigente_de, vigente_ate")]);
+      if (estado.produtoUnico) {
+        const problemas = verificarCatalogoUnico(catalogo, estado.produtoUnico.modelo);
+        if (problemas.length > 0) throw new Error(`Catálogo de buffers do produto único inválido: ${problemas.join("; ")}`);
+      }
       const obrigatorios = buffersObrigatorios(catalogo, produtosAtivos);
       const estimativas = estado.producaoReal ? estimarBuffers(obrigatorios, pares) : [];
       const chavePar = (p: string, o: string, s: string) => `${p}|${o}|${s}`;
@@ -222,9 +229,12 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
         portaoPublicacao: (c) => {
           const t = relogio();
           try {
+            const paresBrutos = ((c.registro?.wip as { pares?: { produtoId: string; etapaOrigemId: string; etapaSeguinteId: string; wip: { lo: number; hi: number }; negativo?: boolean }[] } | undefined)?.pares) ?? null;
+            // produto único: o registro do planejador traz pares da representação interna; o portão compara com as contagens em ids CANÔNICOS (o par da M8 entra no buffer comum)
+            const dU = c.estado.produtoUnico && paresBrutos ? desdobrarCanonico(c.entrada, c.estado.produtoUnico.modelo) : null;
             return portaoHard({
               corteUsado: c.corteUsado, corteMotivoFalha: c.corteMotivoFalha, checagens: (c.checagens as Record<string, number> | null) ?? null, contagens,
-              paresDoEstado: ((c.registro?.wip as { pares?: { produtoId: string; etapaOrigemId: string; etapaSeguinteId: string; wip: { lo: number; hi: number }; negativo?: boolean }[] } | undefined)?.pares) ?? null,
+              paresDoEstado: dU && !("erro" in dU) ? paresParaCanonico(paresBrutos as ParCanonico[], dU) : paresBrutos,
             });
           } finally { tValid += relogio() - t; }
         },
