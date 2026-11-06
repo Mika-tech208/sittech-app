@@ -44,6 +44,7 @@ import { temPermissao } from "@/lib/permissoes";
 import { dataLocalSP, horaLocalSP } from "@/hooks/useProducaoRealPainel";
 import SeloFechamento from "@/features/escala/fechamento/SeloFechamento";
 import FechamentoPeriodoModal from "@/features/producao-real/fechamento/FechamentoPeriodoModal";
+import RegularizacaoHistoricaModal from "@/features/producao-real/RegularizacaoHistoricaModal";
 import { estadoFechamentoApi, postosProgramadosApi } from "@/features/producao-real/fechamento/api";
 import { estadoDaGrade, filtrarGradeProgramada, MENSAGEM_POSTOS_NAO_CARREGADOS, textoApontamentosCompletos, type EstadoGrade } from "@/features/producao-real/fechamento/textos";
 import { formatBRL, setModoPrivadoAtivo } from "@/lib/format";
@@ -158,6 +159,9 @@ export default function ProducaoRealPainelPage() {
 
   // ---- FECHAMENTO FÍSICO (flag escala_fechamento_fisico_modo; desligado = esta seção não aparece e nada muda) ----
   const podeFechar = temPermissao(auth.usuarioLogado, "escala_fechamento");
+  // regularização histórica (admin / perfil superior): atalho para o modo administrativo de dias passados liberados
+  const podeRegularizar = temPermissao(auth.usuarioLogado, "escala_fechamento_excecao");
+  const [regularizacaoAberta, setRegularizacaoAberta] = useState(false);
   const [modoFechamento, setModoFechamento] = useState<"desligado" | "sombra" | "ativo">("desligado");
   const [estadoFechamento, setEstadoFechamento] = useState<string | null>(null);
   const [fechamentoAberto, setFechamentoAberto] = useState(false);
@@ -412,7 +416,12 @@ export default function ProducaoRealPainelPage() {
             onAbrirMenu={shell.abrirGaveta}
           />
           {painel.modoRetroativo && (
-            <span className="stx-ap-retroativo-badge">Período anterior</span>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span className="stx-ap-retroativo-badge">Período anterior</span>
+              {podeRegularizar && (
+                <button type="button" className="stx-ap-btn-primary" onClick={() => setRegularizacaoAberta(true)}>REGULARIZAR APONTAMENTOS ANTERIORES</button>
+              )}
+            </div>
           )}
 
           <div className="stx-ap-toprow">
@@ -486,6 +495,9 @@ export default function ProducaoRealPainelPage() {
           ) : estadoGrade === "nao_liberada" ? (
             <div className="stx-empty" role="status">
               <p style={{ fontWeight: 700, margin: "0 0 10px" }}>AGUARDANDO NOVA PROGRAMAÇÃO — a programação deste período será liberada depois do fechamento físico do período anterior.</p>
+              {podeRegularizar && painel.modoRetroativo && (
+                <button type="button" className="stx-ap-btn-primary" style={{ minHeight: 56, marginRight: 8 }} onClick={() => setRegularizacaoAberta(true)}>REGULARIZAR APONTAMENTOS ANTERIORES</button>
+              )}
               {grade?.predecessor && podeFechar && (
                 <button type="button" className="stx-ap-btn-primary" style={{ minHeight: 56 }} onClick={() => setPeriodoSelecionado({ data: grade.predecessor!.data, periodoId: grade.predecessor!.periodo })}>
                   FECHAR {grade.predecessor.rotulo} (período anterior)
@@ -652,6 +664,10 @@ export default function ProducaoRealPainelPage() {
           onProximaMaquina={() => irParaProximaPendente(maquinaEmEdicao.id)}
           temProximaPendente={!!proximaPendente(maquinaEmEdicao.id)}
         />
+      )}
+
+      {regularizacaoAberta && (
+        <RegularizacaoHistoricaModal dataInicial={painel.periodoAtual?.data} periodoInicial={painel.periodoAtual?.id} onFechar={() => { setRegularizacaoAberta(false); painel.recarregar(); }} />
       )}
 
       {apontamentoResumo && (
