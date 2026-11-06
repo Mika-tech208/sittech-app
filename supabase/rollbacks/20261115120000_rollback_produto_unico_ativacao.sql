@@ -22,7 +22,7 @@ create or replace view public.escala_contagens_fechamento_para_motor as
   join public.escala_buffer_pares bp on bp.buffer_id = fb.buffer_id
        and f.data >= bp.vigente_de and (bp.vigente_ate is null or f.data <= bp.vigente_ate)
   order by bp.produto_id, bp.etapa_origem_id, bp.etapa_seguinte_id, f.instante_motor desc, f.fechado_em desc;
-drop function if exists public.produto_unico_ativar(date, text);
+drop function if exists public.produto_unico_ativar(date, text, boolean);
 drop function if exists public.produto_unico_desativar(text);
 drop function if exists public.produto_unico_estado(date);
 notify pgrst, 'reload schema';

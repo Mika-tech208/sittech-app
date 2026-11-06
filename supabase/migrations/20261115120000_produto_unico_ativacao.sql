@@ -7,7 +7,9 @@
 --   produto_unico_desativar()      : REFUSA se algo novo ainda depende do produto único na Previsão; NUNCA apaga apontamento/plano/fechamento. Sem uso do produto único: desfaz exatamente a ativação.
 --                                    Com fechamento já feito sob o produto único: encerra os pares novos no último fechamento e reabre os legados no dia seguinte (novas linhas); nada é apagado.
 --   produto_unico_estado(semana)   : leitura (cutover, produto, buffers obrigatórios da semana, pares vigentes) para scripts, testes e conferência.
--- Os 3 buffers físicos (escala_buffers_fisicos 'conector34:*') são OS MESMOS de hoje; muda quem os alimenta: Parafusar convencional e M8 entram no MESMO buffer 'parafusadas' (2 pares 'contabil', sem par 'zero').
+-- Os 3 buffers físicos (escala_buffers_fisicos 'conector34:*') são OS MESMOS de hoje; Parafusar convencional e M8 alimentam o MESMO buffer 'parafusadas'. Catálogo do produto único, sem par 'zero':
+--   p_par_m8 = false (PADRÃO): 3 pares, 1 por buffer (a saída da M8 entra no buffer comum sem par próprio) — é o que a guarda verificarCatalogoUnico do fechamento (trilha A) exige;
+--   p_par_m8 = true : 4 pares (buffer 'parafusadas' com 2 'contabil': Parafusar→Etiquetar e M8→Etiquetar). escala_buffer_maquinas inclui a M8 como 'produz' nos dois casos.
 -- escala_contagens_fechamento_para_motor (view) passa a entregar o saldo físico a UM só par 'contabil' por buffer (o de maior ordem de roteiro = Parafusar→Etiquetar); os demais 'contabil' recebem 0.
 --   Com o catálogo atual (no máximo 1 par 'contabil' por buffer) a saída da view é idêntica à de antes.
 -- Reversão: supabase/rollbacks/20261115120000_rollback_produto_unico_ativacao.sql
@@ -68,7 +70,7 @@ $$;
 -- =========================================================================
 -- 3) ATIVAR
 -- =========================================================================
-create or replace function public.produto_unico_ativar(p_cutover date, p_feito_por text default 'script')
+create or replace function public.produto_unico_ativar(p_cutover date, p_feito_por text default 'script', p_par_m8 boolean default false)
 returns jsonb
 language plpgsql
 security definer
@@ -79,6 +81,8 @@ declare
   v_ativo_antes boolean;
   v_legado_ids uuid[];
   v_pares_novos jsonb := '[]'::jsonb;
+  v_arestas int := 0;
+  v_bufs_aresta jsonb := '[]'::jsonb;
   v_pares_encerrados jsonb;
   v_maq_novas jsonb;
   r record;
@@ -118,12 +122,18 @@ begin
   loop
     if r.chave is null then raise exception 'ATIVAR_ARESTA_SEM_BUFFER: % -> % não tem buffer físico definido', r.op_o, r.op_d; end if;
     if not exists (select 1 from public.escala_buffers_fisicos where chave = r.chave and ativo) then raise exception 'ATIVAR_BUFFER_INEXISTENTE: % (catálogo de buffers físicos)', r.chave; end if;
+    v_arestas := v_arestas + 1;
+    v_bufs_aresta := v_bufs_aresta || jsonb_build_object('buffer', r.chave, 'origem_etapa', r.origem_etapa_id, 'seguinte_etapa', r.destino_etapa_id);
+    -- DEFAULT (p_par_m8 = false): a saída da M8 entra no buffer comum SEM par próprio -> 3 pares no total (1 por buffer), como exige a guarda verificarCatalogoUnico do fechamento (trilha A).
+    -- p_par_m8 = true: 4 pares (buffer 'parafusadas' com 2 'contabil': Parafusar→Etiquetar e M8→Etiquetar); a view de contagens entrega o saldo a UM só deles.
+    if r.op_o = 'Rosquear + Parafusar' and not p_par_m8 then continue; end if;
     insert into public.escala_buffer_pares (buffer_id, produto_id, etapa_origem_id, etapa_seguinte_id, papel, vigente_de)
       select b.id, v_prod, r.origem_etapa_id, r.destino_etapa_id, 'contabil', p_cutover from public.escala_buffers_fisicos b where b.chave = r.chave
       on conflict (buffer_id, produto_id, etapa_origem_id, etapa_seguinte_id, vigente_de) do nothing;
     v_pares_novos := v_pares_novos || jsonb_build_object('buffer', r.chave, 'origem', r.op_o, 'seguinte', r.op_d);
   end loop;
-  if jsonb_array_length(v_pares_novos) <> 4 then raise exception 'ATIVAR_PARES_INESPERADOS: esperados 4 pares (Rosquear→Parafusar, Parafusar→Etiquetar, M8→Etiquetar, Etiquetar→Embalar), gerados %', jsonb_array_length(v_pares_novos); end if;
+  if v_arestas <> 4 then raise exception 'ATIVAR_ARESTAS_INESPERADAS: esperadas 4 arestas (Rosquear→Parafusar, Parafusar→Etiquetar, M8→Etiquetar, Etiquetar→Embalar), achadas %', v_arestas; end if;
+  if jsonb_array_length(v_pares_novos) <> (3 + (p_par_m8)::int) then raise exception 'ATIVAR_PARES_INESPERADOS: gerados %', jsonb_array_length(v_pares_novos); end if;
 
   -- legados: encerrados na véspera (guarda o vigente_ate anterior para a reversão exata)
   select coalesce(jsonb_agg(jsonb_build_object('id', bp.id, 'vigente_ate_antes', bp.vigente_ate)), '[]'::jsonb) into v_pares_encerrados
@@ -132,11 +142,13 @@ begin
    where produto_id = any(v_legado_ids) and (vigente_ate is null or vigente_ate >= p_cutover);
 
   -- máquinas que produzem/consomem cada buffer (erro por máquina): completa com as do produto único (mesmas dos legados; ON CONFLICT não duplica)
-  with novas as (
+  with arestas as (
+    select (e ->> 'buffer') as chave, (e ->> 'origem_etapa')::uuid as o, (e ->> 'seguinte_etapa')::uuid as d from jsonb_array_elements(v_bufs_aresta) e),
+  novas as (
     insert into public.escala_buffer_maquinas (buffer_id, maquina_id, papel)
-      select bp.buffer_id, m.maquina_id, 'produz' from public.escala_buffer_pares bp join public.roteiro_etapa_maquinas m on m.etapa_id = bp.etapa_origem_id where bp.produto_id = v_prod
+      select b.id, m.maquina_id, 'produz' from arestas a join public.escala_buffers_fisicos b on b.chave = a.chave join public.roteiro_etapa_maquinas m on m.etapa_id = a.o
       union
-      select bp.buffer_id, m.maquina_id, 'consome' from public.escala_buffer_pares bp join public.roteiro_etapa_maquinas m on m.etapa_id = bp.etapa_seguinte_id where bp.produto_id = v_prod
+      select b.id, m.maquina_id, 'consome' from arestas a join public.escala_buffers_fisicos b on b.chave = a.chave join public.roteiro_etapa_maquinas m on m.etapa_id = a.d
       on conflict do nothing returning buffer_id, maquina_id, papel)
   select coalesce(jsonb_agg(to_jsonb(novas)), '[]'::jsonb) into v_maq_novas from novas;
 
@@ -152,7 +164,7 @@ begin
 
   insert into public.produto_canonico_ativacoes (acao, cutover, feito_por, detalhes)
     values ('ativar', p_cutover, p_feito_por, jsonb_build_object('produto_canonico_id', v_prod, 'produto_ativo_antes', v_ativo_antes, 'pares_novos', v_pares_novos,
-                                                                 'pares_legado_encerrados', v_pares_encerrados, 'maquinas_buffer_novas', v_maq_novas));
+                                                                 'pares_legado_encerrados', v_pares_encerrados, 'maquinas_buffer_novas', v_maq_novas, 'par_m8', p_par_m8));
   return jsonb_build_object('ja_ativo', false, 'cutover', p_cutover, 'produto_canonico_id', v_prod, 'pares_novos', jsonb_array_length(v_pares_novos),
                             'pares_legado_encerrados', jsonb_array_length(v_pares_encerrados), 'estado', public.produto_unico_estado(p_cutover));
 end;
@@ -232,10 +244,10 @@ begin
 end;
 $$;
 
-revoke all on function public.produto_unico_ativar(date, text) from public, anon, authenticated;
+revoke all on function public.produto_unico_ativar(date, text, boolean) from public, anon, authenticated;
 revoke all on function public.produto_unico_desativar(text) from public, anon, authenticated;
 revoke all on function public.produto_unico_estado(date) from public, anon;
-grant execute on function public.produto_unico_ativar(date, text) to service_role;
+grant execute on function public.produto_unico_ativar(date, text, boolean) to service_role;
 grant execute on function public.produto_unico_desativar(text) to service_role;
 grant execute on function public.produto_unico_estado(date) to authenticated, service_role;
 notify pgrst, 'reload schema';

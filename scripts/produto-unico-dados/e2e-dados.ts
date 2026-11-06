@@ -85,7 +85,11 @@ const M8 = "a118f430-f854-4e89-9e3c-ce6fcbbc52cf";
   const contagens = contagensDoInventario(conector, informados, Date.parse(`${S0}T05:00:00-03:00`), "e2e", "inicialização física");
   const soma = somaPorBuffer(conector, contagens);
   const buf2 = conector.find((b) => b.chave.endsWith("parafusadas"))!;
-  ok(soma[buf2.id] === B, "E7d contagensDoInventario (TS, trilha A) mantém o buffer 'parafusadas' = 5.000 (sem duplicar)", `soma entregue ao motor = ${soma[buf2.id]} (esperado ${B}) — ${soma[buf2.id] === B ? "OK" : "DUPLICA: 2 pares 'contabil' recebem o total cada; a view do banco já trata, o TS precisa tratar igual"}`);
+  ok(soma[buf2.id] === B, "E7d contagensDoInventario (TS) mantém o buffer 'parafusadas' = 5.000 (sem duplicar)", `soma entregue ao motor = ${soma[buf2.id]} (esperado ${B})`);
+  // mesma regra da guarda verificarCatalogoUnico (trilha A): 3 buffers, 1 par contábil cada, nenhum par zero, nenhum par da M8
+  const doUnico = conector.flatMap((b) => b.pares.filter((p) => p.produtoId === pu));
+  const etM8 = psql(`select ce.etapa_id from produto_canonico_etapas ce join roteiro_etapas e on e.id=ce.etapa_id join operacoes o on o.id=e.operacao_id where o.nome='Rosquear + Parafusar'`);
+  ok(doUnico.length === 3 && doUnico.every((p) => p.papel === "contabil") && !doUnico.some((p) => p.etapaOrigemId === etM8 || p.etapaSeguinteId === etM8), "E7e catálogo do produto único satisfaz a guarda de catálogo do fechamento (3 pares contábeis, sem zero, sem par da M8)");
 
   // ---- E8: ROLLBACK ----
   const rb1 = tenta(`select public.produto_unico_desativar('e2e')`);
