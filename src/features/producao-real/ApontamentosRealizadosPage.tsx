@@ -21,6 +21,7 @@ import { useApontamentosRealizados, type FiltrosApontamentos, type ApontamentoRe
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { LABEL_MOTIVO_SEM_PRODUCAO } from "@/features/producao-real/SemProducaoModal";
 import ResumoApontamentoModal from "@/features/producao-real/ResumoApontamentoModal";
+import RegularizacaoHistoricaModal from "@/features/producao-real/RegularizacaoHistoricaModal";
 import PerformanceIndicador from "@/features/producao-real/components/PerformanceIndicador";
 import LoginScreen from "@/components/shell/LoginScreen";
 import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
@@ -130,6 +131,7 @@ export default function ApontamentosRealizadosPage() {
   }
 
   const [apontamentoSelecionado, setApontamentoSelecionado] = useState<ApontamentoRealizado | null>(null);
+  const [regularizacaoAberta, setRegularizacaoAberta] = useState(false);
 
   if (auth.emModoRecovery) {
     return (
@@ -243,6 +245,9 @@ export default function ApontamentosRealizadosPage() {
             <div>
               <h1 className="stx-title">Apontamentos realizados</h1>
             </div>
+            {temPermissao(auth.usuarioLogado, "escala_fechamento_excecao") && (
+              <button type="button" className="stx-apr-pill-btn-primary" onClick={() => setRegularizacaoAberta(true)}>REGULARIZAR APONTAMENTOS ANTERIORES</button>
+            )}
           </div>
 
           <button type="button" className="stx-apr-filtros-toggle" onClick={() => setFiltrosAbertos((v) => !v)}>
@@ -363,6 +368,10 @@ export default function ApontamentosRealizadosPage() {
         minhaContaMsg={auth.minhaContaMsg}
         onSalvar={auth.alterarMinhaSenha}
       />
+
+      {regularizacaoAberta && (
+        <RegularizacaoHistoricaModal onFechar={() => { setRegularizacaoAberta(false); apontamentosHook.buscar(filtrosForm); }} />
+      )}
 
       {apontamentoSelecionado && (
         <ResumoApontamentoModal
