@@ -33,13 +33,13 @@ Gerado por `scripts/produto-unico/replay.ts` (só leitura do CLONE local de PROD
 - Semana 2026-10-26: total 42.1% M8 (31.975 peças) × 57.9% convencional; por dia: 10-26: 40.4%, 10-27: 30.3%, 10-28: 40.7%, 10-29: 50.8%, 10-30: 51.4%
 - Semana 2026-11-02: total 41.9% M8 (28.500 peças) × 58.1% convencional; por dia: 11-03: 43.4%, 11-04: 42.6%, 11-05: 34.5%, 11-06: 49.7%
 
-A proporção NÃO é fixada pelo Forecast e muda de semana para semana e de dia para dia (de ~30% a ~72% da M8 conforme pessoas, ausências e metas); a M8 sozinha tem teto de 1 máquina/1 operador (≈ 28.500 peças em 24 períodos), então 100% M8 só aparece quando a demanda restante cabe nela.
+A proporção NÃO é fixada pelo Forecast e muda de semana para semana e de dia para dia (de ~30% a ~72% da M8 conforme pessoas, ausências e metas); a M8 sozinha tem teto de 1 máquina/1 operador (≈ 28.500 peças em 4 dias de 6 períodos; 35.625 em 5 dias), então 100% M8 só aparece quando a demanda restante cabe nela.
 
 ## Leitura
 
 - **Quantidade final / duplicação**: o produto único nunca ultrapassa a demanda (93.300 em 02/11; Σ Conv+Auto das demais semanas) e a Embalagem conta uma vez. Em `gera`, final do ÚNICO vs ATUAL: 12/10 -4,5%, 19/10 +4,2%, 26/10 +0,6%, 02/11 -0,3% — diferenças dentro da variação da própria busca (o ATUAL varia de 57,9k a 65k em 02/11 só mudando semente/orçamento).
 - **WIP físico**: em 02/11 `meio` os WIPs iniciais dos 3 buffers são IDÊNTICOS nos dois modelos (3.224 / 7.216 / 10.756): a contagem do buffer comum não é duplicada nem perdida pela agregação M8+Parafusar.
-- **Soma da M8 / uso do buffer comum**: a M8 entrega 24,9k–35,6k por semana em `gera` (teto físico), o buffer comum (b2) nunca fica negativo; o pico do buffer comum no ÚNICO é igual ou menor que no ATUAL em 3 das 4 semanas.
+- **Soma da M8 / uso do buffer comum**: a M8 entrega 23,8k–35,6k por semana em `gera` (teto físico), o buffer comum (b2) nunca fica negativo; o pico do buffer comum no ÚNICO é igual ou menor que no ATUAL em 3 das 4 semanas.
 - **Revezamento, pessoa/máquina duplicada, cadeia, material, máquina fora da Previsão**: 0 em todas as execuções em que o planejador aprovou o plano (ATUAL e ÚNICO). A M8 nunca tem mais de 1 operador.
 
 ## Inconsistências encontradas (honestas)
