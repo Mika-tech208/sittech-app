@@ -1,4 +1,4 @@
--- ROLLBACK da migration 20261107110000_produto_canonico_conversao (F2). NÃO é migration; executar à mão (orquestrador).
+-- ROLLBACK da migration 20261115110000_produto_canonico_conversao (F2). NÃO é migration; executar à mão (orquestrador).
 -- Remove os 2 gatilhos de guarda (previsao_itens, apontamentos_producao), as funções de conversão/reversão e as 2 visões; descarta a tabela de conversões.
 -- RECUSA se alguma Previsão ainda está convertida (última ação 'converter' sem 'reverter' posterior): chame antes produto_unico_reverter_previsao(previsao) — o backup está nessa tabela.
 -- Depois desta reversão o banco volta ao estado da F0 (fingerprint do legado idêntico; ver supabase/tests/produto-canonico).
@@ -17,6 +17,10 @@ end
 $rb$;
 drop trigger if exists trg_produto_unico_guarda_previsao_item on public.previsao_itens;
 drop trigger if exists trg_produto_unico_guarda_apontamento on public.apontamentos_producao;
+drop trigger if exists trg_produto_unico_guarda_adicional_etapa on public.previsao_item_adicional_etapa;
+drop function if exists public.produto_unico_trg_guarda_adicional_etapa();
+drop function if exists public.produto_unico_unificar_previsao(uuid);
+drop function if exists public.produto_unico_separar_previsao(uuid);
 drop function if exists public.produto_unico_trg_guarda_previsao_item();
 drop function if exists public.produto_unico_trg_guarda_apontamento();
 drop function if exists public.produto_unico_converter_previsao(uuid, numeric, text);

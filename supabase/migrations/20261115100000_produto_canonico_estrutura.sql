@@ -6,9 +6,10 @@
 --   • UMA chave nova em escala_parametros: `produto_unico_cutover` = null (sem cutover). Inserida com os gatilhos de evento/versão DESLIGADOS (não dispara recálculo nem cria versão de plano).
 -- Nada lê estas estruturas enquanto `produto_unico_cutover` for null e o código com a flag desligada for o de hoje => comportamento e hash de plano byte-idênticos.
 --
--- O QUE ESTA MIGRATION NÃO FAZ (decisão explícita): não cria o produto canônico (isso é o backfill F1, supabase/ops/produto-canonico/10-backfill-conector.sql, depois do código com o guard no ar);
+-- O QUE ESTA MIGRATION NÃO FAZ (decisão explícita): não cria o produto canônico (isso é o backfill F1, supabase/ops/produto-unico/10-backfill-conector-unico.sql, depois do código com o guard no ar);
 -- não altera produtos/roteiro_etapas/apontamentos/alocações/previsão; não converte histórico; não muda RPC de apontamento nem as funções escala_*.
--- Reversão: supabase/rollbacks/20261107100000_rollback_produto_canonico.sql (recusa se algum dado do modelo canônico já foi USADO por apontamento/alocação/previsão).
+-- (renumerada de 20261107100000 para 20261115100000: precisa ficar DEPOIS das migrations já aplicadas em PROD até 20261114120000; revisada em 06/11 contra o PROD atual)
+-- Reversão: supabase/rollbacks/20261115100000_rollback_produto_canonico_{1_backfill,2_estrutura}.sql (recusam se algum dado do modelo canônico já foi USADO por apontamento/alocação/previsão).
 --
 -- Conceito: etapa pertence a UM produto (roteiro_etapas.produto_id). O produto canônico P* tem etapas PRÓPRIAS (novas); o produto legado continua com as dele.
 --   produto_rotas               rotas de P* (CONVENCIONAL, AUTOMATICA)
@@ -83,7 +84,7 @@ create index if not exists etapa_legado_mapa_canonica on public.etapa_legado_map
 create table if not exists public.produto_canonico_ativacoes (
   id bigint generated always as identity primary key,
   criado_em timestamptz not null default now(),
-  acao text not null check (acao in ('backfill', 'ativar', 'reverter', 'rollback_backfill')),
+  acao text not null check (acao in ('backfill', 'ativar', 'desativar', 'reverter', 'rollback_backfill', 'unificar_previsao', 'separar_previsao')),
   cutover date,
   feito_por text,
   detalhes jsonb not null default '{}'::jsonb
