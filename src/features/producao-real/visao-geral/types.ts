@@ -138,6 +138,8 @@ export interface ResultadoVisaoGeralProducaoReal {
   attentionItems: AttentionItem[];
   downtime: DowntimeResumo;
   pressuredResource: RecursoPressionadoResumo | null;
+  /** semana com produto de rotas alternativas: o recurso mais pressionado (carga linear) NÃO é calculado */
+  pressuredResourceIndisponivel?: boolean;
   dataQuality: DataQuality;
   drillDown: DrillDownVisaoGeral;
 }

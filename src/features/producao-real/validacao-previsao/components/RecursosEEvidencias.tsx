@@ -5,6 +5,7 @@
 // nunca somados a peças de produtos previstos.
 
 import type { ResultadoValidacaoPrevisao } from "@/features/producao-real/validacao-previsao/types";
+import IndicadorIndisponivel from "@/features/produto-canonico/components/IndicadorIndisponivel";
 import { formatarMinutos, formatarPecas, formatarPercentualIndicador } from "@/features/producao-real/indicadores/format";
 
 const LABEL_MOTIVO: Record<string, string> = {
@@ -18,7 +19,9 @@ export default function RecursosEEvidencias({ resultado }: { resultado: Resultad
       <div className="stx-section">
         <p className="stx-panel-title">Recursos mais pressionados</p>
         <p className="stx-panel-sub">Horas restantes por máquina até o fim da semana útil — nunca "total de peças da fábrica" somando produtos diferentes.</p>
-        {resultado.recursosPressionados.length === 0 ? (
+        {resultado.recursosPressionadosIndisponivel ? (
+          <IndicadorIndisponivel />
+        ) : resultado.recursosPressionados.length === 0 ? (
           <div className="stx-empty">Nenhuma máquina com demanda restante calculada.</div>
         ) : (
           <div className="stx-ind-tabela-wrap" style={{ marginTop: 8 }}>

@@ -17,6 +17,8 @@ import { useFuncionarios } from "@/hooks/useFuncionarios";
 import { useFuncionariosElegibilidade } from "@/hooks/useFuncionariosElegibilidade";
 import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
+import { useModelosRotasAlternativas } from "@/hooks/useModelosRotasAlternativas";
+import { idsComRotasAlternativas } from "@/features/produto-canonico/indicadores";
 import { useOperacoesComId } from "@/hooks/useOperacoesComId";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
@@ -114,7 +116,8 @@ export default function DesviosPage() {
   const [produtoFiltro, setProdutoFiltro] = useState("");
   const [maquinaFiltro, setMaquinaFiltro] = useState("");
 
-  const resultado = useMemo(() => gerarFilaDesvios(desviosHook.apontamentos, desviosHook.paradas), [desviosHook.apontamentos, desviosHook.paradas]);
+  const modelosRotas = useModelosRotasAlternativas(auth.autenticado);
+  const resultado = useMemo(() => gerarFilaDesvios(desviosHook.apontamentos, desviosHook.paradas, undefined, idsComRotasAlternativas(modelosRotas)), [desviosHook.apontamentos, desviosHook.paradas, modelosRotas]);
 
   const incidentesFiltrados = useMemo(() => {
     return resultado.incidentes.filter((inc) => {

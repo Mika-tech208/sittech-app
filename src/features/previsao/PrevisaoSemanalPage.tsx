@@ -11,6 +11,7 @@ import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
 import { useModelosCanonicos } from "@/hooks/useModelosCanonicos";
 import { useGuardaProdutos } from "@/hooks/useGuardaProdutos";
+import { useModelosRotasAlternativas } from "@/hooks/useModelosRotasAlternativas";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useSidebarState } from "@/hooks/useSidebarState";
@@ -49,7 +50,7 @@ import {
   diasDaSemana, resolverDiasProdutivos, alternarDia, resolverEquipeProdutiva, alternarMembro, marcarTodos, definirOperacao,
 } from "@/features/capacidade/diasEEquipe";
 import { baixarProgramacaoSemanaPDF } from "@/features/previsao/pdf";
-import { calcularProdutosProgramados, calcularProdutosNaoPrevistos, calcularResumoProgramacaoPecas, calcularHistoricoSemanal } from "@/features/previsao/progressoSemana";
+import { calcularProdutosProgramados, calcularProdutosNaoPrevistos, calcularResumoProgramacaoPecas, calcularHistoricoSemanal, comPossivelIndisponivel } from "@/features/previsao/progressoSemana";
 import { calcularProdutosProgramadosLegado, calcularProdutosNaoPrevistosLegado, calcularResumoProgramacaoPecasLegado } from "@/features/previsao/progressoLegado";
 import { metodologiaDaSemana, APONTADO_REAL_PROGRESSO_DESDE } from "@/features/previsao/vigencia";
 import ProdutosProgramadosLegado from "@/features/previsao/components/ProdutosProgramadosLegado";
@@ -57,8 +58,10 @@ import { formatPct } from "@/features/previsao/formatPct";
 import Recolhivel from "@/features/previsao/components/Recolhivel";
 import type { Produto, PrevisaoItem, Previsao } from "@/types/domain";
 import { supabase } from "@/services/supabase-client";
+import IndicadorIndisponivel from "@/features/produto-canonico/components/IndicadorIndisponivel";
 import UnificarConectorBanner from "@/features/produto-canonico/components/UnificarConectorBanner";
 import { mensagemErroUnificar, ofertaUnificar } from "@/features/produto-canonico/unificarPrevisao";
+import { algumProdutoComRotasAlternativas, ehIndisponivel, indicadorOuIndisponivel } from "@/features/produto-canonico/indicadores";
 
 const emptyPrevItemForm: PrevItemFormState = { produtoId: "", quantidade: "", maquinasPorEtapa: {} };
 
@@ -93,6 +96,7 @@ export default function PrevisaoSemanalPage() {
   const { produtos } = produtosHook;
   const guardaProdutos = useGuardaProdutos(!!auth.autenticado && !produtosHook.loading);
   const modelosCanonicos = useModelosCanonicos(!!auth.autenticado && !produtosHook.loading); // [] antes do cutover/backfill: nada muda
+  const modelosRotas = useModelosRotasAlternativas(!!auth.autenticado && !produtosHook.loading); // vigentes (planejamento OU cutover): decidem os indicadores consultivos
   const previsoesHook = usePrevisoes(
     auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading && !produtosHook.loading
   );
@@ -183,22 +187,27 @@ export default function PrevisaoSemanalPage() {
   const itensParaAnalise = modoSimulacao && itensSimulados ? itensSimulados : semanaAtualRec.itens;
 
   // ---- análise de capacidade (mesmas funções puras testadas no Checkpoint 1/1.5) ----
+  // PRODUTO COM ROTAS ALTERNATIVAS (Conector 3/4 único): estes cálculos assumem roteiro LINEAR por ordem (carga da quantidade em TODAS as etapas) e dariam números errados.
+  // Semana com esse produto => indicador indisponível (sentinela), nunca número. Sem esse produto: exatamente as funções de sempre.
+  const idsProdutosDosItens = useMemo(() => itensParaAnalise.map((it) => it.produtoId), [itensParaAnalise]);
+  const semanaComRotasAlt = useMemo(() => algumProdutoComRotasAlternativas(idsProdutosDosItens, modelosRotas), [idsProdutosDosItens, modelosRotas]);
   const analiseCapacidadeSemana = useMemo(
-    () => calcularAnaliseCapacidadeSemanal(itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana),
-    [itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana]
+    () => indicadorOuIndisponivel(idsProdutosDosItens, modelosRotas, () => calcularAnaliseCapacidadeSemanal(itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana)),
+    [idsProdutosDosItens, modelosRotas, itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana]
   );
   const capacidadeMaximaSemana = useMemo(
-    () => calcularCapacidadeMaximaSemana(itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana),
-    [itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana]
+    () => indicadorOuIndisponivel(idsProdutosDosItens, modelosRotas, () => calcularCapacidadeMaximaSemana(itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana)),
+    [idsProdutosDosItens, modelosRotas, itensParaAnalise, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana]
   );
+  const resultadosCapacidade = ehIndisponivel(capacidadeMaximaSemana) ? [] : capacidadeMaximaSemana.resultadosPorItem;
 
   // ---- consolidação por produto: Previsto / Possível / Apontado real / Falta / % ----
   // O andamento NÃO recalcula atingibilidade — analiseCapacidadeSemana acima já foi calculada só com itensParaAnalise (planejamento × capacidade).
   // APONTADO REAL: apontamentos da Produção Real, última etapa válida do roteiro; uma chamada por semana, atualizada sozinha.
   const apontadoRealHook = useApontadoRealSemana(!!auth.autenticado, semanaAtual);
   const produtosProgramados = useMemo(
-    () => calcularProdutosProgramados(itensParaAnalise, capacidadeMaximaSemana.resultadosPorItem, apontadoRealHook.mapa),
-    [itensParaAnalise, capacidadeMaximaSemana, apontadoRealHook.mapa]
+    () => comPossivelIndisponivel(calcularProdutosProgramados(itensParaAnalise, resultadosCapacidade, apontadoRealHook.mapa), semanaComRotasAlt ? new Set(idsProdutosDosItens) : new Set<string>()),
+    [itensParaAnalise, resultadosCapacidade, apontadoRealHook.mapa, semanaComRotasAlt, idsProdutosDosItens]
   );
   const nomePorProdutoId = useMemo(() => new Map(produtos.map((pr) => [pr.id, pr.nome])), [produtos]);
   const produtosNaoPrevistos = useMemo(
@@ -213,8 +222,8 @@ export default function PrevisaoSemanalPage() {
   );
   // metodologia histórica (semanas < vigência): cálculo anterior à feature, inalterado
   const produtosProgramadosLegado = useMemo(
-    () => calcularProdutosProgramadosLegado(itensParaAnalise, capacidadeMaximaSemana.resultadosPorItem, realizadoPorProduto, apontadoRealHook.mapa),
-    [itensParaAnalise, capacidadeMaximaSemana, realizadoPorProduto, apontadoRealHook.mapa]
+    () => calcularProdutosProgramadosLegado(itensParaAnalise, resultadosCapacidade, realizadoPorProduto, apontadoRealHook.mapa),
+    [itensParaAnalise, resultadosCapacidade, realizadoPorProduto, apontadoRealHook.mapa]
   );
   const produtosNaoPrevistosLegado = useMemo(
     () => calcularProdutosNaoPrevistosLegado(itensParaAnalise, semanaAtualRec.itensRealizados || []),
@@ -222,7 +231,7 @@ export default function PrevisaoSemanalPage() {
   );
   const resumoProgramacaoPecasLegado = useMemo(() => calcularResumoProgramacaoPecasLegado(produtosProgramadosLegado), [produtosProgramadosLegado]);
   const observacoesSetup = useMemo(
-    () => calcularObservacoesSetup(analiseCapacidadeSemana, produtos, getLucroHora),
+    () => (ehIndisponivel(analiseCapacidadeSemana) ? [] : calcularObservacoesSetup(analiseCapacidadeSemana, produtos, getLucroHora)),
     [analiseCapacidadeSemana, produtos, custoHoraPorOperacao, custoHoraEmpresa, periodosComDuracao]
   );
 
@@ -321,9 +330,10 @@ export default function PrevisaoSemanalPage() {
   // ---- ajuste automático pra capacidade ----
   const [showAjustarModal, setShowAjustarModal] = useState(false);
   async function aplicarAjusteCapacidade() {
+    if (ehIndisponivel(capacidadeMaximaSemana)) { setShowAjustarModal(false); return; } // produto com rotas alternativas: NUNCA reduz a Previsão por capacidade linear
     const base = modoSimulacao && itensSimulados ? itensSimulados : semanaAtualRec.itens;
     const itensAjustados = base.map((it) => {
-      const resultado = capacidadeMaximaSemana.resultadosPorItem.find((r) => r.itemId === it.id);
+      const resultado = resultadosCapacidade.find((r) => r.itemId === it.id);
       if (!resultado) return it;
       return { ...it, quantidade: resultado.maximoPossivel };
     });
@@ -467,7 +477,7 @@ export default function PrevisaoSemanalPage() {
                 <div>
                   <button className="stx-prev-pill-btn" onClick={() => baixarProgramacaoSemanaPDF({
                     semanaAtual, semanaAtualRec, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana,
-                    duracaoMediaPeriodo, diasProdutivosSemana: diasProdutivos.length, equipeProdutivaCount, getLucroHora,
+                    duracaoMediaPeriodo, diasProdutivosSemana: diasProdutivos.length, equipeProdutivaCount, getLucroHora, modelosRotas,
                   })}>Exportar PDF</button>
                   <p className="stx-prev-pdf-hint">Cmd/Ctrl+P → Salvar como PDF</p>
                 </div>
@@ -534,7 +544,7 @@ export default function PrevisaoSemanalPage() {
                   </div>
                   <div>
                     <p className="stx-prev-hero-label">Possível</p>
-                    <p className="stx-prev-sec-value" style={{ color: "var(--warning)" }}>{formatQtd(resumoProgramacaoPecas.totalPossivel)}</p>
+                    <p className="stx-prev-sec-value" style={{ color: "var(--warning)" }}>{resumoProgramacaoPecas.totalPossivel === null ? "—" : formatQtd(resumoProgramacaoPecas.totalPossivel)}</p>
                   </div>
                   <div>
                     <p className="stx-prev-hero-label">Apontado real</p>
@@ -545,6 +555,7 @@ export default function PrevisaoSemanalPage() {
                     <p className="stx-prev-sec-value">{resumoProgramacaoPecas.totalFalta === null ? "—" : formatQtd(resumoProgramacaoPecas.totalFalta)}</p>
                   </div>
                 </div>
+                {resumoProgramacaoPecas.totalPossivel === null && <IndicadorIndisponivel titulo="Possível" />}
                 <p className="stx-prev-hero-caption">
                   <b>{formatPct(resumoProgramacaoPecas.concluidoPct)}</b> concluído da previsão em peças (apontado real ÷ previsto) — soma simples entre produtos, indicador de acompanhamento, não de capacidade fabril. Possível é capacidade, não andamento.
                 </p>
@@ -625,10 +636,11 @@ export default function PrevisaoSemanalPage() {
                     salvando={salvandoConfigSemana}
                     onSalvarAdicional={salvarAdicional}
                     produtos={produtos}
+                    modelosRotas={modelosRotas}
                   />
                 )}
 
-                <EstoqueIntermediario semanaInicio={semanaAtual} produtos={produtos} />
+                <EstoqueIntermediario semanaInicio={semanaAtual} produtos={produtos} modelosRotas={modelosRotas} />
 
                 {ofertaUnificarSemana && <UnificarConectorBanner oferta={ofertaUnificarSemana} onUnificar={unificarConector} formatarQuantidade={(v) => v.toLocaleString("pt-BR")} />}
 

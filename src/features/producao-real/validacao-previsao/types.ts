@@ -39,7 +39,8 @@ export interface FatorProvavelContexto {
 }
 
 // §13, aprovado — só estes 5 estados, sem score.
-export type EstadoValidacao = "concluido" | "no_ritmo" | "atencao" | "inviavel_teoricamente" | "sem_estimativa";
+// "indisponivel_rotas": produto com rotas alternativas (Conector 3/4 único) — a capacidade linear por ordem não vale; nenhum número de capacidade/projeção é calculado (ver produto-canonico/indicadores.ts).
+export type EstadoValidacao = "concluido" | "no_ritmo" | "atencao" | "inviavel_teoricamente" | "sem_estimativa" | "indisponivel_rotas";
 
 export interface RestricaoTeorica {
   etapaOuMaquina: string | null; // nome da operação/etapa limitante, ou nome da máquina limitante (visão fábrica)
@@ -80,7 +81,7 @@ export interface ItemValidacaoPrevisao {
 
   tempoRestanteHoras: number;
 
-  capacidadeTeoricaRestante: number;
+  capacidadeTeoricaRestante: number | null; // null = indisponível (rotas alternativas)
   capacidadeProvavelRestante: number | null; // null = indisponível (amostra insuficiente)
   fatoresProvaveisUsados: FatorProvavelContexto[]; // contextos produto+operação+máquina que compuseram o fator (§8)
 
@@ -93,6 +94,8 @@ export interface ItemValidacaoPrevisao {
   restricaoTeorica: RestricaoTeorica | null;
   restricoesObservadas: Evidencia[];
 
+  /** produto (ou semana) com rotas alternativas: capacidade teórica/provável, projeção, déficit e estado de capacidade NÃO são calculados */
+  indisponivelRotas?: boolean;
   wipLimitacaoAplicavel: boolean; // sempre true quando o roteiro tem >1 etapa — sinaliza a aproximação conservadora (§7)
 
   filtrosDrillDown: FiltrosIndicadores;
@@ -112,6 +115,8 @@ export interface ResultadoValidacaoPrevisao {
   tempoRestanteHoras: number;
   itens: ItemValidacaoPrevisao[];
   recursosPressionados: RecursoPressionado[];
+  /** true = a semana tem produto com rotas alternativas: o uso por máquina (carga linear) NÃO é calculado; `recursosPressionados` vem vazio */
+  recursosPressionadosIndisponivel?: boolean;
   // Produção não programada (§15) — sempre visão da semana/fábrica, nunca
   // atribuída a um item específico da previsão (o produto, por
   // definição, não está em nenhum item previsto).

@@ -14,6 +14,7 @@ import { useCadastrosBase } from "@/hooks/useCadastrosBase";
 import { useFuncionarios } from "@/hooks/useFuncionarios";
 import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
+import { useModelosRotasAlternativas } from "@/hooks/useModelosRotasAlternativas";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useIndicadoresJanelaHistorica } from "@/hooks/useIndicadoresJanelaHistorica";
@@ -107,9 +108,10 @@ export default function ValidacaoPrevisaoPage() {
 
   const [visao, setVisao] = useState<VisaoKey>("produtos");
 
+  const modelosRotas = useModelosRotasAlternativas(auth.autenticado && !produtosHook.loading);
   const resultado = useMemo(
-    () => gerarValidacaoPrevisao(semanaAtualRec, produtos, maquinas, periodosComDuracao, toNumber(diasUteisSemana), janelaHook.apontamentos, janelaHook.paradas),
-    [semanaAtualRec, produtos, maquinas, periodosComDuracao, diasUteisSemana, janelaHook.apontamentos, janelaHook.paradas]
+    () => gerarValidacaoPrevisao(semanaAtualRec, produtos, maquinas, periodosComDuracao, toNumber(diasUteisSemana), janelaHook.apontamentos, janelaHook.paradas, new Date(), modelosRotas),
+    [semanaAtualRec, produtos, maquinas, periodosComDuracao, diasUteisSemana, janelaHook.apontamentos, janelaHook.paradas, modelosRotas]
   );
 
   if (auth.emModoRecovery) {

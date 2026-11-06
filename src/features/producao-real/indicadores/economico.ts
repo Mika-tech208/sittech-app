@@ -31,6 +31,7 @@
 // throughput final recuperável, faturamento/margem potencial bloqueados,
 // score de priorização econômica, projeção futura, WIP/lote.
 
+import { MENSAGEM_INDICADOR_INDISPONIVEL } from "@/features/produto-canonico/indicadores";
 import {
   calcularQuantidadeBoaApontamento, calcularPerformanceAgregada,
   type ApontamentoIndicador, type GrupoIndicadores,
@@ -248,6 +249,8 @@ export interface RestricaoOperacionalProduto {
   etapaSinalizada: EtapaRestricaoSinais | null;
   observacao: string;
   confianca: NivelConfianca;
+  /** produto com rotas alternativas: a restrição NÃO foi calculada (`observacao` traz a mensagem de indicador indisponível) */
+  indisponivelRotas?: boolean;
 }
 
 const LIMIAR_PERFORMANCE_BAIXA = 90;
@@ -255,7 +258,9 @@ const MINIMO_SINAIS_PARA_SINALIZAR = 2;
 
 export function detectarPossivelRestricaoOperacional(
   apontamentosDoProduto: ApontamentoIndicador[],
-  todosApontamentosDoPeriodo: ApontamentoIndicador[]
+  todosApontamentosDoPeriodo: ApontamentoIndicador[],
+  /** produtos com rotas alternativas (Conector 3/4 único): comparar o volume por etapa NÃO identifica restrição (a M8 sempre terá menos peças que a Etiquetadora) => indisponível */
+  idsRotasAlternativas?: ReadonlySet<string>
 ): RestricaoOperacionalProduto | null {
   const produzindo = apontamentosDoProduto.filter((ap) => ap.status === "produzindo" && ap.etapaId !== null);
   if (produzindo.length === 0) return null;
@@ -263,6 +268,9 @@ export function detectarPossivelRestricaoOperacional(
   const produtoId = produzindo[0].produtoId;
   const produtoNome = produzindo[0].produtoNome || "";
   if (!produtoId) return null;
+  if (idsRotasAlternativas?.has(produtoId)) {
+    return { produtoId, produtoNome, etapas: [], etapaSinalizada: null, observacao: MENSAGEM_INDICADOR_INDISPONIVEL, confianca: "estimativa", indisponivelRotas: true };
+  }
 
   const porEtapa = new Map<string, ApontamentoIndicador[]>();
   produzindo.forEach((ap) => {
@@ -338,7 +346,8 @@ export interface EconomicoProduto {
 
 export function calcularEconomicoPorProduto(
   gruposProduto: GrupoIndicadores[],
-  todosApontamentosDoPeriodo: ApontamentoIndicador[]
+  todosApontamentosDoPeriodo: ApontamentoIndicador[],
+  idsRotasAlternativas?: ReadonlySet<string>
 ): EconomicoProduto[] {
   return gruposProduto
     .filter((g) => g.chave) // ignora o grupo de produto_id null (não deveria existir aqui, é defensivo)
@@ -347,6 +356,6 @@ export function calcularEconomicoPorProduto(
       produtoNome: g.rotulo,
       custoIndustrial: calcularCustoIndustrialAproximado(g.apontamentos),
       margem: calcularMargemProcessamento(g.apontamentos),
-      restricao: detectarPossivelRestricaoOperacional(g.apontamentos, todosApontamentosDoPeriodo),
+      restricao: detectarPossivelRestricaoOperacional(g.apontamentos, todosApontamentosDoPeriodo, idsRotasAlternativas),
     }));
 }

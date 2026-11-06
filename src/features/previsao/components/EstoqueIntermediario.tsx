@@ -8,6 +8,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { acaoWip, consultarWip, type RespostaWip } from "@/lib/escala/wipCliente";
 import type { ResumoControleWip } from "@/features/escala/wipSaldo";
 import type { Produto } from "@/types/domain";
+import { idsComRotasAlternativas } from "@/features/produto-canonico/indicadores";
+import IndicadorIndisponivel from "@/features/produto-canonico/components/IndicadorIndisponivel";
+import type { ModeloCanonico } from "@/features/produto-canonico/tipos";
 import { formatQtd, toNumber } from "@/lib/format";
 import Recolhivel from "@/features/previsao/components/Recolhivel";
 import { alertaInconsistencia, exigeMotivo, linhaLimiteWip, linhaPrevistoWip, resumoCabecalhoWip, ROTULO_STATUS_WIP, textoUltimaConfirmacao } from "@/features/previsao/estoqueIntermediarioTexto";
@@ -29,9 +32,12 @@ const COR_STATUS = { sem_saldo: "var(--text-muted)", estimado: "var(--warning)",
 export interface EstoqueIntermediarioProps {
   semanaInicio: string;
   produtos: Produto[];
+  /** modelos canônicos vigentes: produto com rotas alternativas NÃO tem pares consecutivos por ordem (M8 → Rosquear não existe): sem seletor de par e sem saldo estimado para ele */
+  modelosRotas?: ModeloCanonico[];
 }
 
-export default function EstoqueIntermediario({ semanaInicio, produtos }: EstoqueIntermediarioProps) {
+export default function EstoqueIntermediario({ semanaInicio, produtos, modelosRotas = [] }: EstoqueIntermediarioProps) {
+  const idsAlt = useMemo(() => idsComRotasAlternativas(modelosRotas), [modelosRotas]);
   const [dados, setDados] = useState<RespostaWip | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -62,9 +68,10 @@ export default function EstoqueIntermediario({ semanaInicio, produtos }: Estoque
   }, [semanaInicio]);
 
   const pares = useMemo(
-    () => produtos.flatMap((p) => p.roteiro.slice(0, -1).map((e, k) => ({ chave: `${p.id}|${e.id}|${p.roteiro[k + 1].id}`, produtoId: p.id, origem: e.id, seguinte: p.roteiro[k + 1].id, rotulo: `${p.nome.trim()} — ${e.operacao} → ${p.roteiro[k + 1].operacao}` }))),
-    [produtos]
+    () => produtos.filter((p) => !idsAlt.has(p.id)).flatMap((p) => p.roteiro.slice(0, -1).map((e, k) => ({ chave: `${p.id}|${e.id}|${p.roteiro[k + 1].id}`, produtoId: p.id, origem: e.id, seguinte: p.roteiro[k + 1].id, rotulo: `${p.nome.trim()} — ${e.operacao} → ${p.roteiro[k + 1].operacao}` }))),
+    [produtos, idsAlt]
   );
+  const produtosComRotas = produtos.filter((p) => p.ativo && idsAlt.has(p.id));
 
   if (!dados || !dados.modoWip) return null; // WIP desligado (ou sem acesso): o bloco não existe
 
@@ -92,7 +99,7 @@ export default function EstoqueIntermediario({ semanaInicio, produtos }: Estoque
   return (
     <div className="stx-panel">
       <style>{ESTILOS}</style>
-      <Recolhivel id="previsao-estoque-intermediario" titulo="Estoque intermediário" resumo={resumoCabecalhoWip(dados.controles)}>
+      <Recolhivel id="previsao-estoque-intermediario" titulo="Estoque intermediário" resumo={resumoCabecalhoWip(dados.controles.filter((c) => !idsAlt.has(c.controle.produtoId)))}>
         <p className="stx-panel-sub">
           Peças já produzidas pela etapa de origem e ainda aguardando a etapa seguinte. O <b>estimado</b> vem da Produção Real e serve só para consulta; somente o saldo <b>confirmado</b> reduz o que a etapa de origem precisa produzir. O previsto salvo, o realizado e o faturamento não mudam.
         </p>
@@ -103,6 +110,14 @@ export default function EstoqueIntermediario({ semanaInicio, produtos }: Estoque
 
         {dados.controles.map((c) => {
           const id = c.controle.id;
+          if (idsAlt.has(c.controle.produtoId)) {
+            return (
+              <div className="stx-wip-card" key={id} data-testid="wip-indisponivel">
+                <span className="stx-wip-par">{nomeProduto(c.controle.produtoId)}</span>
+                <IndicadorIndisponivel titulo="Estoque intermediário" />
+              </div>
+            );
+          }
           const estimadoTxt = formatQtd(Math.round(c.estimado.valor));
           const divergente = aberto?.modo === "confirmar" && aberto.id === id && exigeMotivo(toNumber(qtd) || 0, Math.round(c.estimado.valor));
           return (
@@ -187,6 +202,7 @@ export default function EstoqueIntermediario({ semanaInicio, produtos }: Estoque
                   Criar controle
                 </button>
                 <button className="stx-prev-pill-btn" onClick={() => setNovo(null)}>Cancelar</button>
+                {produtosComRotas.map((p) => <IndicadorIndisponivel key={p.id} titulo={`Estoque intermediário de ${p.nome.trim()}`} />)}
               </div>
             )}
           </div>

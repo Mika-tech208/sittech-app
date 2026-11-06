@@ -7,6 +7,9 @@ import { useCadastrosBase } from "@/hooks/useCadastrosBase";
 import { useFuncionarios } from "@/hooks/useFuncionarios";
 import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
+import { useModelosRotasAlternativas } from "@/hooks/useModelosRotasAlternativas";
+import { ehIndisponivel, indicadorOuIndisponivel } from "@/features/produto-canonico/indicadores";
+import IndicadorIndisponivel from "@/features/produto-canonico/components/IndicadorIndisponivel";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useSidebarState } from "@/hooks/useSidebarState";
@@ -59,6 +62,7 @@ export default function CapacidadeSemanalPage() {
   const { maquinas } = maquinasHook;
   const produtosHook = useProdutos(auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading);
   const { produtos } = produtosHook;
+  const modelosRotas = useModelosRotasAlternativas(auth.autenticado && !produtosHook.loading); // vigentes (planejamento OU cutover); [] = tela de hoje
   const previsoesHook = usePrevisoes(
     auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading && !produtosHook.loading
   );
@@ -109,12 +113,13 @@ export default function CapacidadeSemanalPage() {
     () => calcularCapacidadeInicialPorMaquina(maquinas, semanaAtualRec.maquinasIndisponiveis || [], horasPorMaquinaSemana),
     [maquinas, horasPorMaquinaSemana, semanaAtualRec]
   );
+  // Produto com rotas alternativas: a alocação (greedy por lucro/hora, cadeia linear por ordem, custo de TODAS as etapas em série) daria números errados => indicador indisponível (sentinela).
   const alocacaoSemanal = useMemo(
-    () => calcularAlocacaoSemanal(
+    () => indicadorOuIndisponivel(semanaAtualRec.itens.map((i) => i.produtoId), modelosRotas, () => calcularAlocacaoSemanal(
       itensSemanaAgregados, semanaAtualRec.itens, produtos, capacidadeInicialPorMaquina, periodosComDuracao, maquinas, operacoes,
       horasPorMaquinaSemana, duracaoMediaPeriodo, getLucroHora
-    ),
-    [itensSemanaAgregados, semanaAtualRec, produtos, capacidadeInicialPorMaquina, periodosComDuracao, custoHoraPorOperacao, custoHoraEmpresa, maquinas, operacoes, horasPorMaquinaSemana, duracaoMediaPeriodo]
+    )),
+    [itensSemanaAgregados, semanaAtualRec, produtos, capacidadeInicialPorMaquina, periodosComDuracao, custoHoraPorOperacao, custoHoraEmpresa, maquinas, operacoes, horasPorMaquinaSemana, duracaoMediaPeriodo, modelosRotas]
   );
 
   // ---- estatísticas do resumo — puras contagens/somas sobre alocacaoSemanal
@@ -123,14 +128,14 @@ export default function CapacidadeSemanalPage() {
   // alocada (subconjunto mais severo de comDeficit, mesmo dado já presente
   // em resultados[].quantidadeAlocada/quantidade). "Horas ociosas" = soma
   // do restante>0 de usoPorOperacao, já calculado por operação.
-  const capAtendidosCount = alocacaoSemanal.resumo.atendidos.length;
-  const capComDeficitCount = alocacaoSemanal.resumo.comDeficit.length;
+  const capAtendidosCount = ehIndisponivel(alocacaoSemanal) ? 0 : alocacaoSemanal.resumo.atendidos.length;
+  const capComDeficitCount = ehIndisponivel(alocacaoSemanal) ? 0 : alocacaoSemanal.resumo.comDeficit.length;
   const capForaDaAlocacaoCount = useMemo(
-    () => alocacaoSemanal.resultados.filter((r) => r.quantidade > 0 && r.quantidadeAlocada === 0).length,
+    () => (ehIndisponivel(alocacaoSemanal) ? 0 : alocacaoSemanal.resultados.filter((r) => r.quantidade > 0 && r.quantidadeAlocada === 0).length),
     [alocacaoSemanal]
   );
   const capHorasOciosas = useMemo(
-    () => alocacaoSemanal.usoPorOperacao.reduce((s, u) => s + Math.max(0, u.restante), 0),
+    () => (ehIndisponivel(alocacaoSemanal) ? 0 : alocacaoSemanal.usoPorOperacao.reduce((s, u) => s + Math.max(0, u.restante), 0)),
     [alocacaoSemanal]
   );
 
@@ -266,6 +271,9 @@ export default function CapacidadeSemanalPage() {
             <div className="stx-empty">Nenhum item previsto pra {weekLabel(semanaAtual).replace("Semana de ", "")} ainda. Lance em &quot;Previsão semanal&quot;.</div>
           ) : (
             <>
+              {ehIndisponivel(alocacaoSemanal) ? (
+                <IndicadorIndisponivel titulo="Capacidade semanal" />
+              ) : (<>
               <div className="stx-cap-resumo">
                 {alocacaoSemanal.resumo.atendidos.length > 0 && (
                   <p className="stx-cap-resumo-linha">
@@ -321,7 +329,12 @@ export default function CapacidadeSemanalPage() {
                 </div>
               </div>
 
+              </>)}
+
               <div className="stx-cap-grid">
+                {ehIndisponivel(alocacaoSemanal) ? (
+                  <div className="stx-cap-primary" data-testid="capacidade-indisponivel"><IndicadorIndisponivel titulo="Alocação por produto e capacidade por operação" /></div>
+                ) : (
                 <div className="stx-cap-primary">
                   <div className="stx-cap-section">
                     <div className="stx-cap-section-head">
@@ -382,6 +395,7 @@ export default function CapacidadeSemanalPage() {
                     )}
                   </div>
                 </div>
+                )}
 
                 <div className="stx-cap-context">
                   <div>

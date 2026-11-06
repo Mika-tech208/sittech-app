@@ -10,26 +10,31 @@ import { useMemo, useState } from "react";
 import { dataLocalSP, horaLocalSP } from "@/hooks/useProducaoRealPainel";
 import DatePicker from "@/components/shared/DatePicker";
 import type { Periodo } from "@/types/domain";
+import { TEXTO_PLANO_FUTURO_CURTO } from "@/features/produto-canonico/planoFuturo";
 
 export interface PeriodoSeletorModalProps {
   periodos: Periodo[];
   onSelecionar: (data: string, periodoId: string) => void;
   onFechar: () => void;
+  /** datas de semana em PLANEJAMENTO do produto único (plano futuro, NÃO liberado): nenhum período delas pode ser aberto para lançamento */
+  dataBloqueada?: (dataIso: string) => boolean;
 }
 
-export default function PeriodoSeletorModal({ periodos, onSelecionar, onFechar }: PeriodoSeletorModalProps) {
+export default function PeriodoSeletorModal({ periodos, onSelecionar, onFechar, dataBloqueada }: PeriodoSeletorModalProps) {
   const hoje = useMemo(() => dataLocalSP(), []);
   const horaAtual = useMemo(() => horaLocalSP().slice(0, 5), []);
   const [data, setData] = useState(hoje);
   const [periodoId, setPeriodoId] = useState("");
 
+  const bloqueada = !!dataBloqueada && dataBloqueada(data);
   const periodosValidos = useMemo(() => {
+    if (bloqueada) return [];
     if (data > hoje) return [];
     if (data === hoje) return periodos.filter((p) => p.fim <= horaAtual);
     return periodos;
-  }, [periodos, data, hoje, horaAtual]);
+  }, [periodos, data, hoje, horaAtual, bloqueada]);
 
-  const podeConfirmar = !!data && !!periodoId && periodosValidos.some((p) => p.id === periodoId);
+  const podeConfirmar = !bloqueada && !!data && !!periodoId && periodosValidos.some((p) => p.id === periodoId);
 
   return (
     <div className="stx-modal-backdrop" onClick={onFechar}>
@@ -60,7 +65,8 @@ export default function PeriodoSeletorModal({ periodos, onSelecionar, onFechar }
               <option key={p.id} value={p.id}>{p.nome} · {p.inicio}–{p.fim}</option>
             ))}
           </select>
-          {periodosValidos.length === 0 && (
+          {bloqueada && <p className="stx-ap-error" role="status">{TEXTO_PLANO_FUTURO_CURTO}</p>}
+          {!bloqueada && periodosValidos.length === 0 && (
             <p className="stx-ap-error">Nenhum período encerrado nessa data ainda.</p>
           )}
         </div>

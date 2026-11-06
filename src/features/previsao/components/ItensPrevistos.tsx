@@ -7,9 +7,12 @@ import { toNumber } from "@/lib/format";
 import { viabilidadeItemComRotas } from "@/features/produto-canonico/capacidadeRotas";
 import type { ModeloCanonico } from "@/features/produto-canonico/tipos";
 import type { GuardaProdutos } from "@/features/produto-canonico/guardaDb";
-import { produtosSelecionaveis } from "@/features/produto-canonico/guard";
+import { produtosSelecionaveisPrevisao } from "@/features/produto-canonico/guard";
+import { agruparEtapasPorRota } from "@/features/produto-canonico/etapasPorRota";
 import type { Produto, Maquina, Previsao, PrevisaoItem, PeriodoComDuracao } from "@/types/domain";
 import type { AnaliseCapacidadeSemanal } from "@/features/capacidade/types";
+import { ehIndisponivel, type Indisponivel } from "@/features/produto-canonico/indicadores";
+import IndicadorIndisponivel from "@/features/produto-canonico/components/IndicadorIndisponivel";
 
 export interface PrevItemFormState {
   produtoId: string;
@@ -36,7 +39,8 @@ export interface ItensPrevistosProps {
   onCancelar: () => void;
   onEditar: (it: PrevisaoItem) => void;
   onExcluir: (id: string) => void;
-  analise: AnaliseCapacidadeSemanal;
+  /** `Indisponivel` = semana com produto de rotas alternativas (gargalos/uso por máquina não calculados) */
+  analise: AnaliseCapacidadeSemanal | Indisponivel;
   valorPrevistoSemana: number;
   // funcionários marcados como produtivos NESTA semana (não o total de ativos)
   equipeProdutivaCount: number;
@@ -55,10 +59,12 @@ export default function ItensPrevistos({
   onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, equipeProdutivaCount, formatBRL, modelosCanonicos = [], guardaProdutos,
 }: ItensPrevistosProps) {
   const produtosAtivos = guardaProdutos && guardaProdutos.canonicos.size > 0
-    ? produtosSelecionaveis(produtos.filter((p) => p.ativo), guardaProdutos.canonicos, guardaProdutos.legados, semana.semanaInicio, guardaProdutos.cutover)
+    ? produtosSelecionaveisPrevisao(produtos.filter((p) => p.ativo), guardaProdutos, semana.semanaInicio)
     : produtos.filter((p) => p.ativo);
   const produtoSel = produtos.find((p) => p.id === form.produtoId) || null;
   const roteiroSel = produtoSel?.roteiro || [];
+  const modeloSel = produtoSel ? modelosCanonicos.find((m) => m.produtoCanonicoId === produtoSel.id) : undefined;
+  const gruposEtapas = agruparEtapasPorRota(roteiroSel, modeloSel);
 
   const viabAoVivo = form.produtoId && produtoSel && roteiroSel.length > 0
     ? viabilidadeItemComRotas(
@@ -68,7 +74,7 @@ export default function ItensPrevistos({
     : null;
 
   const horasPessoaDisponiveis = equipeProdutivaCount * horasPorMaquinaSemana;
-  const horasPessoaDemandadas = analise.maquinas.reduce((s, m) => s + m.horasNecessarias, 0);
+  const horasPessoaDemandadas = ehIndisponivel(analise) ? 0 : analise.maquinas.reduce((s, m) => s + m.horasNecessarias, 0);
   const pctEquipe = horasPessoaDisponiveis > 0 ? (horasPessoaDemandadas / horasPessoaDisponiveis) * 100 : 0;
 
   return (
@@ -115,7 +121,10 @@ export default function ItensPrevistos({
                 ) : (
                   <div className="stx-custos-builder">
                     <p className="stx-custos-builder-title">Máquinas dessa semana, por etapa</p>
-                    {roteiroSel.map((etapa) => {
+                    {gruposEtapas.map((grupo) => (
+                      <div key={grupo.chave} data-grupo-rota={grupo.titulo ?? undefined}>
+                        {grupo.titulo && <p className="stx-custos-builder-title" style={{ marginTop: 10 }}>{grupo.titulo}</p>}
+                    {grupo.etapas.map((etapa) => {
                       // elegibilidade vem do roteiro do produto (`etapa.maquinasIds`), não
                       // de "toda máquina da mesma operação" — mesma fonte única usada pelo
                       // cálculo de capacidade (`calcularMaquinasDaEtapa`), pra nunca oferecer
@@ -155,6 +164,8 @@ export default function ItensPrevistos({
                         </div>
                       );
                     })}
+                      </div>
+                    ))}
                   </div>
                 )
               )}
@@ -191,7 +202,7 @@ export default function ItensPrevistos({
         semana.itens.map((it) => {
           const viab = viabilidadeItemComRotas(it, produtos, periodosComDuracao, horasPorMaquinaSemana, modelosCanonicos);
           const maquinasDoItem = new Set(Object.values(it.maquinasPorEtapa || {}).flat());
-          const gargalosQueAfetam = analise.gargalos.filter((g) => maquinasDoItem.has(g.maquinaId));
+          const gargalosQueAfetam = ehIndisponivel(analise) ? [] : analise.gargalos.filter((g) => maquinasDoItem.has(g.maquinaId));
           const produtoDoItem = produtos.find((p) => p.id === it.produtoId);
           const selecoesInvalidas = produtoDoItem
             ? encontrarSelecoesInvalidas(it.maquinasPorEtapa, produtoDoItem.roteiro || [], maquinas)
@@ -243,7 +254,9 @@ export default function ItensPrevistos({
           <p className="stx-custos-total" style={{ marginTop: 4 }}>
             Funcionários necessários pra essa programação: <b>{calcularFuncionariosTotalSemana(semana.itens)}</b> de {equipeProdutivaCount} produtivos na semana
           </p>
-          {equipeProdutivaCount === 0 ? (
+          {ehIndisponivel(analise) ? (
+            <p className="stx-custos-total" style={{ marginTop: 4 }}><IndicadorIndisponivel titulo="Uso estimado em horas-máquina" /></p>
+          ) : equipeProdutivaCount === 0 ? (
             <p className="stx-custos-total" style={{ marginTop: 4, color: "var(--warning)" }}>
               Nenhum funcionário produtivo marcado nesta semana — o uso da equipe em horas não pode ser calculado.
             </p>

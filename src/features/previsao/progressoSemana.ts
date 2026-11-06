@@ -25,7 +25,7 @@ export interface ProdutoProgramado {
   produtoId: string;
   produtoNome: string;
   previsto: number;
-  possivel: number;
+  possivel: number | null; // null = indisponível (produto com rotas alternativas: ver produto-canonico/indicadores.ts)
   valorUnitario: number; // congelado no item da Previsão
   apontadoReal: number | null; // peças boas da etapa final atribuídas a ESTE item; null = indisponível
   apontadoAmbiguoPecas: number; // peças de apontamentos com roteiro alterado (NÃO contadas); só no 1º item do produto
@@ -78,9 +78,15 @@ export function calcularProdutosProgramados(
   });
 }
 
+/** Produto com rotas alternativas: o "Possível" (capacidade linear por ordem) NÃO é calculado — vira null (a tela mostra a mensagem de indicador indisponível). Sem ids: devolve a MESMA lista. */
+export function comPossivelIndisponivel(produtos: ProdutoProgramado[], idsRotasAlternativas: ReadonlySet<string>): ProdutoProgramado[] {
+  if (idsRotasAlternativas.size === 0) return produtos;
+  return produtos.map((p) => (idsRotasAlternativas.has(p.produtoId) ? { ...p, possivel: null } : p));
+}
+
 export interface ResumoProgramacaoPecas {
   totalPrevisto: number;
-  totalPossivel: number;
+  totalPossivel: number | null; // null = algum item com possível indisponível
   totalApontadoReal: number | null;
   totalFalta: number | null; // soma das faltas por produto (excesso de um produto não compensa falta de outro)
   concluidoPct: number | null; // apontado total / previsto total (sem teto)
@@ -97,7 +103,7 @@ export interface ResumoProgramacaoPecas {
 // Soma simples de peças dos produtos PREVISTOS — indicador de acompanhamento, não de capacidade fabril.
 export function calcularResumoProgramacaoPecas(produtos: ProdutoProgramado[]): ResumoProgramacaoPecas {
   const totalPrevisto = produtos.reduce((s, p) => s + p.previsto, 0);
-  const totalPossivel = produtos.reduce((s, p) => s + p.possivel, 0);
+  const totalPossivel = produtos.some((p) => p.possivel === null) ? null : produtos.reduce((s, p) => s + (p.possivel as number), 0);
   const disponivel = produtos.length > 0 && produtos.every((p) => p.apontadoReal !== null);
   const totalApontadoReal = disponivel ? produtos.reduce((s, p) => s + (p.apontadoReal ?? 0), 0) : null;
   const valorPrevisto = produtos.reduce((s, p) => s + p.valorPrevisto, 0);
