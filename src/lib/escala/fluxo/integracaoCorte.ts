@@ -67,9 +67,17 @@ function tentarPlanoCorteProdutoUnico(ctx: ContextoFluxo, pc: NonNullable<Estado
     if ("erro" in v) return falha(`produto único: ${v.erro}`);
     d = v.d;
     ctxV = { ...ctx, entrada: v.entradaV, estado: v.estadoV };
-    // margem por peça (snapshot congelado): só o produto canônico conta; a rota automática entra pelo DELTA de margem (0 sem margem de rota) — chaves legadas não significam nada aqui
+    // margem por peça (snapshot congelado em producao_real_planejador_config). Os OUTROS produtos mantêm a margem deles (senão o objetivo reponderia a Escala inteira). Para o produto único:
+    // base (rota convencional) = chave da ROTA convencional (produto_rotas.id) > chave do produto canônico > margem do produto LEGADO mapeado para a rota convencional; rota automática = chave da rota >
+    // margem do produto legado mapeado para ela > base (delta 0). A automática entra no planejador pelo DELTA sobre a base. Sem nenhuma margem do Conector no snapshot, nada é inventado (valorUnitario).
     const m0 = pc.config.margemPorPeca;
-    const margem = m0 && m0[modelo.produtoCanonicoId] !== undefined ? { [d.vConv]: m0[modelo.produtoCanonicoId], [d.vAuto]: m0[modelo.produtoCanonicoId] } : undefined;
+    const rotaConv = modelo.rotas.find((r) => r.tipo === "convencional"), rotaAuto = modelo.rotas.find((r) => r.tipo === "automatica");
+    const doLegado = (rotaId?: string) => Object.entries(modelo.produtosLegado).filter(([, v]) => v.rotaId === rotaId).map(([id]) => m0?.[id]).find((x) => x !== undefined);
+    const baseM = m0 ? (rotaConv ? m0[rotaConv.id] : undefined) ?? m0[modelo.produtoCanonicoId] ?? doLegado(rotaConv?.id) : undefined;
+    const autoM = m0 ? (rotaAuto ? m0[rotaAuto.id] : undefined) ?? doLegado(rotaAuto?.id) : undefined;
+    const legados = new Set(Object.keys(modelo.produtosLegado));
+    const outros = m0 ? Object.fromEntries(Object.entries(m0).filter(([k]) => !legados.has(k) && k !== modelo.produtoCanonicoId && k !== rotaConv?.id && k !== rotaAuto?.id)) : undefined;
+    const margem = m0 ? { ...outros, ...(baseM !== undefined ? { [d.vConv]: baseM, [d.vAuto]: autoM ?? baseM } : {}) } : undefined;
     const { margemPorPeca: _m, ...cfgSem } = pc.config;
     void _m;
     pcV = { ...pc, config: { ...cfgSem, ...(margem ? { margemPorPeca: margem } : {}), produtoUnico: true } };
