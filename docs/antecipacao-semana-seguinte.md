@@ -1,96 +1,70 @@
-# Antecipação para a semana seguinte e formação deliberada de estoque
+# Meta mínima de produção, formação de estoque e antecipação da semana seguinte
 
 Status: implementado **somente no clone / branch `feat/antecipacao-semana-seguinte`**. Nada em PROD. Desligado por padrão.
-Dois conceitos, uma mesma fase do planejador (corte-v1):
 
-| | **ANTECIPAÇÃO_SEMANA_SEGUINTE** | **FORMAÇÃO_ESTOQUE** |
-|---|---|---|
-| Quem pode | produto com Forecast confirmado na semana seguinte, **sem** política de estoque | **apenas** produtos com política explícita (`escala_formacao_estoque_produtos`) |
-| Teto | **demanda futura líquida** (Forecast − já antecipado). Nunca ultrapassa | **teto físico explícito** (sem teto de Forecast); padrão conservador, configurável por produto |
-| Máquinas | interseção Previsão atual × Previsão da semana seguinte | as selecionadas na Previsão **atual** |
-| Semana de destino | sempre **desconta** (demanda líquida) | só desconta se `escala_formacao_estoque_desconta_destino = true` (padrão: não; fica visível) |
-| Peso no objetivo | 1 × margem | `0,25` × margem (estoque especulativo vale menos que demanda confirmada) |
+## 0. Vocabulário (decisão do dono do produto, 06/11)
 
-Fora de ambos, por construção: produtos excluídos (legados do Conector 3/4 / produto único em cutover), produtos encerrados (quantidade 0 na semana atual, p.ex. Caixa 4x2) e qualquer produto sem pool na semana atual. Nenhuma regra por nome de produto ou de pessoa (há teste que varre o código).
+- **Meta mínima de produção** (`meta_minima_producao`) = a quantidade da Previsão da semana ("o mínimo que aceito produzir"). **Não é teto, nem capacidade máxima.** Pino 108.000 = pelo menos 108.000.
+- **Formação de estoque** = produção **além da meta mínima** de um produto **autorizado** (`permitir_formacao_estoque`, política **por produto**, parâmetro `escala_formacao_estoque_produtos`). Origem `FORMACAO_ESTOQUE`. Não é erro, excesso, nem "demanda ultrapassada": nenhum diagnóstico ou checagem trata como violação.
+- **Antecipação da semana seguinte** = opt-in separado (`escala_antecipacao_semana_seguinte = "ativo"`): produzir hoje a meta da semana seguinte, **com desconto** na semana de destino. Origem `ANTECIPACAO_SEMANA_SEGUINTE`. Só vale se o usuário pedir.
+- Produto **não autorizado** (sem política): para ao atingir a meta, como sempre. Conector 3/4 (cutover do produto único) e Caixa 4x2 (encerrada) nunca formam estoque nem antecipam.
 
-## 1. Princípio e onde a regra entra
+## 1. Prioridades — por construção, não por peso
 
-Prioridade **por construção**, não por peso:
+1. **Fase 1** (planejador de sempre, `planejarFuturo`/`buscaLocal`): leva **todos** os produtos até suas metas mínimas (demanda restante da semana) e consome o WIP atual. Não conhece a fase 2. Produto que já atingiu a meta tem restante 0 na fase 1 ⇒ **nunca ocupa pessoa/máquina de produto ainda abaixo da meta** (ex.: Pino atingiu, Plug abaixo e a mesma pessoa/máquina ajuda o Plug ⇒ Plug primeiro).
+2. **Fase 2** (`antecipacao.ts#planejarFase2`) só roda **depois**, sobre o que **sobrou** (máquinas e pessoas). As linhas da fase 1 ficam **fixas**; a fase 2 só **acrescenta** linhas (que servem só aos produtos-sombra) e usa a fração ociosa das linhas fixas (a meta produz primeiro em cada linha). A produção até a meta **não pode diminuir**. Testes: `produção − extra = produção sem a regra`, em cenários dirigidos e 40 aleatórios.
+3. **Pessoa sem trabalho fisicamente válido continua sem posto**: busca gulosa pelo ganho marginal + poda de qualquer linha cuja remoção não reduz o objetivo.
 
-1. **Fase 1** = `planejarFuturo`/`buscaLocal` exatamente como antes, sem conhecer a fase 2. Define os postos da demanda restante da semana, o consumo do WIP atual e o que completa a semana. É a ordem do dono do produto: (1) demanda restante, (2) WIP atual, (3) produção necessária para completar a semana.
-2. **Fase 2** (`antecipacao.ts#planejarFase2`, chamada por `planejadorFuturo.ts#comFase2`) só roda **depois**, sobre o que sobrou (máquinas e pessoas). As linhas da fase 1 ficam **fixas** (`ConfigDespacho.fixas`): não são removidas nem movidas, e nelas os pools da demanda produzem primeiro (prioridade mais alta); a fase 2 só **acrescenta** linhas novas, que só servem aos produtos-sombra, e usa a fração ociosa das linhas fixas. Logo a produção da demanda atual **não pode diminuir** (adicionar linha nunca reduz a produção de um pool que não a usa) — provado por teste (`produção − extra = produção sem a regra`, em 40 cenários aleatórios e nos cenários dirigidos).
-3. Pessoa sem trabalho fisicamente válido **continua sem posto**: a busca da fase 2 é gulosa (ganho marginal do objetivo do despacho) e uma poda remove qualquer linha acrescentada cuja remoção não reduz o objetivo.
+**Função objetivo (revisão).** O peso entre meta e estoque é estrutural (lexicográfico), logo mais forte que qualquer peso: nada de estoque compete com meta. Dentro da fase 1 o objetivo continua `Σ margem·peças finais` (cada produto até o seu restante) com o piso do EQUILIBRIO (`coberturaMinima`, padrão 0,45 — **cobertura 0,45 NÃO é meta atingida**: só impede que produto fique abaixo de 45% do total; a meta é 100%). Para "penalizar fortemente" produto abaixo da meta basta `coberturaMinima = 1` em `producao_real_planejador_config` (parâmetro já existente; **não alterado** aqui para não mudar o plano da demanda — byte-identidade). Na fase 2: FORMAÇÃO pesa `0,25 × margem` (estoque especulativo), antecipação opt-in pesa `1 ×`.
 
-Cada produto elegível vira um **produto-sombra** (mesma rota e taxas; máquinas restritas; estoque próprio):
+## 2. Autorizados: sem teto comercial; limites físicos
 
-- `wipInicial` da sombra = **o WIP que a demanda atual nunca toca** (mínimo, depois do consumo do período, do estoque do plano da fase 1 por ligação — `wipNaoTocado`). O WIP existente conta; não se produz upstream desnecessário (teste 8). "Demanda + sombra" é uma cadeia válida porque cada uma só consome o que tem; o agregado é validado pelo validador independente de cadeia.
-- Lote de 1 período (Tn → Tn+1) vale como em todo o despacho (teste 10).
-- Teto de peças finais da sombra: ver as duas colunas acima. O teto de produção upstream segue `alvo − WIP além da etapa`.
+Para produto autorizado **não existe teto baseado na Previsão**. Limites, todos físicos/operacionais: máquinas selecionadas na Previsão **atual**, pessoas, revezamento (bloco + ponte M3→T1), matéria-prima/WIP, lote Tn → Tn+1, cadeia, HARD gates e:
 
-### Função objetivo / pesos
-`obj = Σ margem·peças finais (demanda) + crédito de estoque de saída (já existente) + Σ peso·margem·peças finais da sombra + crédito de estoque intermediário da sombra`. Como as linhas da demanda são fixas, os termos da demanda **não variam** durante a busca da fase 2; só os termos da sombra decidem. O peso menor da FORMAÇÃO faz a antecipação confirmada vencer o estoque especulativo quando disputam a mesma pessoa (teste). A margem é a do snapshot `producao_real_planejador_config.margemPorPeca` (ou `valorUnitario`).
+- **Buffer entre etapas** (ex.: Caixa 4x4 Etiquetar → buffer → Montar Presilha): nível máximo da ligação k = `max(WIP não tocado, capacidade LIVRE do consumidor nos períodos restantes)` + `bufferExtraPecas` (por produto, padrão 0). Capacidade livre = Σ(taxa × máquinas permitidas) − o que a meta já consome na mesma etapa. Nunca se forma mais estoque intermediário do que a etapa seguinte ainda absorve até o fim do horizonte.
+- **WIP existente conta**: cada produto-sombra herda o WIP que a meta atual nunca toca (`wipNaoTocado`); não se produz upstream desnecessário.
+- **Limite físico opcional** `limiteFisicoPecas` na política (espaço), por produto. **Padrão: nenhum** (`SEM_LIMITE_FISICO`); só a capacidade limita. Excedente real da semana (Pino 51.780 − 43.200 = 8.580) conta como estoque real e não é "corrigido para baixo"; só ocupa o limite se este existir.
 
-### Limites físicos (sem "WIP absurdo")
-- **Buffer entre etapas**: nível máximo do estoque da sombra na ligação k = `max(WIP não tocado, capacidade LIVRE do consumidor nos períodos restantes)` + `bufferExtraPecas` (por produto, padrão 0). Capacidade livre = Σ(taxa × máquinas permitidas, períodos t0+1…) − o que a demanda já consome na mesma etapa. Ou seja: nunca se forma mais estoque intermediário do que a etapa seguinte ainda consegue absorver até o fim do horizonte. Quer pré-etiquetar além disso para a semana seguinte? Dê `bufferExtraPecas` explícito na política.
-- **Estoque final de FORMAÇÃO**: teto = `tetoPecas` da política (por produto) ou, padrão, `max(quantidade da Previsão atual, Forecast da semana seguinte)` (no máximo ~1 semana de consumo parada). Do teto saem o já formado nos períodos iniciados (ledger) e o **excedente real** da semana (boas − Q, p.ex. Pino 51.780 × 43.200 = 8.580): conta como estoque real, **não é corrigido para baixo**, mas ocupa o teto.
-- Capacidade, pessoas, revezamento (bloco + ponte M3→T1) e HARD gates vêm do pipeline existente: a fase 2 passa por `montar` (atribuição de pessoas com revezamento, validação de cadeia, verificador de restrições duras). Se o conjunto não fecha, as linhas acrescentadas são reduzidas uma a uma até valer; no limite devolve o plano da fase 1 **inalterado**.
+## 3. Meta futura nunca é descontada em silêncio
 
-## 2. Demanda futura líquida e desconto na semana de destino
+`escala_formacao_estoque_desconta_destino` = **false** (padrão). A meta da semana seguinte (ex.: Pino 108.000) continua aparecendo **inteira**; o estoque formado aparece **separado** (diagnóstico `ANTECIPACAO_RESUMO`: "NÃO descontada (estoque formado visível; desconto é decisão explícita)", ledger e view `escala_meta_estoque_v`). Só a **antecipação opt-in** desconta (e mostra "DESCONTADA"). O motor pode considerar o estoque existente como disponibilidade física (WIP/contagem física), mas a meta não é reduzida.
+Produção de antecipação/formação já **executada** (períodos iniciados, ledger) é devolvida ao restante da meta da semana atual (`planoCorte.restanteDe`), senão a peça extra mascararia falta de meta.
 
-- Na origem: `tetoFinal = Forecast_futuro − Σ ANTECIPAÇÃO já registrada em períodos iniciados` (linhas futuras do mesmo plano são substituídas, não contam). Só o Forecast **realmente registrado** (`previsao_itens.tipo = 'previsto'`); produto sem Forecast = nada inventado.
-- No destino: `carregarEstado` (supabaseIO) lê `escala_antecipacoes` com `semana_destino = esta semana` e reduz `quantidade` dos itens (`aplicarDescontoNosItens`): Pino 54.000 com 8.000 antecipados → o motor enxerga 46.000 (`restante` e `piso` já derivam disso). Independe do modo estar ligado: é fato físico; sem linhas no registro nada muda. O que foi descontado vai para os diagnósticos do recálculo (`ANTECIPACAO_RESUMO`, "DESCONTADA"/"NÃO descontada").
-- Quando o total antecipado para uma semana de destino muda, a RPC registra um evento `previsao` para a Previsão de destino (recalcula se ela já tem escala).
-- **FORMAÇÃO não desconta por padrão** (decisão do dono: o estoque formado não é erro/excesso e não deve fazer a semana seguinte produzir menos em silêncio). Ligar `escala_formacao_estoque_desconta_destino` faz o estoque formado também reduzir a quantidade; em qualquer caso o diagnóstico mostra o valor e se foi aplicado.
-- Antecipação/formação **já executada** (períodos iniciados) é **devolvida ao restante da semana atual** (`planoCorte.restanteDe`): o apontamento não distingue a peça extra da peça da demanda e, sem isso, a peça extra mascararia falta de demanda atual. Conservador: com restante 0 usa só as boas confirmadas.
+## 4. Rastreabilidade e relatório
 
-## 3. Rastreabilidade — `escala_antecipacoes` (append-only)
+Tabela `escala_antecipacoes` (append-only; migration `20261118100000`, já em PROD inerte) + colunas `meta_minima_producao` e `quantidade_alem_da_meta` (migration **aditiva** `20261118110000`, rollback próprio). `origem`: `DEMANDA_SEMANA` (só a parte da meta de postos mistos) | `ANTECIPACAO_SEMANA_SEGUINTE` | `FORMACAO_ESTOQUE`. Cada linha: semana de origem/destino (FORMAÇÃO: semana em que o estoque estará disponível), data, período, produto, etapa, operação, máquina, **operador**, quantidade, **meta mínima**, **quantidade além da meta**, hash e versão do plano que autorizou, instante. Regerar substitui só as linhas futuras vigentes (`substituida_em`); períodos iniciados nunca são tocados. RPC atômica `escala_aplicar_recalculo_antecipacao` (plano + ledger na mesma transação).
 
-Migration `20261118100000_antecipacao_semana_seguinte.sql` (aditiva; rollback em `supabase/rollbacks/`). Colunas principais: `origem` (`DEMANDA_SEMANA` | `ANTECIPACAO_SEMANA_SEGUINTE` | `FORMACAO_ESTOQUE`), `semana_origem`, `semana_destino` (ANTECIPAÇÃO: semana cuja demanda foi antecipada; FORMAÇÃO: semana em que o estoque estará disponível — só desconta se decidido), `data`, `periodo_id`, `produto_id`, `etapa_id`, `etapa_idx`, `etapa_final`, `operacao_id`, `maquina_id`, `funcionario_id` (operador), `quantidade`, `plano_hash` (hash das alocações do plano que autorizou), `plano_versao_dia`, `autorizado_em`, `autorizado_por`, `substituida_em`, `substituida_por_hash`.
+**Relatório META MÍNIMA × PLANEJADA × REAL × FORMAÇÃO**: view SQL `escala_meta_estoque_v` (por semana e produto: `meta_minima_producao`, `producao_planejada`, `producao_real`, `formacao_estoque_registrada`, `alem_da_meta_planejado`, `alem_da_meta_real`) e função pura `relatorioMetaEstoque` (mesma conta). Ex.: meta 108.000; planejada 116.000; real 114.500 ⇒ além da meta (real) 6.500; falta para a meta 0.
 
-- Registra a produção **além da demanda** por posto (uma linha por produto × etapa × posto) e, só nos postos mistos, a parte `DEMANDA_SEMANA` (para o "A × B" do posto: `pecas` da linha do plano = demanda + extra). Linhas de postos 100% demanda não entram (evita inflar o ledger); o total por produto = Σ `pecas` do plano − extra.
-- **Append-only**: trigger recusa DELETE/TRUNCATE e qualquer UPDATE além de marcar uma linha vigente como substituída. RLS ligada sem políticas, `revoke` de anon/authenticated (só service_role). Sem FKs (auditoria sobrevive a cadastros).
-- **Regra de substituição** (`escala_antecipacao_registrar`): regerar o plano marca como `substituida_em` as linhas **vigentes** cujo período é ≥ ao ponto de corte (futuras, não iniciadas) e insere as novas; linhas de períodos já iniciados/fechados **nunca** são tocadas (o corte é o mesmo validado pela RPC do plano, que recusa corte no passado; linha nova em período congelado é recusada). Plano mantido (entrada idêntica) ⇒ registro intocado. Regra desligada ⇒ próximo recálculo substitui as futuras por vazio.
-- **Atomicidade**: `escala_aplicar_recalculo_antecipacao` chama a RPC antiga e o registro na mesma transação (plano e registro andam juntos ou nenhum dos dois). Sem registro a gravar, o recálculo usa a RPC de sempre.
-
-## 4. Parâmetros (`escala_parametros`) — nenhum dispara recálculo
+## 5. Parâmetros (`escala_parametros`) — nenhum dispara recálculo
 
 | chave | valor | efeito |
 |---|---|---|
-| `escala_antecipacao_modo` | `"desligado"` (padrão; ausente/desconhecido = desligado) \| `"ativo"` | liga a fase 2 inteira |
-| `escala_formacao_estoque_produtos` | lista de `produto_id` ou `{produtoId, tetoPecas?, bufferExtraPecas?}` | política por produto (nunca global); itens inválidos ignorados |
-| `escala_formacao_estoque_desconta_destino` | `true` \| `false` (padrão) | formação desconta a semana de destino? |
+| `escala_antecipacao_modo` | `"desligado"` (padrão) \| `"ativo"` | liga a fase 2 |
+| `escala_formacao_estoque_produtos` | lista de `produto_id` ou `{produtoId, limiteFisicoPecas?, bufferExtraPecas?}` (legado `tetoPecas` = `limiteFisicoPecas`) | política por produto (nunca global) |
+| `escala_formacao_estoque_desconta_destino` | `true` \| `false` (padrão) | formação também desconta a meta da semana de destino |
+| `escala_antecipacao_semana_seguinte` | `"desligado"` (padrão) \| `"ativo"` | opt-in da antecipação com desconto |
 
-Seguem o padrão de `escala_liberacao_desde`: `escala_trg_parametros` retorna cedo para essas chaves (a regra vale no próximo recálculo natural). **Desligar = apagar a chave ou `"desligado"`**; com a regra desligada o resultado do plano é **byte-idêntico** ao anterior (teste de golden: `scripts/fechamento/golden-antecipacao.ts` × `golden-antecipacao-base.json`, e `planejarFuturo` sem `antecipacao` ≡ com `antecipacao` vazia em vários cenários).
+Com a regra desligada o plano é **byte-idêntico** ao anterior (golden: `scripts/fechamento/golden-antecipacao.ts`). Única exceção deliberada: o **conserto do fallback** (seção 6), que só altera o resultado quando a 1ª tentativa de atribuição de pessoas falhava.
 
-## 5. Checagens independentes (`checarAntecipacao`) — devem ser 0 para o plano valer
+## 6. Fallback de 06/11 13:08 — causa e correção
 
-`foraDoDestino` (ANTECIPAÇÃO em máquina fora da interseção), `demandaFuturaUltrapassada` (ANTECIPAÇÃO acima do Forecast líquido), `tetoFisicoUltrapassado` (FORMAÇÃO acima do teto), `produtoProibido` (extra em produto excluído/encerrado/sem política). Além das checagens de sempre (cadeia, material, restrições duras, máquina da Previsão, pessoas, duplicidade, passado). **Produzir além da demanda por FORMAÇÃO não é violação nem "demanda ultrapassada"**; `resultadoDe` mede o corte da demanda só com o que serve à demanda.
+**Evento**: `ausencia` 13:08:38, **Aly**, `saida_antecipada`, 13:08–17:00 (232 min), 06/11. Cobre T1 (já em andamento), T2 e T3. Equipe disponível em T2/T3 = 11. O recálculo a partir de T2 caiu em `fallback` ("sem plano executável com as pessoas disponíveis (revezamento)") e o plano vigente (12:18) foi mantido — reproduzido no clone com o **mesmo hash do PROD** (`d6237eb0…`).
 
-## 6. O que NÃO faz (e limitações)
+**Causa (inviabilidade real, não limitação do húngaro)**: as linhas produzidas pela busca tinham **8 postos de Montar Presilha na tarde (4 em T2 + 4 em T3)**. Regra dura: a mesma pessoa não repete a operação na tarde. Em T1 (congelado) Joa, Karelis, Rosa e Tania fizeram Montar Presilha ⇒ não podem mais; Aly saiu; elegíveis = 11 − 4 = **7 < 8** (violação de Hall). A busca exata (`resolverBlocoExato`, CSP com emparelhamento por período e por operação) **provou** a inviabilidade e foi conferida contra força bruta em 300 instâncias aleatórias (0 divergências). A heurística (húngaro por período) também falhou, mas **corretamente**.
 
-- Não antecipa/forma estoque de produto excluído (Conector 3/4 legado e produto único), encerrado (4x2) ou sem pool na semana atual (rota/metas não estão carregadas para o produto que só existe na semana seguinte).
-- **Produto único (semana em PLANEJAMENTO/OPERACIONAL como origem)**: regra desligada na semana (não desdobra o canônico).
-- Não usa máquina fora da Previsão (ANTECIPAÇÃO: interseção das duas Previsões; FORMAÇÃO: Previsão atual). Máquina só da semana seguinte nunca entra.
-- Não cria estoque se a semana seguinte não tem Previsão salva e o produto não tem política.
-- O desconto da semana de destino usa a quantidade **planejada** dos períodos iniciados (o apontamento não distingue extra de demanda); se o operador produzir menos que o planejado o destino fica sub-produzido — risco aceito e conservador do lado da demanda atual (o restante da origem é devolvido), mas não do destino. Refinamento futuro: capar o registro pelo apontado da máquina×período.
-- Não corrige o excedente real (ex.: Pino +8.580): só o conta no teto de FORMAÇÃO.
-- Busca da fase 2 é gulosa (ótimo local por linha); pares upstream→downstream em dois períodos dependem do crédito de estoque intermediário.
-- A atribuição de pessoas é refeita para o conjunto união: as pessoas dos postos da demanda podem trocar de posto em relação ao plano sem a regra (os **postos** da demanda não mudam).
-- Em produção real, o ledger registra o **plano**; a conferência plano × apontado fica para a Produção Real.
+**Por que o planejador não se recuperou**: o limite de linhas por operação/bloco (`limiteOp`) parte de `max(pessoas)` da semana (12, de dias sem a ausência) e a retentativa o aperta de 1 em 1. Mas a busca local só valida restrições nos períodos que ela *toca*; a partida da retentativa (as 8 linhas) já violava o limite novo e, sendo o "melhor plano", **permanecia para sempre** — o aperto não apertava nada. **Correção** (`apertarLinhasAoLimite`, só nas retentativas): a partida também obedece ao limite apertado (remove a linha cuja saída menos reduz o objetivo). Resultado: 7 postos de Montar Presilha (1 a menos em T2) e plano válido. Mais: `reatribuirPessoasBloco` agora tem **fallback exato** (nunca relaxa regra) quando a heurística falha — rede de segurança; nas 245 instâncias viáveis aleatórias a heurística sozinha não falhou.
 
-## 7. Arquivos
+**O plano vigente mantido era INVÁLIDO para a Aly**: v35 (12:18) tem Aly em **T3 Montar Presilha / Montagem 18B** (e sem posto em T1/T2); a ausência 13:08–17:00 deixa esse posto sem operador. O fallback mantém o plano mesmo assim (comportamento existente: "plano vigente mantido + alerta").
+A regra de estoque **não** muda o resultado: o fallback ocorre na fase 1 (meta), antes; com ou sem formação o código antigo cai em fallback e o novo recalcula (testado nos dois).
 
-`src/features/escala/fluxo/antecipacao.ts` (fase 2, funções puras de regra, descontos) · `planejadorFuturo.ts` (`comFase2`, fusão sombra→produto real em `montar`) · `postosDespacho.ts` (`fixas`, `sombra`, `tetoNivel`, `saidaTetoObj` — todos opcionais/inertes) · `planoCorte.ts` (entrada, restante devolvido, checagens, diagnósticos) · `src/lib/escala/{supabaseIO,processar,estado,montarEntrada}.ts`, `fluxo/parametrosAntecipacao.ts`, `fluxo/integracaoCorte.ts` · `supabase/migrations/20261118100000_*`, `supabase/tests/escala_antecipacao.test.sql` · testes `fluxo/__tests__/antecipacao.test.ts`, `lib/escala/__tests__/antecipacaoIntegracao.test.ts` · ensaio `scripts/fechamento/ensaio-antecipacao.ts`, golden `scripts/fechamento/golden-antecipacao*.{ts,json}`.
+## 7. Ensaio no clone (06/11, T1 congelado; T2 e T3)
 
-## 8. Ensaio no clone (06/11, relógio simulado 12:50; semana 02/11, T1–T3)
+Saída completa por período/pessoa/posto em `docs/ensaio-antecipacao-2026-11-06.txt`. Reproduzir: `scripts/fechamento/ensaio-antecipacao.ts`; diagnóstico: `scripts/fechamento/diagnostico-fallback-revezamento.ts`.
 
-Saída completa por período/pessoa/posto/quantidade (demanda × extra) em `docs/ensaio-antecipacao-2026-11-06.txt`. Reproduzir: `scripts/fechamento/ensaio-antecipacao.ts` (dry-run; `GRAVAR=1 GRAVAR_CEN=B|C AGORA_REAL=1 DESTINO=1` grava no clone e simula a semana 09/11).
+## 8. O que NÃO faz / limitações
 
-| cenário | pessoas sem posto T1 / T2 / T3 | extra |
-|---|---|---|
-| plano vigente (PROD v34) | 3 / 3 / 5 | — |
-| A — regra atual (desligada, replanejado do zero) | 4 / 4 / 3 (= 11 pessoa-períodos) | 0 |
-| B — FORMAÇÃO (Pino, Plug Macho, Caixa 4x4) | 3 / 3 / 2 (= 8) | Pino 5.919 (3 × 1.973, Montagem 20), FORMACAO_ESTOQUE |
-| C — ANTECIPAÇÃO com teto do Forecast | 3 / 3 / 2 (= 8) | Pino 5.919, ANTECIPACAO_SEMANA_SEGUINTE → 09/11 |
-
-O ganho é limitado pelo que é fisicamente possível: o Pino tem **uma** máquina selecionada na Previsão atual (Montagem 20); Plug (Montagem 14) e 4x4 (Etiquetadora 16 + Montagens 18/18B/19/19B) estão ocupados pela demanda atual; o Conector 3/4 está fora por segurança do cutover; 4x2 está encerrada. As pessoas restantes continuam sem posto (nenhum posto inútil é criado). Violações HARD = 0 e todas as checagens da regra = 0 nos três cenários.
+- Sem pool na semana atual ⇒ sem formação nem antecipação (rota/metas não carregadas). Produto único (semana de origem em PLANEJAMENTO/OPERACIONAL): regra desligada.
+- O ledger registra o **plano**; o apontamento não distingue peça extra da peça da meta (por isso o extra executado é devolvido ao restante da meta da semana atual).
+- Busca da fase 2 é gulosa; a atribuição de pessoas é refeita no conjunto união (os **postos** da meta não mudam, quem os ocupa pode mudar).
+- A UI dos relatórios fica para depois.

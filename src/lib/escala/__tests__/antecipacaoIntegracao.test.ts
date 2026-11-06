@@ -27,7 +27,7 @@ const CFG = { objetivo: "EQUILIBRIO" as const, busca: { iter: 30000, reinicios: 
 
 function dadosAnt(extra: Partial<DadosAntecipacao> = {}): DadosAntecipacao {
   return {
-    modo: "ativo", semanaOrigem: SEMANA, semanaDestino: DESTINO, politicasFormacao: [], excluidos: ["pD"], registros: [],
+    modo: "ativo", antecipacaoSolicitada: true, semanaOrigem: SEMANA, semanaDestino: DESTINO, politicasFormacao: [], excluidos: ["pD"], registros: [],
     forecastDestino: [{ produtoId: "pC", quantidade: 3000, maquinasPorEtapa: { eC1: ["m4"] } }, { produtoId: "pD", quantidade: 9999, maquinasPorEtapa: { eD1: ["m3", "m8"], eD2: ["m6"] } }, { produtoId: "pZ", quantidade: 500, maquinasPorEtapa: {} }],
     ...extra,
   };
@@ -97,6 +97,17 @@ describe("ANTECIPAÇÃO no recálculo oficial", () => {
     // nenhuma pessoa em 2 postos / máquina duplicada
     const k = new Set(m.alocacoes.map((a) => `${a.data}|${a.periodoId}|${a.funcionarioId}`));
     expect(k.size).toBe(m.alocacoes.length);
+  });
+
+  it("sem o opt-in da antecipação e sem política, produto para na meta mínima (nada extra); meta mínima gravada no registro de formação", async () => {
+    const m = mundo(dadosAnt({ antecipacaoSolicitada: false }));
+    const { payloads } = await recalcular(m, GERA, true);
+    expect(payloads[payloads.length - 1].antecipacoes?.linhas.length ?? 0).toBe(0);
+    const f = mundo(dadosAnt({ antecipacaoSolicitada: false, politicasFormacao: [{ produtoId: "pC" }] }));
+    const r = await recalcular(f, GERA, true);
+    const linhas = r.payloads[r.payloads.length - 1].antecipacoes!.linhas.filter((l) => l.origem === "FORMACAO_ESTOQUE");
+    expect(linhas.length).toBeGreaterThan(0);
+    expect(linhas.every((l) => l.metaMinima === 1500 && l.alemDaMeta === l.quantidade)).toBe(true); // meta mínima (Previsão) e quantidade além da meta rastreadas
   });
 
   it("política de formação ligada para o produto ⇒ origem FORMACAO_ESTOQUE, passa do Forecast futuro e da demanda atual; semana de disponibilidade na linha", async () => {
