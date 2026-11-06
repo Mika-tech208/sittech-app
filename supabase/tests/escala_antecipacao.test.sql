@@ -58,6 +58,7 @@ insert into public.escala_parametros (chave, valor, grupo) values ('escala_antec
   on conflict (chave) do update set valor = excluded.valor;
 update public.escala_parametros set valor='"desligado"' where chave='escala_antecipacao_modo';
 select pg_temp.reg('parâmetros da regra não geram evento de recálculo', '0', (select (count(*) - (select n from antes))::text from public.escala_producao_eventos));
+delete from public.escala_producao_eventos where tipo = 'previsao' and status = 'pendente'; -- o registrar_evento deduplica pendentes do mesmo tipo/previsão
 create temp table antes2 as select count(*) n from public.escala_producao_eventos;
 insert into public.escala_parametros (chave, valor, grupo) values ('chave_generica_teste','1','operacional');
 select pg_temp.reg('outra chave de parâmetro continua disparando recálculo (padrão preservado)', 'true', ((select count(*) from public.escala_producao_eventos) > (select n from antes2))::text);
