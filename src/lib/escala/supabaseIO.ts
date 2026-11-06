@@ -14,7 +14,7 @@ import { historicoDaAusencia } from "./ausenciaAberta";
 import { historicoDeSituacao } from "./situacaoFuncionario";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao } from "./estado";
 import { processarSemana, type CorteExplicito, type EscalaIO, type OpcoesProcessamento } from "./processar";
-import { carregarContagensDeFechamento, lerModoFechamento } from "./fechamento/leitura";
+import { carregarContagensEBaseDeFechamento, lerModoFechamento } from "./fechamento/leitura";
 import { carregarWipControle, gravarSnapshotsWip } from "./wipIO";
 import { lerConfigFluxo, modoEfetivoFluxo, planejadorCorteNaSemana } from "./fluxo/parametrosFluxo";
 import { carregarApontamentosReais, registrarDiagnosticoFluxo } from "./fluxo/supabaseFluxo";
@@ -175,8 +175,8 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
       // FECHAMENTO FÍSICO (flag em `ativo`): as contagens vigentes dos fechamentos entram como contagens físicas do motor (a mais recente por par vence, regra de sempre).
       // Em sombra/desligado nada é lido. Falha na leitura com a flag ativa = o recálculo NÃO segue com estimativa escondida: propaga (retentável).
       if (producaoReal && lerModoFechamento(parametrosRows) === "ativo") {
-        const doFechamento = await carregarContagensDeFechamento(admin);
-        if (doFechamento.length > 0) producaoReal = { ...producaoReal, contagensFisicas: [...(producaoReal.contagensFisicas ?? []), ...doFechamento] };
+        const { contagens: doFechamento, fechamentoIds } = await carregarContagensEBaseDeFechamento(admin);
+        producaoReal = { ...producaoReal, ...(fechamentoIds.length > 0 ? { fechamentosBase: fechamentoIds } : {}), ...(doFechamento.length > 0 ? { contagensFisicas: [...(producaoReal.contagensFisicas ?? []), ...doFechamento] } : {}) };
       }
       // PLANEJADOR DE CORTE (ativação controlada): semana configurada em producao_real_planejador_semanas (com o modo efetivo "ativo"). Nesta semana o motor LEGADO nunca recalcula:
       // se a Produção Real ou a coluna `distribuicao` estiverem indisponíveis, o processador mantém o plano vigente e registra o motivo (ver processar.ts).
@@ -259,6 +259,12 @@ export function criarEscalaIO(admin: SupabaseClient, previsaoId: string): Escala
 
     async registrarFluxo(registro) {
       await registrarDiagnosticoFluxo(admin, registro);
+    },
+
+    // VIRADA DE SEMANA: registra com QUAIS fechamentos físicos o plano foi calculado (append-only). Falha NUNCA impede o recálculo (o processador captura): sem registro, o M1 da semana nova fica NÃO liberado (fail-closed).
+    async registrarBaseFisica(b) {
+      const { error } = await admin.from("escala_plano_base_fisica").insert({ previsao_id: b.previsaoId, fechamento_ids: b.fechamentoIds, hash_plano: b.hashPlano, origem: b.origem });
+      if (error) throw new Error(`escala_plano_base_fisica: ${error.message}`);
     },
 
     async aplicar(p: PayloadAplicacao) {

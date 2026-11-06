@@ -52,6 +52,8 @@ export interface EscalaIO {
   gravarSnapshotsWip?(semanaInicio: string, snapshots: SnapshotWipParaGravar[]): Promise<void>;
   // Escala Inteligente (fluxo): grava o diagnóstico (escala_fluxo_registrar, idempotente). Só é chamado com o modo efetivo sombra/ativo. NUNCA deve impedir o recálculo.
   registrarFluxo?(registro: RegistroFluxo): Promise<void>;
+  /** VIRADA DE SEMANA: grava a BASE FÍSICA do plano (fechamentos cujos inventários entraram no cálculo). Só com o planejador de corte realmente usado; falha é registrada em log e não impede nada. */
+  registrarBaseFisica?(b: { previsaoId: string; fechamentoIds: string[]; hashPlano: string; origem: "geracao" | "recalculo" | "sem_alteracao" }): Promise<void>;
 }
 
 export interface OpcoesProcessamento {
@@ -209,6 +211,14 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
       }
     };
 
+    // BASE FÍSICA do plano (virada de semana): só quando o planejador de corte foi o autor do plano e há fechamentos físicos considerados. Nunca lança.
+    const registrarBase = async (origem: "geracao" | "recalculo" | "sem_alteracao") => {
+      const ids = estado.producaoReal?.fechamentosBase;
+      if (!io.registrarBaseFisica || !pcorte || !corteUsado || corteMotivoFalha || !ids || ids.length === 0) return;
+      try { await io.registrarBaseFisica({ previsaoId: estado.previsaoId, fechamentoIds: ids, hashPlano: hashAlocacoes(resultado!.alocacoes), origem }); }
+      catch (e) { console.error("escala/base-fisica: falha ao registrar a base física do plano:", e instanceof Error ? e.message : e); }
+    };
+
     // NO-OP do recálculo oficial: o plano resultante é semanticamente IDÊNTICO ao gravado na região afetada, não há dia novo/removido e os alertas do recálculo não mudaram =>
     // nada é regravado, nenhuma `versao` sobe, nenhum evento 'recalculo' é gravado (o chamador dá os eventos como processados). Primeira geração e qualquer dia novo nunca são no-op.
     const indisponiveis = alertasRotaIndisponivel(entrada, montada.avisos); // rota sem origem (ex.: M8 desmarcada): demanda NÃO atendida registrada; vazio no caso normal
@@ -218,6 +228,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
       const atualNaRegiao = estado.alocacoes.filter((a) => (indice.get(`${a.data}|${a.periodoId}`) ?? -1) >= entrada.aPartirDe);
       if (planosIguais(atualNaRegiao, resultado.alocacoes)) {
         const fluxo = await registrarFluxo(false);
+        await registrarBase("sem_alteracao");
         return { status: "sem_alteracao", tentativas: tentativa, alertas: [], alocacoesGravadas: 0, ...(fluxo ? { fluxo } : {}), ...(pcorte ? { corte: { usado: corteUsado, motivoFalha: corteMotivoFalha, hashEntrada: corteHashEntrada, hashPlano: hashAlocacoes(resultado.alocacoes) } } : {}) };
       }
     }
@@ -252,6 +263,7 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
       if (montada.snapshotsWip.length > 0 && io.gravarSnapshotsWip) await io.gravarSnapshotsWip(estado.semanaInicio, montada.snapshotsWip);
       const { versoes } = await io.aplicar(payload);
       const fluxo = await registrarFluxo(true);
+      await registrarBase(estado.diasExistentes.length === 0 ? "geracao" : "recalculo");
       return {
         status: "processado",
         tentativas: tentativa,

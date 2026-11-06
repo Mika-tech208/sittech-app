@@ -131,6 +131,8 @@ export interface EstadoProducaoReal {
   contagensFisicasDescartadas?: DiagnosticoItem[];
   /** Fechamento físico atômico: fim (epoch ms) do período fechado com inventário na troca (ver DadosProducaoReal.fechamentoFisicoFimMs). Ausente = nenhum. */
   fechamentoFisicoFimMs?: number; // itens malformados dessa chave (ignorados, com diagnóstico)
+  /** VIRADA DE SEMANA: ids dos fechamentos físicos VIGENTES cujos inventários entraram nas contagens deste cálculo (snapshot físico usado). Gravado em escala_plano_base_fisica pelo processamento. */
+  fechamentosBase?: string[];
   mesmoPeriodo?: boolean; // producao_real_fluxo_mesmo_periodo: ausente/true = padrão; false = regra conservadora de material (ver parametrosFluxo.ts)
   cadeia?: { diagnostico?: true }; // camadas do planejamento de cadeia ligadas (producao_real_cadeia_*); ausente = nenhuma
   apontamentos: ApontamentoReal[]; // TODAS as linhas de apontamento da semana (produzindo e sem_producao, com motivo e carimbo)
