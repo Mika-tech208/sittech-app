@@ -56,6 +56,9 @@ import ProdutosProgramadosLegado from "@/features/previsao/components/ProdutosPr
 import { formatPct } from "@/features/previsao/formatPct";
 import Recolhivel from "@/features/previsao/components/Recolhivel";
 import type { Produto, PrevisaoItem, Previsao } from "@/types/domain";
+import { supabase } from "@/services/supabase-client";
+import UnificarConectorBanner from "@/features/produto-canonico/components/UnificarConectorBanner";
+import { mensagemErroUnificar, ofertaUnificar } from "@/features/produto-canonico/unificarPrevisao";
 
 const emptyPrevItemForm: PrevItemFormState = { produtoId: "", quantidade: "", maquinasPorEtapa: {} };
 
@@ -285,6 +288,19 @@ export default function PrevisaoSemanalPage() {
     setPrevItemForm({ produtoId: it.produtoId, quantidade: String(it.quantidade), maquinasPorEtapa: it.maquinasPorEtapa || {} });
     setEditingPrevItemId(it.id);
     setShowPrevItemForm(true);
+  }
+  // Produto único (Conector 3/4): semana >= cutover com itens dos legados -> botão EXPLÍCITO que soma (nunca automático). Sem cutover/legados a oferta é null e nada aparece.
+  const ofertaUnificarSemana = useMemo(
+    () => ofertaUnificar(semanaAtualRec.itens, guardaProdutos, semanaAtual),
+    [semanaAtualRec.itens, guardaProdutos, semanaAtual]
+  );
+  async function unificarConector(): Promise<string | null> {
+    const { data: prev, error: e1 } = await supabase.from("previsoes").select("id").eq("semana_inicio", semanaAtual).maybeSingle();
+    if (e1 || !prev) return "Não foi possível localizar a Previsão desta semana.";
+    const { error } = await supabase.rpc("produto_unico_unificar_previsao", { p_previsao: prev.id });
+    if (error) return mensagemErroUnificar(error.message || "");
+    window.location.reload(); // recarrega a Previsão com o item único (o recálculo da Escala já foi enfileirado pelo banco)
+    return null;
   }
   async function deletePrevItem(id: string) {
     await upsertSemana({ itens: semanaAtualRec.itens.filter((it) => it.id !== id) });
@@ -613,6 +629,8 @@ export default function PrevisaoSemanalPage() {
                 )}
 
                 <EstoqueIntermediario semanaInicio={semanaAtual} produtos={produtos} />
+
+                {ofertaUnificarSemana && <UnificarConectorBanner oferta={ofertaUnificarSemana} onUnificar={unificarConector} formatarQuantidade={(v) => v.toLocaleString("pt-BR")} />}
 
                 <ItensPrevistos
                   loading={previsoesHook.loading}
