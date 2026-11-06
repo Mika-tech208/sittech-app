@@ -1,7 +1,37 @@
 {
  "gerado_em": "2026-11-06",
- "observacao": "hash do plano (corte.hashPlano) do clone 02/11 a partir de T1 de 06/11, FRESCO=1 (busca do zero), codigo main bbd1c74 (antes da antecipacao)",
- "hashPlano_fresco": "5e7e17a3c88fb41eda70149acee5878007fa8bae9656a0ef5ec69933f26486e5",
- "hashLinhas_fresco": "422eed3a51bc22398cd2754ff5a095831a1ef48f0ca5a6c3d343187a96f0aec3",
- "hashPlano_vigente": "0e84755836f948aedd1c13258ec6054a90ca344c147e82557e681100a6a54fbb"
+ "observacao": "Prova de byte-identidade com a regra DESLIGADA: hash do plano (corte.hashPlano) e hash das linhas gravaveis, calculados pelo codigo ANTERIOR (main bbd1c74, worktree separado) e pelo codigo NOVO (flag ausente, tabela escala_antecipacoes presente e vazia) sobre o mesmo clone (dump de PROD 06/11 12:47, plano v34). Reproduzir: scripts/fechamento/golden-antecipacao.ts (HORA=12:50|14:30, FRESCO=1|0).",
+ "casos": [
+  {
+   "hora": "12:50",
+   "fresco": true,
+   "status": "processado",
+   "linhas": 36,
+   "hashLinhas": "422eed3a51bc22398cd2754ff5a095831a1ef48f0ca5a6c3d343187a96f0aec3",
+   "hashPlano": "5e7e17a3c88fb41eda70149acee5878007fa8bae9656a0ef5ec69933f26486e5"
+  },
+  {
+   "hora": "12:50",
+   "fresco": false,
+   "status": "sem_alteracao",
+   "hashPlano": "0e84755836f948aedd1c13258ec6054a90ca344c147e82557e681100a6a54fbb"
+  },
+  {
+   "hora": "14:30",
+   "fresco": true,
+   "status": "processado",
+   "linhas": 12,
+   "hashLinhasPrefixo": "2a8a9b5b06b630fa",
+   "hashPlanoPrefixo": "4912f4fbbd70d4c7"
+  },
+  {
+   "hora": "14:30",
+   "fresco": false,
+   "status": "processado",
+   "linhas": 12,
+   "hashLinhasPrefixo": "5d4bc48071494833",
+   "hashPlanoPrefixo": "6ee7f95c567d64b2"
+  }
+ ],
+ "resultado": "idêntico nos 4 casos (base × novo)"
 }

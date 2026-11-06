@@ -91,7 +91,7 @@ async function relatorio(x: Awaited<ReturnType<typeof planejar>>) {
   console.log(`# ENSAIO ANTECIPAÇÃO/FORMAÇÃO · clone · relógio simulado 2026-11-06 12:50 · ${new Date().toISOString()}`);
   const pid = { pino: idProduto("Pino"), plug: idProduto("Plug Macho "), cx44: idProduto("Caixa Amarela 4x4"), cx42: idProduto("Caixa Amarela 4x2"), conv: idProduto("Conector 3/4\"") };
   console.log("ids:", JSON.stringify(pid));
-  ["escala_antecipacao_modo", "escala_formacao_estoque_produtos", "escala_formacao_estoque_desconta_destino"].forEach(delParam);
+  if (!process.env.NAO_LIMPAR) ["escala_antecipacao_modo", "escala_formacao_estoque_produtos", "escala_formacao_estoque_desconta_destino"].forEach(delParam);
   const modo = process.env.CENARIOS ?? "ABC";
   const gravar = process.env.GRAVAR === "1";
   if (modo.includes("A")) await relatorio(await planejar("CENÁRIO A — regra atual (antecipação DESLIGADA)", gravar && process.env.GRAVAR_CEN === "A"));

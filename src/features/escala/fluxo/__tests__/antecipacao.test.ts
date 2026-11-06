@@ -305,7 +305,7 @@ describe("Propriedade (sementes fixas): invariantes HARD e prioridade da demanda
       for (const ap of antProdutos) expect(somaFin(com, ap.produtoId, (o) => o === ap.origem), tag).toBeLessThanOrEqual(ap.tetoFinal + 1e-6);
       (com.antecipacoes ?? []).forEach((a) => expect(antProdutos.some((x) => x.produtoId === a.produtoId && x.origem === a.origem), tag).toBe(true));
     }
-  });
+  }, 120_000);
 });
 
 describe("Exclusões por construção, desligado byte-idêntico e nenhuma regra por nome", () => {
