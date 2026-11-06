@@ -81,3 +81,16 @@ Seguem o padrão de `escala_liberacao_desde`: `escala_trg_parametros` retorna ce
 ## 7. Arquivos
 
 `src/features/escala/fluxo/antecipacao.ts` (fase 2, funções puras de regra, descontos) · `planejadorFuturo.ts` (`comFase2`, fusão sombra→produto real em `montar`) · `postosDespacho.ts` (`fixas`, `sombra`, `tetoNivel`, `saidaTetoObj` — todos opcionais/inertes) · `planoCorte.ts` (entrada, restante devolvido, checagens, diagnósticos) · `src/lib/escala/{supabaseIO,processar,estado,montarEntrada}.ts`, `fluxo/parametrosAntecipacao.ts`, `fluxo/integracaoCorte.ts` · `supabase/migrations/20261118100000_*`, `supabase/tests/escala_antecipacao.test.sql` · testes `fluxo/__tests__/antecipacao.test.ts`, `lib/escala/__tests__/antecipacaoIntegracao.test.ts` · ensaio `scripts/fechamento/ensaio-antecipacao.ts`, golden `scripts/fechamento/golden-antecipacao*.{ts,json}`.
+
+## 8. Ensaio no clone (06/11, relógio simulado 12:50; semana 02/11, T1–T3)
+
+Saída completa por período/pessoa/posto/quantidade (demanda × extra) em `docs/ensaio-antecipacao-2026-11-06.txt`. Reproduzir: `scripts/fechamento/ensaio-antecipacao.ts` (dry-run; `GRAVAR=1 GRAVAR_CEN=B|C AGORA_REAL=1 DESTINO=1` grava no clone e simula a semana 09/11).
+
+| cenário | pessoas sem posto T1 / T2 / T3 | extra |
+|---|---|---|
+| plano vigente (PROD v34) | 3 / 3 / 5 | — |
+| A — regra atual (desligada, replanejado do zero) | 4 / 4 / 3 (= 11 pessoa-períodos) | 0 |
+| B — FORMAÇÃO (Pino, Plug Macho, Caixa 4x4) | 3 / 3 / 2 (= 8) | Pino 5.919 (3 × 1.973, Montagem 20), FORMACAO_ESTOQUE |
+| C — ANTECIPAÇÃO com teto do Forecast | 3 / 3 / 2 (= 8) | Pino 5.919, ANTECIPACAO_SEMANA_SEGUINTE → 09/11 |
+
+O ganho é limitado pelo que é fisicamente possível: o Pino tem **uma** máquina selecionada na Previsão atual (Montagem 20); Plug (Montagem 14) e 4x4 (Etiquetadora 16 + Montagens 18/18B/19/19B) estão ocupados pela demanda atual; o Conector 3/4 está fora por segurança do cutover; 4x2 está encerrada. As pessoas restantes continuam sem posto (nenhum posto inútil é criado). Violações HARD = 0 e todas as checagens da regra = 0 nos três cenários.

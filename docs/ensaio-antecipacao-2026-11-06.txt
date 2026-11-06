@@ -1,0 +1,165 @@
+# ENSAIO ANTECIPAÇÃO/FORMAÇÃO · clone · relógio simulado 2026-11-06 12:50 · 2026-11-06T16:24:13.581Z
+ids: {"pino":"cace499f-2c0d-4cc5-b8e0-53f692ddbe92","plug":"fa08e7c6-1a44-4625-a9e4-9b9cebf1031e","cx44":"347a4161-4f2b-4066-9300-3ceb345c8648","cx42":"238ca607-2111-4aff-9a19-a9ae6f20da7e","conv":"27c229d7-f192-41eb-aad1-0c69ece53eba"}
+
+=================== CENÁRIO A — regra atual (antecipação DESLIGADA) (1624 ms · status processado · hashPlano 5e7e17a3c88f) ===================
+
+T1 · pessoas disponíveis 12 · alocadas 8 · sem posto 4 (Luana, Rosa, Samantha, Sara)
+   Joa                        Embalagem 17         Conector 3/4"          Embalar            total   4152 · demanda   4152 · extra      0
+   Damaris Perez Reys         Etiquetadora 15      Conector 3/4"          Etiquetar          total   3060 · demanda   3060 · extra      0
+   Elizabeth Torres Guerra    Etiquetadora 16      Caixa Amarela 4x4      Etiquetar          total   2200 · demanda   2200 · extra      0
+   Caroline Scheneider Da Luz Montagem 14 (Plug)   Plug Macho             Parafusar          total    919 · demanda    919 · extra      0
+   Aly                        Montagem 18          Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Karelis Josefina Rivas Leonice Montagem 18B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Kelly Caroline Monegat     Montagem 19          Caixa Amarela 4x4      Montar Presilha    total    237 · demanda    237 · extra      0
+   Tania                      Montagem 19B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+
+T2 · pessoas disponíveis 12 · alocadas 8 · sem posto 4 (Luana, Kelly, Samantha, Sara)
+   Karelis Josefina Rivas Leonice Embalagem 17         Conector 3/4"          Embalar            total   4152 · demanda   4152 · extra      0
+   Aly                        Etiquetadora 15      Conector 3/4"          Etiquetar          total   3060 · demanda   3060 · extra      0
+   Elizabeth Torres Guerra    Maquina Automatica 8  Conector 3/4" - Maquina Automatica  Rosquear + Parafusar total    987 · demanda    987 · extra      0
+   Tania                      Montagem 14 (Plug)   Plug Macho             Parafusar          total    919 · demanda    919 · extra      0
+   Damaris Perez Reys         Montagem 18          Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Caroline Scheneider Da Luz Montagem 18B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Rosa                       Montagem 19          Caixa Amarela 4x4      Montar Presilha    total    237 · demanda    237 · extra      0
+   Joa                        Montagem 19B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+
+T3 · pessoas disponíveis 12 · alocadas 9 · sem posto 3 (Rosa, Tania, Aly)
+   Caroline Scheneider Da Luz Embalagem 17         Conector 3/4"          Embalar            total   4152 · demanda   4152 · extra      0
+   Kelly Caroline Monegat     Etiquetadora 15      Conector 3/4"          Etiquetar          total   3060 · demanda   3060 · extra      0
+   Joa                        Maquina Automatica 8  Conector 3/4" - Maquina Automatica  Rosquear + Parafusar total    987 · demanda    987 · extra      0
+   Karelis Josefina Rivas Leonice Montagem 14 (Plug)   Plug Macho             Parafusar          total    919 · demanda    919 · extra      0
+   Elizabeth Torres Guerra    Montagem 18          Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Samantha Gonzalez Leon     Montagem 18B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Luana                      Montagem 19          Caixa Amarela 4x4      Montar Presilha    total    237 · demanda    237 · extra      0
+   Sara Perez Valera          Montagem 19B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Damaris Perez Reys         Parafusadeira 12     Conector 3/4"          Parafusar          total   1268 · demanda   1268 · extra      0
+
+Produção extra (registro) por produto × origem × etapa:
+
+Por produto (T1–T3 de 06/11):
+   Caixa Amarela 4x2                  demanda atual      0 · produzido  27930 · restante      0 · T1–T3: demanda      0 + extra final      0 · máquina×período ociosos (de 15): 2
+   Conector 3/4"                      demanda atual  64800 · produzido  41200 · restante  23600 · T1–T3: demanda  12456 + extra final      0 · máquina×período ociosos (de 18): 11
+   Caixa Amarela 4x4                  demanda atual  10000 · produzido   4290 · restante   5710 · T1–T3: demanda   2817 + extra final      0 · máquina×período ociosos (de 15): 2
+   Conector 3/4" - Maquina Automatica  demanda atual  28500 · produzido      0 · restante  28500 · T1–T3: demanda      0 + extra final      0 · máquina×período ociosos (de 9): 1
+   Pino                               demanda atual  43200 · produzido  51780 · restante      0 · T1–T3: demanda      0 + extra final      0 · máquina×período ociosos (de 3): 3
+   Plug Macho                         demanda atual  26400 · produzido  20050 · restante   6350 · T1–T3: demanda   2757 + extra final      0 · máquina×período ociosos (de 3): 0
+   Conector 1.1/4"                    demanda atual   6120 · produzido   7820 · restante      0 · T1–T3: demanda      0 + extra final      0 · máquina×período ociosos (de 6): 6
+
+Checagens independentes: {"cadeiaInvalida":0,"cadeiaCapacidadeExcedida":0,"semMaterial":0,"violacoesDuras":0,"maquinaForaDaPrevisao":0,"distribuicaoInvalida":0,"maxPostosSimultaneos":9,"pessoasMin":12,"excedePessoas":0,"passadoAlterado":0,"duplicidade":0}
+   [ANTECIPACAO_RESUMO] Produção extra (além da demanda da semana): 0 registro(s) de posto; peças finais {}
+
+=================== CENÁRIO B — FORMAÇÃO DE ESTOQUE (Pino, Plug Macho, Caixa 4x4 liberados; Conector fora; 4x2 encerrada) (1595 ms · status processado · hashPlano 16f6f8403ce3) ===================
+
+T1 · pessoas disponíveis 12 · alocadas 9 · sem posto 3 (Rosa, Samantha, Sara)
+   Karelis Josefina Rivas Leonice Embalagem 17         Conector 3/4"          Embalar            total   4152 · demanda   4152 · extra      0
+   Damaris Perez Reys         Etiquetadora 15      Conector 3/4"          Etiquetar          total   3060 · demanda   3060 · extra      0
+   Elizabeth Torres Guerra    Etiquetadora 16      Caixa Amarela 4x4      Etiquetar          total   2200 · demanda   2200 · extra      0
+   Caroline Scheneider Da Luz Montagem 14 (Plug)   Plug Macho             Parafusar          total    919 · demanda    919 · extra      0
+   Aly                        Montagem 18          Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Kelly Caroline Monegat     Montagem 18B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Luana                      Montagem 19          Caixa Amarela 4x4      Montar Presilha    total    237 · demanda    237 · extra      0
+   Tania                      Montagem 19B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Joa                        Montagem 20          Pino                   Parafusar (Pino)   total   1973 · demanda      0 · extra   1973 [FORMACAO_ESTOQUE]
+
+T2 · pessoas disponíveis 12 · alocadas 9 · sem posto 3 (Rosa, Samantha, Sara)
+   Luana                      Embalagem 17         Conector 3/4"          Embalar            total   4152 · demanda   4152 · extra      0
+   Aly                        Etiquetadora 15      Conector 3/4"          Etiquetar          total   3060 · demanda   3060 · extra      0
+   Elizabeth Torres Guerra    Maquina Automatica 8  Conector 3/4" - Maquina Automatica  Rosquear + Parafusar total    987 · demanda    987 · extra      0
+   Tania                      Montagem 14 (Plug)   Plug Macho             Parafusar          total    919 · demanda    919 · extra      0
+   Damaris Perez Reys         Montagem 18          Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Caroline Scheneider Da Luz Montagem 18B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Joa                        Montagem 19          Caixa Amarela 4x4      Montar Presilha    total    237 · demanda    237 · extra      0
+   Karelis Josefina Rivas Leonice Montagem 19B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Kelly Caroline Monegat     Montagem 20          Pino                   Parafusar (Pino)   total   1973 · demanda      0 · extra   1973 [FORMACAO_ESTOQUE]
+
+T3 · pessoas disponíveis 12 · alocadas 10 · sem posto 2 (Caroline, Luana)
+   Kelly Caroline Monegat     Embalagem 17         Conector 3/4"          Embalar            total   4152 · demanda   4152 · extra      0
+   Tania                      Etiquetadora 15      Conector 3/4"          Etiquetar          total   3060 · demanda   3060 · extra      0
+   Joa                        Maquina Automatica 8  Conector 3/4" - Maquina Automatica  Rosquear + Parafusar total    987 · demanda    987 · extra      0
+   Aly                        Montagem 14 (Plug)   Plug Macho             Parafusar          total    919 · demanda    919 · extra      0
+   Elizabeth Torres Guerra    Montagem 18          Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Sara Perez Valera          Montagem 18B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Rosa                       Montagem 19          Caixa Amarela 4x4      Montar Presilha    total    237 · demanda    237 · extra      0
+   Samantha Gonzalez Leon     Montagem 19B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Karelis Josefina Rivas Leonice Montagem 20          Pino                   Parafusar (Pino)   total   1973 · demanda      0 · extra   1973 [FORMACAO_ESTOQUE]
+   Damaris Perez Reys         Parafusadeira 12     Conector 3/4"          Parafusar          total   1268 · demanda   1268 · extra      0
+
+Produção extra (registro) por produto × origem × etapa:
+   Pino | FORMACAO_ESTOQUE | etapa 0 (final): 5919
+
+Por produto (T1–T3 de 06/11):
+   Caixa Amarela 4x2                  demanda atual      0 · produzido  27930 · restante      0 · T1–T3: demanda      0 + extra final      0 · máquina×período ociosos (de 15): 2
+   Conector 3/4"                      demanda atual  64800 · produzido  41200 · restante  23600 · T1–T3: demanda  12456 + extra final      0 · máquina×período ociosos (de 18): 11
+   Caixa Amarela 4x4                  demanda atual  10000 · produzido   4290 · restante   5710 · T1–T3: demanda   2817 + extra final      0 · máquina×período ociosos (de 15): 2
+   Conector 3/4" - Maquina Automatica  demanda atual  28500 · produzido      0 · restante  28500 · T1–T3: demanda      0 + extra final      0 · máquina×período ociosos (de 9): 1
+   Pino                               demanda atual  43200 · produzido  51780 · restante      0 · T1–T3: demanda      0 + extra final   5919 · máquina×período ociosos (de 3): 0
+   Plug Macho                         demanda atual  26400 · produzido  20050 · restante   6350 · T1–T3: demanda   2757 + extra final      0 · máquina×período ociosos (de 3): 0
+   Conector 1.1/4"                    demanda atual   6120 · produzido   7820 · restante      0 · T1–T3: demanda      0 + extra final      0 · máquina×período ociosos (de 6): 6
+
+Checagens independentes: {"cadeiaInvalida":0,"cadeiaCapacidadeExcedida":0,"semMaterial":0,"violacoesDuras":0,"maquinaForaDaPrevisao":0,"distribuicaoInvalida":0,"maxPostosSimultaneos":10,"pessoasMin":12,"excedePessoas":0,"passadoAlterado":0,"duplicidade":0,"antecipacao":{"linhasExtras":3,"pecasExtrasFinais":5919,"foraDoDestino":0,"demandaFuturaUltrapassada":0,"tetoFisicoUltrapassado":0,"produtoProibido":0}}
+   [ANTECIPACAO_PRODUTO] NAO: produto encerrado na semana atual (quantidade 0): nenhuma antecipação nem estoque
+   [ANTECIPACAO_PRODUTO] NAO: produto excluído por segurança (legado do produto único em cutover): nunca antecipa nem forma estoque
+   [ANTECIPACAO_PRODUTO] FORMA_ESTOQUE: política de formação de estoque ligada; teto físico 51600, já formado/excedente 0
+   [ANTECIPACAO_PRODUTO] NAO: produto excluído por segurança (legado do produto único em cutover): nunca antecipa nem forma estoque
+   [ANTECIPACAO_PRODUTO] FORMA_ESTOQUE: política de formação de estoque ligada; teto físico 108000, já formado/excedente 8580
+   [ANTECIPACAO_PRODUTO] FORMA_ESTOQUE: política de formação de estoque ligada; teto físico 33000, já formado/excedente 0
+   [ANTECIPACAO_PRODUTO] NAO: sem Forecast confirmado na semana seguinte para este produto e sem política de formação de estoque
+   [ANTECIPACAO_RESUMO] Produção extra (além da demanda da semana): 3 registro(s) de posto; peças finais {"FORMACAO_ESTOQUE":5919}
+
+=================== CENÁRIO C — ANTECIPAÇÃO com teto do Forecast da semana seguinte (sem política de estoque) (1878 ms · status processado · hashPlano 16f6f8403ce3) ===================
+
+T1 · pessoas disponíveis 12 · alocadas 9 · sem posto 3 (Rosa, Samantha, Sara)
+   Karelis Josefina Rivas Leonice Embalagem 17         Conector 3/4"          Embalar            total   4152 · demanda   4152 · extra      0
+   Damaris Perez Reys         Etiquetadora 15      Conector 3/4"          Etiquetar          total   3060 · demanda   3060 · extra      0
+   Elizabeth Torres Guerra    Etiquetadora 16      Caixa Amarela 4x4      Etiquetar          total   2200 · demanda   2200 · extra      0
+   Caroline Scheneider Da Luz Montagem 14 (Plug)   Plug Macho             Parafusar          total    919 · demanda    919 · extra      0
+   Aly                        Montagem 18          Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Kelly Caroline Monegat     Montagem 18B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Luana                      Montagem 19          Caixa Amarela 4x4      Montar Presilha    total    237 · demanda    237 · extra      0
+   Tania                      Montagem 19B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Joa                        Montagem 20          Pino                   Parafusar (Pino)   total   1973 · demanda      0 · extra   1973 [ANTECIPACAO_SEMANA_SEGUINTE → semana 2026-11-09]
+
+T2 · pessoas disponíveis 12 · alocadas 9 · sem posto 3 (Rosa, Samantha, Sara)
+   Luana                      Embalagem 17         Conector 3/4"          Embalar            total   4152 · demanda   4152 · extra      0
+   Aly                        Etiquetadora 15      Conector 3/4"          Etiquetar          total   3060 · demanda   3060 · extra      0
+   Elizabeth Torres Guerra    Maquina Automatica 8  Conector 3/4" - Maquina Automatica  Rosquear + Parafusar total    987 · demanda    987 · extra      0
+   Tania                      Montagem 14 (Plug)   Plug Macho             Parafusar          total    919 · demanda    919 · extra      0
+   Damaris Perez Reys         Montagem 18          Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Caroline Scheneider Da Luz Montagem 18B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Joa                        Montagem 19          Caixa Amarela 4x4      Montar Presilha    total    237 · demanda    237 · extra      0
+   Karelis Josefina Rivas Leonice Montagem 19B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Kelly Caroline Monegat     Montagem 20          Pino                   Parafusar (Pino)   total   1973 · demanda      0 · extra   1973 [ANTECIPACAO_SEMANA_SEGUINTE → semana 2026-11-09]
+
+T3 · pessoas disponíveis 12 · alocadas 10 · sem posto 2 (Caroline, Luana)
+   Kelly Caroline Monegat     Embalagem 17         Conector 3/4"          Embalar            total   4152 · demanda   4152 · extra      0
+   Tania                      Etiquetadora 15      Conector 3/4"          Etiquetar          total   3060 · demanda   3060 · extra      0
+   Joa                        Maquina Automatica 8  Conector 3/4" - Maquina Automatica  Rosquear + Parafusar total    987 · demanda    987 · extra      0
+   Aly                        Montagem 14 (Plug)   Plug Macho             Parafusar          total    919 · demanda    919 · extra      0
+   Elizabeth Torres Guerra    Montagem 18          Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Sara Perez Valera          Montagem 18B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Rosa                       Montagem 19          Caixa Amarela 4x4      Montar Presilha    total    237 · demanda    237 · extra      0
+   Samantha Gonzalez Leon     Montagem 19B         Caixa Amarela 4x4      Montar Presilha    total    234 · demanda    234 · extra      0
+   Karelis Josefina Rivas Leonice Montagem 20          Pino                   Parafusar (Pino)   total   1973 · demanda      0 · extra   1973 [ANTECIPACAO_SEMANA_SEGUINTE → semana 2026-11-09]
+   Damaris Perez Reys         Parafusadeira 12     Conector 3/4"          Parafusar          total   1268 · demanda   1268 · extra      0
+
+Produção extra (registro) por produto × origem × etapa:
+   Pino | ANTECIPACAO_SEMANA_SEGUINTE | etapa 0 (final): 5919
+
+Por produto (T1–T3 de 06/11):
+   Caixa Amarela 4x2                  demanda atual      0 · produzido  27930 · restante      0 · T1–T3: demanda      0 + extra final      0 · máquina×período ociosos (de 15): 2
+   Conector 3/4"                      demanda atual  64800 · produzido  41200 · restante  23600 · T1–T3: demanda  12456 + extra final      0 · máquina×período ociosos (de 18): 11
+   Caixa Amarela 4x4                  demanda atual  10000 · produzido   4290 · restante   5710 · T1–T3: demanda   2817 + extra final      0 · máquina×período ociosos (de 15): 2
+   Conector 3/4" - Maquina Automatica  demanda atual  28500 · produzido      0 · restante  28500 · T1–T3: demanda      0 + extra final      0 · máquina×período ociosos (de 9): 1
+   Pino                               demanda atual  43200 · produzido  51780 · restante      0 · T1–T3: demanda      0 + extra final   5919 · máquina×período ociosos (de 3): 0
+   Plug Macho                         demanda atual  26400 · produzido  20050 · restante   6350 · T1–T3: demanda   2757 + extra final      0 · máquina×período ociosos (de 3): 0
+   Conector 1.1/4"                    demanda atual   6120 · produzido   7820 · restante      0 · T1–T3: demanda      0 + extra final      0 · máquina×período ociosos (de 6): 6
+
+Checagens independentes: {"cadeiaInvalida":0,"cadeiaCapacidadeExcedida":0,"semMaterial":0,"violacoesDuras":0,"maquinaForaDaPrevisao":0,"distribuicaoInvalida":0,"maxPostosSimultaneos":10,"pessoasMin":12,"excedePessoas":0,"passadoAlterado":0,"duplicidade":0,"antecipacao":{"linhasExtras":3,"pecasExtrasFinais":5919,"foraDoDestino":0,"demandaFuturaUltrapassada":0,"tetoFisicoUltrapassado":0,"produtoProibido":0}}
+   [ANTECIPACAO_PRODUTO] NAO: produto encerrado na semana atual (quantidade 0): nenhuma antecipação nem estoque
+   [ANTECIPACAO_PRODUTO] NAO: produto excluído por segurança (legado do produto único em cutover): nunca antecipa nem forma estoque
+   [ANTECIPACAO_PRODUTO] ANTECIPA: Forecast da semana seguinte 51600; já antecipado 0; líquido restante 51600
+   [ANTECIPACAO_PRODUTO] NAO: produto excluído por segurança (legado do produto único em cutover): nunca antecipa nem forma estoque
+   [ANTECIPACAO_PRODUTO] ANTECIPA: Forecast da semana seguinte 108000; já antecipado 0; líquido restante 108000
+   [ANTECIPACAO_PRODUTO] ANTECIPA: Forecast da semana seguinte 33000; já antecipado 0; líquido restante 33000
+   [ANTECIPACAO_PRODUTO] NAO: sem Forecast confirmado na semana seguinte para este produto e sem política de formação de estoque
+   [ANTECIPACAO_RESUMO] Produção extra (além da demanda da semana): 3 registro(s) de posto; peças finais {"ANTECIPACAO_SEMANA_SEGUINTE":5919}
