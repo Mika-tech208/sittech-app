@@ -31,6 +31,8 @@ export interface ProdutoAntecipavel {
   maquinasPorEtapa?: Record<string, string[]>;
   /** multiplicador do valor (default 1 para ANTECIPAÇÃO; PESO_FORMACAO_PADRAO para FORMAÇÃO) */
   peso?: number;
+  /** folga FÍSICA explícita (peças) somada ao nível máximo de cada buffer deste produto, além da capacidade LIVRE do consumidor nos períodos restantes (default 0 = conservador) */
+  bufferExtraPecas?: number;
 }
 export interface EntradaAntecipacao { produtos: ProdutoAntecipavel[]; /** folga física somada ao nível máximo de cada buffer (default 0) */ bufferExtra?: number }
 
@@ -112,7 +114,8 @@ export function planejarFase2(a: {
     margem[sid] = (m0 > 0 ? m0 : 1e-3) * (ap.peso ?? (ap.origem === ORIGEM_FORMACAO ? PESO_FORMACAO_PADRAO : 1));
     saidaObj[sid] = teto;
     prioridade.push(sid);
-    // limite FÍSICO do buffer: o que o consumidor consegue absorver nos períodos que restam (lote de 1 período ⇒ a partir de t0+1) — nada além disso fica parado "por acaso"
+    // limite FÍSICO do buffer: o que o consumidor ainda consegue absorver nos períodos que restam (lote de 1 período ⇒ a partir de t0+1), DEPOIS de atender a demanda atual
+    // (capacidade total − o que a demanda já consome na mesma etapa). Nada além disso fica parado "por acaso"; folga explícita só por `bufferExtraPecas`.
     const niv: number[] = [];
     for (let k = 0; k + 1 < etapas.length; k++) {
       let cap = 0;
@@ -120,7 +123,8 @@ export function planejarFase2(a: {
         const rec = cfg.recursos.find((r) => r.id === alt.recursoId);
         for (let t = t0 + 1; t < H; t++) cap += (alt.pecasPorPosto[t] ?? 0) * (rec?.unidades[t] ?? 0);
       }
-      niv.push(Math.floor(Math.max(wipAnt[k] ?? 0, cap) + (a.entrada.bufferExtra ?? 0)));
+      const usoDemanda = soma((a.producaoFase1[real.id]?.[real.etapas[k + 1].id] ?? []).slice(t0 + 1));
+      niv.push(Math.floor(Math.max(wipAnt[k] ?? 0, Math.max(0, cap - usoDemanda)) + (ap.bufferExtraPecas ?? a.entrada.bufferExtra ?? 0)));
     }
     tetoNivel[sid] = niv;
   }
@@ -248,7 +252,7 @@ export interface DadosAntecipacao {
   /** Forecast (tipo 'previsto') da semana seguinte por produto, com as máquinas selecionadas por etapa naquela Previsão. Vazio = a semana seguinte não tem Previsão salva ⇒ nenhuma antecipação. */
   forecastDestino: { produtoId: string; quantidade: number; maquinasPorEtapa: Record<string, string[]> }[];
   /** POLÍTICA POR PRODUTO de formação de estoque (escala_formacao_estoque_produtos). Só esses produtos formam estoque; nunca regra global. */
-  politicasFormacao: { produtoId: string; tetoPecas?: number }[];
+  politicasFormacao: { produtoId: string; tetoPecas?: number; bufferExtraPecas?: number }[];
   /** produtos que NUNCA antecipam nem formam estoque (pares legados do produto único/Conector e canônico) */
   excluidos: string[];
   /** registros VIGENTES (não substituídos) cuja semana de origem é esta (todas as origens e períodos) */
@@ -295,7 +299,7 @@ export function montarEntradaAntecipacao(a: {
       const formado = Math.max(forCong[pid] ?? 0, a.excedenteReal?.[pid] ?? 0);
       const tetoFinal = Math.max(0, Math.floor(teto - formado + 1e-6));
       if (!(tetoFinal > 0)) return nao(`teto físico de estoque (${teto}) já atingido (${Math.round(formado)} formado/excedente)`);
-      produtos.push({ produtoId: pid, origem: ORIGEM_FORMACAO, tetoFinal });
+      produtos.push({ produtoId: pid, origem: ORIGEM_FORMACAO, tetoFinal, ...(pol.bufferExtraPecas ? { bufferExtraPecas: pol.bufferExtraPecas } : {}) });
       diagnostico.push({ produtoId: pid, situacao: "FORMA_ESTOQUE", motivo: `política de formação de estoque ligada; teto físico ${teto}, já formado/excedente ${Math.round(formado)}`, tetoFinal });
       return;
     }

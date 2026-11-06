@@ -236,8 +236,16 @@ describe("FORMAÇÃO DELIBERADA DE ESTOQUE — política por produto, sem teto d
     const lento = prod("C", [etapa("C0", ["c0", 1000]), etapa("C1", ["c1", 100])], 0, [0]);
     const s = planejarFuturo(base([lento], { antecipacao: ant(FOR("C", 1e9)) }));
     sanidade(s);
-    const capConsumidor = 100 * (H - 1);
+    const capConsumidor = 100 * (H - 1); // capacidade do consumidor (livre: a demanda atual de C é 0)
     s.wip.C[0].forEach((nivel) => expect(nivel).toBeLessThanOrEqual(capConsumidor + 1e-6));
+    // consumidor ocupado pela demanda atual ⇒ a capacidade LIVRE é menor ⇒ buffer de formação ainda menor
+    const ocupado = planejarFuturo(base([prod("C", [etapa("C0", ["c0", 1000]), etapa("C1", ["c1", 100])], 400, [0])], { antecipacao: ant(FOR("C", 1e9)) }));
+    sanidade(ocupado);
+    const extra0 = (x: SaidaPlanejador) => (x.antecipacoes ?? []).filter((a) => a.etapaIdx === 0).reduce((q, a) => q + a.pecas, 0);
+    expect(extra0(ocupado)).toBeLessThanOrEqual(extra0(s) - 1); // a demanda atual ocupa 400 da capacidade do consumidor ⇒ sobra menos para formar buffer
+    // folga física EXPLÍCITA por produto aumenta o nível permitido
+    const folga = planejarFuturo(base([lento], { antecipacao: ant(FOR("C", 1e9, { bufferExtraPecas: 300 })) }));
+    expect(Math.max(...folga.wip.C[0])).toBeGreaterThanOrEqual(Math.max(...s.wip.C[0]));
     expect(Math.max(...s.wip.C[0])).toBeGreaterThan(0); // houve formação de buffer (dentro do limite)
     // teto final físico explícito
     const t = planejarFuturo(base([S0(0)], { antecipacao: ant(FOR("S", 700)) }));
@@ -261,6 +269,42 @@ describe("FORMAÇÃO DELIBERADA DE ESTOQUE — política por produto, sem teto d
     expect(r.entrada.produtos[0].tetoFinal).toBe(10000 - 8580); // max(formado 3000, excedente 8580)
     const r2 = montarEntradaAntecipacao({ dados, pools, indiceDoSlot: idx, aPartirDe: 3, excedenteReal: { S: 0 } });
     expect(r2.entrada.produtos[0].tetoFinal).toBe(7000);
+  });
+});
+
+describe("Propriedade (sementes fixas): invariantes HARD e prioridade da demanda em cenários aleatórios", () => {
+  const prng = (seed: number) => { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+  it("40 cenários: cadeia válida, sem material, ≤ pessoas, demanda atual intacta, tetos respeitados, extra só em produto elegível", () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      const r = prng(seed);
+      const pick = <T,>(xs: T[]) => xs[Math.floor(r() * xs.length)];
+      const produtos = [S0(pick([0, 0, 2000, 6000])), C0(pick([0, 1500, 4000]), [pick([0, 500, 2000])]), D0(pick([0, 3000, 9000]))];
+      const equipe = ["p1", "p2", "p3", "p4", "p5", "p6"].slice(0, 2 + Math.floor(r() * 5)).map((id) => ({ id }));
+      const aus: Record<number, string[]> = r() < 0.4 ? { [2 + Math.floor(r() * 3)]: ["p1"] } : {};
+      const antProdutos: ProdutoAntecipavel[] = [];
+      if (r() < 0.8) antProdutos.push(r() < 0.5 ? ANT("S", pick([800, 3000, 20000])) : FOR("S", pick([800, 3000, 20000])));
+      if (r() < 0.8) antProdutos.push(r() < 0.5 ? ANT("C", pick([800, 3000, 20000])) : FOR("C", pick([800, 3000, 20000]), { bufferExtraPecas: pick([0, 300]) }));
+      if (r() < 0.5) antProdutos.push(ANT("D", pick([800, 3000])));
+      const e = base(produtos, { equipe, ausentes: aus });
+      const sem = planejarFuturo(e), com = planejarFuturo({ ...e, antecipacao: ant(...antProdutos) });
+      const tag = `seed ${seed}`;
+      expect(com.validacao.cadeiaValida, tag).toBe(true);
+      expect(com.validacao.semMaterial, tag).toBe(0);
+      expect(com.validacao.atribuicaoOk, tag).toBe(true);
+      const porSlot = new Map<string, number>();
+      com.linhas.filter((l) => l.maquinaId).forEach((l) => porSlot.set(l.periodoId, (porSlot.get(l.periodoId) ?? 0) + 1));
+      [...porSlot.entries()].forEach(([per, n]) => expect(n, `${tag} ${per}`).toBeLessThanOrEqual(equipe.length - (aus[ids.indexOf(per)]?.length ?? 0)));
+      const k = new Set<string>();
+      com.linhas.filter((l) => l.maquinaId).forEach((l) => { const a = `${l.periodoId}|${l.maquinaId}`, b = `${l.periodoId}|${l.funcionarioId}`; expect(k.has(a), tag).toBe(false); expect(k.has(b), tag).toBe(false); k.add(a); k.add(b); });
+      // demanda atual intacta (produção − extra = a de antes) e nenhum posto da demanda some
+      for (const p of produtos) for (const et of p.etapas) {
+        const extra = (com.antecipacoes ?? []).filter((a) => a.produtoId === p.id && a.etapaId === et.id).reduce((x, a) => x + a.pecas, 0);
+        expect(prodTotal(com, p.id, et.id) - extra, `${tag} ${p.id}/${et.id}`).toBeCloseTo(prodTotal(sem, p.id, et.id), 6);
+      }
+      // tetos: ANTECIPAÇÃO ≤ teto líquido; FORMAÇÃO ≤ teto físico; produto fora da lista não recebe extra
+      for (const ap of antProdutos) expect(somaFin(com, ap.produtoId, (o) => o === ap.origem), tag).toBeLessThanOrEqual(ap.tetoFinal + 1e-6);
+      (com.antecipacoes ?? []).forEach((a) => expect(antProdutos.some((x) => x.produtoId === a.produtoId && x.origem === a.origem), tag).toBe(true));
+    }
   });
 });
 

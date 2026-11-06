@@ -1,6 +1,6 @@
 // Parâmetros da ANTECIPAÇÃO PARA A SEMANA SEGUINTE e da FORMAÇÃO DE ESTOQUE (escala_parametros) — leitura TIPADA e DEFENSIVA (PURO, sem IO).
 //   escala_antecipacao_modo                    'desligado' (padrão; chave ausente/valor desconhecido = desligado) | 'ativo'
-//   escala_formacao_estoque_produtos           POLÍTICA POR PRODUTO: lista de produto_id (string) ou {produtoId, tetoPecas?}. Ausente/[] = nenhum produto forma estoque.
+//   escala_formacao_estoque_produtos           POLÍTICA POR PRODUTO: lista de produto_id (string) ou {produtoId, tetoPecas?, bufferExtraPecas?}. Ausente/[] = nenhum produto forma estoque.
 //   escala_formacao_estoque_desconta_destino   boolean (padrão false): o estoque FORMADO também desconta a quantidade da semana de destino? Padrão não (visível, não silencioso).
 // As três chaves NUNCA disparam recálculo (escala_trg_parametros); valem a partir do próximo recálculo natural da semana.
 import type { DadosAntecipacao } from "@/features/escala/types";
@@ -23,16 +23,17 @@ export function lerPoliticasFormacao(v: unknown): DadosAntecipacao["politicasFor
   const out: DadosAntecipacao["politicasFormacao"] = [];
   const vistos = new Set<string>();
   for (const x of v) {
-    let pid: string | null = null, teto: number | undefined;
+    let pid: string | null = null, teto: number | undefined, buf: number | undefined;
     if (ehId(x)) pid = x;
     else if (x && typeof x === "object" && ehId((x as Record<string, unknown>).produtoId)) {
       const o = x as Record<string, unknown>;
       pid = o.produtoId as string;
       if (typeof o.tetoPecas === "number" && Number.isFinite(o.tetoPecas) && o.tetoPecas >= 0) teto = o.tetoPecas;
+      if (typeof o.bufferExtraPecas === "number" && Number.isFinite(o.bufferExtraPecas) && o.bufferExtraPecas > 0) buf = o.bufferExtraPecas;
     }
     if (!pid || vistos.has(pid)) continue;
     vistos.add(pid);
-    out.push({ produtoId: pid, ...(teto !== undefined ? { tetoPecas: teto } : {}) });
+    out.push({ produtoId: pid, ...(teto !== undefined ? { tetoPecas: teto } : {}), ...(buf !== undefined ? { bufferExtraPecas: buf } : {}) });
   }
   return out.sort((a, b) => (a.produtoId < b.produtoId ? -1 : 1));
 }
