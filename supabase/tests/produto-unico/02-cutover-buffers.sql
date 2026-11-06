@@ -26,6 +26,7 @@ select pg_temp.ok((select valor from escala_parametros where chave='produto_unic
 select pg_temp.ok((select ativo from produtos p join produto_canonico c on c.produto_id=p.id), 'C6 produto único ATIVO após ativar');
 select pg_temp.ok((select count(*) from escala_producao_eventos) = :ev0, 'C7 ativar NÃO dispara evento de recálculo');
 select pg_temp.ok((select count(*) from escala_producao_eventos where status='pendente')=0, 'C7b nenhum evento pendente');
+select pg_temp.ok(escala_plano_registrar('6be15af5-9659-4c12-ba33-9c1fae6d4065','baseline') is null, 'C7c HASH do plano da semana 02/11 idêntico com o cutover LIGADO (semana anterior não muda: nenhuma versão nova)');
 select pg_temp.ok(public.produto_unico_ativo('2026-11-09') and public.produto_unico_ativo('2026-11-15') and not public.produto_unico_ativo('2026-11-08'), 'C8 produto_unico_ativo: 09/11..15/11 true, 08/11 false');
 select pg_temp.ok((select count(*) from escala_buffer_pares where produto_id=(select produto_id from produto_canonico) and vigente_de='2026-11-09' and vigente_ate is null and papel='contabil')=4
    and not exists (select 1 from escala_buffer_pares where produto_id=(select produto_id from produto_canonico) and papel='zero'), 'D1 4 pares do produto único, todos contabil, vigente_de = cutover, nenhum par zero');

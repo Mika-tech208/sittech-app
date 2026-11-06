@@ -36,4 +36,18 @@ for f in 01-estrutura-backfill.sql 02-cutover-buffers.sql 03-apontamentos.sql; d
   grep -E 'PASS|FAIL|^==|^--' "$SAIDA/$f.out" | sed -e 's/^psql:[^ ]* NOTICE:  //' -e 's/^NOTICE:  //'
   grep -E 'ERROR' "$SAIDA/$f.out" | head -5 | sed 's/^/ERRO SQL · /'
 done | tee "$SAIDA/resultado.txt"
+if [ "${1:-}" = "--do-zero" ]; then
+  echo "### rollback ESTRUTURAL das 3 migrations + backfill (ordem inversa) e reaplicação"
+  RB="$RAIZ/supabase/rollbacks"
+  p -At -f fingerprint.sql > "$SAIDA/fp2-antes-rb.txt" 2>&1
+  for f in "$RB/20261115120000_rollback_produto_unico_ativacao.sql" "$RB/20261115110000_rollback_produto_canonico_conversao.sql" "$RB/20261115100000_rollback_produto_canonico_1_backfill.sql" "$RB/20261115100000_rollback_produto_canonico_2_estrutura.sql"; do
+    p -v ON_ERROR_STOP=1 -f "$f" > "$SAIDA/rb.out" 2>&1 && echo "PASS · $(basename "$f") executou" || { echo "FAIL · $(basename "$f")"; grep -E 'ERROR' "$SAIDA/rb.out" | head -3; }
+  done
+  p -At -f fingerprint.sql > "$SAIDA/fp3-pos-rb.txt" 2>&1
+  diff <(grep -v '^TRIGGERS' "$SAIDA/fp0-baseline.txt") <(grep -v '^TRIGGERS' "$SAIDA/fp3-pos-rb.txt") > "$SAIDA/fp-rb-diff.txt" && echo "PASS · após o rollback estrutural o banco é IDÊNTICO ao baseline (fingerprint)" || { echo "FAIL · fingerprint difere após rollback estrutural"; cut -c1-160 "$SAIDA/fp-rb-diff.txt"; }
+  p -At -c "select count(*) from pg_trigger where tgname ~ 'produto_unico|produto_canonico' and not tgisinternal" | grep -q '^0$' && echo "PASS · nenhum gatilho do produto único restou" || echo "FAIL · gatilho remanescente"
+  "$RAIZ/scripts/produto-unico-dados/clone-aplicar.sh" > "$SAIDA/reaplicar.out" 2>&1 && echo "PASS · migrations + backfill REAPLICADOS após o rollback ($(grep -c ERROR "$SAIDA/reaplicar.out") erros)" || echo "FAIL · reaplicação"
+  p -At -f fingerprint.sql > "$SAIDA/fp4-reaplicado.txt" 2>&1
+  diff <(grep -v '^TRIGGERS' "$SAIDA/fp1-migrado.txt") <(grep -v '^TRIGGERS' "$SAIDA/fp4-reaplicado.txt") > /dev/null && echo "PASS · estado reaplicado = estado migrado original" || echo "FAIL · estado reaplicado difere"
+fi | tee -a "$SAIDA/resultado.txt"
 echo "RESUMO: $(grep -c 'PASS' "$SAIDA/resultado.txt") PASS · $(grep -c 'FAIL' "$SAIDA/resultado.txt") FAIL · $(grep -c 'ERRO SQL' "$SAIDA/resultado.txt") erros SQL"
