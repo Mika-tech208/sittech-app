@@ -39,10 +39,10 @@ function traduzir(msg: string | undefined): string {
 }
 const dataBr = (d: string) => d.split("-").reverse().join("/");
 
-export default function RegularizacaoHistoricaModal({ onFechar }: { onFechar: () => void }) {
+export default function RegularizacaoHistoricaModal({ onFechar, dataInicial, periodoInicial }: { onFechar: () => void; dataInicial?: string; periodoInicial?: string }) {
   const [estado, setEstado] = useState<Estado | null>(null);
   const [data, setData] = useState<string | null>(null);
-  const [periodoId, setPeriodoId] = useState<string>("m1");
+  const [periodoId, setPeriodoId] = useState<string>(periodoInicial ?? "m1");
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -66,8 +66,8 @@ export default function RegularizacaoHistoricaModal({ onFechar }: { onFechar: ()
     setCarregando(false);
     if (res.erro || !res.e) { setErro(res.erro ?? "Não foi possível carregar."); return; }
     setEstado(res.e);
-    if (primeira && res.e.datas.length > 0) setData(res.e.datas[0]);
-  }, []);
+    if (primeira && res.e.datas.length > 0) setData(dataInicial && res.e.datas.includes(dataInicial) ? dataInicial : res.e.datas[0]);
+  }, [dataInicial]);
   const recarregar = useCallback(async (d: string) => { aplicar(await buscar(d), false); }, [buscar, aplicar]);
   useEffect(() => { let vivo = true; buscar(null).then((r) => { if (vivo) aplicar(r, true); }); return () => { vivo = false; }; }, [buscar, aplicar]);
   useEffect(() => { if (!data) return; let vivo = true; buscar(data).then((r) => { if (vivo) aplicar(r, false); }); return () => { vivo = false; }; }, [data, buscar, aplicar]);
