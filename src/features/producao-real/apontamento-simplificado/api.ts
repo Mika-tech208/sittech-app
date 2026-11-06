@@ -1,8 +1,8 @@
 // Cliente do apontamento simplificado (navegador → /api/escala/fechamento/apontamentos). Sem regra de negócio: o servidor valida tudo de novo.
 import { supabase } from "@/services/supabase-client";
-import type { ApontamentoExistente, Catalogo, Divergencia, LinhaRpc, OrigemLinha, PlanejadoPosto, VinculoSalvo } from "./tipos";
+import type { ApontamentoExistente, Catalogo, Divergencia, LinhaRpc, OrigemLinha, PlanejadoPosto, PostoRealInformado, VinculoSalvo } from "./tipos";
 
-export interface EstadoApontamentosApi { modo: "desligado" | "ativo"; naoLiberado?: boolean; postos?: PlanejadoPosto[]; catalogo?: Catalogo; existentes?: ApontamentoExistente[]; vinculos?: VinculoSalvo[]; erro?: string }
+export interface EstadoApontamentosApi { modo: "desligado" | "ativo"; naoLiberado?: boolean; postos?: PlanejadoPosto[]; catalogo?: Catalogo; existentes?: ApontamentoExistente[]; vinculos?: VinculoSalvo[]; execucaoReal?: PostoRealInformado[]; erro?: string }
 export interface SalvarApontamentosApi { ok?: boolean; erro?: string; mensagem?: string; substituidas?: number; linhas?: { chave: string; apontamentoId: string; origem: OrigemLinha; divergencias: Divergencia[]; naoProduziu: boolean }[] }
 
 export async function chamar<T>(caminho: string, corpo?: unknown): Promise<{ status: number; corpo: T }> {

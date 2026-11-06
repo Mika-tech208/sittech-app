@@ -16,6 +16,7 @@ import type { EstadoBruto } from "../estado";
 import { processarSemana, type EscalaIO } from "../processar";
 import { criarEscalaIO, resolverPrevisaoPorSemana } from "../supabaseIO";
 import { ajustarPostosDoFechamento } from "./apontamentoSimplificado";
+import { lerExecucaoReal } from "./postosProgramados";
 import { CHAVE_MODO_FECHAMENTO, lerModoFechamento } from "./leitura";
 import type { ContextoFechamento, FechamentoIO, FechamentoSalvo, ResultadoRecalculo, SnapshotParaGravar } from "./orquestrador";
 
@@ -135,7 +136,9 @@ export function criarFechamentoIO(admin: SupabaseClient, opcoes: { podeExcecao: 
       const tPostos0 = relogio();
 
       // postos esperados = máquinas do plano oficial do período; coletado = tem apontamento (produzindo ou sem_producao)
-      const esperados = [...new Set(estado.alocacoes.filter((a) => a.data === data && a.periodoId === periodoId && a.maquinaId).map((a) => a.maquinaId as string))];
+      // EXECUÇÃO REAL registrada para o período (regularização operacional): os postos esperados passam a ser os que REALMENTE trabalharam (o plano original fica como histórico, sem exigir os postos que não aconteceram)
+      const execReal = await lerExecucaoReal(admin, data, periodoId);
+      const esperados = execReal.length > 0 ? [...new Set(execReal.map((r) => r.maquina_id))] : [...new Set(estado.alocacoes.filter((a) => a.data === data && a.periodoId === periodoId && a.maquinaId).map((a) => a.maquinaId as string))];
       const apont = (await carregarApontamentosBanco(admin, semanaInicio)).filter((a) => a.data === data && a.periodoId === periodoId);
       const postosBase: PostoFechamento[] = esperados.map((m): PostoFechamento => {
         const linhas = apont.filter((a) => a.maquinaId === m);
