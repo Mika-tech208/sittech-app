@@ -13,6 +13,10 @@ import { useSidebarState } from "@/hooks/useSidebarState";
 import { useMetaSemanalShell } from "@/hooks/useMetaSemanalShell";
 import { useEscalaProducao } from "@/hooks/useEscalaProducao";
 import { usePreChecagemEscala } from "@/hooks/usePreChecagemEscala";
+import { useModoProdutoUnico } from "@/hooks/useModoProdutoUnico";
+import { useModelosCanonicos } from "@/hooks/useModelosCanonicos";
+import PlanoFuturoSelo from "@/features/produto-canonico/components/PlanoFuturoSelo";
+import DivisaoEntreRotas from "@/features/produto-canonico/components/DivisaoEntreRotas";
 import LoginScreen from "@/components/shell/LoginScreen";
 import RecoveryPasswordScreen from "@/components/shell/RecoveryPasswordScreen";
 import Sidebar from "@/components/shell/Sidebar";
@@ -63,6 +67,10 @@ export default function EscalaProducaoPage() {
   const [finalDisponivel, setFinalDisponivel] = useState<{ versao: number } | null>(null);
   const escala = useEscalaProducao(auth.autenticado && podeOperar, semana);
   const { estado } = escala;
+  const modoUnico = useModoProdutoUnico(auth.autenticado && podeOperar);
+  const planoFuturo = modoUnico.planoFuturo(semana); // semana em PLANEJAMENTO do produto único: a Escala interna só VISUALIZA o plano futuro
+  const modelosCanonicos = useModelosCanonicos(auth.autenticado && podeOperar);
+  const modeloUnico = modelosCanonicos.find((m) => m.rotas.length >= 2) ?? null;
   usePreChecagemEscala(auth.autenticado && podeOperar ? estado.dias[0]?.periodos : undefined); // revalida a disponibilidade das máquinas 5 min antes de cada período
 
   // Aviso "FINAL DISPONÍVEL": só consulta a lista (somente leitura) da semana exibida; atualiza ao fechar o modal de relatórios
@@ -257,6 +265,7 @@ export default function EscalaProducaoPage() {
           </div>
           {relatoriosAberto && podeRelatorios && <RelatoriosEscalaModal semanaInicio={semana} onFechar={() => { setRelatoriosAberto(false); setRelatoriosVersao((v) => v + 1); }} />}
 
+          {planoFuturo && <PlanoFuturoSelo />}
           {mensagem && <div className={`stx-esc-banner ${mensagem.tipo === "erro" ? "erro" : "info"}`}>{mensagem.texto}</div>}
           {escala.erro && <div className="stx-esc-banner erro">{escala.erro}</div>}
           {estado.primeiraGeracaoEmAndamento && <div className="stx-esc-banner">{AVISO_PRIMEIRA_GERACAO}</div>}
@@ -303,10 +312,12 @@ export default function EscalaProducaoPage() {
                   nomes={estado.nomes}
                   agoraMs={agoraMs}
                   liberacao={liberacaoDia}
+                  planoFuturo={planoFuturo}
                   onEditar={(periodoId, funcionarioId) => { setErroModal(null); setEdicao({ data: diaAtual.data, periodoId, funcionarioId }); }}
                 />
               )}
               <AlertasEscala alocacoes={estado.alocacoes} alertas={estado.alertas} nomes={estado.nomes} />
+              <DivisaoEntreRotas linhas={estado.alocacoes} modelo={modeloUnico} nomeEtapa={(etapaId) => { const op = estado.alocacoes.find((a) => a.etapaId === etapaId)?.operacaoId; return op ? estado.nomes.operacoes.get(op) ?? null : null; }} />
             </>
           )}
 

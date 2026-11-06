@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useEscalaTv } from "@/hooks/useEscalaTv";
 import { useWakeLockTv } from "@/hooks/useWakeLockTv";
+import { useModoProdutoUnico } from "@/hooks/useModoProdutoUnico";
 import LoginScreen from "@/components/shell/LoginScreen";
 import { temPermissao } from "@/lib/permissoes";
 import { dataHoraNoFuso, epochMsNoFuso } from "@/features/escala/tempo";
@@ -89,6 +90,8 @@ export default function EscalaTvPage() {
   }, [podeSimular]);
   const tv = useEscalaTv(auth.autenticado && permitido && simulacao !== undefined, simulacao);
   const { snapshot, agoraMs } = tv;
+  const modoUnico = useModoProdutoUnico(auth.autenticado && permitido);
+  const planoFuturo = !!snapshot && modoUnico.planoFuturo(snapshot.data); // dia de semana em PLANEJAMENTO: nunca aparece como liberado na TV
   const wakeLock = useWakeLockTv(auth.autenticado && permitido);
   usePreChecagemEscala(auth.autenticado && permitido && !tv.simulando ? snapshot?.periodos : undefined); // revalida a disponibilidade das máquinas 5 min antes de cada período
 
@@ -120,7 +123,7 @@ export default function EscalaTvPage() {
   })();
   const situacao = snapshot?.existe && snapshot.periodos ? situacaoTv(snapshot.data, snapshot.periodos, agoraMs) : null;
   // LIBERAÇÃO (fonte única = banco): só mostra o período se o snapshot disser `liberado` (fechamento anterior CONFIRMADO + plano gerado por ele). Sem informação ⇒ não mostra (fail-closed).
-  const visao = visaoLiberacaoTv({ liberacao: snapshot?.liberacao, atual: situacao?.atual ? { id: situacao.atual.id, nome: situacao.atual.nome } : null, proximo: situacao?.proximo ? { id: situacao.proximo.id, nome: situacao.proximo.nome } : null, agoraMs, ignorar: tv.simulando });
+  const visao = visaoLiberacaoTv({ liberacao: snapshot?.liberacao, atual: situacao?.atual ? { id: situacao.atual.id, nome: situacao.atual.nome } : null, proximo: situacao?.proximo ? { id: situacao.proximo.id, nome: situacao.proximo.nome } : null, agoraMs, ignorar: tv.simulando, planoFuturo });
   const alocacoes = snapshot?.alocacoes ?? [];
   const [, m, d] = diaLocal.split("-");
 
@@ -134,7 +137,7 @@ export default function EscalaTvPage() {
         <span>{tv.tempoReal === "ativo" ? "● ao vivo" : tv.tempoReal === "polling" ? "● atualização periódica" : "● conectando…"}</span>
       </div>
 
-      {!snapshot ? (
+      {!snapshot || !modoUnico.carregado ? (
         <div className="stx-tv-corpo"><div className="stx-tv-vazio">{tv.erro ? `Erro: ${tv.erro}` : "Carregando escala…"}</div></div>
       ) : !snapshot.existe || !situacao ? (
         <div className="stx-tv-corpo"><div className="stx-tv-vazio">Nenhuma escala gerada para hoje.</div></div>

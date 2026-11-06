@@ -7,7 +7,8 @@ import { toNumber } from "@/lib/format";
 import { viabilidadeItemComRotas } from "@/features/produto-canonico/capacidadeRotas";
 import type { ModeloCanonico } from "@/features/produto-canonico/tipos";
 import type { GuardaProdutos } from "@/features/produto-canonico/guardaDb";
-import { produtosSelecionaveis } from "@/features/produto-canonico/guard";
+import { produtosSelecionaveisPrevisao } from "@/features/produto-canonico/guard";
+import { agruparEtapasPorRota } from "@/features/produto-canonico/etapasPorRota";
 import type { Produto, Maquina, Previsao, PrevisaoItem, PeriodoComDuracao } from "@/types/domain";
 import type { AnaliseCapacidadeSemanal } from "@/features/capacidade/types";
 
@@ -55,10 +56,12 @@ export default function ItensPrevistos({
   onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, equipeProdutivaCount, formatBRL, modelosCanonicos = [], guardaProdutos,
 }: ItensPrevistosProps) {
   const produtosAtivos = guardaProdutos && guardaProdutos.canonicos.size > 0
-    ? produtosSelecionaveis(produtos.filter((p) => p.ativo), guardaProdutos.canonicos, guardaProdutos.legados, semana.semanaInicio, guardaProdutos.cutover)
+    ? produtosSelecionaveisPrevisao(produtos.filter((p) => p.ativo), guardaProdutos, semana.semanaInicio)
     : produtos.filter((p) => p.ativo);
   const produtoSel = produtos.find((p) => p.id === form.produtoId) || null;
   const roteiroSel = produtoSel?.roteiro || [];
+  const modeloSel = produtoSel ? modelosCanonicos.find((m) => m.produtoCanonicoId === produtoSel.id) : undefined;
+  const gruposEtapas = agruparEtapasPorRota(roteiroSel, modeloSel);
 
   const viabAoVivo = form.produtoId && produtoSel && roteiroSel.length > 0
     ? viabilidadeItemComRotas(
@@ -115,7 +118,10 @@ export default function ItensPrevistos({
                 ) : (
                   <div className="stx-custos-builder">
                     <p className="stx-custos-builder-title">Máquinas dessa semana, por etapa</p>
-                    {roteiroSel.map((etapa) => {
+                    {gruposEtapas.map((grupo) => (
+                      <div key={grupo.chave} data-grupo-rota={grupo.titulo ?? undefined}>
+                        {grupo.titulo && <p className="stx-custos-builder-title" style={{ marginTop: 10 }}>{grupo.titulo}</p>}
+                    {grupo.etapas.map((etapa) => {
                       // elegibilidade vem do roteiro do produto (`etapa.maquinasIds`), não
                       // de "toda máquina da mesma operação" — mesma fonte única usada pelo
                       // cálculo de capacidade (`calcularMaquinasDaEtapa`), pra nunca oferecer
@@ -155,6 +161,8 @@ export default function ItensPrevistos({
                         </div>
                       );
                     })}
+                      </div>
+                    ))}
                   </div>
                 )
               )}

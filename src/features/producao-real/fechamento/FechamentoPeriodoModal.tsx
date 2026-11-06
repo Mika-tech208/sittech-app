@@ -3,6 +3,8 @@
 // "FECHAR PERÍODO E GERAR PRÓXIMA PROGRAMAÇÃO" — tela única do tablet. Apontamentos + estoque intermediário físico + confirmação + recálculo + publicação.
 // Campo físico SEMPRE nasce vazio (nunca preenchido com o estimado). A janela de troca pertence a quem abriu esta tela (apontamentos do período só por ele).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useModoProdutoUnico } from "@/hooks/useModoProdutoUnico";
+import BloqueioPlanoFuturo from "@/features/produto-canonico/components/BloqueioPlanoFuturo";
 import PassoApontamentos from "@/features/producao-real/apontamento-simplificado/PassoApontamentos";
 import PassosFechamento from "@/features/producao-real/apontamento-simplificado/PassosFechamento";
 import { estadoDosPassos } from "@/features/producao-real/apontamento-simplificado/passos";
@@ -34,7 +36,11 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
   const enviando = useRef(false);
 
   const [recarregar, setRecarregar] = useState(0);
+  // semana em PLANEJAMENTO do produto único = plano futuro: NENHUM fechamento (nem a abertura) é oferecido; fail-closed até os parâmetros carregarem
+  const modoUnico = useModoProdutoUnico(true);
+  const planoFuturo = modoUnico.planoFuturo(data);
   useEffect(() => {
+    if (!modoUnico.carregado || planoFuturo) return;
     let vivo = true;
     void abrirFechamentoApi(data, periodoId).then((r) => {
       if (!vivo) return;
@@ -42,7 +48,7 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
       setErro(null); setAb(r.corpo); setFase("form");
     }).catch(() => { if (vivo) { setErro("Falha de rede ao abrir o fechamento."); setFase("bloqueado"); } });
     return () => { vivo = false; };
-  }, [data, periodoId, recarregar]);
+  }, [data, periodoId, recarregar, modoUnico.carregado, planoFuturo]);
   const abrir = () => setRecarregar((n) => n + 1);
 
   // O ESTOQUE FÍSICO É A AUTORIDADE: aceita o que a pessoa contou (inclusive 0 e valores muito diferentes do estimado), sem motivo, sem confirmação extra. Só validação objetiva (número inteiro ≥ 0).
@@ -85,6 +91,16 @@ export default function FechamentoPeriodoModal({ data, periodoId, onFechar, onCo
   }
 
   const rotulo = ab?.periodo.rotulo ?? periodoId.toUpperCase();
+  if (planoFuturo) {
+    return (
+      <div className="stx-modal-backdrop" role="dialog" aria-modal="true" aria-label={`Fechamento ${rotulo}`}>
+        <div className="stx-fech-card" style={{ background: "var(--surface)", borderRadius: 16, maxWidth: 720, padding: 22 }} onClick={(e) => e.stopPropagation()}>
+          <BloqueioPlanoFuturo />
+          <button type="button" className="stx-ap-btn-secondary" onClick={onFechar}>Fechar</button>
+        </div>
+      </div>
+    );
+  }
   const proximo = ab?.periodo.proximo?.rotulo ?? "próximo período";
   return (
     <div className="stx-modal-backdrop" role="dialog" aria-modal="true" aria-label={`Fechamento ${rotulo}`}>

@@ -3,6 +3,7 @@
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import type { AlocacaoLinha, DiaEscala, Nomes } from "@/hooks/useEscalaProducao";
 import type { LiberacaoDia } from "@/features/escala/fechamento/visaoTv";
+import { TEXTO_PLANO_FUTURO_CURTO } from "@/features/produto-canonico/planoFuturo";
 
 export type EstadoCelula = "passado" | "atual" | "futuro";
 
@@ -23,10 +24,12 @@ export interface GradeEscalaProps {
   onEditar: (periodoId: string, funcionarioId: string) => void;
   /** liberação por período (banco). Período NÃO liberado = PLANO INTERNO/ESTIMADO: nunca é a escala liberada para o chão. */
   liberacao?: LiberacaoDia | null;
+  /** semana em PLANEJAMENTO do produto único: TODO período é plano futuro, nunca escala liberada (independe do que o banco devolver para a liberação) */
+  planoFuturo?: boolean;
 }
 
-export default function GradeEscala({ dia, alocacoes, funcionarios, nomes, agoraMs, onEditar, liberacao }: GradeEscalaProps) {
-  const naoLiberado = (id: string) => !!liberacao && liberacao[id]?.liberado !== true;
+export default function GradeEscala({ dia, alocacoes, funcionarios, nomes, agoraMs, onEditar, liberacao, planoFuturo }: GradeEscalaProps) {
+  const naoLiberado = (id: string) => !!planoFuturo || (!!liberacao && liberacao[id]?.liberado !== true);
   const porChave = new Map(alocacoes.map((a) => [`${a.periodoId}|${a.funcionarioId}`, a]));
   return (
     <div className="stx-esc-scroll">
@@ -38,7 +41,7 @@ export default function GradeEscala({ dia, alocacoes, funcionarios, nomes, agora
               <th key={p.id}>
                 {p.nome}
                 <div className="stx-esc-resumo-periodo">{p.inicio}–{p.fim}</div>
-                {naoLiberado(p.id) && <div className="stx-esc-badge exc" data-testid="nao-liberado" title="Plano interno/estimado: só vira escala do chão depois do fechamento físico do período anterior CONFIRMADO">ESTIMADO — NÃO LIBERADO</div>}
+                {naoLiberado(p.id) && <div className="stx-esc-badge exc" data-testid="nao-liberado" title="Plano interno/estimado: só vira escala do chão depois do fechamento físico do período anterior CONFIRMADO">{planoFuturo ? TEXTO_PLANO_FUTURO_CURTO : "ESTIMADO — NÃO LIBERADO"}</div>}
               </th>
             ))}
           </tr>
@@ -53,7 +56,7 @@ export default function GradeEscala({ dia, alocacoes, funcionarios, nomes, agora
                 if (!a) {
                   return <td key={p.id}><div className="stx-esc-cell passado" style={naoLiberado(p.id) ? { opacity: 0.55 } : undefined}><span className="sem">— ausente / fora da equipe</span></div></td>;
                 }
-                const clicavel = estado === "futuro";
+                const clicavel = estado === "futuro" && !planoFuturo; // plano futuro (PLANEJAMENTO): só visualização
                 return (
                   <td key={p.id}>
                     <div

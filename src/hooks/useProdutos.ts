@@ -17,7 +17,7 @@ import { supabase } from "@/services/supabase-client";
 import { dispararProcessamentoEscala } from "@/lib/escala/disparar";
 import type { Produto, RoteiroEtapa, Prioridade } from "@/types/domain";
 import { produtosVisiveis } from "@/features/produto-canonico/guard";
-import { lerCutover } from "@/features/produto-canonico/cutover";
+import { lerParametrosProdutoUnico, primeiraVigencia, type ClienteGuarda } from "@/features/produto-canonico/guardaDb";
 
 interface ProdutoPayload {
   nome: string;
@@ -140,22 +140,22 @@ export function useProdutos(pronto: boolean) {
         return;
       }
       const lista = ((data || []) as unknown as ProdutoRow[]).map(linhaParaProduto);
-      // GUARD do produto canônico (Conector 3/4 com rotas): antes do cutover os produtos canônicos ficam escondidos de todas as listas.
-      // Tabela ausente (migration não aplicada) ou sem canônico => lista idêntica à de antes. Erro ao ler o cutover => tratado como "sem cutover" (esconde).
+      // GUARD do produto canônico (Conector 3/4 com rotas): sem NENHUMA vigência (nem planejamento antecipado nem cutover) os produtos canônicos ficam escondidos de todas as listas.
+      // Tabela ausente (migration não aplicada) ou sem canônico => lista idêntica à de antes. Erro ao ler os parâmetros => tratado como "sem vigência" (esconde).
       let canonicos = new Set<string>();
-      let cutover: string | null = null;
+      let vigencia: string | null = null;
       try {
         const c = await supabase.from("produto_canonico").select("produto_id");
         if (!c.error && c.data && c.data.length > 0) {
           canonicos = new Set((c.data as { produto_id: string }[]).map((x) => x.produto_id));
-          const r = await supabase.rpc("produto_unico_cutover");
-          cutover = r.error ? null : lerCutover(r.data);
+          const parametros = await lerParametrosProdutoUnico(supabase as unknown as ClienteGuarda);
+          vigencia = primeiraVigencia({ cutover: null, parametros });
         }
       } catch {
         canonicos = new Set();
       }
       if (!montado) return;
-      setProdutos(produtosVisiveis(lista, canonicos, cutover));
+      setProdutos(produtosVisiveis(lista, canonicos, vigencia));
       setLoading(false);
     })();
     return () => { montado = false; };

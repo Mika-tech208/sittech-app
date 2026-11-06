@@ -55,16 +55,14 @@ function alocarApontado(itens: PrevisaoItem[], apontado: ApontadoPorProduto): Ma
 export function calcularProdutosProgramados(
   itens: PrevisaoItem[],
   resultadosCapacidade: ResultadoItemCapacidadeMaxima[],
-  apontadoPorProduto: ApontadoPorProduto | null,
-  /** produtos com rotas alternativas: o "Possível" (capacidade linear) NÃO é calculado para eles (null). Ausente = comportamento de sempre. */
-  idsRotasAlternativas?: ReadonlySet<string>
+  apontadoPorProduto: ApontadoPorProduto | null
 ): ProdutoProgramado[] {
   const alocado = apontadoPorProduto ? alocarApontado(itens, apontadoPorProduto) : null;
   const primeiroDoProduto = new Map<string, string>();
   itens.forEach((it) => { if (!primeiroDoProduto.has(it.produtoId)) primeiroDoProduto.set(it.produtoId, it.id); });
   return itens.map((it) => {
     const resultado = resultadosCapacidade.find((r) => r.itemId === it.id);
-    const possivel = idsRotasAlternativas?.has(it.produtoId) ? null : resultado ? resultado.maximoPossivel : it.quantidade;
+    const possivel = resultado ? resultado.maximoPossivel : it.quantidade;
     const ap = alocado ? alocado.get(it.id) ?? 0 : null;
     return {
       itemId: it.id, produtoId: it.produtoId, produtoNome: it.produtoNome, previsto: it.quantidade, possivel, valorUnitario: it.valorUnitario,
@@ -78,6 +76,12 @@ export function calcularProdutosProgramados(
       valorFalta: ap === null ? null : Math.max(it.quantidade - ap, 0) * it.valorUnitario,
     };
   });
+}
+
+/** Produto com rotas alternativas: o "Possível" (capacidade linear por ordem) NÃO é calculado — vira null (a tela mostra a mensagem de indicador indisponível). Sem ids: devolve a MESMA lista. */
+export function comPossivelIndisponivel(produtos: ProdutoProgramado[], idsRotasAlternativas: ReadonlySet<string>): ProdutoProgramado[] {
+  if (idsRotasAlternativas.size === 0) return produtos;
+  return produtos.map((p) => (idsRotasAlternativas.has(p.produtoId) ? { ...p, possivel: null } : p));
 }
 
 export interface ResumoProgramacaoPecas {
