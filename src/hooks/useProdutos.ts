@@ -16,6 +16,8 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import { dispararProcessamentoEscala } from "@/lib/escala/disparar";
 import type { Produto, RoteiroEtapa, Prioridade } from "@/types/domain";
+import { produtosVisiveis } from "@/features/produto-canonico/guard";
+import { lerCutover } from "@/features/produto-canonico/cutover";
 
 interface ProdutoPayload {
   nome: string;
@@ -137,7 +139,23 @@ export function useProdutos(pronto: boolean) {
         setLoading(false);
         return;
       }
-      setProdutos(((data || []) as unknown as ProdutoRow[]).map(linhaParaProduto));
+      const lista = ((data || []) as unknown as ProdutoRow[]).map(linhaParaProduto);
+      // GUARD do produto canônico (Conector 3/4 com rotas): antes do cutover os produtos canônicos ficam escondidos de todas as listas.
+      // Tabela ausente (migration não aplicada) ou sem canônico => lista idêntica à de antes. Erro ao ler o cutover => tratado como "sem cutover" (esconde).
+      let canonicos = new Set<string>();
+      let cutover: string | null = null;
+      try {
+        const c = await supabase.from("produto_canonico").select("produto_id");
+        if (!c.error && c.data && c.data.length > 0) {
+          canonicos = new Set((c.data as { produto_id: string }[]).map((x) => x.produto_id));
+          const r = await supabase.rpc("produto_unico_cutover");
+          cutover = r.error ? null : lerCutover(r.data);
+        }
+      } catch {
+        canonicos = new Set();
+      }
+      if (!montado) return;
+      setProdutos(produtosVisiveis(lista, canonicos, cutover));
       setLoading(false);
     })();
     return () => { montado = false; };

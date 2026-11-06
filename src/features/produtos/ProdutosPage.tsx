@@ -7,6 +7,9 @@ import { useCadastrosBase } from "@/hooks/useCadastrosBase";
 import { useFuncionarios } from "@/hooks/useFuncionarios";
 import { useMaquinas } from "@/hooks/useMaquinas";
 import { useProdutos } from "@/hooks/useProdutos";
+import { useModelosCanonicos } from "@/hooks/useModelosCanonicos";
+import RotasDoProduto from "@/features/produto-canonico/components/RotasDoProduto";
+import { margemPorRota } from "@/features/produto-canonico/margemRotas";
 import { usePrevisoes } from "@/hooks/usePrevisoes";
 import { useCustos } from "@/hooks/useCustos";
 import { useSidebarState } from "@/hooks/useSidebarState";
@@ -61,6 +64,7 @@ export default function ProdutosPage() {
   const { maquinas } = maquinasHook;
   const produtosHook = useProdutos(auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading);
   const { produtos } = produtosHook;
+  const modelosCanonicos = useModelosCanonicos(auth.autenticado && !produtosHook.loading); // [] antes do cutover/backfill: a tela fica idêntica
   const previsoesHook = usePrevisoes(
     auth.autenticado && !cadastrosBase.loading && !funcionariosHook.loading && !maquinasHook.loading && !produtosHook.loading
   );
@@ -86,6 +90,10 @@ export default function ProdutosPage() {
   );
   // margem/lucro-hora de um produto vêm sempre daqui — nunca duplicar a
   // fórmula dentro do domínio de Produtos.
+  function modeloDe(produtoId: string) {
+    return modelosCanonicos.find((m) => m.produtoCanonicoId === produtoId);
+  }
+
   function calcularMargem(produto: Produto) {
     return calcularMargemProduto(produto, custoHoraPorOperacao, custoHoraEmpresa, periodosComDuracao);
   }
@@ -325,7 +333,8 @@ export default function ProdutosPage() {
                   <span></span>
                 </div>
                 {produtosOrdenados.map((p) => {
-                  const temRoteiro = produtoTemRoteiro(p);
+                  const canonico = !!modeloDe(p.id); // produto único com rotas: custo/margem são POR ROTA (RotasDoProduto), nunca o roteiro inteiro em série
+                  const temRoteiro = produtoTemRoteiro(p) && !canonico;
                   const { custo, margemRS, margemPct, lucroHora } = calcularMargem(p);
                   return (
                     <div className="stx-prod-table-row" key={p.id} style={!p.ativo ? { opacity: .55 } : undefined}>
@@ -335,6 +344,13 @@ export default function ProdutosPage() {
                           {p.referencia && <span className="stx-prod-ref">{p.referencia}</span>}
                           {!p.ativo && <span className="stx-prod-ref">· pausado</span>}
                         </p>
+                        {modeloDe(p.id) ? (
+                          <RotasDoProduto
+                            rotas={margemPorRota(p, modeloDe(p.id)!, custoHoraPorOperacao, custoHoraEmpresa, periodosComDuracao)}
+                            maquinas={maquinas}
+                            formatarMoeda={formatBRL}
+                          />
+                        ) : (
                         <p className="stx-prod-fluxo">
                           {temRoteiro
                             ? p.roteiro.map((e) => {
@@ -344,6 +360,7 @@ export default function ProdutosPage() {
                               }).join(" → ")
                             : "sem fluxo de produção cadastrado"}
                         </p>
+                        )}
                       </div>
                       <span className="num">{formatBRL(p.valorUnitario)}</span>
                       <span className="num" style={{ color: "var(--text-2)" }}>{temRoteiro ? formatBRL(custo) : "—"}</span>
