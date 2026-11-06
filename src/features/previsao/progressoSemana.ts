@@ -25,7 +25,7 @@ export interface ProdutoProgramado {
   produtoId: string;
   produtoNome: string;
   previsto: number;
-  possivel: number;
+  possivel: number | null; // null = indisponível (produto com rotas alternativas: ver produto-canonico/indicadores.ts)
   valorUnitario: number; // congelado no item da Previsão
   apontadoReal: number | null; // peças boas da etapa final atribuídas a ESTE item; null = indisponível
   apontadoAmbiguoPecas: number; // peças de apontamentos com roteiro alterado (NÃO contadas); só no 1º item do produto
@@ -55,14 +55,16 @@ function alocarApontado(itens: PrevisaoItem[], apontado: ApontadoPorProduto): Ma
 export function calcularProdutosProgramados(
   itens: PrevisaoItem[],
   resultadosCapacidade: ResultadoItemCapacidadeMaxima[],
-  apontadoPorProduto: ApontadoPorProduto | null
+  apontadoPorProduto: ApontadoPorProduto | null,
+  /** produtos com rotas alternativas: o "Possível" (capacidade linear) NÃO é calculado para eles (null). Ausente = comportamento de sempre. */
+  idsRotasAlternativas?: ReadonlySet<string>
 ): ProdutoProgramado[] {
   const alocado = apontadoPorProduto ? alocarApontado(itens, apontadoPorProduto) : null;
   const primeiroDoProduto = new Map<string, string>();
   itens.forEach((it) => { if (!primeiroDoProduto.has(it.produtoId)) primeiroDoProduto.set(it.produtoId, it.id); });
   return itens.map((it) => {
     const resultado = resultadosCapacidade.find((r) => r.itemId === it.id);
-    const possivel = resultado ? resultado.maximoPossivel : it.quantidade;
+    const possivel = idsRotasAlternativas?.has(it.produtoId) ? null : resultado ? resultado.maximoPossivel : it.quantidade;
     const ap = alocado ? alocado.get(it.id) ?? 0 : null;
     return {
       itemId: it.id, produtoId: it.produtoId, produtoNome: it.produtoNome, previsto: it.quantidade, possivel, valorUnitario: it.valorUnitario,
@@ -80,7 +82,7 @@ export function calcularProdutosProgramados(
 
 export interface ResumoProgramacaoPecas {
   totalPrevisto: number;
-  totalPossivel: number;
+  totalPossivel: number | null; // null = algum item com possível indisponível
   totalApontadoReal: number | null;
   totalFalta: number | null; // soma das faltas por produto (excesso de um produto não compensa falta de outro)
   concluidoPct: number | null; // apontado total / previsto total (sem teto)
@@ -97,7 +99,7 @@ export interface ResumoProgramacaoPecas {
 // Soma simples de peças dos produtos PREVISTOS — indicador de acompanhamento, não de capacidade fabril.
 export function calcularResumoProgramacaoPecas(produtos: ProdutoProgramado[]): ResumoProgramacaoPecas {
   const totalPrevisto = produtos.reduce((s, p) => s + p.previsto, 0);
-  const totalPossivel = produtos.reduce((s, p) => s + p.possivel, 0);
+  const totalPossivel = produtos.some((p) => p.possivel === null) ? null : produtos.reduce((s, p) => s + (p.possivel as number), 0);
   const disponivel = produtos.length > 0 && produtos.every((p) => p.apontadoReal !== null);
   const totalApontadoReal = disponivel ? produtos.reduce((s, p) => s + (p.apontadoReal ?? 0), 0) : null;
   const valorPrevisto = produtos.reduce((s, p) => s + p.valorPrevisto, 0);
