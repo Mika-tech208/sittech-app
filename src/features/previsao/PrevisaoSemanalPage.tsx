@@ -311,6 +311,14 @@ export default function PrevisaoSemanalPage() {
     window.location.reload(); // recarrega a Previsão com o item único (o recálculo da Escala já foi enfileirado pelo banco)
     return null;
   }
+  // ENCERRAR PRODUTO NA SEMANA: guarda a META ORIGINAL e zera a demanda restante (o motor deixa de programar). A produção real já feita continua contando.
+  async function encerrarProdutoDaSemana(it: PrevisaoItem) {
+    const ok = window.confirm(`Encerrar ${it.produtoNome} nesta semana?\n\nA meta original (${it.quantidade.toLocaleString("pt-BR")}) fica guardada, o que já foi produzido continua contando e o restante deixa de ser programado (não vira falta).`);
+    if (!ok) return;
+    const motivo = window.prompt("Motivo do encerramento (opcional):") ?? "";
+    await previsoesHook.encerrarProduto(semanaAtual, it.produtoId, motivo.trim() || null);
+  }
+
   async function deletePrevItem(id: string) {
     await upsertSemana({ itens: semanaAtualRec.itens.filter((it) => it.id !== id) });
   }
@@ -557,7 +565,7 @@ export default function PrevisaoSemanalPage() {
                 </div>
                 {resumoProgramacaoPecas.totalPossivel === null && <IndicadorIndisponivel titulo="Possível" />}
                 <p className="stx-prev-hero-caption">
-                  <b>{formatPct(resumoProgramacaoPecas.concluidoPct)}</b> concluído da previsão em peças (apontado real ÷ previsto) — soma simples entre produtos, indicador de acompanhamento, não de capacidade fabril. Possível é capacidade, não andamento.
+                  <b>{formatPct(resumoProgramacaoPecas.concluidoPct)}</b> concluído da previsão em peças (apontado real ÷ previsto operacional) — soma simples entre produtos, indicador de acompanhamento, não de capacidade fabril.{resumoProgramacaoPecas.itensEncerrados > 0 && <> Previsto = meta original; produto encerrado na semana: {resumoProgramacaoPecas.totalCancelado === null ? "—" : formatQtd(resumoProgramacaoPecas.totalCancelado)} peças canceladas não contam como falta.</>} Possível é capacidade, não andamento.
                 </p>
               </>
             )}
@@ -663,6 +671,7 @@ export default function PrevisaoSemanalPage() {
                   onCancelar={resetPrevItemForm}
                   onEditar={editPrevItem}
                   onExcluir={deletePrevItem}
+                  onEncerrar={temPermissao(auth.usuarioLogado, "previsao") ? encerrarProdutoDaSemana : undefined}
                   analise={analiseCapacidadeSemana}
                   valorPrevistoSemana={resumoSemana.valorPrevisto}
                   equipeProdutivaCount={equipeProdutivaCount}
@@ -762,7 +771,7 @@ export default function PrevisaoSemanalPage() {
                     <p className="stx-destaque-label">Concluído da previsão</p>
                     <p className="stx-destaque-value">{formatPct(resumoFinanceiroSemana.concluidoPct)}</p>
                     <p className="stx-destaque-sub">
-                      {resumoFinanceiroSemana.valorRealizado === null ? "Apontado real indisponível" : `${formatBRL(resumoFinanceiroSemana.valorRealizado)} de ${formatBRL(resumoFinanceiroSemana.valorPrevisto)} previstos`}
+                      {resumoFinanceiroSemana.valorRealizado === null ? "Apontado real indisponível" : `${formatBRL(resumoFinanceiroSemana.valorRealizado)} de ${formatBRL(resumoFinanceiroSemana.valorPrevistoOperacional ?? resumoFinanceiroSemana.valorPrevisto)} ${resumoFinanceiroSemana.itensEncerrados > 0 ? "do previsto operacional (sem o saldo cancelado de produto encerrado)" : "previstos"}`}
                       {resumoFinanceiroSemana.concluidoValorPct !== null && ` · ${formatPct(resumoFinanceiroSemana.concluidoValorPct)} em valor`}
                     </p>
                     <p className="stx-destaque-sub">Apontado real (Produção Real, última etapa) × preço congelado na Previsão. % em peças.</p>

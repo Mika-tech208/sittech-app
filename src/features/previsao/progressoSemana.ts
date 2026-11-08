@@ -12,11 +12,16 @@
 // - R$: usa o valor_unitario CONGELADO no item da Previsão (nunca o preço atual do cadastro): o histórico da semana não muda se o preço mudar depois.
 // - Mesmo produto em dois itens da mesma semana: o apontado do produto é distribuído em sequência (cada item até o seu previsto; o excesso fica no último) — soma uma única vez.
 // - apontado indisponível (carregando/erro) => null: a tela mostra "—", nunca um 0 inventado.
+//
+// PRODUTO ENCERRADO NA SEMANA (ver encerramento.ts): `previsto` passa a ser o ORIGINAL (a meta que havia sido prevista), a `falta` é OPERACIONAL (o saldo cancelado NÃO é falta), nunca há "excedente"
+// por causa do encerramento e o item mostra o selo ENCERRADO. A produção feita continua inteira no APONTADO REAL (fato histórico). O % concluído é apontado real total ÷ PREVISTO OPERACIONAL total,
+// onde o previsto operacional de um item encerrado = min(original, apontado) (o cancelado não é obrigação pendente e o produto encerrado não distorce o %).
 
 import type { Previsao, PrevisaoItem } from "@/types/domain";
 import { calcularHistoricoSemanas } from "@/features/capacidade/calculations";
 import { metodologiaDaSemana, type MetodologiaSemana } from "@/features/previsao/vigencia";
 import type { ResultadoItemCapacidadeMaxima } from "@/features/capacidade/types";
+import { itemEncerrado, previstoOperacionalDoItem, previstoOriginalDoItem } from "@/features/previsao/encerramento";
 
 export type ApontadoPorProduto = Map<string, { apontadoReal: number; ambiguoPecas: number }>;
 
@@ -24,7 +29,7 @@ export interface ProdutoProgramado {
   itemId: string;
   produtoId: string;
   produtoNome: string;
-  previsto: number;
+  previsto: number; // ORIGINAL (a meta que havia sido prevista; item encerrado: a meta guardada no encerramento)
   possivel: number | null; // null = indisponível (produto com rotas alternativas: ver produto-canonico/indicadores.ts)
   valorUnitario: number; // congelado no item da Previsão
   apontadoReal: number | null; // peças boas da etapa final atribuídas a ESTE item; null = indisponível
@@ -35,6 +40,11 @@ export interface ProdutoProgramado {
   valorPrevisto: number;
   valorRealizado: number | null;
   valorFalta: number | null; // falta do item × preço congelado
+  // PRODUTO ENCERRADO NA SEMANA
+  encerrado: boolean;
+  previstoOperacional: number | null; // o que ainda é obrigação (ativo = previsto; encerrado = min(original, apontado)); null = apontado indisponível
+  cancelado: number | null; // encerrado: max(original − apontado, 0) — NÃO é falta; 0 quando ativo
+  valorPrevistoOperacional: number | null;
 }
 
 // distribui o apontado de cada produto pelos itens dele (ordem da lista): cada item até o seu previsto, o excesso no último
@@ -45,7 +55,7 @@ function alocarApontado(itens: PrevisaoItem[], apontado: ApontadoPorProduto): Ma
   itens.forEach((it) => ultimoDoProduto.set(it.produtoId, it.id));
   itens.forEach((it) => {
     const resto = restante.get(it.produtoId) ?? apontado.get(it.produtoId)?.apontadoReal ?? 0;
-    const parte = ultimoDoProduto.get(it.produtoId) === it.id ? resto : Math.min(resto, Math.max(it.quantidade, 0));
+    const parte = ultimoDoProduto.get(it.produtoId) === it.id ? resto : Math.min(resto, Math.max(previstoOriginalDoItem(it), 0));
     porItem.set(it.id, parte);
     restante.set(it.produtoId, resto - parte);
   });
@@ -62,18 +72,26 @@ export function calcularProdutosProgramados(
   itens.forEach((it) => { if (!primeiroDoProduto.has(it.produtoId)) primeiroDoProduto.set(it.produtoId, it.id); });
   return itens.map((it) => {
     const resultado = resultadosCapacidade.find((r) => r.itemId === it.id);
-    const possivel = resultado ? resultado.maximoPossivel : it.quantidade;
+    const encerrado = itemEncerrado(it);
+    const original = previstoOriginalDoItem(it);
+    const possivel = encerrado ? 0 : resultado ? resultado.maximoPossivel : it.quantidade; // encerrado: a capacidade não é destinada a ele
     const ap = alocado ? alocado.get(it.id) ?? 0 : null;
+    const operacional = previstoOperacionalDoItem(it, ap);
+    const falta = ap === null || operacional === null ? null : Math.max(operacional - ap, 0);
     return {
-      itemId: it.id, produtoId: it.produtoId, produtoNome: it.produtoNome, previsto: it.quantidade, possivel, valorUnitario: it.valorUnitario,
+      itemId: it.id, produtoId: it.produtoId, produtoNome: it.produtoNome, previsto: original, possivel, valorUnitario: it.valorUnitario,
       apontadoReal: ap,
       apontadoAmbiguoPecas: apontadoPorProduto && primeiroDoProduto.get(it.produtoId) === it.id ? (apontadoPorProduto.get(it.produtoId)?.ambiguoPecas ?? 0) : 0,
-      falta: ap === null ? null : Math.max(it.quantidade - ap, 0),
-      excedente: ap === null ? null : Math.max(ap - it.quantidade, 0),
-      concluidoPct: ap === null || it.quantidade <= 0 ? null : (ap / it.quantidade) * 100,
-      valorPrevisto: it.quantidade * it.valorUnitario,
+      falta,
+      excedente: ap === null ? null : Math.max(ap - original, 0),
+      concluidoPct: encerrado || ap === null || original <= 0 ? null : (ap / original) * 100, // encerrado: sem % (selo ENCERRADO)
+      valorPrevisto: original * it.valorUnitario,
       valorRealizado: ap === null ? null : ap * it.valorUnitario,
-      valorFalta: ap === null ? null : Math.max(it.quantidade - ap, 0) * it.valorUnitario,
+      valorFalta: falta === null ? null : falta * it.valorUnitario,
+      encerrado,
+      previstoOperacional: operacional,
+      cancelado: !encerrado ? 0 : ap === null ? null : Math.max(original - ap, 0),
+      valorPrevistoOperacional: operacional === null ? null : operacional * it.valorUnitario,
     };
   });
 }
@@ -85,7 +103,8 @@ export function comPossivelIndisponivel(produtos: ProdutoProgramado[], idsRotasA
 }
 
 export interface ResumoProgramacaoPecas {
-  totalPrevisto: number;
+  totalPrevisto: number; // ORIGINAL (inclui a meta original de produto encerrado)
+  totalPrevistoOperacional: number | null; // o que ainda é obrigação (encerrado = o que foi produzido; o cancelado sai)
   totalPossivel: number | null; // null = algum item com possível indisponível
   totalApontadoReal: number | null;
   totalFalta: number | null; // soma das faltas por produto (excesso de um produto não compensa falta de outro)
@@ -97,7 +116,12 @@ export interface ResumoProgramacaoPecas {
   valorPrevisto: number;
   valorRealizado: number | null;
   valorFalta: number | null; // soma das faltas financeiras por produto (falta × preço congelado)
-  concluidoValorPct: number | null; // R$ realizado / R$ previsto
+  concluidoValorPct: number | null; // R$ realizado / R$ previsto OPERACIONAL
+  // PRODUTO ENCERRADO NA SEMANA
+  itensEncerrados: number;
+  totalApontadoEncerrados: number | null; // peças produzidas dos produtos encerrados (já incluídas no apontado real total)
+  totalCancelado: number | null; // saldo cancelado dos produtos encerrados — NÃO é falta
+  valorPrevistoOperacional: number | null;
 }
 
 // Soma simples de peças dos produtos PREVISTOS — indicador de acompanhamento, não de capacidade fabril.
@@ -108,16 +132,22 @@ export function calcularResumoProgramacaoPecas(produtos: ProdutoProgramado[]): R
   const totalApontadoReal = disponivel ? produtos.reduce((s, p) => s + (p.apontadoReal ?? 0), 0) : null;
   const valorPrevisto = produtos.reduce((s, p) => s + p.valorPrevisto, 0);
   const valorRealizado = disponivel ? produtos.reduce((s, p) => s + (p.valorRealizado ?? 0), 0) : null;
+  const totalPrevistoOperacional = disponivel ? produtos.reduce((s, p) => s + (p.previstoOperacional ?? 0), 0) : null;
+  const valorPrevistoOperacional = disponivel ? produtos.reduce((s, p) => s + (p.valorPrevistoOperacional ?? 0), 0) : null;
   return {
-    totalPrevisto, totalPossivel, totalApontadoReal,
+    totalPrevisto, totalPrevistoOperacional, totalPossivel, totalApontadoReal,
     totalFalta: disponivel ? produtos.reduce((s, p) => s + (p.falta ?? 0), 0) : null,
-    concluidoPct: totalApontadoReal === null || totalPrevisto <= 0 ? null : (totalApontadoReal / totalPrevisto) * 100,
+    concluidoPct: totalApontadoReal === null || totalPrevistoOperacional === null || totalPrevistoOperacional <= 0 ? null : (totalApontadoReal / totalPrevistoOperacional) * 100,
     totalApontadoAmbiguoPecas: produtos.reduce((s, p) => s + p.apontadoAmbiguoPecas, 0),
     totalExcedente: disponivel ? produtos.reduce((s, p) => s + (p.excedente ?? 0), 0) : null,
     itensComExcedente: produtos.filter((p) => (p.excedente ?? 0) > 0).length,
     valorPrevisto, valorRealizado,
     valorFalta: disponivel ? produtos.reduce((s, p) => s + (p.valorFalta ?? 0), 0) : null,
-    concluidoValorPct: valorRealizado === null || valorPrevisto <= 0 ? null : (valorRealizado / valorPrevisto) * 100,
+    concluidoValorPct: valorRealizado === null || valorPrevistoOperacional === null || valorPrevistoOperacional <= 0 ? null : (valorRealizado / valorPrevistoOperacional) * 100,
+    itensEncerrados: produtos.filter((p) => p.encerrado).length,
+    totalApontadoEncerrados: disponivel ? produtos.filter((p) => p.encerrado).reduce((s, p) => s + (p.apontadoReal ?? 0), 0) : null,
+    totalCancelado: disponivel ? produtos.reduce((s, p) => s + (p.cancelado ?? 0), 0) : null,
+    valorPrevistoOperacional,
   };
 }
 
@@ -163,6 +193,9 @@ export function calcularHistoricoSemanal(previsoes: Previsao[], apontadoPorSeman
     const itens = itensDaSemana.get(h.semanaInicio) ?? [];
     const alocado = alocarApontado(itens, mapa);
     const realizado = itens.reduce((t, it) => t + (alocado.get(it.id) ?? 0) * it.valorUnitario, 0);
-    return { semanaInicio: h.semanaInicio, metodologia, previsto: h.previsto, realizado, pct: h.previsto > 0 ? (realizado / h.previsto) * 100 : null };
+    // previsto = ORIGINAL (o que havia sido previsto); % sobre o previsto OPERACIONAL (o saldo cancelado de produto encerrado não é obrigação)
+    const previstoOriginal = itens.reduce((t, it) => t + previstoOriginalDoItem(it) * it.valorUnitario, 0);
+    const previstoOperacional = itens.reduce((t, it) => t + (previstoOperacionalDoItem(it, alocado.get(it.id) ?? 0) ?? 0) * it.valorUnitario, 0);
+    return { semanaInicio: h.semanaInicio, metodologia, previsto: itens.some(itemEncerrado) ? previstoOriginal : h.previsto, realizado, pct: previstoOperacional > 0 ? (realizado / previstoOperacional) * 100 : null };
   });
 }

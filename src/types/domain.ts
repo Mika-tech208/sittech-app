@@ -121,6 +121,9 @@ export interface PrevisaoItem {
   // Adicional POR ETAPA (etapaId -> peças): acabado = última etapa; o restante é estoque intermediário aguardando a
   // etapa seguinte. Só é usado quando o modo WIP está ativo; ausente = o adicional do item vale para todas as etapas.
   adicionalPorEtapa?: { [etapaId: string]: number };
+  // PRODUTO ENCERRADO NA SEMANA (previsao_encerramentos): o banco mantém `quantidade` = 0 e adicional = 0 (o motor nunca programa); aqui vem a META ORIGINAL e o carimbo,
+  // para a tela mostrar o que havia sido previsto sem tratar o saldo cancelado como falta. Ver features/previsao/encerramento.ts.
+  encerrado?: { quantidadeOriginal: number; adicionalOriginal: number; encerradoEm: string; motivo: string | null };
 }
 
 export interface MembroEquipeSemana {
