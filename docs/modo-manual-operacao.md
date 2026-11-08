@@ -80,3 +80,14 @@ A unicidade antiga `(máquina, data, período)` ("V1: um fechamento por máquina
 - `supabase/tests/modo_operacao_manual.test.sql` — 38 verificações (antes/depois, gatilhos, TV, PLANEJAMENTO, validações, Clarice, vários lançamentos por máquina/período).
 - `scripts/modo-manual/e2e-modo-manual.ts` — eventos plantados à força + `/drenar`, `/gerar`, `/gerar-semana`: plano idêntico.
 - `src/lib/escala/__tests__/modoManual.test.ts` — definição única, funil, golden byte-idêntico com flags ligadas, exceção do PLANEJAMENTO, TV.
+
+## Estado em PROD (aplicado em 08/11/2026)
+
+- **PR 17**, merge `d835e4a` (deploy de produção `Ready`); migrations `20261119100000` e `20261119110000` aplicadas por SQL direto (sem registro em `schema_migrations`, como as anteriores a 20261110).
+- **Flags** (transação única, `producao_real_modo` por último): `producao_real_modo`, `replanejamento_modo`, `escala_fechamento_fisico_modo` e `apontamento_simplificado_modo` = `desligado`.
+- **Fila de eventos:** 340 antes e 340 depois (nenhum evento de recálculo criado); pendentes = 0.
+- **Integridade:** contagem + checksum de 39 tabelas comparados antes/depois: única diferença = +2 registros de auditoria em `escala_plano_versoes` (foto automática do plano atual, `origem=trigger`).
+- **Smoke** (`supabase/ops/modo-manual/20_smoke.sql`, transação abortada de propósito, nada persiste): 18/18 antes das flags (comportamento antigo preservado) e 18/18 depois (modo manual).
+- **Backup pré-alteração:** `~/Documents/sittech-rollbacks/2026-11-06-modo-manual/` (dump completo `prod-public-20261108-133856-PRE-MODO-MANUAL.sql`, flags, jobs do pg_cron, funções, scripts e rollbacks).
+- **Conhecido, anterior a esta mudança:** o workflow `escala-drenar.yml` aparece "failure" porque há 1 evento histórico `fechamento_fisico/erro` (06/11 14:26; `esgotados: 1`); o worker responde HTTP 200. Não foi alterado (histórico preservado).
+- **Pendente:** verificação visual autenticada da Produção Real (precisa de login).
