@@ -28,9 +28,22 @@ select m.id as maquina, re.produto_id as produto
 from public.maquinas m join public.roteiro_etapa_maquinas rem on rem.maquina_id = m.id join public.roteiro_etapas re on re.id = rem.etapa_id join public.produtos p on p.id = re.produto_id
 where m.ativo and p.ativo and re.meta_m1 > 0 and re.meta_m3 > 0
   and (select count(*) from public.roteiro_etapas r2 join public.roteiro_etapa_maquinas x on x.etapa_id = r2.id where r2.produto_id = re.produto_id and x.maquina_id = m.id) = 1
-  and not exists (select 1 from public.apontamentos_producao a where a.maquina_id = m.id and ((a.data = '2026-11-05' and a.periodo_id = 'm1') or (a.data = '2026-11-06' and a.periodo_id = 'm3')))
+  and re.meta_m2 > 0
+  and not exists (select 1 from public.apontamentos_producao a where a.maquina_id = m.id and ((a.data = '2026-11-05' and a.periodo_id = 'm1') or (a.data = '2026-11-06' and a.periodo_id = 'm3') or (a.data = '2026-11-07' and a.periodo_id = 'm2')))
+  and exists (select 1 from public.roteiro_etapas re2 join public.roteiro_etapa_maquinas x2 on x2.etapa_id = re2.id join public.produtos pr2 on pr2.id = re2.produto_id
+              where x2.maquina_id = m.id and re2.produto_id <> re.produto_id and pr2.ativo and re2.meta_m2 > 0
+                and (select count(*) from public.roteiro_etapas r3 join public.roteiro_etapa_maquinas y on y.etapa_id = r3.id where r3.produto_id = re2.produto_id and y.maquina_id = m.id) = 1)
 order by m.nome limit 1;
 grant all on _r, _d, _p to public;
+create temp table _q as
+select p.maquina, (select re2.produto_id from public.roteiro_etapas re2 join public.roteiro_etapa_maquinas x on x.etapa_id = re2.id join public.produtos pr on pr.id = re2.produto_id
+                   where x.maquina_id = p.maquina and re2.produto_id <> p.produto and pr.ativo and re2.meta_m2 > 0
+                     and (select count(*) from public.roteiro_etapas r3 join public.roteiro_etapa_maquinas y on y.etapa_id = r3.id where r3.produto_id = re2.produto_id and y.maquina_id = p.maquina) = 1 limit 1) as produto2,
+       (select id from public.funcionarios where ativo order by nome offset 1 limit 1) as func2,
+       (select id from public.maquinas m2 where m2.ativo and m2.id <> p.maquina and exists (select 1 from public.roteiro_etapa_maquinas rr join public.roteiro_etapas e on e.id = rr.etapa_id where rr.maquina_id = m2.id and e.meta_m2 > 0)
+          and not exists (select 1 from public.apontamentos_producao a where a.maquina_id = m2.id and a.data = '2026-11-07' and a.periodo_id = 'm2') order by m2.nome limit 1) as maquina_b
+from _p p;
+grant all on _q to public;
 create temp table _antes as select (select count(*) from public.escala_producao_eventos) as eventos, (select count(*) from public.escala_producao_eventos where status = 'pendente') as pendentes;
 grant all on _antes to public;
 select pg_temp.t('pré: há par máquina/produto e funcionário para o teste', (select count(*) = 1 from _p) and (select func is not null and clarice_auth is not null from _d));
@@ -91,7 +104,7 @@ reset role;
 
 -- gravação de plano (última linha de defesa)
 select pg_temp.t('F1 escala_aplicar_recalculo recusa semana corrente (ESCALA_AUTOMATICA_DESATIVADA)', coalesce(pg_temp.erro_de($q$select public.escala_aplicar_recalculo((select id from public.previsoes where semana_inicio = '2026-11-02'), '[]'::jsonb, '2026-11-06', 't1', '[]'::jsonb, null, '{}'::uuid[], '{}'::jsonb)$q$), '') like 'ESCALA_AUTOMATICA_DESATIVADA%');
-select pg_temp.t('F1 escala_aplicar_recalculo NÃO recusa por modo manual a semana em PLANEJAMENTO (09/11)', coalesce(pg_temp.erro_de($q$select public.escala_aplicar_recalculo((select id from public.previsoes where semana_inicio = '2026-11-09'), '[]'::jsonb, '2026-11-09', 'm1', '[]'::jsonb, null, '{}'::uuid[], '{}'::jsonb)$q$), '') not like 'ESCALA_AUTOMATICA_DESATIVADA%');
+select pg_temp.t('F1 escala_aplicar_recalculo recusa TAMBÉM a semana em PLANEJAMENTO (09/11): nenhuma geração grava plano no modo manual', coalesce(pg_temp.erro_de($q$select public.escala_aplicar_recalculo((select id from public.previsoes where semana_inicio = '2026-11-09'), '[]'::jsonb, '2026-11-09', 'm1', '[]'::jsonb, null, '{}'::uuid[], '{}'::jsonb)$q$), '') like 'ESCALA_AUTOMATICA_DESATIVADA%');
 
 -- ---------- APONTAMENTO MANUAL como Clarice (perfil, sem regra por nome) ----------
 select set_config('request.jwt.claims', json_build_object('sub', (select clarice_auth from _d), 'role', 'authenticated')::text, true);
@@ -123,6 +136,34 @@ do $$ declare v_m uuid; v_p uuid; v_f uuid; e text; v_outro uuid; begin
   e := pg_temp.erro_de(format($q$select public.registrar_apontamento_producao_retroativo(%L, %L, %L, 10, 0, gen_random_uuid(), '2026-11-04', 'zz', 'x', '[]'::jsonb)$q$, v_m, v_p, v_f));
   perform pg_temp.t('V período inexistente recusado', e like '%Período%não encontrado%');
 end $$;
+-- ---------- VÁRIOS LANÇAMENTOS POR MÁQUINA/PERÍODO (dois produtos; troca de operador) ----------
+do $$ declare v_m uuid; v_p1 uuid; v_p2 uuid; v_f1 uuid; v_f2 uuid; v_mb uuid; a1 public.apontamentos_producao; a2 public.apontamentos_producao; a3 public.apontamentos_producao; e text; n int; soma numeric; sp public.apontamentos_producao;
+begin
+  select p.maquina, p.produto, q.produto2, d.func, q.func2, q.maquina_b into v_m, v_p1, v_p2, v_f1, v_f2, v_mb from _p p, _q q, _d d;
+  perform pg_temp.t('D pré: há segundo produto, segundo operador e outra máquina para o teste', v_p2 is not null and v_f2 is not null and v_mb is not null);
+  a1 := public.registrar_apontamento_producao_retroativo(v_m, v_p1, v_f1, 1000, 10, gen_random_uuid(), '2026-11-07', 'm2', 'linha 1', '[]'::jsonb);
+  a2 := public.registrar_apontamento_producao_retroativo(v_m, v_p2, v_f1, 400, 5, gen_random_uuid(), '2026-11-07', 'm2', 'linha 2: segundo produto', '[]'::jsonb);
+  perform pg_temp.t('D mesma máquina e período com DOIS PRODUTOS: as duas linhas gravam', a1.id is not null and a2.id is not null and a1.id <> a2.id);
+  a3 := public.registrar_apontamento_producao_retroativo(v_m, v_p1, v_f2, 300, 0, gen_random_uuid(), '2026-11-07', 'm2', 'linha 3: outro operador', '[]'::jsonb);
+  perform pg_temp.t('D mesma máquina, período e produto com OUTRO OPERADOR: grava (troca de operador no período)', a3.id is not null);
+  select count(*), sum(quantidade_produzida) into n, soma from public.apontamentos_producao where maquina_id = v_m and data = '2026-11-07' and periodo_id = 'm2';
+  perform pg_temp.t('D a máquina tem 3 lançamentos no período e a produção soma 1700 (nada sobrescrito)', n = 3 and soma = 1700);
+  e := pg_temp.erro_de(format($q$select public.registrar_apontamento_producao_retroativo(%L, %L, %L, 50, 0, gen_random_uuid(), '2026-11-07', 'm2', 'duplicada', '[]'::jsonb)$q$, v_m, v_p1, v_f1));
+  perform pg_temp.t('D lançamento duplicado (mesma máquina, produto e operador) é recusado com mensagem clara', e like '%Já existe um lançamento%');
+  e := pg_temp.erro_de(format($q$select public.registrar_sem_producao_retroativo(%L, 'sem_programacao', gen_random_uuid(), '2026-11-07', 'm2')$q$, v_m));
+  perform pg_temp.t('D "sem produção" NÃO pode coexistir com produção na mesma máquina/período', e like 'APONTAMENTO_MAQUINA_COM_PRODUCAO%');
+  e := pg_temp.erro_de(format($q$select public.editar_apontamento_producao(%L, %L, %L, 400, 5, 'colisão', null, '[]'::jsonb)$q$, a2.id, v_p1, v_f1));
+  perform pg_temp.t('D editar uma linha para colidir com outra (mesmo produto e operador) é recusado', e is not null and e like '%uq_apontamentos_producao_linha%');
+  -- sem produção: um por máquina/período; produção depois dele é recusada; converter funciona
+  sp := public.registrar_sem_producao_retroativo(v_mb, 'sem_programacao', gen_random_uuid(), '2026-11-07', 'm2');
+  perform pg_temp.t('D "sem produção" grava numa máquina sem lançamentos', sp.id is not null and sp.status = 'sem_producao');
+  e := pg_temp.erro_de(format($q$select public.registrar_sem_producao_retroativo(%L, 'sem_programacao', gen_random_uuid(), '2026-11-07', 'm2')$q$, v_mb));
+  perform pg_temp.t('D segundo "sem produção" na mesma máquina/período é recusado', e like '%sem produção%');
+  e := pg_temp.erro_de(format($q$select public.registrar_apontamento_producao_retroativo(%L, %L, %L, 10, 0, gen_random_uuid(), '2026-11-07', 'm2', 'x', '[]'::jsonb)$q$, v_mb, (select re.produto_id from public.roteiro_etapas re join public.roteiro_etapa_maquinas x on x.etapa_id = re.id where x.maquina_id = v_mb and re.meta_m2 > 0 limit 1), v_f1));
+  perform pg_temp.t('D produção numa máquina marcada "sem produção" é recusada (converta ou exclua antes)', e like 'APONTAMENTO_MAQUINA_SEM_PRODUCAO%');
+  perform public.converter_apontamento_sem_producao_para_producao(sp.id, (select re.produto_id from public.roteiro_etapas re join public.roteiro_etapa_maquinas x on x.etapa_id = re.id where x.maquina_id = v_mb and re.meta_m2 > 0 and (select count(*) from public.roteiro_etapas r3 join public.roteiro_etapa_maquinas y on y.etapa_id = r3.id where r3.produto_id = re.produto_id and y.maquina_id = v_mb) = 1 limit 1), v_f1, 100, 0, 'converter em produção');
+  perform pg_temp.t('D converter "sem produção" em produção funciona (atualiza a mesma linha)', (select status from public.apontamentos_producao where id = sp.id) = 'produzindo');
+exception when others then perform pg_temp.t('D desdobramento: ' || sqlerrm, false); end $$;
 reset role;
 
 -- ---------- TRIGGER do PLANEJAMENTO: INSERT direto numa data de 09/11 agora é permitido (produto legado) ----------

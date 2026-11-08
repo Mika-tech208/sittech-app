@@ -12,7 +12,7 @@
 --  2) escala_agendador_chamar: ponto único dos 30 jobs do pg_cron (pre/pos período). No modo manual não faz a chamada HTTP.
 --  3) produto_unico_trg_bloqueia_planejamento: o PLANEJAMENTO do produto único (semana 09/11) NÃO bloqueia o APONTAMENTO manual. O bloqueio do FECHAMENTO físico permanece.
 --  4) escala_periodo_liberacao: no modo manual NENHUM período é liberado pela escala (motivo MODO_MANUAL) => TV neutra, e o PLANEJAMENTO não bloqueia o apontamento.
---  5) escala_aplicar_recalculo: última linha de defesa — a RPC que grava plano recusa (ESCALA_AUTOMATICA_DESATIVADA) no modo manual, salvo dias em PLANEJAMENTO do produto único.
+--  5) escala_aplicar_recalculo: última linha de defesa — a RPC que grava plano recusa (ESCALA_AUTOMATICA_DESATIVADA) no modo manual, SEM exceção (nem semana em PLANEJAMENTO).
 
 create or replace function public.escala_operacao_manual()
 returns boolean language sql stable security definer set search_path = public, pg_temp as $$
@@ -160,8 +160,6 @@ CREATE OR REPLACE FUNCTION public.escala_aplicar_recalculo(p_previsao_id uuid, p
  SET search_path TO 'public', 'pg_temp'
 AS $function$
 declare
-  v_fora integer;
-  v_tot integer;
   v_dia jsonb;
   v_data date;
   v_base integer;
@@ -173,16 +171,9 @@ declare
   v_datas date[] := '{}';
   v_versoes jsonb;
 begin
-  -- MODO MANUAL: nenhuma escala automática é gravada para o chão (última linha de defesa; o funil TS já ignora antes). Exceção: dias de semana em PLANEJAMENTO do produto único (plano futuro, nunca liberado).
+  -- MODO MANUAL: nenhuma escala automática é gravada, em semana nenhuma (última linha de defesa; o funil TS já ignora antes).
   if public.escala_operacao_manual() then
-    select count(*), count(*) filter (where x.dt is null or public.produto_unico_modo(x.dt) <> 'PLANEJAMENTO') into v_tot, v_fora from (
-      select (d ->> 'data')::date as dt from jsonb_array_elements(coalesce(p_dias, '[]'::jsonb)) d
-      union all select unnest(coalesce(p_remover_dias, '{}'::date[]))
-      union all select p_a_partir_data where p_a_partir_data is not null
-    ) x;
-    if v_tot = 0 or v_fora > 0 then
-      raise exception 'ESCALA_AUTOMATICA_DESATIVADA: modo manual — a escala automática não grava programação para o chão';
-    end if;
+    raise exception 'ESCALA_AUTOMATICA_DESATIVADA: modo manual — a escala automática não grava programação';
   end if;
   if p_previsao_id is null then
     raise exception 'ESCALA_PREVISAO_OBRIGATORIA';

@@ -2,7 +2,7 @@
 //  (1) a definição de "operação manual" é uma só e exige as TRÊS flags desligadas (nada de meia desativação);
 //  (2) o funil `processarSemana` NÃO grava plano no modo manual (eventos, /gerar, /gerar-semana, fechamento e sombra passam por ele);
 //  (3) com as flags religadas o comportamento é BYTE-IDÊNTICO ao anterior (hash golden do plano);
-//  (4) exceção: semana em PLANEJAMENTO do produto único continua gerável (plano futuro que nunca chega ao chão); produto único OPERACIONAL é ignorado.
+//  (4) SEM exceção: nem a semana em PLANEJAMENTO do produto único nem o produto único OPERACIONAL gravam plano no modo manual.
 import { describe, it, expect } from "vitest";
 import { hashAlocacoes } from "@/features/escala/horizonte";
 import { lerParametros } from "@/features/escala/parametros";
@@ -79,12 +79,13 @@ describe("funil processarSemana no modo manual", () => {
     expect(r.status).toBe("ignorado");
     expect(m.alocacoes.length).toBe(0);
   });
-  it("semana em PLANEJAMENTO do produto único continua gerável no modo manual (plano futuro, análise)", async () => {
+  it("semana em PLANEJAMENTO do produto único TAMBÉM é ignorada: nenhuma geração grava plano no modo manual (sem exceção)", async () => {
     const m = mundoUnico();
     m.editar((e) => { e.operacaoManual = true; e.produtoUnico = { ...e.produtoUnico!, modo: "PLANEJAMENTO" }; });
     const r = await m.recalcular(GERA, true);
-    expect(r.status).toBe("processado");
-    expect(m.alocacoes.length).toBeGreaterThan(0);
+    expect(r.status).toBe("ignorado");
+    expect(r.motivoIgnorado).toBe(MOTIVO_OPERACAO_MANUAL);
+    expect(m.alocacoes.length).toBe(0);
   });
 });
 

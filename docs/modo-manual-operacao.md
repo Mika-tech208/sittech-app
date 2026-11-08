@@ -22,10 +22,10 @@ Banco (migration `20261119100000_modo_operacao_manual.sql`):
 2. `escala_agendador_chamar` — funil dos 30 jobs do pg_cron: não faz a chamada HTTP.
 3. `produto_unico_trg_bloqueia_planejamento` — o PLANEJAMENTO **não bloqueia o apontamento** (o do fechamento físico continua bloqueado).
 4. `escala_periodo_liberacao` — nenhum período é "liberado pela escala" (`MODO_MANUAL`, `liberado=false`): **TV neutra**, grade de gestão como "ESTIMADO".
-5. `escala_aplicar_recalculo` — última linha de defesa: recusa `ESCALA_AUTOMATICA_DESATIVADA` (exceto dias em PLANEJAMENTO).
+5. `escala_aplicar_recalculo` — última linha de defesa: recusa `ESCALA_AUTOMATICA_DESATIVADA`, sem exceção.
 
 Aplicação (TS):
-- `processarSemana` (funil de TODO recálculo: eventos, `/gerar`, `/gerar-semana`, fechamento, sombra) devolve `ignorado` com motivo explícito. **Exceção:** semana em PLANEJAMENTO do produto único (plano futuro, nunca chega ao chão) continua gerável por ação explícita.
+- `processarSemana` (funil de TODO recálculo: eventos, `/gerar`, `/gerar-semana`, fechamento, sombra) devolve `ignorado` com motivo explícito, **em semana nenhuma** (sem exceção, nem para a semana em PLANEJAMENTO). Planejar de novo exige religar a escala por configuração; o plano e os dados do planejamento permanecem consultáveis.
 - `gerarEscalaSemanalDoServidor` (cron de segunda 06:30) devolve `desativada` (200, sem evento de erro).
 - `/api/escala/gerar` responde 409 explícito.
 - `useModoProdutoUnico.planoFuturo` é `false` no modo manual (o painel, o seletor "Outro período", a regularização e a TV não escondem a semana 09/11); a Escala interna continua tratando 09/11 como plano futuro somente leitura.
@@ -47,7 +47,16 @@ Aplicação (TS):
 
 ## Validações do apontamento que continuam
 
-Máquina/funcionário/produto existentes e ativos, produzido ≥ 0, refugo ≥ 0 e ≤ produzido, combinação técnica válida (roteiro × máquina, 1 etapa elegível), meta do período > 0, período/data válidos (sem data futura), 1 apontamento por máquina/dia/período. **Não** exige posto programado, escala liberada, plano vigente, fechamento anterior, owner, WIP/buffers, nem correspondência com o Forecast. "Sem produção" não é obrigatório.
+Máquina/funcionário/produto existentes e ativos, produzido ≥ 0, refugo ≥ 0 e ≤ produzido, combinação técnica válida (roteiro × máquina, 1 etapa elegível), meta do período > 0, período/data válidos (sem data futura). **Não** exige posto programado, escala liberada, plano vigente, fechamento anterior, owner, WIP/buffers, nem correspondência com o Forecast. "Sem produção" não é obrigatório.
+
+## Vários lançamentos por máquina/período (migration `20261119110000`)
+
+A unicidade antiga `(máquina, data, período)` ("V1: um fechamento por máquina/dia/período") impedia registrar **dois produtos** ou **troca de operador** no mesmo período. Novo modelo (aditivo, nada apagado):
+- cada linha é única por **(máquina, data, período, produto, operador)**; repetir exatamente a mesma combinação é recusado com mensagem clara;
+- continua existindo **um** "sem produção" por máquina/período, e "sem produção" e produção **não coexistem** (gatilho `trg_apontamentos_status_exclusivo`; converter "sem produção" em produção continua funcionando);
+- tela: o cartão da máquina soma os lançamentos ("A + B · 1.400 un. · 2 lançamentos"); clicar escolhe qual lançamento abrir; `+ ADICIONAR APONTAMENTO` lista todas as máquinas (inclusive já lançadas) para acrescentar outro produto/operador; editar/excluir recarrega do banco.
+- limites conhecidos: a **regularização histórica** (admin) mantém o desenho de uma linha por máquina/período e recusa quando houver mais de uma (edite pelas "Apontamentos realizadas"); a "meta do período" de cada linha é a do produto inteiro (indicadores de desempenho por linha em período dividido ficam subestimados); reativar a escala automática no futuro exige que o motor leia várias linhas por máquina.
+- rollback: `20261119110000_..._ROLLBACK.sql` **aborta sem alterar nada** se existir máquina/período com mais de um lançamento.
 
 ## Permissões (sem regra por nome)
 
@@ -56,7 +65,7 @@ Máquina/funcionário/produto existentes e ativos, produzido ≥ 0, refugo ≥ 0
 ## Runbook de PROD (ordem obrigatória)
 
 1. **Backup** (feito antes de qualquer escrita): `~/Documents/sittech-rollbacks/2026-11-06-modo-manual/` (flags, jobs, funções).
-2. **Migration** `20261119100000` (com as flags ligadas ela é inerte: `escala_operacao_manual()=false`).
+2. **Migrations** `20261119100000` (inerte com as flags ligadas: `escala_operacao_manual()=false`) e `20261119110000` (vários lançamentos; compatível com o código antigo).
 3. **Deploy** do código (Vercel) — também inerte enquanto as flags estão ligadas.
 4. **Flags** `supabase/ops/modo-manual/10_aplicar_flags.sql` (uma transação; aborta se gerar evento ou se o modo não ficar ativo). `producao_real_modo` vai por último.
 5. **Smoke** (`escala_operacao_manual()=true`, TV neutra, fila sem pendentes, histórico idêntico).
@@ -64,10 +73,10 @@ Máquina/funcionário/produto existentes e ativos, produzido ≥ 0, refugo ≥ 0
 ## Rollback
 
 1. `supabase/ops/modo-manual/90_reverter_flags.sql` (devolve exatamente os valores de 06/11; religar `producao_real_modo=ativo` enfileira **um recálculo** das semanas com escala futura — comportamento original).
-2. `supabase/rollbacks/20261119100000_modo_operacao_manual_ROLLBACK.sql` (restaura as 5 funções byte a byte).
+2. `supabase/rollbacks/20261119110000_..._ROLLBACK.sql` e depois `supabase/rollbacks/20261119100000_modo_operacao_manual_ROLLBACK.sql` (restauram as 7 funções byte a byte).
 
 ## Testes (clone com dump novo de PROD)
 
-- `supabase/tests/modo_operacao_manual.test.sql` — 27 verificações (antes/depois, gatilhos, TV, PLANEJAMENTO, validações, Clarice).
+- `supabase/tests/modo_operacao_manual.test.sql` — 38 verificações (antes/depois, gatilhos, TV, PLANEJAMENTO, validações, Clarice, vários lançamentos por máquina/período).
 - `scripts/modo-manual/e2e-modo-manual.ts` — eventos plantados à força + `/drenar`, `/gerar`, `/gerar-semana`: plano idêntico.
 - `src/lib/escala/__tests__/modoManual.test.ts` — definição única, funil, golden byte-idêntico com flags ligadas, exceção do PLANEJAMENTO, TV.

@@ -92,9 +92,9 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
   for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
     const estado = await io.carregarEstado(opcoes.agoraMs, opcoes.corteExplicito);
 
-    // MODO MANUAL: a escala automática não comanda o chão. Este é o FUNIL de todo recálculo/publicação (eventos, /gerar, /gerar-semana, fechamento, sombra): nada é gravado.
-    // Única exceção: semana em PLANEJAMENTO do produto único (plano FUTURO, nunca liberado ao chão), que continua disponível para análise por ação explícita.
-    if (estado.operacaoManual && estado.produtoUnico?.modo !== "PLANEJAMENTO") {
+    // MODO MANUAL: a escala automática não comanda o chão. Este é o FUNIL de todo recálculo/publicação (eventos, /gerar, /gerar-semana, fechamento, sombra): NADA é gravado,
+    // em nenhuma semana (inclusive as em PLANEJAMENTO do produto único: sem exceção; planejar de novo exige religar a escala por configuração).
+    if (estado.operacaoManual) {
       return { status: "ignorado", motivoIgnorado: MOTIVO_OPERACAO_MANUAL, tentativas: tentativa, alertas: [], alocacoesGravadas: 0 };
     }
 

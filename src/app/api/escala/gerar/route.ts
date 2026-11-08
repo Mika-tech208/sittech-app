@@ -37,7 +37,7 @@ export async function POST(request: Request) {
       if ((dias.count ?? 0) > 0) return NextResponse.json({ erro: "Com o Fechamento Físico ativo, a programação dos próximos períodos é gerada pelo fechamento do período (tablet). A regeração manual está bloqueada." }, { status: 409 });
     }
     const resultado = await gerarEscalaDaSemana(admin, semana, auth.usuario.id, Date.now());
-    // MODO MANUAL: resposta explícita (nada de "ok" silencioso). Semana em PLANEJAMENTO do produto único continua gerável (plano futuro, nunca vai ao chão).
+    // MODO MANUAL: resposta explícita (nada de "ok" silencioso). Nenhuma geração grava plano, em semana nenhuma.
     if (resultado.status === "ignorado" && resultado.motivoIgnorado === MOTIVO_OPERACAO_MANUAL) {
       return NextResponse.json({ erro: `${MOTIVO_OPERACAO_MANUAL} Para gerar programação, a escala automática precisa ser religada por configuração.` }, { status: 409 });
     }
