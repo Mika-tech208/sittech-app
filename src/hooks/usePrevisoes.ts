@@ -29,6 +29,7 @@ import type { Previsao, PrevisaoItem } from "@/types/domain";
 import { dispararProcessamentoEscala } from "@/lib/escala/disparar";
 import { useMaquinasIndisponiveisAgora } from "@/hooks/useMaquinasIndisponiveisAgora";
 import { aplicarIndisponibilidadeEfetiva } from "@/features/capacidade/indisponibilidadeEfetiva";
+import { aplicarEncerramentosAosItens, lerEncerramentos } from "@/features/previsao/encerramento";
 
 type TipoItem = "previsto" | "realizado";
 
@@ -51,6 +52,7 @@ interface PrevisaoRow {
   id: string;
   semana_inicio: string;
   previsao_itens: PrevisaoItemRow[] | null;
+  previsao_encerramentos: { produto_id: string; quantidade_original: number; adicional_original: number; encerrado_em: string; motivo: string | null; reaberto_em: string | null }[] | null;
   previsao_maquinas_indisponiveis: { maquina_id: string }[] | null;
   previsao_dias_produtivos: { dia: string; ativo: boolean }[] | null;
   previsao_equipe_semana: { funcionario_id: string; produtivo: boolean; operacao_id: string | null }[] | null;
@@ -63,6 +65,7 @@ const PREVISAO_SELECT = `
     previsao_item_maquinas(etapa_id, maquina_id),
     previsao_item_adicional_etapa(etapa_id, quantidade)
   ),
+  previsao_encerramentos(produto_id, quantidade_original, adicional_original, encerrado_em, motivo, reaberto_em),
   previsao_maquinas_indisponiveis(maquina_id),
   previsao_dias_produtivos(dia, ativo),
   previsao_equipe_semana(funcionario_id, produtivo, operacao_id)
@@ -96,7 +99,8 @@ function linhaParaPrevisao(p: PrevisaoRow): Previsao {
   const linhas = p.previsao_itens || [];
   return {
     semanaInicio: p.semana_inicio,
-    itens: linhas.filter((i) => i.tipo === "previsto").map(linhaParaItem),
+    // PRODUTO ENCERRADO NA SEMANA: o banco mantém quantidade 0 (o motor nunca programa); aqui os itens ganham a meta original para a tela (encerramento.ts)
+    itens: aplicarEncerramentosAosItens(linhas.filter((i) => i.tipo === "previsto").map(linhaParaItem), lerEncerramentos(p.previsao_encerramentos)),
     itensRealizados: linhas.filter((i) => i.tipo === "realizado").map(linhaParaItem),
     maquinasIndisponiveis: (p.previsao_maquinas_indisponiveis || []).map((m) => m.maquina_id),
     // sem nenhuma linha = semana sem snapshot (undefined), diferente de
@@ -192,6 +196,20 @@ export function usePrevisoes(pronto: boolean) {
     return true;
   }, []);
 
+  // ENCERRAR PRODUTO NA SEMANA (RPC previsao_produto_encerrar): guarda a meta original e zera a demanda restante no banco; depois recarrega a semana.
+  const encerrarProduto = useCallback(async (semanaInicio: string, produtoId: string, motivo: string | null): Promise<boolean> => {
+    const prev = await supabase.from("previsoes").select("id").eq("semana_inicio", semanaInicio).maybeSingle();
+    if (prev.error || !prev.data) { setErro("Não foi possível encontrar a previsão dessa semana."); return false; }
+    const { error: rpcErro } = await supabase.rpc("previsao_produto_encerrar", { p_previsao_id: prev.data.id, p_produto_id: produtoId, p_motivo: motivo });
+    if (rpcErro) { setErro(rpcErro.message.includes("PREVISAO_PRODUTO_JA_ENCERRADO") ? "Este produto já está encerrado nesta semana." : "Não foi possível encerrar o produto nesta semana."); return false; }
+    void dispararProcessamentoEscala();
+    const { data, error } = await supabase.from("previsoes").select(PREVISAO_SELECT).eq("id", prev.data.id).single();
+    if (error || !data) { setErro("Produto encerrado, mas não foi possível recarregar os dados atualizados."); return true; }
+    const atualizada = linhaParaPrevisao(data as unknown as PrevisaoRow);
+    setPrevisoes((p) => p.map((x) => (x.semanaInicio === semanaInicio ? atualizada : x)));
+    return true;
+  }, []);
+
   // Paradas de máquina (e bloqueios manuais da Escala) abertas agora: mesma verdade da Escala. O estado bruto `previsoes` segue só com o que está gravado.
   const indisponiveis = useMaquinasIndisponiveisAgora(pronto);
   const previsoesEfetivas = useMemo(
@@ -199,7 +217,7 @@ export function usePrevisoes(pronto: boolean) {
     [previsoes, indisponiveis.ids, indisponiveis.hoje]
   );
 
-  return { previsoes: previsoesEfetivas, loading, erro, upsertSemana, maquinasEmParada: indisponiveis.emParada };
+  return { previsoes: previsoesEfetivas, loading, erro, upsertSemana, encerrarProduto, maquinasEmParada: indisponiveis.emParada };
 }
 
 export type PrevisoesHook = ReturnType<typeof usePrevisoes>;

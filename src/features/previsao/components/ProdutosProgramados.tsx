@@ -6,6 +6,8 @@
 // ANDAMENTO = APONTADO REAL (Produção Real; só produção boa da última etapa válida do produto — ver apontadoReal.ts). Falta = max(Previsto − Apontado, 0);
 // % = Apontado / Previsto, sem teto em 100. Falta total = soma das faltas por produto (excedente de um não compensa falta de outro). O Realizado digitado à mão NÃO aparece nem soma aqui (ver progressoSemana.ts). Possível é capacidade, não andamento.
 // A barra representa Apontado/Previsto: passa de 100% no texto, e a barra visual para no limite do componente.
+// PRODUTO ENCERRADO NA SEMANA: Previsto mostra a meta ORIGINAL, Apontado mostra o que foi produzido antes do encerramento (sem "+acima"), Falta = 0 e a coluna % vira o selo ENCERRADO.
+// O saldo cancelado NÃO é falta. O % do Total = apontado real ÷ previsto OPERACIONAL (o cancelado sai da obrigação).
 
 import type { ProdutoProgramado, ProdutoNaoPrevisto, ResumoProgramacaoPecas } from "@/features/previsao/progressoSemana";
 import { formatQtd } from "@/lib/format";
@@ -42,6 +44,22 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
 
       {produtos.map((p) => {
         const pctBarra = p.concluidoPct === null ? 0 : Math.min(100, Math.max(0, p.concluidoPct));
+        if (p.encerrado) {
+          const titulo = `${formatQtd(p.previsto)} previstos originalmente · ${qtdOuTraco(p.apontadoReal)} produzidas antes do encerramento · ${qtdOuTraco(p.cancelado)} canceladas (não é falta)`;
+          return (
+            <div className="stx-prev-table-row" key={p.itemId} title={titulo}>
+              <span>{p.produtoNome}</span>
+              <span className="num">{formatQtd(p.previsto)}</span>
+              <span className="num" style={{ color: "var(--text-3)" }}>—</span>
+              <span className="num" style={{ color: "var(--accent)" }}>
+                {qtdOuTraco(p.apontadoReal)}
+                <span style={{ color: "var(--text-3)", marginLeft: 4, fontSize: 11 }}>produzidas antes do encerramento</span>
+              </span>
+              <span className="num" style={{ color: "var(--text-3)" }}>{qtdOuTraco(p.falta)}</span>
+              <span className="stx-prev-bar-cell"><span className="stx-badge" style={{ background: "rgba(150,150,150,0.18)", color: "var(--text-2)" }}>ENCERRADO</span></span>
+            </div>
+          );
+        }
         return (
           <div className="stx-prev-table-row" key={p.itemId}>
             <span>{p.produtoNome}</span>
@@ -49,7 +67,7 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
             <span className="num">{qtdOuTraco(p.possivel)}</span>
             <span className="num" style={{ color: "var(--accent)" }}>
               {p.apontadoAmbiguoPecas > 0 && (
-                <span title={`${formatQtd(p.apontadoAmbiguoPecas)} peças de apontamentos feitos antes de uma alteração do roteiro NÃO foram contadas (não dá para saber com segurança se eram da etapa final).`} style={{ color: "var(--warning)", marginRight: 4, cursor: "help" }}>⚠</span>
+                <span title={`${formatQtd(p.apontadoAmbiguoPecas)} peças de apontamentos feitos antes de uma alteração do roteiro NÃO foram contadas (não dá para saber com segurança se eram da etapa final).`} style={{ color: "var(--warning)", marginRight: 4, cursor: "help", fontSize: 11 }}>⚠</span>
               )}
               {qtdOuTraco(p.apontadoReal)}
               {p.excedente !== null && p.excedente > 0 && (
@@ -78,6 +96,11 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
           <span className="num">{qtdOuTraco(resumoPecas.totalFalta)}</span>
           <span className="num">{formatPct(resumoPecas.concluidoPct)}</span>
         </div>
+      )}
+      {resumoPecas.itensEncerrados > 0 && (
+        <p className="stx-prev-ref" style={{ margin: "8px 0 0" }}>
+          {resumoPecas.itensEncerrados} produto{resumoPecas.itensEncerrados === 1 ? "" : "s"} encerrado{resumoPecas.itensEncerrados === 1 ? "" : "s"} na semana: {qtdOuTraco(resumoPecas.totalApontadoEncerrados)} peças produzidas antes do encerramento (já somadas no Apontado real) e {qtdOuTraco(resumoPecas.totalCancelado)} canceladas — o cancelado não conta como falta. O % do Total é calculado sobre o previsto operacional ({qtdOuTraco(resumoPecas.totalPrevistoOperacional)}).
+        </p>
       )}
       {resumoPecas.totalExcedente !== null && resumoPecas.totalExcedente > 0 && (
         <p className="stx-prev-ref" style={{ margin: "8px 0 0", color: "var(--warning)" }}>

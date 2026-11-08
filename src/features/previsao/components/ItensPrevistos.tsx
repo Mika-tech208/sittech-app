@@ -39,6 +39,8 @@ export interface ItensPrevistosProps {
   onCancelar: () => void;
   onEditar: (it: PrevisaoItem) => void;
   onExcluir: (id: string) => void;
+  /** encerra o produto na semana (guarda a meta original e zera a demanda restante); ausente = ação indisponível */
+  onEncerrar?: (it: PrevisaoItem) => void;
   /** `Indisponivel` = semana com produto de rotas alternativas (gargalos/uso por máquina não calculados) */
   analise: AnaliseCapacidadeSemanal | Indisponivel;
   valorPrevistoSemana: number;
@@ -56,7 +58,7 @@ export interface ItensPrevistosProps {
 export default function ItensPrevistos({
   loading, produtos, maquinas, periodosComDuracao, horasPorMaquinaSemana, semana,
   showForm, setShowForm, editingId, form, onSelecionarProduto, onQuantidadeChange, onToggleMaquina,
-  onSubmit, salvando, onCancelar, onEditar, onExcluir, analise, valorPrevistoSemana, equipeProdutivaCount, formatBRL, modelosCanonicos = [], guardaProdutos,
+  onSubmit, salvando, onCancelar, onEditar, onExcluir, onEncerrar, analise, valorPrevistoSemana, equipeProdutivaCount, formatBRL, modelosCanonicos = [], guardaProdutos,
 }: ItensPrevistosProps) {
   const produtosAtivos = guardaProdutos && guardaProdutos.canonicos.size > 0
     ? produtosSelecionaveisPrevisao(produtos.filter((p) => p.ativo), guardaProdutos, semana.semanaInicio)
@@ -200,6 +202,25 @@ export default function ItensPrevistos({
         <div className="stx-empty">Nenhum item lançado nessa semana ainda.</div>
       ) : (
         semana.itens.map((it) => {
+          // PRODUTO ENCERRADO NA SEMANA: linha travada (a demanda restante é 0 e a meta original fica preservada); sem editar, excluir, viabilidade nem alertas
+          if (it.encerrado) {
+            return (
+              <div className="stx-entry" key={it.id}>
+                <div>
+                  <p className="stx-entry-desc">
+                    {it.produtoNome}
+                    <span className="stx-badge" style={{ background: "rgba(150,150,150,0.18)", color: "var(--text-2)", marginLeft: 8 }}>ENCERRADO</span>
+                  </p>
+                  <p className="stx-entry-meta">
+                    Previsto original: {it.encerrado.quantidadeOriginal.toLocaleString("pt-BR")} × {formatBRL(it.valorUnitario)} · demanda restante: 0
+                    {it.encerrado.encerradoEm ? ` · encerrado em ${new Date(it.encerrado.encerradoEm).toLocaleDateString("pt-BR")}` : ""}
+                  </p>
+                  {it.encerrado.motivo && <p className="stx-entry-meta">{it.encerrado.motivo}</p>}
+                </div>
+                <div className="stx-entry-right"><span className="stx-entry-value">{formatBRL(it.encerrado.quantidadeOriginal * it.valorUnitario)}</span></div>
+              </div>
+            );
+          }
           const viab = viabilidadeItemComRotas(it, produtos, periodosComDuracao, horasPorMaquinaSemana, modelosCanonicos);
           const maquinasDoItem = new Set(Object.values(it.maquinasPorEtapa || {}).flat());
           const gargalosQueAfetam = ehIndisponivel(analise) ? [] : analise.gargalos.filter((g) => maquinasDoItem.has(g.maquinaId));
@@ -241,6 +262,7 @@ export default function ItensPrevistos({
               </div>
               <div className="stx-entry-right">
                 <span className="stx-entry-value">{formatBRL(it.quantidade * it.valorUnitario)}</span>
+                {onEncerrar && <button className="stx-icon-btn" title="Encerrar este produto na semana: guarda a meta original e para de programar o que falta" onClick={() => onEncerrar(it)}>■</button>}
                 <button className="stx-icon-btn" title="Editar" onClick={() => onEditar(it)}>✎</button>
                 <button className="stx-icon-btn danger" title="Excluir" onClick={() => onExcluir(it.id)}>✕</button>
               </div>
