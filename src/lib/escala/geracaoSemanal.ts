@@ -52,7 +52,9 @@ export type ResultadoGeracaoSemanal =
   | { status: "sem_previsao"; semanaInicio: string; mensagem: string }
   | { status: "previsao_invalida"; semanaInicio: string; mensagem: string }
   | { status: "fora_da_janela"; dataLocal: string; diaDaSemana: number; motivo: string }
-  | { status: "semana_nao_atual"; semanaInicio: string; semanaAtual: string };
+  | { status: "semana_nao_atual"; semanaInicio: string; semanaAtual: string }
+  /** MODO MANUAL: a geração semanal automática está desativada (nada é criado nem registrado como erro). */
+  | { status: "desativada"; motivo: string };
 
 export interface DepsGeracaoSemanal {
   resolverPrevisao(semanaInicio: string): Promise<string | null>;

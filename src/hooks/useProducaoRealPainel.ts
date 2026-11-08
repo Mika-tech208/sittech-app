@@ -16,6 +16,7 @@
 // supervisora não vê nenhum desses campos nesta tela (decisão de UX já
 // aprovada). "Apontado" mostra só produto + quantidade produzida.
 
+import { juntarProdutoNome, resumirLancamentos, type LinhaLancamento } from "@/features/producao-real/lancamentosMaquina";
 import { useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import type { Maquina } from "@/types/domain";
@@ -40,6 +41,8 @@ export interface MaquinaProducaoReal {
   quantidadeProduzida: number | null;
   motivoSemProducao: string | null;
   ocorrenciaAberta: OcorrenciaAberta | null;
+  /** quantos lançamentos a máquina tem neste período (dois produtos / troca de operador); 0 = pendente */
+  lancamentos?: number;
 }
 
 export interface PeriodoAtual {
@@ -167,8 +170,9 @@ export function useProducaoRealPainel(
         return;
       }
 
-      const apontamentoPorMaquina = new Map<string, ApontamentoRow>();
-      (apontamentosRes.data || []).forEach((a) => apontamentoPorMaquina.set(a.maquina_id, a));
+      // VÁRIOS LANÇAMENTOS POR MÁQUINA/PERÍODO: agrupa as linhas de cada máquina (antes "a última vencia")
+      const linhasPorMaquina = new Map<string, ApontamentoRow[]>();
+      (apontamentosRes.data || []).forEach((a) => { const l = linhasPorMaquina.get(a.maquina_id) ?? []; l.push(a); linhasPorMaquina.set(a.maquina_id, l); });
       const ocorrenciaAbertaPorMaquina = new Map<string, OcorrenciaAberta>();
       (ocorrenciasRes.data || []).forEach((o) =>
         ocorrenciaAbertaPorMaquina.set(o.maquina_id, {
@@ -201,17 +205,17 @@ export function useProducaoRealPainel(
 
       setMaquinasView(
         maquinasAtivas.map((m) => {
-          const ap = apontamentoPorMaquina.get(m.id);
-          const estadoPeriodo: EstadoPeriodoMaquina = !ap ? "pendente" : ap.status === "sem_producao" ? "sem_producao" : "apontado";
+          const resumo = resumirLancamentos((linhasPorMaquina.get(m.id) ?? []) as LinhaLancamento[]);
           const ocorrenciaAberta = ocorrenciaAbertaPorMaquina.get(m.id) || null;
           return {
             id: m.id,
             nome: m.nome,
-            estadoPeriodo,
+            estadoPeriodo: resumo.estadoPeriodo,
             estadoMaquina: ocorrenciaAberta ? "parada" : "operando",
-            produtoNome: estadoPeriodo === "apontado" ? ap?.produtos?.nome || null : null,
-            quantidadeProduzida: estadoPeriodo === "apontado" ? Number(ap?.quantidade_produzida ?? 0) : null,
-            motivoSemProducao: estadoPeriodo === "sem_producao" ? ap?.motivo_sem_producao || null : null,
+            produtoNome: resumo.produtoNome,
+            quantidadeProduzida: resumo.quantidadeProduzida,
+            motivoSemProducao: resumo.motivoSemProducao,
+            lancamentos: resumo.lancamentos,
             ocorrenciaAberta,
           };
         })
@@ -229,17 +233,17 @@ export function useProducaoRealPainel(
   // — chamado pelo formulário logo depois de um registrar_apontamento_producao
   // (ou _retroativo) bem-sucedido (a grade não recarrega do zero).
   function marcarMaquinaApontada(maquinaId: string, produtoNome: string, quantidadeProduzida: number) {
+    // ADITIVO: se a máquina já tinha lançamentos neste período, este é um lançamento a mais (outro produto ou outro operador)
     setMaquinasView((prev) =>
       prev.map((m) =>
-        m.id === maquinaId
-          ? { ...m, estadoPeriodo: "apontado", produtoNome, quantidadeProduzida, motivoSemProducao: null }
-          : m
+        m.id !== maquinaId ? m
+          : m.estadoPeriodo === "apontado"
+            ? { ...m, produtoNome: juntarProdutoNome(m.produtoNome, produtoNome), quantidadeProduzida: (m.quantidadeProduzida ?? 0) + quantidadeProduzida, lancamentos: (m.lancamentos ?? 1) + 1 }
+            : { ...m, estadoPeriodo: "apontado", produtoNome, quantidadeProduzida, motivoSemProducao: null, lancamentos: 1 }
       )
     );
   }
 
-  // Mesma ideia, pro fluxo "sem produção" — chamado logo depois de um
-  // registrar_sem_producao (ou _retroativo) bem-sucedido.
   function marcarMaquinaSemProducao(maquinaId: string, motivoSemProducao: string) {
     setMaquinasView((prev) =>
       prev.map((m) =>

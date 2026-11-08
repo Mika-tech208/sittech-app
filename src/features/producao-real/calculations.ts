@@ -51,6 +51,11 @@ export function calcularPerformance(dados: DadosPerformance): number | null {
 export function mensagemErroRegistrarLancamento(mensagem: string | undefined): string {
   const m = mensagem || "";
   if (m.includes("FECHAMENTO_PERIODO_EM_FECHAMENTO")) return "Este período já está confirmado. Para corrigir, é preciso reabrir o período.";
+  // VÁRIOS LANÇAMENTOS POR MÁQUINA/PERÍODO: só é recusado repetir o MESMO produto com o MESMO operador; "sem produção" e produção não coexistem.
+  if (m.includes("Já existe um lançamento") || m.includes("uq_apontamentos_producao_linha")) return "Já existe um lançamento desta máquina com o mesmo produto e operador neste período. Edite o existente ou lance outro produto/operador.";
+  if (m.includes("APONTAMENTO_MAQUINA_COM_PRODUCAO")) return "Esta máquina já tem produção lançada neste período; não dá para marcar \"sem produção\".";
+  if (m.includes("APONTAMENTO_MAQUINA_SEM_PRODUCAO")) return "Esta máquina está marcada como \"sem produção\" neste período. Converta ou exclua esse registro antes de lançar produção.";
+  if (m.includes("Já existe um apontamento") && m.includes("sem produção")) return "Esta máquina já está marcada como \"sem produção\" neste período.";
   if (m.includes("Já existe um apontamento")) return "Este período já foi fechado para esta máquina.";
   if (m.includes("Máquina") && m.includes("inativa")) return "Esta máquina está inativa.";
   if (m.includes("Produto") && m.includes("inativo")) return "Este produto está inativo.";

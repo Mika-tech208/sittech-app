@@ -12,6 +12,7 @@ import { AVISO_PRIMEIRA_GERACAO, type AlertaEscala, type AlocacaoEscala, type En
 import { epochMsNoFuso } from "@/features/escala/tempo";
 import { alertasRotaIndisponivel, montarEntradaEscala } from "./montarEntrada";
 import { assinaturaAlertas, planosIguais } from "./planoIgual";
+import { MOTIVO_OPERACAO_MANUAL } from "./modoManual";
 import { ConflitoDeVersaoError, type EstadoBruto, type PayloadAplicacao, type ResultadoProcessamento, type SnapshotWipParaGravar } from "./estado";
 import { mantidoDoPlano, tentarPlanoCorte, VERSAO_PLANEJADOR_CORTE, type PlanejarCorte } from "./fluxo/integracaoCorte";
 import { avaliarFluxoSombra, nucleoFluxo, tentarPlanoFluxo, type GatilhoFluxo, type NucleoFluxo, type RegistroFluxo } from "./fluxo/integracao";
@@ -90,6 +91,12 @@ export async function processarSemana(io: EscalaIO, opcoes: OpcoesProcessamento)
 
   for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
     const estado = await io.carregarEstado(opcoes.agoraMs, opcoes.corteExplicito);
+
+    // MODO MANUAL: a escala automática não comanda o chão. Este é o FUNIL de todo recálculo/publicação (eventos, /gerar, /gerar-semana, fechamento, sombra): NADA é gravado,
+    // em nenhuma semana (inclusive as em PLANEJAMENTO do produto único: sem exceção; planejar de novo exige religar a escala por configuração).
+    if (estado.operacaoManual) {
+      return { status: "ignorado", motivoIgnorado: MOTIVO_OPERACAO_MANUAL, tentativas: tentativa, alertas: [], alocacoesGravadas: 0 };
+    }
 
     if (opcoes.somenteSeNaoExiste && estado.diasExistentes.length > 0) {
       return { status: "ignorado", motivoIgnorado: MOTIVO_ESCALA_JA_EXISTE, tentativas: tentativa, alertas: [], alocacoesGravadas: 0 };

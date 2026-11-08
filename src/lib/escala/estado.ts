@@ -105,6 +105,9 @@ export interface EstadoBruto {
   historicoEquidade?: HistoricoEquidadeFuncionario[];
   // Parâmetros da Escala (escala_parametros) — entradas canônicas do motor. Ausente = padrões (WIP desligado).
   parametros?: Pick<ParametrosEscala, "wipModo" | "wipDiasLimite"> & Partial<ParametrosEscala>;
+  // MODO MANUAL (06/11/2026): true quando producao_real_modo, replanejamento_modo e escala_fechamento_fisico_modo estão TODOS desligados (ver modoManual.ts).
+  // Ausente/false = comportamento anterior. Com true, processarSemana NÃO recalcula nem publica nada, em semana nenhuma.
+  operacaoManual?: boolean;
   // Necessidade da PRÓXIMA semana por produto, só se a Previsão dela estiver salva (limite de estoque, regra A). null = não existe.
   proximaSemana?: ProximaSemana | null;
   // Controle de estoque intermediário (Fase 3): dados BRUTOS (controles, ajustes, confirmações, Produção Real, fotos, previsões).

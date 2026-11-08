@@ -68,7 +68,7 @@ export default function EscalaProducaoPage() {
   const escala = useEscalaProducao(auth.autenticado && podeOperar, semana);
   const { estado } = escala;
   const modoUnico = useModoProdutoUnico(auth.autenticado && podeOperar);
-  const planoFuturo = modoUnico.planoFuturo(semana); // semana em PLANEJAMENTO do produto único: a Escala interna só VISUALIZA o plano futuro
+  const planoFuturo = modoUnico.modoDe(semana) === "PLANEJAMENTO"; // semana em PLANEJAMENTO do produto único: a Escala interna só VISUALIZA o plano futuro (também no modo manual: é planejamento, não chão)
   const modelosCanonicos = useModelosCanonicos(auth.autenticado && podeOperar);
   const modeloUnico = modelosCanonicos.find((m) => m.rotas.length >= 2) ?? null;
   usePreChecagemEscala(auth.autenticado && podeOperar ? estado.dias[0]?.periodos : undefined); // revalida a disponibilidade das máquinas 5 min antes de cada período

@@ -18,6 +18,7 @@ const livre = { liberado: true, bloqueio: null };
 export function textoTvNaoLiberada(st: LiberacaoPeriodo | undefined, rotuloPeriodo: string): BloqueioTv {
   const ant = st?.predecessor?.rotulo ?? "período anterior";
   switch (st?.motivo) {
+    case "MODO_MANUAL": return { titulo: "PROGRAMAÇÃO AUTOMÁTICA DESATIVADA", detalhe: "Os apontamentos de produção são lançados manualmente. Esta tela não indica postos nem pessoas." };
     case "ERRO_RECALCULO": return { titulo: "PROGRAMAÇÃO NÃO LIBERADA", detalhe: "Estoque salvo. Aguardando correção do recálculo." };
     case "RECALCULANDO": return { titulo: `RECALCULANDO ${rotuloPeriodo}…`, detalhe: `Fechamento físico de ${ant} concluído. Gerando a programação de ${rotuloPeriodo}.` };
     case "AGUARDANDO_FECHAMENTO":
