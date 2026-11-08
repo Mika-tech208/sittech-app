@@ -84,3 +84,45 @@ describe("histórico semanal (R$)", () => {
     expect(h.pct).toBeCloseTo(50, 6);
   });
 });
+
+// FATURAMENTO REALIZADO (R$): nasce do APONTADO REAL × preço, nunca do Forecast ativo. Produto encerrado continua contribuindo; previsto FUTURO dele é 0.
+describe("faturamento realizado (R$) de produto encerrado", () => {
+  // semana real de 02/11 em PROD (preços congelados nos itens; apontado real por produto)
+  const itens = aplicarEncerramentosAosItens([
+    item("a", "4x2", 0, 0.217), item("b", "plug", 26400, 0.099), item("c", "pino", 43200, 0.07),
+    item("d", "c34a", 28500, 0.182), item("e", "c34", 64800, 0.1825), item("f", "c114", 6120, 0.365), item("g", "4x4", 10000, 0.27),
+  ], [ENC("4x2", 56400)]);
+  const ap = apontado({ "4x2": 27930, plug: 21300, pino: 51780, c34a: 0, c34: 44250, c114: 7820, "4x4": 5350 });
+  const produtos = calcularProdutosProgramados(itens, [], ap);
+  const r = calcularResumoProgramacaoPecas(produtos);
+  const p4x2 = produtos.find((x) => x.produtoId === "4x2")!;
+
+  it("4x2: 27.930 × 0,217 = R$ 6.060,81 de realizado", () => { expect(p4x2.valorRealizado).toBeCloseTo(27930 * 0.217, 6); expect(p4x2.valorRealizado).toBeCloseTo(6060.81, 2); });
+  it("faturamento futuro da 4x2 = 0 (falta R$ 0 e previsto operacional = o produzido)", () => { expect(p4x2.valorFalta).toBe(0); expect(p4x2.valorPrevistoOperacional).toBeCloseTo(6060.81, 2); });
+  it("o total realizado da semana INCLUI a 4x2, uma única vez (24.168,535)", () => {
+    expect(r.valorRealizado).toBeCloseTo(24168.535, 3);
+    const sem4x2 = calcularResumoProgramacaoPecas(calcularProdutosProgramados(itens.filter((i) => i.produtoId !== "4x2"), [], ap));
+    expect((r.valorRealizado ?? 0) - (sem4x2.valorRealizado ?? 0)).toBeCloseTo(6060.81, 2);
+  });
+  it("realizado NÃO depende do produto estar ativo na Previsão: mesmo valor com o item ativo, encerrado ou com meta zerada sem registro de encerramento", () => {
+    const encerrado = calcularResumoProgramacaoPecas(calcularProdutosProgramados([item("a", "4x2", 0)].map((i) => aplicarEncerramentosAosItens([i], [ENC("4x2", 56400)])[0]), [], ap)).valorRealizado;
+    const ativo = calcularResumoProgramacaoPecas(calcularProdutosProgramados([item("a", "4x2", 56400)], [], ap)).valorRealizado;
+    const zerado = calcularResumoProgramacaoPecas(calcularProdutosProgramados([item("a", "4x2", 0)], [], ap)).valorRealizado;
+    expect(encerrado).toBeCloseTo(6060.81, 2); expect(ativo).toBeCloseTo(6060.81, 2); expect(zerado).toBeCloseTo(6060.81, 2);
+  });
+  it("preço é o CONGELADO no item (mudar o cadastro depois não reescreve o histórico)", () => {
+    const [q] = calcularProdutosProgramados(aplicarEncerramentosAosItens([item("a", "4x2", 0, 0.217)], [ENC("4x2", 56400)]), [], ap);
+    expect(q.valorUnitario).toBe(0.217);
+    expect(q.valorRealizado).toBeCloseTo(27930 * 0.217, 6);
+  });
+  it("histórico semanal: realizado em R$ idem ao card (24.168,53/54) e previsto original em R$", () => {
+    const prev: Previsao = { semanaInicio: "2026-11-02", itens, itensRealizados: [] };
+    const [h] = calcularHistoricoSemanal([prev], new Map([["2026-11-02", ap]]));
+    expect(h.realizado).toBeCloseTo(r.valorRealizado ?? -1, 6);
+    expect(h.previsto).toBeCloseTo(r.valorPrevisto, 6);
+  });
+  it("valor previsto ORIGINAL (39.823,20) continua separado do futuro: o operacional não conta o cancelado", () => {
+    expect(r.valorPrevisto).toBeCloseTo(39823.2, 2);
+    expect(r.valorPrevistoOperacional).toBeCloseTo(33645.21, 2);
+  });
+});
