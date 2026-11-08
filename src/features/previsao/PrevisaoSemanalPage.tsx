@@ -50,7 +50,7 @@ import {
   diasDaSemana, resolverDiasProdutivos, alternarDia, resolverEquipeProdutiva, alternarMembro, marcarTodos, definirOperacao,
 } from "@/features/capacidade/diasEEquipe";
 import { baixarProgramacaoSemanaPDF } from "@/features/previsao/pdf";
-import { calcularProdutosProgramados, calcularProdutosNaoPrevistos, calcularResumoProgramacaoPecas, calcularHistoricoSemanal, comPossivelIndisponivel } from "@/features/previsao/progressoSemana";
+import { calcularProdutosProgramados, calcularProdutosNaoPrevistos, calcularResumoProgramacaoPecas, calcularHistoricoSemanal, calcularComposicaoRealizado, comPossivelIndisponivel } from "@/features/previsao/progressoSemana";
 import { calcularProdutosProgramadosLegado, calcularProdutosNaoPrevistosLegado, calcularResumoProgramacaoPecasLegado } from "@/features/previsao/progressoLegado";
 import { metodologiaDaSemana, APONTADO_REAL_PROGRESSO_DESDE } from "@/features/previsao/vigencia";
 import ProdutosProgramadosLegado from "@/features/previsao/components/ProdutosProgramadosLegado";
@@ -216,10 +216,12 @@ export default function PrevisaoSemanalPage() {
   );
   const resumoProgramacaoPecas = useMemo(() => calcularResumoProgramacaoPecas(produtosProgramados), [produtosProgramados]);
   // R$ da semana REAL (nunca a simulação): apontado real × preço CONGELADO nos itens da Previsão
-  const resumoFinanceiroSemana = useMemo(
-    () => calcularResumoProgramacaoPecas(calcularProdutosProgramados(semanaAtualRec.itens, [], apontadoRealHook.mapa)),
+  const produtosFinanceiroSemana = useMemo(
+    () => calcularProdutosProgramados(semanaAtualRec.itens, [], apontadoRealHook.mapa),
     [semanaAtualRec.itens, apontadoRealHook.mapa]
   );
+  const resumoFinanceiroSemana = useMemo(() => calcularResumoProgramacaoPecas(produtosFinanceiroSemana), [produtosFinanceiroSemana]);
+  const composicaoRealizado = useMemo(() => calcularComposicaoRealizado(produtosFinanceiroSemana), [produtosFinanceiroSemana]);
   // metodologia histórica (semanas < vigência): cálculo anterior à feature, inalterado
   const produtosProgramadosLegado = useMemo(
     () => calcularProdutosProgramadosLegado(itensParaAnalise, resultadosCapacidade, realizadoPorProduto, apontadoRealHook.mapa),
@@ -755,18 +757,41 @@ export default function PrevisaoSemanalPage() {
                   <div className="stx-prev-section-head">
                     <h2 className="stx-prev-section-title">Resultado da semana</h2>
                   </div>
-                  <div className="stx-rateio-line">
-                    <span className="l">Previsto</span>
+                  <div className="stx-rateio-line" title="Soma de (previsto original × preço congelado). Produto encerrado continua aqui.">
+                    <span className="l">Previsto original</span>
                     <span className="v">{formatBRL(resumoFinanceiroSemana.valorPrevisto)}</span>
                   </div>
-                  <div className="stx-rateio-line">
+                  <div className="stx-rateio-line" title="Soma de (apontado real × preço congelado), produto a produto. Produto encerrado continua aqui. Abra a composição abaixo.">
                     <span className="l">Realizado até agora</span>
                     <span className="v">{resumoFinanceiroSemana.valorRealizado === null ? "—" : formatBRL(resumoFinanceiroSemana.valorRealizado)}</span>
                   </div>
-                  <div className="stx-rateio-line">
-                    <span className="l">Falta realizar</span>
+                  <div className="stx-rateio-line" title="Por produto: max(previsto operacional − apontado, 0) × preço. NÃO é previsto original − realizado: o saldo cancelado de produto encerrado sai da conta, e a produção acima da meta de um produto não compensa a falta de outro.">
+                    <span className="l">Valor operacional restante</span>
                     <span className="v" style={{ color: "var(--blueprint)" }}>{resumoFinanceiroSemana.valorFalta === null ? "—" : formatBRL(resumoFinanceiroSemana.valorFalta)}</span>
                   </div>
+                  {resumoFinanceiroSemana.valorRealizado !== null && (
+                    <details className="stx-prev-composicao" style={{ marginTop: 8 }}>
+                      <summary style={{ cursor: "pointer", fontSize: 12.5, color: "var(--text-2)" }}>Ver composição dos valores</summary>
+                      <p className="stx-prev-ref" style={{ margin: "8px 0 4px" }}><b>Realizado até agora</b> = apontado real × preço, por produto:</p>
+                      {composicaoRealizado.map((c) => (
+                        <div className="stx-rateio-line" key={c.produtoId} title={`${formatQtd(c.apontadoReal)} × ${formatBRL(c.valorUnitario)}`}>
+                          <span className="l">{c.produtoNome}{c.encerrado ? " (encerrado)" : ""} <span style={{ color: "var(--text-3)", fontSize: 11.5 }}>{formatQtd(c.apontadoReal)} pç</span></span>
+                          <span className="v">{formatBRL(c.valorRealizado)}</span>
+                        </div>
+                      ))}
+                      <div className="stx-rateio-line" style={{ fontWeight: 600 }}>
+                        <span className="l">Total realizado</span>
+                        <span className="v">{formatBRL(resumoFinanceiroSemana.valorRealizado)}</span>
+                      </div>
+                      <p className="stx-prev-ref" style={{ margin: "12px 0 4px" }}><b>Valor operacional restante</b> não é &quot;previsto − realizado&quot;. A conta é:</p>
+                      <div className="stx-rateio-line"><span className="l">Previsto original</span><span className="v">{formatBRL(resumoFinanceiroSemana.valorPrevisto)}</span></div>
+                      <div className="stx-rateio-line" title="Saldo de produto encerrado que não será mais produzido: não é falta."><span className="l">− Cancelado (produto encerrado)</span><span className="v">{formatBRL(resumoFinanceiroSemana.valorCancelado ?? 0)}</span></div>
+                      <div className="stx-rateio-line"><span className="l">= Previsto operacional</span><span className="v">{formatBRL(resumoFinanceiroSemana.valorPrevistoOperacional ?? 0)}</span></div>
+                      <div className="stx-rateio-line"><span className="l">− Realizado até agora</span><span className="v">{formatBRL(resumoFinanceiroSemana.valorRealizado)}</span></div>
+                      <div className="stx-rateio-line" title="Produção acima da meta de um produto não compensa a falta de outro: volta à conta."><span className="l">+ Produzido acima da meta (outros produtos)</span><span className="v">{formatBRL(resumoFinanceiroSemana.valorExcedente ?? 0)}</span></div>
+                      <div className="stx-rateio-line" style={{ fontWeight: 600 }}><span className="l">= Valor operacional restante</span><span className="v">{resumoFinanceiroSemana.valorFalta === null ? "—" : formatBRL(resumoFinanceiroSemana.valorFalta)}</span></div>
+                    </details>
+                  )}
                   <div className="stx-destaque-box" style={{ marginTop: 12 }}>
                     <p className="stx-destaque-label">Concluído da previsão</p>
                     <p className="stx-destaque-value">{formatPct(resumoFinanceiroSemana.concluidoPct)}</p>
@@ -788,7 +813,7 @@ export default function PrevisaoSemanalPage() {
                   ) : (
                     <div className="stx-hist-table">
                       <div className="stx-hist-row stx-hist-head">
-                        <span>Semana</span><span>Previsto</span><span>Realizado</span><span>%</span>
+                        <span>Semana</span><span>Previsto original</span><span>Realizado</span><span>%</span>
                       </div>
                       {historicoSemanas.map((h) => (
                         <div className="stx-hist-row" key={h.semanaInicio} onClick={() => setSemanaAtual(h.semanaInicio)} style={{ gridTemplateColumns: "1.4fr 1fr 1fr 0.7fr" }}>

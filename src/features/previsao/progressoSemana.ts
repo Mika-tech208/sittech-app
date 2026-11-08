@@ -17,6 +17,15 @@
 // por causa do encerramento e o item mostra o selo ENCERRADO. A produção feita continua inteira no APONTADO REAL (fato histórico). O % concluído é apontado real total ÷ PREVISTO OPERACIONAL total,
 // onde o previsto operacional de um item encerrado = min(original, apontado) (o cancelado não é obrigação pendente e o produto encerrado não distorce o %).
 
+// R$ DA TELA (os três valores do "Resultado da semana"; preço SEMPRE o congelado no item):
+//   PREVISTO ORIGINAL          = Σ original × preço                        (produto encerrado continua aqui)
+//   REALIZADO ATÉ AGORA        = Σ apontado real × preço                   (produto encerrado continua aqui)
+//   VALOR OPERACIONAL RESTANTE = Σ por produto de max(previsto operacional − apontado, 0) × preço   (= "valorFalta")
+// Por isso NÃO é "previsto − realizado". Por produto, falta = (previsto operacional − apontado) + excedente, logo no total:
+//   restante = previsto original − cancelado(encerrados) − realizado + excedente(produtos que passaram da meta)
+// - cancelado: saldo de produto ENCERRADO que não será produzido (não é falta);  - excedente: produção acima da meta de um produto, que NÃO compensa a falta de outro.
+// Semana 02/11/2026: 39.823,20 − 6.177,99 − 24.168,54 + 1.221,10 = 10.697,77 (10.697,78 sem arredondar por parcela).
+
 import type { Previsao, PrevisaoItem } from "@/types/domain";
 import { calcularHistoricoSemanas } from "@/features/capacidade/calculations";
 import { metodologiaDaSemana, type MetodologiaSemana } from "@/features/previsao/vigencia";
@@ -122,6 +131,9 @@ export interface ResumoProgramacaoPecas {
   totalApontadoEncerrados: number | null; // peças produzidas dos produtos encerrados (já incluídas no apontado real total)
   totalCancelado: number | null; // saldo cancelado dos produtos encerrados — NÃO é falta
   valorPrevistoOperacional: number | null;
+  // RECONCILIAÇÃO em R$ (só exibição — nenhum cálculo acima depende disto): valorFalta = valorPrevistoOperacional − valorRealizado + valorExcedente
+  valorCancelado: number | null; // saldo cancelado de produto encerrado × preço congelado (não é falta)
+  valorExcedente: number | null; // produção acima da meta de produtos que já passaram dela × preço congelado (não compensa a falta de outro produto)
 }
 
 // Soma simples de peças dos produtos PREVISTOS — indicador de acompanhamento, não de capacidade fabril.
@@ -148,7 +160,22 @@ export function calcularResumoProgramacaoPecas(produtos: ProdutoProgramado[]): R
     totalApontadoEncerrados: disponivel ? produtos.filter((p) => p.encerrado).reduce((s, p) => s + (p.apontadoReal ?? 0), 0) : null,
     totalCancelado: disponivel ? produtos.reduce((s, p) => s + (p.cancelado ?? 0), 0) : null,
     valorPrevistoOperacional,
+    valorCancelado: disponivel ? produtos.reduce((s, p) => s + (p.cancelado ?? 0) * p.valorUnitario, 0) : null,
+    valorExcedente: disponivel ? produtos.reduce((s, p) => s + (p.excedente ?? 0) * p.valorUnitario, 0) : null,
   };
+}
+
+/** Composição do "Realizado até agora" (R$) por produto, do maior para o menor — a MESMA soma que o card, só aberta por produto (auditoria). */
+export interface ComposicaoRealizadoLinha { produtoId: string; produtoNome: string; apontadoReal: number; valorUnitario: number; valorRealizado: number; encerrado: boolean }
+export function calcularComposicaoRealizado(produtos: ProdutoProgramado[]): ComposicaoRealizadoLinha[] {
+  const porProduto = new Map<string, ComposicaoRealizadoLinha>();
+  produtos.forEach((p) => {
+    if (p.apontadoReal === null || p.valorRealizado === null) return;
+    const atual = porProduto.get(p.produtoId);
+    if (atual) { atual.apontadoReal += p.apontadoReal; atual.valorRealizado += p.valorRealizado; return; }
+    porProduto.set(p.produtoId, { produtoId: p.produtoId, produtoNome: p.produtoNome, apontadoReal: p.apontadoReal, valorUnitario: p.valorUnitario, valorRealizado: p.valorRealizado, encerrado: p.encerrado });
+  });
+  return [...porProduto.values()].sort((a, b) => b.valorRealizado - a.valorRealizado || a.produtoNome.localeCompare(b.produtoNome, "pt-BR"));
 }
 
 export interface ProdutoNaoPrevisto {

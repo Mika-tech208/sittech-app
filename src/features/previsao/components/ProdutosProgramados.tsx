@@ -1,7 +1,7 @@
 "use client";
 
 // "Itens previstos" (tabela de comparação) — visão consolidada por produto: Previsto, Possível (capacidade — calcularCapacidadeMaximaSemana,
-// inalterado), Apontado real, Falta e % concluído.
+// inalterado), Apontado real, VALOR REALIZADO (R$ = apontado real × preço congelado; cada linha é a parcela do card "Realizado até agora"), Falta e % concluído.
 //
 // ANDAMENTO = APONTADO REAL (Produção Real; só produção boa da última etapa válida do produto — ver apontadoReal.ts). Falta = max(Previsto − Apontado, 0);
 // % = Apontado / Previsto, sem teto em 100. Falta total = soma das faltas por produto (excedente de um não compensa falta de outro). O Realizado digitado à mão NÃO aparece nem soma aqui (ver progressoSemana.ts). Possível é capacidade, não andamento.
@@ -10,7 +10,7 @@
 // O saldo cancelado NÃO é falta. O % do Total = apontado real ÷ previsto OPERACIONAL (o cancelado sai da obrigação).
 
 import type { ProdutoProgramado, ProdutoNaoPrevisto, ResumoProgramacaoPecas } from "@/features/previsao/progressoSemana";
-import { formatQtd } from "@/lib/format";
+import { formatBRL, formatQtd } from "@/lib/format";
 import { formatPct } from "@/features/previsao/formatPct";
 import IndicadorIndisponivel from "@/features/produto-canonico/components/IndicadorIndisponivel";
 
@@ -22,12 +22,13 @@ export interface ProdutosProgramadosProps {
 }
 
 const qtdOuTraco = (v: number | null) => (v === null ? "—" : formatQtd(v));
+const brlOuTraco = (v: number | null) => (v === null ? "—" : formatBRL(v));
 
 export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPecas, apontadoIndisponivel }: ProdutosProgramadosProps) {
   if (produtos.length === 0) return null;
 
   return (
-    <div className="stx-prev-section">
+    <div className="stx-prev-section stx-prev-valor">
       <div className="stx-prev-section-head">
         <h2 className="stx-prev-section-title">Itens previstos</h2>
       </div>
@@ -35,9 +36,10 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
 
       <div className="stx-prev-table-head">
         <span>Produto</span>
-        <span className="num">Previsto</span>
+        <span className="num" title="Previsto ORIGINAL da semana (produto encerrado mantém a meta que havia sido prevista).">Previsto</span>
         <span className="num" title="Capacidade (atingibilidade) — não é andamento.">Possível</span>
         <span className="num" title="Produção concluída calculada automaticamente pelos apontamentos da última etapa do roteiro (peças boas: produzido − refugo). Atualiza sozinho quando um apontamento é registrado ou corrigido.">Apontado real</span>
+        <span className="num" title="Valor realizado = Apontado real × preço unitário congelado no item da Previsão. É a parcela deste produto no card Realizado até agora.">Valor realizado</span>
         <span className="num">Falta</span>
         <span className="num">%</span>
       </div>
@@ -55,6 +57,7 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
                 {qtdOuTraco(p.apontadoReal)}
                 <span style={{ color: "var(--text-3)", marginLeft: 4, fontSize: 11 }}>produzidas antes do encerramento</span>
               </span>
+              <span className="num" style={{ color: "var(--accent)" }} title={`${qtdOuTraco(p.apontadoReal)} × ${formatBRL(p.valorUnitario)}`}>{brlOuTraco(p.valorRealizado)}</span>
               <span className="num" style={{ color: "var(--text-3)" }}>{qtdOuTraco(p.falta)}</span>
               <span className="stx-prev-bar-cell"><span className="stx-badge" style={{ background: "rgba(150,150,150,0.18)", color: "var(--text-2)" }}>ENCERRADO</span></span>
             </div>
@@ -74,6 +77,7 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
                 <span title={`Produção ${formatQtd(p.excedente)} peças acima do previsto deste item.`} style={{ color: "var(--warning)", marginLeft: 4, cursor: "help", fontSize: 11 }}>+{formatQtd(p.excedente)} acima</span>
               )}
             </span>
+            <span className="num" style={{ color: "var(--accent)" }} title={`${qtdOuTraco(p.apontadoReal)} × ${formatBRL(p.valorUnitario)}`}>{brlOuTraco(p.valorRealizado)}</span>
             <span className="num" style={{ color: p.falta !== null && p.falta > 0 ? "var(--warning)" : "var(--text-3)" }}>{qtdOuTraco(p.falta)}</span>
             <span className="stx-prev-bar-cell">
               <span className="num">{formatPct(p.concluidoPct)}</span>
@@ -93,6 +97,7 @@ export default function ProdutosProgramados({ produtos, naoPrevistos, resumoPeca
           <span className="num">{formatQtd(resumoPecas.totalPrevisto)}</span>
           <span className="num">{qtdOuTraco(resumoPecas.totalPossivel)}</span>
           <span className="num">{qtdOuTraco(resumoPecas.totalApontadoReal)}</span>
+          <span className="num" title="Soma dos valores realizados por produto = card Realizado até agora.">{brlOuTraco(resumoPecas.valorRealizado)}</span>
           <span className="num">{qtdOuTraco(resumoPecas.totalFalta)}</span>
           <span className="num">{formatPct(resumoPecas.concluidoPct)}</span>
         </div>

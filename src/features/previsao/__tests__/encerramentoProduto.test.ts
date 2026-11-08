@@ -1,7 +1,7 @@
 // PRODUTO ENCERRADO NA SEMANA: meta original preservada, produção real contada, saldo cancelado NÃO é falta, sem "+acima", % operacional.
 import { describe, it, expect } from "vitest";
 import type { Previsao, PrevisaoItem } from "@/types/domain";
-import { calcularHistoricoSemanal, calcularProdutosProgramados, calcularResumoProgramacaoPecas, type ApontadoPorProduto } from "../progressoSemana";
+import { calcularComposicaoRealizado, calcularHistoricoSemanal, calcularProdutosProgramados, calcularResumoProgramacaoPecas, type ApontadoPorProduto } from "../progressoSemana";
 import { aplicarEncerramentosAosItens, lerEncerramentos, previstoOperacionalDoItem } from "../encerramento";
 
 const item = (id: string, produtoId: string, quantidade: number, valor = 0.217): PrevisaoItem => ({ id, produtoId, produtoNome: `Produto ${produtoId}`, valorUnitario: valor, quantidade });
@@ -124,5 +124,43 @@ describe("faturamento realizado (R$) de produto encerrado", () => {
   it("valor previsto ORIGINAL (39.823,20) continua separado do futuro: o operacional não conta o cancelado", () => {
     expect(r.valorPrevisto).toBeCloseTo(39823.2, 2);
     expect(r.valorPrevistoOperacional).toBeCloseTo(33645.21, 2);
+  });
+});
+
+// COMPOSIÇÃO e RECONCILIAÇÃO do "Resultado da semana" (R$) — só exibição; nenhum cálculo existente muda.
+describe("composição do realizado e reconciliação do valor operacional restante (semana 02/11 real)", () => {
+  const itens = aplicarEncerramentosAosItens([
+    item("a", "4x2", 0, 0.217), item("b", "plug", 26400, 0.099), item("c", "pino", 43200, 0.07),
+    item("d", "c34a", 28500, 0.182), item("e", "c34", 64800, 0.1825), item("f", "c114", 6120, 0.365), item("g", "4x4", 10000, 0.27),
+  ], [ENC("4x2", 56400)]);
+  const produtos = calcularProdutosProgramados(itens, [], apontado({ "4x2": 27930, plug: 21300, pino: 51780, c34a: 0, c34: 44250, c114: 7820, "4x4": 5350 }));
+  const r = calcularResumoProgramacaoPecas(produtos);
+  const comp = calcularComposicaoRealizado(produtos);
+
+  it("a composição por produto SOMA exatamente o card Realizado até agora, e a 4x2 contribui com R$ 6.060,81", () => {
+    expect(comp.reduce((t, c) => t + c.valorRealizado, 0)).toBeCloseTo(r.valorRealizado ?? -1, 9);
+    const c4x2 = comp.find((c) => c.produtoId === "4x2")!;
+    expect(c4x2.apontadoReal).toBe(27930); expect(c4x2.valorUnitario).toBe(0.217); expect(c4x2.valorRealizado).toBeCloseTo(6060.81, 2); expect(c4x2.encerrado).toBe(true);
+  });
+  it("valor operacional restante = R$ 10.697,78 e NÃO é previsto original − realizado", () => {
+    expect(r.valorFalta).toBeCloseTo(10697.775, 3);
+    expect(r.valorPrevisto - (r.valorRealizado ?? 0)).toBeCloseTo(15654.665, 3); // a subtração simples daria outro número
+  });
+  it("reconciliação: restante = previsto original − cancelado − realizado + excedente (R$ 39.823,20 − 6.177,99 − 24.168,535 + 1.221,10)", () => {
+    expect(r.valorCancelado).toBeCloseTo(28470 * 0.217, 6);
+    expect(r.valorExcedente).toBeCloseTo(8580 * 0.07 + 1700 * 0.365, 6);
+    expect(r.valorPrevisto - (r.valorCancelado ?? 0) - (r.valorRealizado ?? 0) + (r.valorExcedente ?? 0)).toBeCloseTo(r.valorFalta ?? -1, 6);
+    expect(r.valorPrevistoOperacional).toBeCloseTo(r.valorPrevisto - (r.valorCancelado ?? 0), 6);
+  });
+  it("4x2: nenhuma produção futura (falta 0, restante R$ 0) e a identidade vale produto a produto", () => {
+    const p = produtos.find((x) => x.produtoId === "4x2")!;
+    expect(p.falta).toBe(0); expect(p.valorFalta).toBe(0);
+    produtos.forEach((x) => expect(x.valorFalta ?? -1).toBeCloseTo((x.valorPrevistoOperacional ?? 0) - (x.valorRealizado ?? 0) + (x.excedente ?? 0) * x.valorUnitario, 9));
+  });
+  it("apontado indisponível: composição vazia e reconciliação null (nada inventado)", () => {
+    const sem = calcularProdutosProgramados(itens, [], null);
+    expect(calcularComposicaoRealizado(sem)).toEqual([]);
+    const rs = calcularResumoProgramacaoPecas(sem);
+    expect(rs.valorCancelado).toBeNull(); expect(rs.valorExcedente).toBeNull();
   });
 });

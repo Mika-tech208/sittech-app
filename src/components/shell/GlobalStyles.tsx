@@ -803,6 +803,7 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
 
         .stx-prev-table-head, .stx-prev-table-row { display: grid; grid-template-columns: 1.7fr 90px 90px 100px 90px 80px; gap: 16px; }
         .stx-prev-legado .stx-prev-table-head, .stx-prev-legado .stx-prev-table-row { grid-template-columns: 1.7fr 90px 90px 90px 100px 90px 70px; }
+        .stx-prev-valor .stx-prev-table-head, .stx-prev-valor .stx-prev-table-row { grid-template-columns: 1.6fr 80px 80px 110px 110px 80px 100px; gap: 12px; }
         .stx-prev-table-head { font-size: 12px; color: var(--text-3); padding-bottom: 10px; }
         .stx-prev-table-head .num { text-align: right; }
         .stx-prev-table-row { align-items: center; padding: 14px 0; border-top: 1px solid var(--line); font-size: 14px; color: var(--text); transition: background-color .12s ease-out; }
@@ -832,6 +833,10 @@ export default function GlobalStyles({ cores }: { cores: ThemeColors }) {
           .stx-prev-table-head span:nth-child(3), .stx-prev-table-head span:nth-child(6),
           .stx-prev-table-row span:nth-child(3), .stx-prev-table-row .stx-prev-bar-cell { display: none; }
           .stx-prev-legado .stx-prev-table-head, .stx-prev-legado .stx-prev-table-row { grid-template-columns: 1.6fr 70px 70px 70px; }
+          .stx-prev-valor .stx-prev-table-head, .stx-prev-valor .stx-prev-table-row { grid-template-columns: 1.3fr 58px 66px 74px 56px; gap: 6px; }
+          .stx-prev-valor .stx-prev-table-head span:nth-child(3), .stx-prev-valor .stx-prev-table-head span:nth-child(7),
+          .stx-prev-valor .stx-prev-table-row span:nth-child(3), .stx-prev-valor .stx-prev-table-row .stx-prev-bar-cell { display: none; }
+          .stx-prev-valor .stx-prev-table-head span:nth-child(6), .stx-prev-valor .stx-prev-table-row span:nth-child(6) { display: initial; }
           .stx-prev-legado .stx-prev-table-head span:nth-child(3), .stx-prev-legado .stx-prev-table-head span:nth-child(6) { display: initial; }
           .stx-prev-legado .stx-prev-table-row span:nth-child(3) { display: initial; }
           .stx-prev-legado .stx-prev-table-head span:nth-child(4), .stx-prev-legado .stx-prev-table-head span:nth-child(5), .stx-prev-legado .stx-prev-table-head span:nth-child(7),
