@@ -12,7 +12,7 @@ update public.escala_parametros set valor = '"desligado"'::jsonb, atualizado_em 
 do $$
 declare v_antes bigint := (select eventos from _antes_modo_manual); v_depois bigint;
 begin
-  if not public.escala_operacao_manual() then
+  if not (select coalesce(bool_and(coalesce(valor #>> '{}', 'desligado') = 'desligado'), true) from public.escala_parametros where chave in ('producao_real_modo','replanejamento_modo','escala_fechamento_fisico_modo')) then
     raise exception 'MODO_MANUAL_NAO_ATIVO: as três flags não ficaram desligadas; abortando';
   end if;
   select count(*) into v_depois from public.escala_producao_eventos;
@@ -24,5 +24,4 @@ begin
   end if;
 end $$;
 commit;
-select chave, valor from public.escala_parametros where chave in ('producao_real_modo','replanejamento_modo','escala_fechamento_fisico_modo','apontamento_simplificado_modo') order by 1;
-select public.escala_operacao_manual() as operacao_manual;
+select (select string_agg(chave || '=' || (valor #>> '{}'), ', ' order by chave) from public.escala_parametros where chave in ('producao_real_modo','replanejamento_modo','escala_fechamento_fisico_modo','apontamento_simplificado_modo')) as flags, (select coalesce(bool_and(coalesce(valor #>> '{}', 'desligado') = 'desligado'), true) from public.escala_parametros where chave in ('producao_real_modo','replanejamento_modo','escala_fechamento_fisico_modo')) as operacao_manual, (select count(*) from public.escala_producao_eventos where status = 'pendente') as eventos_pendentes;
