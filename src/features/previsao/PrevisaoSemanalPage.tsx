@@ -248,7 +248,7 @@ export default function PrevisaoSemanalPage() {
     () => calcularMetaFaturamento(custoTotalMensalAtual, toNumber(margemDesejada)),
     [custoTotalMensalAtual, margemDesejada]
   );
-  const previstoSemanaHoje = resumoSemana.valorPrevisto; // usado pro card "Meta semanal" (semana em foco == semana de hoje na maior parte do uso)
+  const previstoSemanaHoje = resumoSemana.valorPrevisto; // previsto ORIGINAL; usado no card "Previsto original da semana" da barra lateral (semana em foco == semana de hoje na maior parte do uso)
   const metaSemanalUsaPrevisto = previstoSemanaHoje > 0;
   const metaSemanalFinal = metaSemanalUsaPrevisto ? previstoSemanaHoje : faturamentoSemanalNecessario;
 
@@ -612,7 +612,7 @@ export default function PrevisaoSemanalPage() {
                         <p className="stx-destaque-sub">lucro líquido de {formatBRL(lucroMeta)} ({margemDesejada}%)</p>
                       </div>
                       <div className="stx-destaque-box">
-                        <p className="stx-destaque-label">Meta semanal</p>
+                        <p className="stx-destaque-label">Faturamento semanal necessário</p>
                         <p className="stx-destaque-value">{formatBRL(faturamentoSemanalNecessario)}</p>
                         <p className="stx-destaque-sub">considerando 4,33 semanas/mês</p>
                       </div>

@@ -144,4 +144,16 @@ describe("tela real: card \"Realizado até agora\" (semana 02/11/2026, payload d
     }
     cleanup();
   }, 30000);
+
+  it("BARRA LATERAL (opção B): o card mostra o PREVISTO ORIGINAL R$ 39.823,20, com a 4x2, e não o ativo R$ 27.584,40", async () => {
+    render(<PrevisaoSemanalPage />);
+    await waitFor(() => expect(document.querySelector(".stx-sidebar-meta-card")).not.toBeNull(), { timeout: 8000 });
+    await waitFor(() => expect(document.querySelector(".stx-sidebar-meta-valor")!.textContent!.replace(/\u00a0/g, " ")).toBe("R$ 39.823,20"), { timeout: 8000 });
+    const card = document.querySelector(".stx-sidebar-meta-card") as HTMLElement;
+    expect(card.textContent).toContain("Previsto original da semana");
+    expect(card.textContent).toContain("inclui produtos encerrados");
+    expect(card.textContent).not.toContain("27.584,40");
+    expect(screen.queryByText("Meta semanal")).toBeNull();
+    cleanup();
+  }, 30000);
 });

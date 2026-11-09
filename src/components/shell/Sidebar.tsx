@@ -314,11 +314,11 @@ export default function Sidebar({
         )}
         {temPermissao(usuarioLogado, "financeiro") && !recolhida && (
           <div className="stx-sidebar-meta-card" onClick={onMetaClick}>
-            <p className="stx-sidebar-meta-titulo">Meta semanal</p>
+            <p className="stx-sidebar-meta-titulo">{metaSemanalUsaPrevisto ? "Previsto original da semana" : "Meta pela margem"}</p>
             <div className="stx-sidebar-meta-linha">
               <span className="stx-sidebar-meta-valor">{metaSemanalUsaPrevisto || !metaInvalida ? formatBRL(metaSemanalFinal) : "—"}</span>
             </div>
-            <p className="stx-sidebar-meta-sub">da previsão já lançada</p>
+            <p className="stx-sidebar-meta-sub">{metaSemanalUsaPrevisto ? "inclui produtos encerrados" : "faturamento semanal necessário"}</p>
             <div className="stx-sidebar-meta-barra"><span /></div>
           </div>
         )}

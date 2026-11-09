@@ -35,6 +35,7 @@ import {
   CATEGORIAS, OPERACOES, PIE_COLORS, TITULOS_ABA, THEMES,
 } from "@/lib/constants";
 import { monthKey, monthLabel, shiftMonth, toISODate, mondayOf, weekLabel } from "@/lib/date";
+import { previstoOriginalDoItem } from "@/features/previsao/encerramento";
 import DatePicker from "@/components/shared/DatePicker";
 import MonthPicker from "@/components/shared/MonthPicker";
 import { formatBRL, toNumber, monthLabelShort, setModoPrivadoAtivo, corPorMargemPct } from "@/lib/format";
@@ -871,7 +872,7 @@ export default function SittechApp() {
 
   const semanaHojeISO = toISODate(mondayOf(new Date()));
   const semanaHojeRec = previsoesHook.previsoes.find((p) => p.semanaInicio === semanaHojeISO) || { itens: [], itensRealizados: [] };
-  const previstoSemanaHoje = semanaHojeRec.itens.reduce((s, it) => s + it.quantidade * it.valorUnitario, 0);
+  const previstoSemanaHoje = semanaHojeRec.itens.reduce((s, it) => s + previstoOriginalDoItem(it) * it.valorUnitario, 0); // previsto ORIGINAL (inclui produto encerrado)
   const realizadoSemanaHoje = (semanaHojeRec.itensRealizados || []).reduce((s, it) => s + it.quantidade * it.valorUnitario, 0);
   const metaSemanalUsaPrevisto = previstoSemanaHoje > 0;
   const metaSemanalFinal = metaSemanalUsaPrevisto ? previstoSemanaHoje : faturamentoSemanalNecessario;
@@ -1181,10 +1182,10 @@ export default function SittechApp() {
               </p>
             </div>
             <div>
-              <p className="stx-home-stat-label">Meta semanal</p>
+              <p className="stx-home-stat-label">{metaSemanalUsaPrevisto ? "Previsto original da semana" : "Meta pela margem"}</p>
               <p className="stx-home-stat-value">{metaSemanalUsaPrevisto || !metaInvalida ? formatBRL(metaSemanalFinal) : "—"}</p>
               <p className="stx-home-stat-sub">
-                {metaSemanalUsaPrevisto ? "da previsão já lançada essa semana" : `pela margem de ${margemDesejada}%`}
+                {metaSemanalUsaPrevisto ? "inclui produtos encerrados" : `faturamento semanal necessário, margem de ${margemDesejada}%`}
               </p>
             </div>
           </div>
@@ -1218,7 +1219,7 @@ export default function SittechApp() {
               <p className="stx-panel-title">Semana atual</p>
               <p className="stx-panel-sub">{weekLabel(semanaHojeISO)}</p>
               <div className="stx-rateio-line">
-                <span className="l"><ClipboardList size={14} className="stx-indicador-icon" />Previsto</span>
+                <span className="l"><ClipboardList size={14} className="stx-indicador-icon" />Previsto original</span>
                 <span className="v">{formatBRL(previstoSemanaHoje)}</span>
               </div>
               <div className="stx-rateio-line">

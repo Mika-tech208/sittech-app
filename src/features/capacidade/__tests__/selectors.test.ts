@@ -27,6 +27,15 @@ describe("calcularResumoSemana", () => {
     expect(resumo.diferenca).toBe(-20);
   });
 
+  it("PREVISTO ORIGINAL: produto encerrado na semana continua no valor previsto (quantidade operacional 0, meta original 56.400 × R$ 0,217)", () => {
+    const encerrado = { id: "e", produtoId: "4x2", produtoNome: "Caixa Amarela 4x2", valorUnitario: 0.217, quantidade: 0, maquinasPorEtapa: {}, encerrado: { quantidadeOriginal: 56400, adicionalOriginal: 0, encerradoEm: "2026-11-06T15:30:00Z", motivo: null } };
+    const ativo = { id: "a", produtoId: "x", produtoNome: "X", valorUnitario: 0.1, quantidade: 1000, maquinasPorEtapa: {} };
+    const resumo = calcularResumoSemana({ itens: [encerrado, ativo], itensRealizados: [] });
+    expect(resumo.valorPrevisto).toBeCloseTo(56400 * 0.217 + 1000 * 0.1, 6);
+    // sem produto encerrado: idêntico à regra de sempre
+    expect(calcularResumoSemana({ itens: [ativo], itensRealizados: [] }).valorPrevisto).toBe(100);
+  });
+
   it("sem previsto: percentual fica 0, não NaN/Infinity", () => {
     const resumo = calcularResumoSemana({ itens: [], itensRealizados: [] });
     expect(resumo.valorPrevisto).toBe(0);

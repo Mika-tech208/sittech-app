@@ -5,6 +5,7 @@
 
 import type { Previsao } from "@/types/domain";
 import type { ResumoSemana } from "@/features/capacidade/types";
+import { previstoOriginalDoItem } from "@/features/previsao/encerramento";
 
 const SEMANA_VAZIA: Omit<Previsao, "semanaInicio"> = { itens: [], itensRealizados: [], maquinasIndisponiveis: [] };
 
@@ -13,7 +14,8 @@ export function selecionarSemana(previsoes: Previsao[], semanaAtual: string): Pr
 }
 
 export function calcularResumoSemana(semana: Pick<Previsao, "itens" | "itensRealizados">): ResumoSemana {
-  const valorPrevisto = semana.itens.reduce((s, it) => s + it.quantidade * it.valorUnitario, 0);
+  // PREVISTO ORIGINAL: produto encerrado na semana continua contando com a meta que havia sido prevista (a quantidade operacional do banco é 0 e só vale para o motor).
+  const valorPrevisto = semana.itens.reduce((s, it) => s + previstoOriginalDoItem(it) * it.valorUnitario, 0);
   const valorRealizado = (semana.itensRealizados || []).reduce((s, it) => s + it.quantidade * it.valorUnitario, 0);
   const percentualConcluido = valorPrevisto > 0 ? (valorRealizado / valorPrevisto) * 100 : 0;
   const diferenca = valorRealizado - valorPrevisto;
