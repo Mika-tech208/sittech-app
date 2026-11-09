@@ -8,7 +8,7 @@ import PlanoFuturoSelo from "../components/PlanoFuturoSelo";
 import { agruparEtapasPorRota } from "../etapasPorRota";
 import { divisaoEntreRotas } from "../divisaoRotas";
 import { lerGuardaProdutos, lerParametrosProdutoUnico, primeiraVigencia, modoDaSemana, type ClienteGuarda, type GuardaProdutos } from "../guardaDb";
-import { produtosSelecionaveis, produtosSelecionaveisPrevisao, produtosVisiveis } from "../guard";
+import { produtosSelecionaveis, produtosSelecionaveisApontamento, produtosSelecionaveisPrevisao, produtosVisiveis } from "../guard";
 import { ofertaUnificar } from "../unificarPrevisao";
 import { TEXTO_PLANO_FUTURO } from "../planoFuturo";
 import { C, CAN, CONV, AUTO, CAIXA, MAQ, modelo } from "./fixture";
@@ -35,6 +35,16 @@ describe("seletor da Previsão e listas: decidem pelo MODO da semana (planejamen
   it("o APONTAMENTO (seleção operacional por cutover) NÃO muda com o planejamento: continua nos legados", () => {
     const g = guarda(PLAN);
     expect(ids(produtosSelecionaveis(prods, g.canonicos, g.legados, "2026-11-10", g.cutover))).toEqual([CONV, AUTO, CAIXA]);
+  });
+  it("APONTAMENTO MANUAL (09/11): semana em PLANEJAMENTO mostra o produto único ALÉM dos legados; cutover e semanas anteriores seguem a regra de antes", () => {
+    const g = guarda(PLAN);
+    expect(ids(produtosSelecionaveisApontamento(prods, g, "2026-11-09"))).toEqual([CONV, AUTO, CAN, CAIXA]);
+    expect(ids(produtosSelecionaveisApontamento(prods, g, "2026-11-13"))).toEqual([CONV, AUTO, CAN, CAIXA]);
+    expect(ids(produtosSelecionaveisApontamento(prods, g, "2026-11-06"))).toEqual([CONV, AUTO, CAIXA]); // semana anterior ao planejamento: legados
+    expect(ids(produtosSelecionaveisApontamento(prods, guarda(OPER), "2026-11-10"))).toEqual([CAN, CAIXA]); // OPERACIONAL: só o único
+    expect(ids(produtosSelecionaveisApontamento(prods, guarda([]), "2026-11-10"))).toEqual([CONV, AUTO, CAIXA]); // sem vigência: canônico escondido
+    const semCanonico: GuardaProdutos = { canonicos: new Set(), legados: new Set(), cutover: null };
+    expect(produtosSelecionaveisApontamento(prods, semCanonico, "2026-11-09")).toBe(prods);
   });
   it("listas sem data: o canônico aparece com planejamento OU cutover, e continua escondido sem nenhum dos dois", () => {
     expect(primeiraVigencia(guarda(PLAN))).toBe("2026-11-09");

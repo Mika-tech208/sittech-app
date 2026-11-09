@@ -1,5 +1,5 @@
 // GUARD de listagem/seleção (PURO). Sem vigência (nem cutover nem planejamento) => os canônicos NÃO aparecem em nenhuma lista e a saída é a MESMA referência da entrada (byte-idêntico ao comportamento atual).
-import { produtoUnicoAtivo, produtoUnicoPlanejavel } from "./cutover";
+import { produtoUnicoAtivo, produtoUnicoPlanejavel, segundaDaSemana } from "./cutover";
 import { modoDaSemana, type GuardaProdutos } from "./guardaDb";
 
 export interface ProdutoMinimo { id: string; ativo: boolean }
@@ -23,4 +23,14 @@ export function produtosSelecionaveisPrevisao<T extends ProdutoMinimo>(produtos:
   return produtoUnicoPlanejavel(modoDaSemana(guarda, semanaInicio))
     ? produtos.filter((p) => !guarda.legados.has(p.id))
     : produtos.filter((p) => !guarda.canonicos.has(p.id));
+}
+
+/** Seleção de produto no APONTAMENTO MANUAL (09/11/2026). Igual a `produtosSelecionaveis`, mas numa semana em PLANEJAMENTO (cutover ainda desligado) o produto único passa a ser
+ *  selecionável ALÉM dos legados: a supervisora pode lançar no único sem o cutover. Legados ficam visíveis (lançamentos já feitos continuam editáveis). OPERACIONAL e LEGADO: regra anterior.
+ *  O banco só aceita o canônico nesse caso com a escala automática desligada (modo manual); fora dele recusa e a tela mostra o erro. */
+export function produtosSelecionaveisApontamento<T extends ProdutoMinimo>(produtos: T[], guarda: GuardaProdutos, dataIso: string): T[] {
+  if (guarda.canonicos.size === 0) return produtos;
+  const modo = modoDaSemana(guarda, segundaDaSemana(dataIso));
+  if (modo === "PLANEJAMENTO") return produtos;
+  return modo === "OPERACIONAL" ? produtos.filter((p) => !guarda.legados.has(p.id)) : produtos.filter((p) => !guarda.canonicos.has(p.id));
 }

@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/services/supabase-client";
 import { lerGuardaProdutos, type ClienteGuarda } from "@/features/produto-canonico/guardaDb";
-import { produtosSelecionaveis } from "@/features/produto-canonico/guard";
+import { produtosSelecionaveisApontamento } from "@/features/produto-canonico/guard";
 
 export interface ProdutoElegivel {
   id: string;
@@ -24,7 +24,7 @@ interface ProdutoEtapaRow {
 }
 
 // `dataIso` (YYYY-MM-DD): data do apontamento (retroativo/edição). Sem ela vale hoje. Só tem efeito com produto canônico cadastrado: semana >= cutover mostra o canônico e esconde os legados;
-// anterior ao cutover mostra os legados (nunca o canônico). Sem canônico (hoje) a lista é a MESMA de antes.
+// semana em PLANEJAMENTO (cutover desligado) mostra legados E o canônico (apontamento manual, 09/11); anterior mostra só os legados. Sem canônico (hoje) a lista é a MESMA de antes.
 export function useProdutosElegiveisPorMaquina(maquinaId: string | null, dataIso?: string | null) {
   const [produtos, setProdutos] = useState<ProdutoElegivel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,7 +61,7 @@ export function useProdutosElegiveisPorMaquina(maquinaId: string | null, dataIso
       if (!montado) return;
       if (guarda.canonicos.size > 0) {
         const data = dataIso || new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
-        const ok = new Set(produtosSelecionaveis(lista.map((p) => ({ ...p, ativo: true })), guarda.canonicos, guarda.legados, data, guarda.cutover).map((p) => p.id));
+        const ok = new Set(produtosSelecionaveisApontamento(lista.map((p) => ({ ...p, ativo: true })), guarda, data).map((p) => p.id));
         lista = lista.filter((p) => ok.has(p.id));
       }
       setProdutos(lista.sort((a, b) => a.nome.localeCompare(b.nome)));
