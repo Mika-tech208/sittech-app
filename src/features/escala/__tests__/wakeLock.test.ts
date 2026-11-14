@@ -218,14 +218,14 @@ describe("Wake Lock da TV", () => {
   });
 
   it("6: polling e Realtime são independentes do wake lock (a TV não os acopla)", () => {
-    const hookTv = readFileSync(`${process.cwd()}/src/hooks/useEscalaTv.ts`, "utf8");
+    const hookTv = readFileSync(`${process.cwd()}/src/hooks/useMetasTv.ts`, "utf8"); // a TV agora é o painel de metas (14/11/2026)
     expect(/wakeLock|WakeLock/.test(hookTv)).toBe(false); // polling/Realtime não dependem dele
     const wake = readFileSync(`${process.cwd()}/src/features/escala/tv/wakeLock.ts`, "utf8");
     // nada de simular interação do usuário
     const semComentarios = wake.replace(/\/\/.*$/gm, "");
     expect(/mousemove|dispatchEvent|\.click\(|KeyboardEvent|MouseEvent|setInterval/.test(semComentarios)).toBe(false);
     const pagina = readFileSync(`${process.cwd()}/src/features/escala/tv/EscalaTvPage.tsx`, "utf8");
-    expect(pagina).toContain("useEscalaTv(");
+    expect(pagina).toContain("useMetasTv(");
     expect(pagina).toContain("useWakeLockTv(");
   });
 });
