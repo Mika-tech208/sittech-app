@@ -12,7 +12,10 @@ import { calcularApontadoReal, type LinhaApontadoEtapa } from "@/features/previs
 
 export interface ProdutoMetaPayload { produto_id: string; nome: string; meta: number | string | null; encerrado: boolean }
 export interface ApontadoPayload {
-  produto_id: string; etapa_id: string | null; operacao_id: string | null; quantidade_boa: number | string; n_apontamentos: number | string;
+  produto_id: string;
+  /** card em que a produção aparece: o produto canônico do vínculo legado→canônico (`produto_legado_mapa`) ou o próprio produto. Ausente = o próprio produto. */
+  produto_card_id?: string | null;
+  etapa_id: string | null; operacao_id: string | null; quantidade_boa: number | string; n_apontamentos: number | string;
   etapa_ordem: number | null; etapa_operacao_id: string | null; ultima_ordem: number | null; n_na_ultima_ordem: number | null; ultima_operacao_id: string | null;
 }
 export interface PayloadMetasTv {
@@ -36,6 +39,9 @@ export interface ModeloTv {
   cards: CardMeta[]; encerrados: LinhaEncerrado[]; semMeta: LinhaSemMeta[]; resumo: ResumoSemanaTv;
 }
 
+/** O sufixo técnico do produto canônico não é nome de produto para a fábrica: "Conector 3/4\" (Produto Único)" aparece como "Conector 3/4\"". */
+export const nomeParaTv = (nome: string): string => nome.replace(/\s*\(produto [úu]nico\)\s*$/i, "").trim();
+
 const num = (v: unknown): number => { const n = Number(v ?? 0); return Number.isFinite(n) ? n : 0; };
 
 export function montarModeloTv(p: PayloadMetasTv): ModeloTv {
@@ -43,8 +49,17 @@ export function montarModeloTv(p: PayloadMetasTv): ModeloTv {
     produtoId: r.produto_id, etapaId: r.etapa_id, operacaoId: r.operacao_id, quantidadeBoa: num(r.quantidade_boa), nApontamentos: num(r.n_apontamentos),
     etapaOrdem: r.etapa_ordem, etapaOperacaoId: r.etapa_operacao_id, ultimaOrdem: r.ultima_ordem, nNaUltimaOrdem: num(r.n_na_ultima_ordem), ultimaOperacaoId: r.ultima_operacao_id,
   }));
+  // 1) cada PRODUTO é calculado com o roteiro DELE (a última etapa do legado não é a do canônico); 2) depois a produção é somada por CARD (um item físico = um card), uma única vez:
+  // cada linha de apontado pertence a um único produto, que pertence a um único card — não há como contar a mesma peça duas vezes.
   const apontado = calcularApontadoReal(linhas);
-  const produzidoDe = (id: string) => apontado.get(id)?.apontadoReal ?? 0;
+  const cardDoProduto = new Map<string, string>();
+  for (const r of p.apontado ?? []) cardDoProduto.set(r.produto_id, r.produto_card_id ?? r.produto_id);
+  const produzidoPorCard = new Map<string, number>();
+  for (const [produtoId, ap] of apontado) {
+    const card = cardDoProduto.get(produtoId) ?? produtoId;
+    produzidoPorCard.set(card, (produzidoPorCard.get(card) ?? 0) + ap.apontadoReal);
+  }
+  const produzidoDe = (id: string) => produzidoPorCard.get(id) ?? 0;
 
   const cards: CardMeta[] = [];
   const encerrados: LinhaEncerrado[] = [];
@@ -57,18 +72,18 @@ export function montarModeloTv(p: PayloadMetasTv): ModeloTv {
     const meta = prod.meta === null || prod.meta === undefined ? null : num(prod.meta);
     if (prod.encerrado) {
       if (produzido > 0) {
-        encerrados.push({ produtoId: prod.produto_id, nome: prod.nome.trim(), produzido });
+        encerrados.push({ produtoId: prod.produto_id, nome: nomeParaTv(prod.nome), produzido });
         somaProduzido += produzido; somaMeta += produzido; // encerrado: o produzido conta como cumprido e o saldo cancelado sai (mesma regra da Previsão)
       }
       continue;
     }
     if (meta === null || meta <= 0) {
-      if (produzido > 0) semMeta.push({ produtoId: prod.produto_id, nome: prod.nome.trim(), produzido });
+      if (produzido > 0) semMeta.push({ produtoId: prod.produto_id, nome: nomeParaTv(prod.nome), produzido });
       continue;
     }
     const percentual = (produzido / meta) * 100;
     const estado: EstadoCard = produzido < meta ? "abaixo" : produzido === meta ? "atingida" : "acima";
-    cards.push({ produtoId: prod.produto_id, nome: prod.nome.trim(), meta, produzido, percentual, estado, faltam: Math.max(meta - produzido, 0), excedente: Math.max(produzido - meta, 0) });
+    cards.push({ produtoId: prod.produto_id, nome: nomeParaTv(prod.nome), meta, produzido, percentual, estado, faltam: Math.max(meta - produzido, 0), excedente: Math.max(produzido - meta, 0) });
     somaProduzido += produzido; somaMeta += meta;
   }
 

@@ -12,12 +12,12 @@ if (process.env.NODE_ENV === "production") {
   notFound();
 }
 
-type P = { id: string; nome: string; meta: number | null; boas: number; encerrado?: boolean };
+type P = { id: string; nome: string; meta: number | null; boas: number; encerrado?: boolean; /** produto legado exibido no card deste produto canônico (vínculo legado→canônico) */ card?: string };
 const payload = (produtos: P[], existe = true): PayloadMetasTv => ({
   agora: "2026-11-14T18:32:00Z", semana_inicio: "2026-11-09", semana_fim: "2026-11-15", existe,
-  produtos: produtos.map((p) => ({ produto_id: p.id, nome: p.nome, meta: p.meta, encerrado: !!p.encerrado })),
+  produtos: produtos.filter((p) => !p.card).map((p) => ({ produto_id: p.id, nome: p.nome, meta: p.meta, encerrado: !!p.encerrado })),
   apontado: produtos.filter((p) => p.boas > 0).map((p) => ({
-    produto_id: p.id, etapa_id: `${p.id}-f`, operacao_id: "op", quantidade_boa: p.boas, n_apontamentos: 5, etapa_ordem: 1, etapa_operacao_id: "op", ultima_ordem: 1, n_na_ultima_ordem: 1, ultima_operacao_id: "op",
+    produto_id: p.id, produto_card_id: p.card ?? p.id, etapa_id: `${p.id}-f`, operacao_id: "op", quantidade_boa: p.boas, n_apontamentos: 5, etapa_ordem: 1, etapa_operacao_id: "op", ultima_ordem: 1, n_na_ultima_ordem: 1, ultima_operacao_id: "op",
   })),
 });
 
@@ -28,7 +28,7 @@ const REAIS: P[] = [
   { id: "plug", nome: "Plug Macho", meta: 33000, boas: 30180 },
   { id: "c34", nome: "Conector 3/4\" (Produto Único)", meta: 76125, boas: 78750 },
   { id: "c3", nome: "Conector 3\"", meta: 500, boas: 1535 },
-  { id: "leg", nome: "Conector 3/4\"", meta: null, boas: 2500 },
+  { id: "leg", nome: "Conector 3/4\"", meta: null, boas: 2500, card: "c34" }, // legado vinculado ao único: soma no MESMO card (2.500 + 78.750)
   { id: "c42", nome: "Caixa Amarela 4x2", meta: 56400, boas: 27930, encerrado: true },
 ];
 const MAIS: P[] = [
