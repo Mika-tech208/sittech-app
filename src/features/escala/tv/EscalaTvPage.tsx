@@ -1,105 +1,21 @@
 "use client";
 
-// Modo TV da Escala de Produção — SOMENTE leitura: mostra AGORA e PRÓXIMO
-// período, sem sidebar, alto contraste, letras grandes, atualização
-// automática. Nunca escreve, nunca recalcula, nunca dispara regra.
-
-import SeloFechamento from "@/features/escala/fechamento/SeloFechamento";
-import { visaoLiberacaoTv } from "@/features/escala/fechamento/visaoTv";
-import { useEffect, useState } from "react";
+// TV da fábrica — PAINEL DE ACOMPANHAMENTO DAS METAS DE PRODUÇÃO (14/11/2026). PASSIVO: só lê (RPC tv_metas_producao, sem dado financeiro).
+// Não gera escala, não troca operador, não libera período, não bloqueia apontamento, não dispara processamento nem recálculo. Funciona igual com a
+// escala automática desligada e o apontamento manual ativo: a barra anda conforme os apontamentos entram.
+// Acesso: o usuário de quiosque (permissão escala_producao_tv) ou quem opera a Escala (escala_producao) — mesma regra de antes.
 import { useAuthSession } from "@/hooks/useAuthSession";
-import { useEscalaTv } from "@/hooks/useEscalaTv";
+import { useMetasTv } from "@/hooks/useMetasTv";
 import { useWakeLockTv } from "@/hooks/useWakeLockTv";
-import { useModoProdutoUnico } from "@/hooks/useModoProdutoUnico";
 import LoginScreen from "@/components/shell/LoginScreen";
 import { temPermissao } from "@/lib/permissoes";
-import { dataHoraNoFuso, epochMsNoFuso } from "@/features/escala/tempo";
-import { usePreChecagemEscala } from "@/hooks/usePreChecagemEscala";
-import { linhasDoPeriodo, situacaoTv, type LinhaTv } from "@/features/escala/tv";
-
-const ESTILOS_TV = `
-.stx-tv { position:fixed; inset:0; background:#000; color:#fff; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; display:flex; flex-direction:column; overflow:hidden; }
-.stx-tv-topo { display:flex; justify-content:space-between; align-items:baseline; padding:1.2vh 2vw; border-bottom:2px solid #333; font-size:clamp(16px,2.2vh,30px); color:#bbb; gap:12px; flex-wrap:wrap; }
-.stx-tv-relogio { font-size:clamp(24px,4.4vh,64px); color:#fff; font-weight:700; letter-spacing:.04em; }
-.stx-tv-corpo { flex:1; display:grid; grid-template-columns: 1fr 1fr; gap:1.6vw; padding:1.6vh 2vw; min-height:0; }
-@media (max-width: 900px) { .stx-tv-corpo { grid-template-columns: 1fr; overflow:auto; } .stx-tv-lista { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: minmax(84px,auto); --h: 90px; } }
-.stx-tv-col { display:flex; flex-direction:column; min-height:0; border:3px solid #2b2b2b; border-radius:18px; padding:1.2vh 1.2vw; }
-.stx-tv-col.agora { border-color:#27d17f; }
-.stx-tv-col.proximo { border-color:#555; }
-.stx-tv-col.destaque { border-color:#ffd400; animation: stxtvpulso 1s ease-in-out infinite alternate; }
-@keyframes stxtvpulso { from { box-shadow:0 0 0 0 rgba(255,212,0,.0); } to { box-shadow:0 0 28px 6px rgba(255,212,0,.55); } }
-.stx-tv-titulo { font-size:clamp(22px,4vh,56px); font-weight:800; margin-bottom:1vh; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
-.stx-tv-col.agora .stx-tv-titulo { color:#27d17f; }
-.stx-tv-col.proximo .stx-tv-titulo { color:#ddd; }
-.stx-tv-col.destaque .stx-tv-titulo { color:#ffd400; }
-.stx-tv-sub { font-size:clamp(14px,2.2vh,28px); color:#aaa; font-weight:500; }
-.stx-tv-lista { flex:1; min-height:0; overflow:hidden; display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); grid-template-rows: repeat(var(--linhas,4), minmax(0,1fr)); gap:1vh 1vw; --h: calc(68vh / var(--linhas,4)); }
-.stx-tv-card { background:#111; border-radius:12px; padding:0 1vw; min-width:0; min-height:0; display:flex; flex-direction:column; justify-content:center; overflow:hidden; }
-.stx-tv-nome { font-size:clamp(12px,min(calc(var(--h) * .34),1.45vw),46px); font-weight:800; line-height:1.1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.stx-tv-maq { font-size:clamp(11px,min(calc(var(--h) * .28),1.2vw),40px); color:#7fd6ff; font-weight:700; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.stx-tv-prod { font-size:clamp(10px,min(calc(var(--h) * .22),0.95vw),32px); color:#ddd; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.stx-tv-sem { font-size:clamp(11px,min(calc(var(--h) * .26),1.1vw),30px); color:#ffb347; font-style:italic; }
-.stx-tv-vazio { font-size:clamp(20px,3.4vh,44px); color:#888; padding:3vh 1vw; }
-.stx-tv-rodape { padding:1vh 2vw; border-top:2px solid #333; font-size:clamp(13px,1.9vh,24px); color:#999; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
-.stx-tv-alerta { color:#ff6b6b; font-weight:700; }
-.stx-tv-diag { color:#666; font-size:.85em; }
-.stx-tv-bloqueio { grid-column: 1 / -1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:3vh; border:4px solid #ffd400; border-radius:24px; padding:4vh 4vw; }
-.stx-tv-bloqueio.erro { border-color:#ff6b6b; }
-.stx-tv-bloqueio-titulo { font-size:clamp(34px,9vh,120px); font-weight:900; color:#ffd400; letter-spacing:.02em; line-height:1.05; }
-.stx-tv-bloqueio.erro .stx-tv-bloqueio-titulo { color:#ff6b6b; }
-.stx-tv-bloqueio-detalhe { font-size:clamp(18px,3.6vh,48px); color:#ddd; font-weight:600; }
-.stx-tv-liberado { background:#27d17f; color:#000; font-weight:900; text-align:center; font-size:clamp(22px,5vh,64px); padding:1vh 2vw; }
-`;
-
-function Coluna({ classe, titulo, sub, linhas, aviso }: { classe: string; titulo: string; sub?: string; linhas: LinhaTv[]; aviso?: string }) {
-  return (
-    <section className={`stx-tv-col ${classe}`}>
-      <div className="stx-tv-titulo"><span>{titulo}</span>{sub && <span className="stx-tv-sub">{sub}</span>}</div>
-      <div className="stx-tv-lista" style={{ ["--linhas" as string]: Math.max(4, Math.ceil(linhas.length / 2)) }}>
-        {linhas.length === 0 && <div className="stx-tv-vazio">{aviso ?? "—"}</div>}
-        {linhas.map((l) => (
-          <div className="stx-tv-card" key={l.funcionario_id}>
-            <div className="stx-tv-nome">{l.funcionario}</div>
-            {l.maquina ? (
-              <>
-                <div className="stx-tv-maq">{l.maquina}</div>
-                <div className="stx-tv-prod">{l.produto}</div>
-              </>
-            ) : (
-              <div className="stx-tv-sem">Sem posto</div>
-            )}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
+import PainelMetasTv from "@/features/escala/tv-metas/PainelMetasTv";
 
 export default function EscalaTvPage() {
   const auth = useAuthSession();
   const permitido = temPermissao(auth.usuarioLogado, "escala_producao_tv") || temPermissao(auth.usuarioLogado, "escala_producao");
-  // Simulação de relógio (?simular=AAAA-MM-DDTHH:MM) — só para quem opera a
-  // Escala (escala_producao); o usuário de quiosque nunca simula. Auxilia
-  // conferir a TV fora do horário de produção. Continua somente leitura.
-  const podeSimular = temPermissao(auth.usuarioLogado, "escala_producao");
-  const [simulacao, setSimulacao] = useState<{ data: string; agoraMs: number } | null | undefined>(undefined);
-  useEffect(() => {
-    const v = new URLSearchParams(window.location.search).get("simular");
-    const m = v?.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/);
-    setSimulacao(m && podeSimular ? { data: m[1], agoraMs: epochMsNoFuso(m[1], m[2]) } : null);
-  }, [podeSimular]);
-  const tv = useEscalaTv(auth.autenticado && permitido && simulacao !== undefined, simulacao);
-  const { snapshot, agoraMs } = tv;
-  const modoUnico = useModoProdutoUnico(auth.autenticado && permitido);
-  const planoFuturo = !!snapshot && modoUnico.planoFuturo(snapshot.data); // dia de semana em PLANEJAMENTO: nunca aparece como liberado na TV
+  const tv = useMetasTv(auth.autenticado && permitido);
   const wakeLock = useWakeLockTv(auth.autenticado && permitido);
-  usePreChecagemEscala(auth.autenticado && permitido && !tv.simulando ? snapshot?.periodos : undefined); // revalida a disponibilidade das máquinas 5 min antes de cada período
-
-  // refaz a leitura quando o dia vira (a TV fica ligada o dia todo)
-  const diaLocal = dataHoraNoFuso(agoraMs).data;
-  useEffect(() => {
-    if (snapshot && !tv.simulando && snapshot.data !== diaLocal) tv.buscar();
-  }, [diaLocal, snapshot, tv]);
 
   if (auth.restaurandoSessao || !auth.autenticado) {
     return (
@@ -114,87 +30,7 @@ export default function EscalaTvPage() {
     );
   }
   if (!permitido) {
-    return <div style={{ padding: 32, color: "#fff", background: "#000", minHeight: "100vh" }}>Este usuário não tem acesso ao modo TV da Escala.</div>;
+    return <div style={{ padding: 32, color: "#fff", background: "#1D1D1B", minHeight: "100vh" }}>Este usuário não tem acesso à TV da fábrica.</div>;
   }
-
-  const hora = (() => {
-    const { minutos } = dataHoraNoFuso(agoraMs);
-    return `${String(Math.floor(minutos / 60)).padStart(2, "0")}:${String(minutos % 60).padStart(2, "0")}`;
-  })();
-  const situacao = snapshot?.existe && snapshot.periodos ? situacaoTv(snapshot.data, snapshot.periodos, agoraMs) : null;
-  // LIBERAÇÃO (fonte única = banco): só mostra o período se o snapshot disser `liberado` (fechamento anterior CONFIRMADO + plano gerado por ele). Sem informação ⇒ não mostra (fail-closed).
-  const visao = visaoLiberacaoTv({ liberacao: snapshot?.liberacao, atual: situacao?.atual ? { id: situacao.atual.id, nome: situacao.atual.nome } : null, proximo: situacao?.proximo ? { id: situacao.proximo.id, nome: situacao.proximo.nome } : null, agoraMs, ignorar: tv.simulando, planoFuturo });
-  const alocacoes = snapshot?.alocacoes ?? [];
-  const [, m, d] = diaLocal.split("-");
-
-  return (
-    <div className="stx-tv">
-      <style>{ESTILOS_TV}</style>
-      <div className="stx-tv-topo">
-        <span>Escala de Produção · {d}/{m}{tv.simulando ? " · SIMULAÇÃO" : ""}</span>
-        <SeloFechamento intervaloMs={20_000} grande />
-        <span className="stx-tv-relogio">{hora}</span>
-        <span>{tv.tempoReal === "ativo" ? "● ao vivo" : tv.tempoReal === "polling" ? "● atualização periódica" : "● conectando…"}</span>
-      </div>
-
-      {!snapshot || !modoUnico.carregado ? (
-        <div className="stx-tv-corpo"><div className="stx-tv-vazio">{tv.erro ? `Erro: ${tv.erro}` : "Carregando escala…"}</div></div>
-      ) : !snapshot.existe || !situacao ? (
-        <div className="stx-tv-corpo"><div className="stx-tv-vazio">Nenhuma escala gerada para hoje.</div></div>
-      ) : situacao.encerrado ? (
-        <div className="stx-tv-corpo"><div className="stx-tv-vazio">Produção encerrada por hoje.</div></div>
-      ) : (
-        <>
-        {visao.bannerLiberado && <div className="stx-tv-liberado">{visao.bannerLiberado}</div>}
-        <div className="stx-tv-corpo">
-          {!visao.atual.liberado && visao.atual.bloqueio ? (
-            <div className={`stx-tv-bloqueio ${visao.atual.bloqueio.titulo.startsWith("PROGRAMAÇÃO NÃO") ? "erro" : ""}`} role="status">
-              <div className="stx-tv-bloqueio-titulo">{visao.atual.bloqueio.titulo}</div>
-              <div className="stx-tv-bloqueio-detalhe">{visao.atual.bloqueio.detalhe}</div>
-            </div>
-          ) : (
-            <>
-              <Coluna
-                classe="agora"
-                titulo={situacao.atual ? `AGORA — ${situacao.atual.nome}` : situacao.antesDoInicio ? "AGORA — produção ainda não iniciou" : "AGORA — intervalo"}
-                sub={situacao.atual ? `${situacao.atual.inicio}–${situacao.atual.fim}${situacao.minutosParaTroca !== null ? ` · troca em ${situacao.minutosParaTroca} min` : ""}` : situacao.proximo ? `próximo período às ${situacao.proximo.inicio}` : undefined}
-                linhas={linhasDoPeriodo(alocacoes, situacao.atual?.id)}
-              />
-              {visao.proximo.liberado ? (
-                <Coluna
-                  classe={`proximo ${situacao.destacarProximo ? "destaque" : ""}`}
-                  titulo={situacao.proximo ? `PRÓXIMO — ${situacao.proximo.nome}` : "PRÓXIMO"}
-                  sub={situacao.proximo ? `${situacao.proximo.inicio}–${situacao.proximo.fim}${situacao.destacarProximo ? " · TROCA EM BREVE" : ""}` : "último período do dia"}
-                  linhas={linhasDoPeriodo(alocacoes, situacao.proximo?.id)}
-                />
-              ) : (
-                <Coluna
-                  classe="proximo"
-                  titulo={situacao.proximo ? `PRÓXIMO — ${situacao.proximo.nome}` : "PRÓXIMO"}
-                  sub={situacao.proximo ? `${situacao.proximo.inicio}–${situacao.proximo.fim}` : undefined}
-                  linhas={[]}
-                  aviso="A programação será liberada após o fechamento físico do período em execução."
-                />
-              )}
-            </>
-          )}
-        </div>
-        </>
-      )}
-
-      <div className="stx-tv-rodape">
-        <span>
-          {snapshot?.indisponiveis && snapshot.indisponiveis.length > 0
-            ? `Indisponíveis: ${snapshot.indisponiveis.map((i) => i.maquina).join(", ")}`
-            : "Todos os recursos disponíveis"}
-        </span>
-        <span className="stx-tv-diag" title="Diagnóstico da tela">
-          {wakeLock === "ativo" ? "Tela ativa" : wakeLock === "nao_suportado" ? "Wake Lock não suportado" : ""}
-        </span>
-        <span className={tv.desatualizado ? "stx-tv-alerta" : undefined}>
-          {tv.desatualizado ? "ATUALIZAÇÃO PENDENTE — verifique a conexão" : snapshot?.versao !== undefined ? `versão ${snapshot.versao}` : ""}
-        </span>
-      </div>
-    </div>
-  );
+  return <PainelMetasTv modelo={tv.modelo} atualizadoEm={tv.atualizadoEm} conexao={tv.conexao} erro={tv.erro} diagnostico={wakeLock === "nao_suportado" ? "Wake Lock não suportado" : undefined} />;
 }
