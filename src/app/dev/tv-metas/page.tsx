@@ -1,7 +1,7 @@
 "use client";
 
 // TV de metas — harness de DEV (sem banco, sem login) para revisar o visual e tirar screenshots. Em produção nunca renderiza (notFound()), mesmo padrão de /dev/fechamento.
-// ?cenario= varios (padrão) · abaixo · cem · acima · muitos · poucos · vazio   ·   ?slide=N fixa o slide (0 = geral)
+// ?cenario= varios (padrão) · referencia · abaixo · cem · acima · muitos · poucos · vazio   ·   ?slide=N fixa o slide (0 = geral)
 import { notFound } from "next/navigation";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
@@ -42,6 +42,11 @@ const MAIS: P[] = [
 ];
 const CENARIOS: Record<string, PayloadMetasTv> = {
   varios: payload(REAIS),
+  // números EXATOS da imagem de referência (mock só de preview): total 28.850 / 169.150 = 17,1%
+  referencia: payload([
+    { id: "r1", nome: "Conector 1.1/4\"", meta: 7650, boas: 580 }, { id: "r2", nome: "Luva 1.1/2\"", meta: 21000, boas: 2000 },
+    { id: "r3", nome: "Caixa Amarela 4x2", meta: 70500, boas: 12820 }, { id: "r4", nome: "Plug Macho", meta: 70000, boas: 13450 },
+  ]),
   abaixo: payload([
     { id: "a", nome: "Pino", meta: 108000, boas: 41000 }, { id: "b", nome: "Caixa Amarela 4x4", meta: 51600, boas: 18200 },
     { id: "c", nome: "Conector 1.1/4\"", meta: 2000, boas: 600 }, { id: "d", nome: "Plug Macho", meta: 33000, boas: 14500 },

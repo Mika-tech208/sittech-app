@@ -18,7 +18,7 @@ describe("PainelMetasTv", () => {
   it("mostra meta, produzido, percentual, faltam / meta atingida + excedente e o encerrado à parte — sem nenhum R$", () => {
     cleanup();
     const { container } = render(<PainelMetasTv modelo={montarModeloTv(payload)} atualizadoEm="15:32" conexao="ok" slideFixo={0} />);
-    expect(screen.getByText("Produção da semana")).toBeTruthy();
+    expect(screen.getByText("Produção da Semana")).toBeTruthy();
     expect(screen.getByText("09/11 a 15/11")).toBeTruthy();
     expect(screen.getByText("Atualizado às 15:32")).toBeTruthy();
     expect(screen.getByText("29.047")).toBeTruthy(); // faltam (Pino)
